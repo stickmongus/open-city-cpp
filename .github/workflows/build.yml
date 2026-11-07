@@ -90,13 +90,13 @@ jobs:
           name: OpenCity-Linux-x64
           path: release-assets
 
-      - name: Create or Update Release v0.1.0
+      - name: Create or Update Release v0.2.0
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
-          TAG_NAME="v0.1.0"
+          TAG_NAME="v0.2.0"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             TAG_NAME="${GITHUB_REF#refs/tags/}"
           fi
@@ -104,6 +104,11 @@ jobs:
           ### 바로 실행하기 (Windows 10 / 11)
           1. 아래 **Assets**에서 **`OpenCity-Windows-x64.zip`** 파일을 다운로드합니다.
           2. 압축을 풀고 **`open_city.exe`** 를 더블클릭하면 별도 설치 없이 바로 실행됩니다!
+
+          ### v0.2.0 주요 업데이트
+          - **정밀 3D 크로스헤어 에임 동기화 & 헤드샷 시스템**: 화면 정중앙(`0.5, 0.5`) 광학 레이캐스트와 총구 3D 탄도를 일치시켜 어깨 시점 패럴랙스 오차를 완벽히 제거하고, 타겟 조준 시 조준선 적색 표시 및 헤드샷(1.85배)·히트마커(`X`) 피드백을 추가했습니다.
+          - **보도·횡단보도·신호등 기반 시민 & 차량 AI**: 시민 NPC가 인도를 따라 우측통행으로 자연스럽게 걷고 교차로 보행 신호와 접근 차량을 확인한 뒤 횡단보도를 건너며, AI 차량도 적색 신호등과 횡단보도 보행자 앞에서 정지합니다.
+          - **상하 자유 3D 카메라 피치 (`-64° ~ +68°`)**: 마우스를 위로 밀면 고층 빌딩 꼭대기와 하늘까지 자연스럽게 시점이 올라가며, 지면 근접 시 카메라 거리 자동 보정 및 `[I]` 마우스 상하 반전 토글을 지원합니다.
           EOF
           ls -la release-assets
           if gh release view "${TAG_NAME}" -R "${REPO}" >/dev/null 2>&1; then

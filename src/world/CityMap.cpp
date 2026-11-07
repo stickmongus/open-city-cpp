@@ -18,6 +18,26 @@ int CityMap::nearestRoadIndex(float coord) const {
     return std::max(0, std::min(kRoadCount - 1, idx));
 }
 
+float CityMap::sidewalkCoord(int sidewalkNodeIndex) const {
+    const int clamped = std::max(0, std::min(kSidewalkNodeCount - 1, sidewalkNodeIndex));
+    const int roadIdx = clamped / 2;
+    const float side = (clamped % 2 == 0) ? -1.0f : 1.0f;
+    return roadCoord(roadIdx) + side * kSidewalkCenterOffset;
+}
+
+int CityMap::nearestSidewalkNodeIndex(float coord) const {
+    int bestIdx = 0;
+    float bestDist = 1e9f;
+    for (int i = 0; i < kSidewalkNodeCount; ++i) {
+        const float d = std::abs(coord - sidewalkCoord(i));
+        if (d < bestDist) {
+            bestDist = d;
+            bestIdx = i;
+        }
+    }
+    return bestIdx;
+}
+
 bool CityMap::isOnRoad(const Vec2& p, float margin) const {
     const float halfW = kRoadWidth * 0.5f + margin;
     const float rx = roadCoord(nearestRoadIndex(p.x));
@@ -399,6 +419,45 @@ float CityMap::raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDi
         const float t = intersectRayAABB(origin, dir, maxDist, b.footprint);
         if (t >= 0.0f && t < bestT) {
             bestT = t;
+        }
+    }
+    return (bestT <= maxDist) ? bestT : -1.0f;
+}
+
+float CityMap::raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const {
+    float bestT = maxDist + 1.0f;
+    const float endX = origin.x + dir.x * maxDist;
+    const float endZ = origin.z + dir.z * maxDist;
+    const float minX = std::min(origin.x, endX) - 1.0f;
+    const float maxX = std::max(origin.x, endX) + 1.0f;
+    const float minZ = std::min(origin.z, endZ) - 1.0f;
+    const float maxZ = std::max(origin.z, endZ) + 1.0f;
+
+    for (const auto& b : buildings_) {
+        if (b.footprint.max.x < minX || b.footprint.min.x > maxX ||
+            b.footprint.max.z < minZ || b.footprint.min.z > maxZ) {
+            continue;
+        }
+        const AABB3D mainBox{
+            {b.footprint.min.x, 0.0f, b.footprint.min.z},
+            {b.footprint.max.x, b.height + 0.56f, b.footprint.max.z}
+        };
+        const float tMain = intersectRayAABB3D(origin, dir, maxDist, mainBox);
+        if (tMain >= 0.0f && tMain < bestT) {
+            bestT = tMain;
+        }
+
+        if (b.upperTierHeight > 0.5f) {
+            const Vec2 c = b.footprint.center();
+            const Vec2 he = b.footprint.halfExtents() * 0.675f;
+            const AABB3D upperBox{
+                {c.x - he.x, b.height, c.z - he.z},
+                {c.x + he.x, b.height + b.upperTierHeight, c.z + he.z}
+            };
+            const float tUp = intersectRayAABB3D(origin, dir, maxDist, upperBox);
+            if (tUp >= 0.0f && tUp < bestT) {
+                bestT = tUp;
+            }
         }
     }
     return (bestT <= maxDist) ? bestT : -1.0f;

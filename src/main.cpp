@@ -34,14 +34,16 @@ int main(int argc, char** argv) {
     audio.init();
 
     bool cursorLocked = true;
+    bool invertMouseY = false;
     DisableCursor();
 
     float camYaw = -oc::kHalfPi;
-    float camPitch = 0.28f;
+    float camPitch = -0.14f; // View elevation radians: negative looks down, positive looks up into sky!
+    float smoothedPitch = camPitch;
     float manualCamHoldTimer = 0.0f;
     float smoothedFov = 58.0f;
-    oc::Vec3 smoothedCamPos{14.5f, 4.5f, 22.0f};
-    oc::Vec3 smoothedCamTarget{14.5f, 1.5f, 14.5f};
+    bool camInitialized = false;
+    oc::Vec3 smoothedCamPos{14.5f, 2.4f, 19.5f};
 
     while (!WindowShouldClose()) {
         const float frameDt = std::min(GetFrameTime(), 0.05f);
@@ -68,6 +70,9 @@ int main(int argc, char** argv) {
         if (IsKeyPressed(KEY_L)) {
             hud.toggleLanguage();
         }
+        if (IsKeyPressed(KEY_I)) {
+            invertMouseY = !invertMouseY;
+        }
         if (IsKeyPressed(KEY_T)) {
             world.advanceTimeOfDayHours(3.0f);
         }
@@ -79,12 +84,13 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Mouse look orbit camera
+        // Full 3D mouse look orbit camera (-64 deg downward to +68 deg upward into skyscrapers/sky)
         if (cursorLocked && !hud.isShopMenuOpen()) {
             const Vector2 md = GetMouseDelta();
             if (std::abs(md.x) > 0.01f || std::abs(md.y) > 0.01f) {
+                const float ySign = invertMouseY ? 1.0f : -1.0f;
                 camYaw = oc::wrapAngle(camYaw + md.x * 0.0030f);
-                camPitch = oc::clampf(camPitch + md.y * 0.0026f, 0.06f, 1.05f);
+                camPitch = oc::clampf(camPitch + ySign * md.y * 0.0028f, -1.12f, 1.18f);
                 manualCamHoldTimer = 1.6f;
             }
         }
@@ -100,7 +106,7 @@ int main(int argc, char** argv) {
                                              ? oc::wrapAngle(car->heading + oc::kPi)
                                              : car->heading;
                 camYaw = oc::moveTowardsAngle(camYaw, desiredYaw, frameDt * 2.8f);
-                camPitch = oc::lerpf(camPitch, 0.24f, frameDt * 3.0f);
+                camPitch = oc::lerpf(camPitch, -0.18f, frameDt * 3.0f);
             }
         }
 
@@ -149,10 +155,71 @@ int main(int argc, char** argv) {
 
         const bool lookBack = IsKeyDown(KEY_C);
         const float renderYaw = lookBack ? oc::wrapAngle(camYaw + oc::kPi) : camYaw;
-        input.cameraYaw = camYaw;
-        input.aimYaw = camYaw;
+        const float renderPitch = lookBack ? -0.12f : camPitch;
+        smoothedPitch = camInitialized
+                            ? oc::lerpf(smoothedPitch, renderPitch, std::min(1.0f, frameDt * 22.0f))
+                            : renderPitch;
+        const oc::Vec3 viewDir = oc::directionFromYawPitch(renderYaw, smoothedPitch).normalized();
 
-        // Step simulation
+        // Helper to compute collision-safe 3rd-person camera boom for any current player/car pose
+        auto computeDesiredCamera = [&](float& outTargetFov) -> oc::Vec3 {
+            oc::Vec3 pivot{};
+            float boomDist = 5.25f;
+            outTargetFov = 58.0f;
+
+            if (const oc::Vehicle* car = world.playerVehicle()) {
+                pivot = {car->pos.x, 1.48f, car->pos.z};
+                boomDist = 8.3f + oc::clampf(car->speed() * 0.065f, 0.0f, 2.8f);
+                outTargetFov = 58.0f + oc::clampf(car->speed() * 0.32f, 0.0f, 14.0f) + (car->nitroActive ? 5.0f : 0.0f);
+            } else {
+                const oc::Vec2 rightOff = oc::rightFromHeading(renderYaw) * (input.aimHeld ? 0.56f : 0.32f);
+                pivot = {
+                    world.player().pos.x + rightOff.x,
+                    input.aimHeld ? 1.52f : 1.56f,
+                    world.player().pos.z + rightOff.z
+                };
+                boomDist = input.aimHeld ? 3.15f : 5.15f;
+                outTargetFov = input.aimHeld ? 45.0f : 58.0f;
+            }
+
+            // Slide camera smoothly closer to shoulder when looking steeply UP so camPos stays above street y >= 0.42m
+            float actualDist = boomDist;
+            if (viewDir.y > 0.01f) {
+                const float maxGroundDist = (pivot.y - 0.42f) / viewDir.y;
+                actualDist = std::min(actualDist, std::max(0.82f, maxGroundDist));
+            }
+
+            // 3D raycast from shoulder pivot to camera to prevent clipping inside buildings
+            const oc::Vec3 backDir = viewDir * -1.0f;
+            const float hitBld = world.city().raycastBuildings3D(pivot, backDir, actualDist);
+            if (hitBld >= 0.0f && hitBld < actualDist) {
+                actualDist = std::max(0.75f, hitBld - 0.38f);
+            }
+
+            oc::Vec3 pos = pivot - viewDir * actualDist;
+            pos.y = std::max(0.38f, pos.y);
+            return pos;
+        };
+
+        float targetFov = 58.0f;
+        const oc::Vec3 desiredCamPos = computeDesiredCamera(targetFov);
+        if (!camInitialized) {
+            smoothedCamPos = desiredCamPos;
+            camInitialized = true;
+        } else {
+            const float posSmooth = input.aimHeld ? std::min(1.0f, frameDt * 24.0f) : std::min(1.0f, frameDt * 18.0f);
+            smoothedCamPos = smoothedCamPos + (desiredCamPos - smoothedCamPos) * posSmooth;
+        }
+        smoothedFov = oc::lerpf(smoothedFov, targetFov, frameDt * 9.0f);
+
+        input.cameraYaw = camYaw;
+        input.aimYaw = renderYaw;
+        input.aimPitch = smoothedPitch;
+        input.hasAimRay3D = !lookBack;
+        input.aimRayOrigin = smoothedCamPos;
+        input.aimRayDir = viewDir;
+
+        // Step simulation (uses exact optical center ray identical to Camera3D below!)
         world.update(frameDt, input);
 
         // Process synthesized audio events & engine/drift loops
@@ -164,55 +231,11 @@ int main(int argc, char** argv) {
             audio.updateVehicleLoops(false, 0.0f, false, false);
         }
 
-        // Compute 3rd-person camera (over-the-shoulder aim vs on-foot orbit vs vehicle chase)
-        oc::Vec3 desiredTarget{};
-        float camDist = 6.2f;
-        float targetFov = 58.0f;
-
-        if (const oc::Vehicle* car = world.playerVehicle()) {
-            desiredTarget = {car->pos.x, 1.35f, car->pos.z};
-            camDist = 8.4f + oc::clampf(car->speed() * 0.065f, 0.0f, 2.8f);
-            targetFov = 58.0f + oc::clampf(car->speed() * 0.32f, 0.0f, 14.0f) + (car->nitroActive ? 5.0f : 0.0f);
-        } else {
-            const oc::Vec2 rightOff = oc::rightFromHeading(renderYaw) * (input.aimHeld ? 0.55f : 0.22f);
-            desiredTarget = {
-                world.player().pos.x + rightOff.x,
-                1.48f,
-                world.player().pos.z + rightOff.z
-            };
-            camDist = input.aimHeld ? 3.35f : 5.45f;
-            targetFov = input.aimHeld ? 46.0f : 58.0f;
-        }
-
-        const oc::Vec2 camHorizBack = oc::forwardFromHeading(renderYaw) * (-std::cos(camPitch) * camDist);
-        oc::Vec2 camXZ{desiredTarget.x + camHorizBack.x, desiredTarget.z + camHorizBack.z};
-
-        // Prevent camera clipping inside skyscraper footprints
-        const oc::Vec2 focus2D{desiredTarget.x, desiredTarget.z};
-        const oc::Vec2 toCam = camXZ - focus2D;
-        const float toCamLen = toCam.length();
-        if (toCamLen > 0.2f) {
-            const float hitT = world.city().raycastBuildings(focus2D, toCam / toCamLen, toCamLen);
-            if (hitT >= 0.0f && hitT < toCamLen) {
-                const float safeDist = std::max(1.2f, hitT - 0.45f);
-                camXZ = focus2D + (toCam / toCamLen) * safeDist;
-            }
-        }
-
-        const oc::Vec3 desiredCamPos{
-            camXZ.x,
-            std::max(0.65f, desiredTarget.y + std::sin(camPitch) * camDist),
-            camXZ.z
-        };
-
-        const float camSmooth = std::min(1.0f, frameDt * 14.0f);
-        smoothedCamPos = smoothedCamPos + (desiredCamPos - smoothedCamPos) * camSmooth;
-        smoothedCamTarget = smoothedCamTarget + (desiredTarget - smoothedCamTarget) * camSmooth;
-        smoothedFov = oc::lerpf(smoothedFov, targetFov, frameDt * 8.0f);
+        const oc::Vec3 camTarget = smoothedCamPos + viewDir * 35.0f;
 
         Camera3D camera{};
         camera.position = {smoothedCamPos.x, smoothedCamPos.y, smoothedCamPos.z};
-        camera.target = {smoothedCamTarget.x, smoothedCamTarget.y, smoothedCamTarget.z};
+        camera.target = {camTarget.x, camTarget.y, camTarget.z};
         camera.up = {0.0f, 1.0f, 0.0f};
         camera.fovy = smoothedFov;
         camera.projection = CAMERA_PERSPECTIVE;

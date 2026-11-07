@@ -28,7 +28,8 @@ private:
     void drawVehicle3D(const Vehicle& v, bool nightMode);
     void drawCharacter3D(const Vec2& pos, float yaw, float animPhase,
                          ColorRGBA top, ColorRGBA bottom, ColorRGBA skin,
-                         bool alive, bool armed, WeaponId weapon, float muzzleFlash);
+                         bool alive, bool armed, WeaponId weapon, float muzzleFlash,
+                         float aimPitch = 0.0f);
     void drawPoisAndPickups(const GameWorld& world);
     void drawSkidsTracersParticles(const GameWorld& world);
     void drawGpsOverheadArrow(const GameWorld& world);

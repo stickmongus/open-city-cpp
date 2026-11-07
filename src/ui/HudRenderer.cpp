@@ -366,15 +366,45 @@ void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, i
 void HudRenderer::drawCrosshair(const GameWorld& world, int screenW, int screenH) {
     if (world.player().drivingVehicleId >= 0 || shopMenuOpen_) return;
 
+    // Exact optical center of the 3D perspective projection
     const float cx = static_cast<float>(screenW) * 0.5f;
-    const float cy = static_cast<float>(screenH) * 0.44f;
-    const Color col{245, 250, 255, 210};
+    const float cy = static_cast<float>(screenH) * 0.5f;
 
-    DrawCircleV({cx, cy}, 2.2f, col);
-    DrawLineEx({cx - 11.0f, cy}, {cx - 4.5f, cy}, 1.8f, col);
-    DrawLineEx({cx + 4.5f, cy}, {cx + 11.0f, cy}, 1.8f, col);
-    DrawLineEx({cx, cy - 11.0f}, {cx, cy - 4.5f}, 1.8f, col);
-    DrawLineEx({cx, cy + 4.5f}, {cx, cy + 11.0f}, 1.8f, col);
+    const auto& pl = world.player();
+    const bool precisionAim = IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
+    const float moveSpread = clampf(pl.velocity.length() * 0.32f, 0.0f, 2.8f);
+    const float shotSpread = (pl.muzzleFlashTimer > 0.0f) ? 2.6f : 0.0f;
+    const float gap = (precisionAim ? 3.4f : 5.4f) + moveSpread + shotSpread;
+    const float armLen = precisionAim ? 6.2f : 7.4f;
+
+    const Color shadowCol{10, 14, 20, 175};
+    const Color col = pl.crosshairOnTarget ? Color{255, 78, 72, 245} : Color{245, 250, 255, 230};
+
+    // Subtle dark backing lines for high contrast against bright sky & sunlit walls
+    DrawCircleV({cx, cy}, 2.6f, shadowCol);
+    DrawLineEx({cx - gap - armLen - 1.0f, cy}, {cx - gap + 1.0f, cy}, 3.2f, shadowCol);
+    DrawLineEx({cx + gap - 1.0f, cy}, {cx + gap + armLen + 1.0f, cy}, 3.2f, shadowCol);
+    DrawLineEx({cx, cy - gap - armLen - 1.0f}, {cx, cy - gap + 1.0f}, 3.2f, shadowCol);
+    DrawLineEx({cx, cy + gap - 1.0f}, {cx, cy + gap + armLen + 1.0f}, 3.2f, shadowCol);
+
+    DrawCircleV({cx, cy}, 1.9f, col);
+    DrawLineEx({cx - gap - armLen, cy}, {cx - gap, cy}, 1.8f, col);
+    DrawLineEx({cx + gap, cy}, {cx + gap + armLen, cy}, 1.8f, col);
+    DrawLineEx({cx, cy - gap - armLen}, {cx, cy - gap}, 1.8f, col);
+    DrawLineEx({cx, cy + gap}, {cx, cy + gap + armLen}, 1.8f, col);
+
+    // Tactical 'X' hitmarker feedback (gold-crimson on critical headshot!)
+    if (pl.hitMarkerTimer > 0.0f) {
+        const float alpha = clampf(pl.hitMarkerTimer / 0.16f, 0.0f, 1.0f);
+        const unsigned char aByte = static_cast<unsigned char>(alpha * 255.0f);
+        const Color hmCol = pl.hitMarkerCritical ? Color{255, 196, 52, aByte} : Color{255, 255, 255, aByte};
+        const float r0 = 4.5f;
+        const float r1 = pl.hitMarkerCritical ? 11.5f : 9.5f;
+        DrawLineEx({cx - r1, cy - r1}, {cx - r0, cy - r0}, 2.2f, hmCol);
+        DrawLineEx({cx + r0, cy - r0}, {cx + r1, cy - r1}, 2.2f, hmCol);
+        DrawLineEx({cx - r1, cy + r1}, {cx - r0, cy + r0}, 2.2f, hmCol);
+        DrawLineEx({cx + r0, cy + r0}, {cx + r1, cy + r1}, 2.2f, hmCol);
+    }
 }
 
 void HudRenderer::drawContextPromptsAndMission(const GameWorld& world, int screenW, int screenH) {
@@ -535,17 +565,17 @@ void HudRenderer::drawHelpOverlay(int screenW, int screenH, bool cursorLocked) {
         "Space : Handbrake Drift   |   Shift : Sprint / Nitro",
         "1-5 : Switch Weapons   |   R : Reload   |   G : Horn",
         "B : Weapon Shop / Tune Garage Menu",
-        "T : Skip Time (+3h Day/Night)   |   C : Rear View",
-        "Tab : Mouse Lock   |   F11 : Fullscreen   |   H : Hide"
+        "T : Skip Time (+3h)  |  C : Rear View  |  I : Invert Y",
+        "Tab : Mouse Lock   |   L : Lang   |   F11 : Full   |   H : Hide"
     };
     const char* linesKo[8] = {
         "WASD : 이동 / 차량 주행 및 조향",
-        "마우스 : 시점 회전 / 우클릭 조준 · 좌클릭 발사",
+        "마우스 : 상하좌우 자유 시점 / 우클릭 조준 · 좌클릭 사격",
         "F / E : 차량 탑승·탈취·하차 / 미션 시작",
         "Space : 핸드브레이크 드리프트  |  Shift : 달리기·니트로",
         "1~5 : 무기 교체   |   R : 재장전   |   G : 경적",
         "B : 무기 상점 / 튜닝 차고 메뉴 열기",
-        "T : 낮/밤 시간 변경 (+3시간)  |  C : 후방 시점",
+        "T : 낮/밤 변경 (+3시간) | C : 후방 시점 | I : 상하반전",
         "Tab : 마우스 잠금  |  L : 한/영 전환  |  H : 안내 숨김"
     };
 

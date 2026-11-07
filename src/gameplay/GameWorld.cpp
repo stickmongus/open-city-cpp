@@ -18,11 +18,11 @@ constexpr std::array<VehicleSpec, static_cast<std::size_t>(VehicleKind::Count)> 
 }};
 
 constexpr std::array<WeaponSpec, static_cast<std::size_t>(WeaponId::Count)> kWeaponSpecs = {{
-    {WeaponId::Fists,        "Fists",         "맨주먹 격투", 0.36f,  2.3f,  28.0f, 1, 0.12f,   0, 0.0f,  false},
-    {WeaponId::Pistol,       "9mm Pistol",    "9mm 권총",    0.22f, 58.0f,  34.0f, 1, 0.022f, 12, 1.05f, false},
-    {WeaponId::SMG,          "Tactical SMG",  "전술 기관단총", 0.085f, 52.0f, 22.0f, 1, 0.048f, 30, 1.25f, true},
-    {WeaponId::Shotgun,      "Pump Shotgun",  "펌프 샷건",   0.68f, 34.0f,  19.0f, 7, 0.115f,  8, 1.55f, false},
-    {WeaponId::AssaultRifle, "Carbine Rifle", "돌격 카빈소총", 0.105f, 78.0f, 31.0f, 1, 0.028f, 30, 1.40f, true}
+    {WeaponId::Fists,        "Fists",         "맨주먹 격투", 0.36f,  2.4f,  28.0f, 1, 0.08f,   0, 0.0f,  false},
+    {WeaponId::Pistol,       "9mm Pistol",    "9mm 권총",    0.22f, 68.0f,  35.0f, 1, 0.010f, 12, 1.05f, false},
+    {WeaponId::SMG,          "Tactical SMG",  "전술 기관단총", 0.085f, 58.0f, 23.0f, 1, 0.030f, 30, 1.25f, true},
+    {WeaponId::Shotgun,      "Pump Shotgun",  "펌프 샷건",   0.68f, 36.0f,  20.0f, 7, 0.095f,  8, 1.55f, false},
+    {WeaponId::AssaultRifle, "Carbine Rifle", "돌격 카빈소총", 0.105f, 88.0f, 32.0f, 1, 0.015f, 30, 1.40f, true}
 }};
 
 ColorRGBA randomTrafficPaint(Rng& rng, VehicleKind kind) {
@@ -95,6 +95,7 @@ void GameWorld::reset() {
     banner_ = BannerNotification{};
     activePoi_ = nullptr;
     timeOfDayHours_ = 10.0f;
+    trafficSignalTimer_ = 0.0f;
 
     spawnInitialWorld();
     pushBanner("WELCOME TO SUNSET BAY", "선셋 베이 시티에 오신 것을 환영합니다",
@@ -145,6 +146,8 @@ void GameWorld::spawnInitialWorld() {
         g.role = NpcRole::Gangster;
         g.behavior = NpcBehavior::Stroll;
         g.pos = p;
+        g.homeAnchor = p;
+        g.walkSpeed = 1.45f;
         g.facingYaw = rng_.range(-kPi, kPi);
         g.health = 85.0f;
         g.maxHealth = 85.0f;
@@ -188,6 +191,14 @@ float GameWorld::daylightFactor() const {
     const float phase = (timeOfDayHours_ - 13.0f) / 24.0f * kTwoPi;
     const float raw = 0.5f + 0.5f * std::cos(phase);
     return 0.14f + 0.86f * raw;
+}
+
+bool GameWorld::isTrafficGreenForHorizontal() const {
+    return trafficSignalTimer_ >= 0.0f && trafficSignalTimer_ < 10.5f;
+}
+
+bool GameWorld::isTrafficGreenForVertical() const {
+    return trafficSignalTimer_ >= 12.0f && trafficSignalTimer_ < 22.5f;
 }
 
 void GameWorld::advanceTimeOfDayHours(float hours) {
@@ -301,7 +312,7 @@ void GameWorld::maintainTrafficPopulation() {
 }
 
 void GameWorld::maintainCivilianPopulation() {
-    constexpr int kTargetCivilians = 42;
+    constexpr int kTargetCivilians = 44;
     const Vec2 center = playerWorldPos();
 
     npcs_.erase(
@@ -319,29 +330,54 @@ void GameWorld::maintainCivilianPopulation() {
     }
 
     int attempts = 0;
-    while (civCount < kTargetCivilians && attempts < 50) {
+    while (civCount < kTargetCivilians && attempts < 65) {
         ++attempts;
-        const int roadIdx = rng_.rangeInt(1, CityMap::kRoadCount - 2);
+        // Pick a pure block-front sidewalk segment (never mid-crosswalk) in lattice [1..16]
+        const int blk = rng_.rangeInt(1, CityMap::kBlockCount - 2);
+        const int sideLine = rng_.rangeInt(1, CityMap::kSidewalkNodeCount - 2);
         const bool horiz = rng_.chance(0.5f);
-        const float sideSign = rng_.chance(0.5f) ? 1.0f : -1.0f;
-        const float sidewalkOffset = CityMap::kRoadWidth * 0.5f + CityMap::kSidewalkWidth * 0.5f;
-        const float along = rng_.range(-250.0f, 250.0f);
+        const bool fwdOrder = rng_.chance(0.5f);
 
-        Vec2 p = horiz
-                     ? Vec2{along, city_.roadCoord(roadIdx) + sideSign * sidewalkOffset}
-                     : Vec2{city_.roadCoord(roadIdx) + sideSign * sidewalkOffset, along};
+        int n0 = 2 * blk + 1;
+        int n1 = 2 * blk + 2;
+        if (!fwdOrder) std::swap(n0, n1);
+
+        const int fromU = horiz ? n0 : sideLine;
+        const int fromV = horiz ? sideLine : n0;
+        const int toU   = horiz ? n1 : sideLine;
+        const int toV   = horiz ? sideLine : n1;
+
+        const Vec2 a{city_.sidewalkCoord(fromU), city_.sidewalkCoord(fromV)};
+        const Vec2 b{city_.sidewalkCoord(toU), city_.sidewalkCoord(toV)};
+        const Vec2 segDir = (b - a).normalized();
+        const float edgeYaw = std::atan2(segDir.z, segDir.x);
+        const Vec2 laneOffset = rightFromHeading(edgeYaw) * 0.45f;
+        const float frac = rng_.range(0.15f, 0.85f);
+        Vec2 p = a + (b - a) * frac + laneOffset;
 
         const float d = (p - center).length();
         if (d < 20.0f || d > 185.0f) continue;
-        if (city_.resolveCircleWorld(p, 0.55f)) continue;
+
+        bool tooCloseNpc = false;
+        for (const auto& other : npcs_) {
+            if (other.alive && (other.pos - p).lengthSq() < 2.2f) {
+                tooCloseNpc = true;
+                break;
+            }
+        }
+        if (tooCloseNpc) continue;
 
         NpcCharacter npc{};
         npc.id = nextNpcId_++;
         npc.role = NpcRole::Civilian;
         npc.behavior = NpcBehavior::Stroll;
         npc.pos = p;
-        npc.facingYaw = horiz ? (rng_.chance(0.5f) ? 0.0f : kPi)
-                              : (rng_.chance(0.5f) ? kHalfPi : -kHalfPi);
+        npc.facingYaw = edgeYaw;
+        npc.navFromU = fromU;
+        npc.navFromV = fromV;
+        npc.navToU = toU;
+        npc.navToV = toV;
+        npc.walkSpeed = rng_.range(1.38f, 1.92f);
         npc.outfitTop = {
             static_cast<std::uint8_t>(rng_.rangeInt(70, 235)),
             static_cast<std::uint8_t>(rng_.rangeInt(70, 235)),
@@ -401,11 +437,13 @@ bool GameWorld::tryEnterOrExitVehicle() {
     }
     if (!best) return false;
 
-    // If an NPC is driving, pull them out onto the street and make them flee!
+    // If an NPC is driving, pull them out onto the street and make them flee onto nearest sidewalk!
     if (best->hasNpcDriver) {
         best->hasNpcDriver = false;
         const auto& spec = getVehicleSpec(best->kind);
         const Vec2 driverSide = best->pos - rightFromHeading(best->heading) * (spec.halfWidth + 0.95f);
+        const int nearU = std::clamp(city_.nearestSidewalkNodeIndex(driverSide.x), 1, CityMap::kSidewalkNodeCount - 2);
+        const int nearV = std::clamp(city_.nearestSidewalkNodeIndex(driverSide.z), 1, CityMap::kSidewalkNodeCount - 2);
 
         NpcCharacter ejected{};
         ejected.id = nextNpcId_++;
@@ -413,6 +451,11 @@ bool GameWorld::tryEnterOrExitVehicle() {
         ejected.behavior = NpcBehavior::PanicFlee;
         ejected.stateTimer = 9.0f;
         ejected.pos = driverSide;
+        ejected.navFromU = nearU;
+        ejected.navFromV = nearV;
+        ejected.navToU = nearU;
+        ejected.navToV = nearV;
+        ejected.walkSpeed = 1.75f;
         ejected.facingYaw = wrapAngle(best->heading + kPi);
         ejected.outfitTop = {235, 180, 75, 255};
         npcs_.push_back(ejected);
@@ -575,6 +618,8 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
             guard.role = NpcRole::Gangster;
             guard.behavior = NpcBehavior::Stroll;
             guard.pos = exo.pos + Vec2{3.2f, static_cast<float>(i * 4 - 2)};
+            guard.homeAnchor = guard.pos;
+            guard.walkSpeed = 1.45f;
             guard.health = 80.0f;
             guard.maxHealth = 80.0f;
             guard.outfitTop = {192, 42, 58, 255};
@@ -655,6 +700,8 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
             g.role = NpcRole::Gangster;
             g.behavior = NpcBehavior::CombatEngage;
             g.pos = spawnP;
+            g.homeAnchor = spawnP;
+            g.walkSpeed = 1.55f;
             g.health = 90.0f;
             g.maxHealth = 90.0f;
             g.outfitTop = {215, 58, 38, 255};
@@ -689,13 +736,18 @@ void GameWorld::update(float dt, const PlayerInput& input) {
 
     // 1 game hour = 25 real seconds (~10 min full 24h cycle)
     advanceTimeOfDayHours(dt / 25.0f);
+    trafficSignalTimer_ = std::fmod(trafficSignalTimer_ + dt, 24.0f);
 
     if (banner_.timer > 0.0f) {
         banner_.timer = std::max(0.0f, banner_.timer - dt);
     }
+    if (player_.hitMarkerTimer > 0.0f) {
+        player_.hitMarkerTimer = std::max(0.0f, player_.hitMarkerTimer - dt);
+    }
 
     // Handle player wasted / hospital respawn state
     if (player_.wasted) {
+        player_.crosshairOnTarget = false;
         player_.wastedTimer -= dt;
         if (player_.wastedTimer <= 0.0f) {
             player_.wasted = false;
@@ -759,6 +811,7 @@ void GameWorld::update(float dt, const PlayerInput& input) {
     }
 
     if (Vehicle* drivenCar = findVehicleMutable(player_.drivingVehicleId)) {
+        player_.crosshairOnTarget = false;
         if (drivenCar->destroyed) {
             player_.drivingVehicleId = -1;
             player_.pos = drivenCar->pos + Vec2{2.2f, 2.2f};
@@ -895,12 +948,128 @@ void GameWorld::updatePlayerDriving(float dt, const PlayerInput& input, Vehicle&
     }
 }
 
+GameWorld::RayHit3D GameWorld::traceWorldRay3D(const Vec3& origin, const Vec3& dir, float maxDist) {
+    RayHit3D result{};
+    result.dist = maxDist;
+    result.point = origin + dir * maxDist;
+
+    // 1. Ground plane y = 0
+    if (dir.y < -1e-5f && origin.y > 0.0f) {
+        const float tGround = -origin.y / dir.y;
+        if (tGround >= 0.0f && tGround < result.dist) {
+            result.dist = tGround;
+            result.kind = RayHit3D::Kind::Ground;
+        }
+    }
+
+    // 2. 3D Buildings (main volume + upper skyscraper tiers)
+    const float tBld = city_.raycastBuildings3D(origin, dir, result.dist);
+    if (tBld >= 0.0f && tBld < result.dist) {
+        result.dist = tBld;
+        result.kind = RayHit3D::Kind::Building;
+    }
+
+    // 3. 3D NPC upright cylinders (feet y=0.04 to head y=1.75, headshot >= 1.40)
+    for (auto& npc : npcs_) {
+        if (!npc.alive) continue;
+        float hitY = 0.0f;
+        const float tNpc = intersectRayCylinderY(origin, dir, result.dist, npc.pos, 0.04f, 1.75f, 0.46f, &hitY);
+        if (tNpc >= 0.0f && tNpc < result.dist) {
+            result.dist = tNpc;
+            result.kind = RayHit3D::Kind::Npc;
+            result.npc = &npc;
+            result.headshot = (hitY >= 1.40f);
+            result.vehicle = nullptr;
+            result.prop = nullptr;
+        }
+    }
+
+    // 4. 3D Vehicle OBBs
+    for (auto& v : vehicles_) {
+        if (v.id == player_.drivingVehicleId) continue;
+        const auto& vSpec = getVehicleSpec(v.kind);
+        const float tVeh = intersectRayOBB3D(origin, dir, result.dist, v.obb(), 0.12f, 0.26f + vSpec.chassisHeight);
+        if (tVeh >= 0.0f && tVeh < result.dist) {
+            result.dist = tVeh;
+            result.kind = RayHit3D::Kind::Vehicle;
+            result.vehicle = &v;
+            result.npc = nullptr;
+            result.headshot = false;
+            result.prop = nullptr;
+        }
+    }
+
+    // 5. Shootable street props (hydrants, crates, cones)
+    for (auto& prop : city_.streetProps()) {
+        if (prop.broken || prop.kind == StreetPropKind::StreetLight) continue;
+        float radius = 0.28f;
+        float topY = 0.85f;
+        if (prop.kind == StreetPropKind::Crate) {
+            radius = 0.52f;
+            topY = 0.92f;
+        } else if (prop.kind == StreetPropKind::TrafficCone) {
+            radius = 0.26f;
+            topY = 0.70f;
+        }
+        const float tProp = intersectRayCylinderY(origin, dir, result.dist, prop.pos, 0.0f, topY, radius, nullptr);
+        if (tProp >= 0.0f && tProp < result.dist) {
+            result.dist = tProp;
+            result.kind = RayHit3D::Kind::Prop;
+            result.prop = &prop;
+            result.npc = nullptr;
+            result.headshot = false;
+            result.vehicle = nullptr;
+        }
+    }
+
+    result.point = origin + dir * result.dist;
+    return result;
+}
+
 void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
     if (player_.fireCooldown > 0.0f) player_.fireCooldown -= dt;
     if (player_.muzzleFlashTimer > 0.0f) player_.muzzleFlashTimer -= dt;
 
     auto& slot = player_.weapons[static_cast<std::size_t>(player_.currentWeapon)];
     const auto& spec = getWeaponSpec(player_.currentWeapon);
+
+    // Resolve exact 3D world point under the screen-center crosshair
+    Vec3 traceOrigin{};
+    Vec3 traceDir{};
+    if (input.hasAimRay3D && input.aimRayDir.lengthSq() > 0.25f) {
+        traceDir = input.aimRayDir.normalized();
+        const Vec3 playerShoulderCenter{player_.pos.x, 1.42f, player_.pos.z};
+        const float skipBehind = std::max(0.0f, (playerShoulderCenter - input.aimRayOrigin).dot(traceDir) + 0.25f);
+        traceOrigin = input.aimRayOrigin + traceDir * skipBehind;
+    } else {
+        traceDir = directionFromYawPitch(input.aimYaw, input.aimPitch).normalized();
+        const Vec2 fwd2D = forwardFromHeading(input.aimYaw);
+        traceOrigin = {player_.pos.x + fwd2D.x * 0.52f, 1.38f, player_.pos.z + fwd2D.z * 0.52f};
+    }
+
+    const float previewRange = std::max(spec.range + 10.0f, 130.0f);
+    const RayHit3D crosshairHit = traceWorldRay3D(traceOrigin, traceDir, previewRange);
+    const Vec3 aimPoint3D = crosshairHit.point;
+
+    const float distFromPlayer = (aimPoint3D - Vec3{player_.pos.x, 1.35f, player_.pos.z}).length();
+    player_.crosshairOnTarget =
+        (distFromPlayer <= spec.range + 0.8f) &&
+        ((crosshairHit.kind == RayHit3D::Kind::Npc) ||
+         (crosshairHit.kind == RayHit3D::Kind::Vehicle && crosshairHit.vehicle && !crosshairHit.vehicle->destroyed));
+
+    // Align character facing & arm elevation directly toward the 3D crosshair target when aiming/firing
+    if (input.aimHeld || input.fireHeld) {
+        const Vec2 toTargetXZ{aimPoint3D.x - player_.pos.x, aimPoint3D.z - player_.pos.z};
+        if (toTargetXZ.lengthSq() > 0.04f) {
+            player_.facingYaw = std::atan2(toTargetXZ.z, toTargetXZ.x);
+        } else {
+            player_.facingYaw = wrapAngle(input.aimYaw);
+        }
+        const Vec3 fromShoulder = (aimPoint3D - Vec3{player_.pos.x, 1.34f, player_.pos.z}).normalized();
+        player_.aimPitch = clampf(std::asin(clampf(fromShoulder.y, -0.98f, 0.98f)), -1.15f, 1.20f);
+    } else {
+        player_.aimPitch = lerpf(player_.aimPitch, clampf(input.aimPitch * 0.35f, -0.45f, 0.45f), dt * 10.0f);
+    }
 
     if (player_.reloadTimer > 0.0f) {
         player_.reloadTimer -= dt;
@@ -938,10 +1107,19 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
 
     player_.fireCooldown = spec.fireInterval;
     player_.muzzleFlashTimer = (player_.currentWeapon == WeaponId::Fists) ? 0.0f : 0.055f;
-    fireWeapon(player_.currentWeapon, player_.pos, input.aimYaw);
+
+    const Vec2 right2D = rightFromHeading(player_.facingYaw);
+    const Vec3 shoulder3D{player_.pos.x + right2D.x * 0.28f, 1.34f, player_.pos.z + right2D.z * 0.28f};
+    const Vec3 toAim = aimPoint3D - shoulder3D;
+    const float toAimLen = toAim.length();
+    const Vec3 baseDir = (toAimLen > 1e-4f) ? (toAim / toAimLen) : traceDir;
+    const float barrelOffset = std::min(0.68f, std::max(0.12f, toAimLen * 0.45f));
+    const Vec3 muzzle3D = shoulder3D + baseDir * barrelOffset;
+
+    fireWeapon(player_.currentWeapon, muzzle3D, aimPoint3D, input.aimHeld);
 }
 
-void GameWorld::fireWeapon(WeaponId weaponId, const Vec2& origin, float aimYaw) {
+void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& target3D, bool precisionAim) {
     const auto& spec = getWeaponSpec(weaponId);
 
     switch (weaponId) {
@@ -954,49 +1132,33 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec2& origin, float aimYaw) 
     }
 
     if (weaponId != WeaponId::Fists) {
-        triggerCivilianPanicNear(origin, 34.0f);
+        triggerCivilianPanicNear({muzzle3D.x, muzzle3D.z}, 34.0f);
     }
 
-    const Vec2 muzzle2D = origin + forwardFromHeading(aimYaw) * 0.72f;
-    const Vec3 muzzle3D{muzzle2D.x, 1.32f, muzzle2D.z};
+    Vec3 baseDir = (target3D - muzzle3D).normalized();
+    if (baseDir.lengthSq() < 0.25f) {
+        baseDir = directionFromYawPitch(player_.facingYaw, player_.aimPitch).normalized();
+    }
+
+    // Build orthonormal tangent basis around baseDir for isotropic 3D cone spread
+    Vec3 worldUp{0.0f, 1.0f, 0.0f};
+    if (std::abs(baseDir.y) > 0.96f) {
+        worldUp = {1.0f, 0.0f, 0.0f};
+    }
+    const Vec3 basisRight = baseDir.cross(worldUp).normalized();
+    const Vec3 basisUp = basisRight.cross(baseDir).normalized();
+
+    const float spreadScale = (precisionAim && spec.pellets == 1) ? 0.14f : (precisionAim ? 0.72f : 1.0f);
+    const float maxSpread = spec.spreadRadians * spreadScale;
 
     for (int p = 0; p < spec.pellets; ++p) {
-        const float spread = rng_.range(-spec.spreadRadians, spec.spreadRadians);
-        const Vec2 dir = forwardFromHeading(aimYaw + spread);
+        const float jitterX = rng_.range(-maxSpread, maxSpread);
+        const float jitterY = rng_.range(-maxSpread, maxSpread);
+        const Vec3 shotDir = (baseDir + basisRight * jitterX + basisUp * jitterY).normalized();
 
-        float bestDist = spec.range;
-        const float bldDist = city_.raycastBuildings(muzzle2D, dir, bestDist);
-        bool hitBuilding = false;
-        if (bldDist >= 0.0f && bldDist < bestDist) {
-            bestDist = bldDist;
-            hitBuilding = true;
-        }
-
-        NpcCharacter* hitNpc = nullptr;
-        for (auto& npc : npcs_) {
-            if (!npc.alive) continue;
-            const float t = intersectRayCircle(muzzle2D, dir, bestDist, npc.pos, 0.58f);
-            if (t >= 0.0f && t < bestDist) {
-                bestDist = t;
-                hitNpc = &npc;
-                hitBuilding = false;
-            }
-        }
-
-        Vehicle* hitCar = nullptr;
-        for (auto& v : vehicles_) {
-            if (v.id == player_.drivingVehicleId) continue;
-            const float t = intersectRayOBB(muzzle2D, dir, bestDist, v.obb());
-            if (t >= 0.0f && t < bestDist) {
-                bestDist = t;
-                hitCar = &v;
-                hitNpc = nullptr;
-                hitBuilding = false;
-            }
-        }
-
-        const Vec2 end2D = muzzle2D + dir * bestDist;
-        const Vec3 end3D{end2D.x, 1.18f + rng_.range(-0.12f, 0.12f), end2D.z};
+        const RayHit3D hit = traceWorldRay3D(muzzle3D, shotDir, spec.range);
+        const Vec3 end3D = hit.point;
+        const Vec2 flatDir = Vec2{shotDir.x, shotDir.z}.normalized();
 
         if (weaponId != WeaponId::Fists) {
             tracers_.push_back(BulletTracer{
@@ -1008,19 +1170,33 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec2& origin, float aimYaw) 
             });
         }
 
-        if (hitNpc) {
-            damageNpc(*hitNpc, spec.damage, dir);
-            emitParticles(end3D, 5, {225, 48, 48, 255}, 4.2f, 0.14f, 0.32f);
-        } else if (hitCar) {
-            if (!hitCar->destroyed) {
-                hitCar->health -= spec.damage;
+        if (hit.kind == RayHit3D::Kind::Npc && hit.npc) {
+            const float dmg = hit.headshot ? (spec.damage * 1.85f) : spec.damage;
+            damageNpc(*hit.npc, dmg, flatDir);
+            player_.hitMarkerTimer = 0.16f;
+            player_.hitMarkerCritical = hit.headshot;
+            emitParticles(end3D, hit.headshot ? 8 : 5,
+                          hit.headshot ? ColorRGBA{255, 72, 48, 255} : ColorRGBA{225, 48, 48, 255},
+                          hit.headshot ? 5.4f : 4.2f, 0.14f, 0.32f);
+        } else if (hit.kind == RayHit3D::Kind::Vehicle && hit.vehicle) {
+            if (!hit.vehicle->destroyed) {
+                hit.vehicle->health -= spec.damage;
+                player_.hitMarkerTimer = 0.12f;
+                player_.hitMarkerCritical = false;
                 emitParticles(end3D, 6, {255, 198, 72, 255}, 6.0f, 0.15f, 0.28f);
-                if (hitCar->health <= 0.0f) {
-                    explodeVehicle(*hitCar);
+                if (hit.vehicle->health <= 0.0f) {
+                    explodeVehicle(*hit.vehicle);
                 }
             }
-        } else if (hitBuilding) {
-            emitParticles(end3D, 4, {220, 212, 185, 255}, 4.5f, 0.12f, 0.25f);
+        } else if (hit.kind == RayHit3D::Kind::Prop && hit.prop) {
+            hit.prop->broken = true;
+            hit.prop->brokenTimer = 0.0f;
+            hit.prop->velocity = flatDir * 5.2f;
+            emitParticles(end3D, 5, {215, 215, 220, 255}, 4.8f, 0.15f, 0.32f);
+        } else if (hit.kind == RayHit3D::Kind::Building || hit.kind == RayHit3D::Kind::Ground) {
+            if (weaponId != WeaponId::Fists) {
+                emitParticles(end3D, 4, {220, 212, 185, 255}, 4.2f, 0.11f, 0.24f);
+            }
         }
     }
 }
@@ -1201,25 +1377,50 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
     const float headingErr = angleDiff(v.heading, toTargetYaw);
     const float steer = clampf(headingErr * 1.65f, -1.0f, 1.0f);
 
-    // Lookahead braking for cars or player in lane
+    // Lookahead braking for cars, red intersection signals, crossing pedestrians, or player in lane
     bool obstacleAhead = false;
     const Vec2 fwd = forwardFromHeading(v.heading);
+    const Vec2 right = rightFromHeading(v.heading);
+
+    // Obey red traffic signal before entering the intersection crosswalk
+    const float aheadInter = (interCenter - v.pos).dot(fwd);
+    const float sideInter = std::abs((interCenter - v.pos).dot(right));
+    if (aheadInter >= 10.2f && aheadInter <= 17.5f && sideInter < 8.5f) {
+        const bool greenForAxis = v.aiHorizontalRoad ? isTrafficGreenForHorizontal() : isTrafficGreenForVertical();
+        if (!greenForAxis) {
+            obstacleAhead = true;
+        }
+    }
 
     for (const auto& other : vehicles_) {
         if (other.id == v.id) continue;
         const Vec2 delta = other.pos - v.pos;
         const float ahead = delta.dot(fwd);
-        const float side = std::abs(delta.dot(rightFromHeading(v.heading)));
+        const float side = std::abs(delta.dot(right));
         if (ahead > 1.5f && ahead < 13.5f && side < 2.5f) {
             obstacleAhead = true;
             break;
         }
     }
 
+    // Yield to alive pedestrians crossing in front of the vehicle
+    if (!obstacleAhead) {
+        for (const auto& npc : npcs_) {
+            if (!npc.alive) continue;
+            const Vec2 delta = npc.pos - v.pos;
+            const float ahead = delta.dot(fwd);
+            const float side = std::abs(delta.dot(right));
+            if (ahead > 0.8f && ahead < 14.0f && side < 3.4f) {
+                obstacleAhead = true;
+                break;
+            }
+        }
+    }
+
     if (!obstacleAhead && player_.drivingVehicleId < 0) {
         const Vec2 delta = player_.pos - v.pos;
         const float ahead = delta.dot(fwd);
-        const float side = std::abs(delta.dot(rightFromHeading(v.heading)));
+        const float side = std::abs(delta.dot(right));
         if (ahead > 1.0f && ahead < 11.0f && side < 2.4f) {
             obstacleAhead = true;
             if (v.hornCooldown <= 0.0f && rng_.chance(0.04f)) {
@@ -1231,7 +1432,11 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
 
     float throttle = 0.0f;
     if (obstacleAhead) {
-        throttle = (v.speed() > 1.0f) ? -0.9f : 0.0f;
+        throttle = (v.speed() > 0.6f) ? -0.95f : 0.0f;
+        if (v.speed() <= 0.65f) {
+            v.velocity = {0.0f, 0.0f};
+            v.brakingVisual = true;
+        }
     } else {
         const float cruiseSpeed = 15.5f;
         throttle = (v.speed() < cruiseSpeed) ? 0.58f : 0.0f;
@@ -1378,6 +1583,145 @@ void GameWorld::explodeVehicle(Vehicle& v) {
     }
 }
 
+bool GameWorld::isCrosswalkSafeForPedestrian(int fromU, int fromV, int toU, int toV) const {
+    const bool crossVerticalRoad = CityMap::isCrosswalkEdge(fromU, toU);   // walking E-W across N-S avenue
+    const bool crossHorizontalRoad = CityMap::isCrosswalkEdge(fromV, toV); // walking N-S across E-W avenue
+    if (!crossVerticalRoad && !crossHorizontalRoad) {
+        return true; // Pure concrete sidewalk segment
+    }
+
+    if (crossVerticalRoad) {
+        // Walk when N-S vehicle signal is RED with clearance margin
+        if (!(trafficSignalTimer_ >= 0.2f && trafficSignalTimer_ < 9.0f)) {
+            return false;
+        }
+    } else if (crossHorizontalRoad) {
+        // Walk when E-W vehicle signal is RED with clearance margin
+        if (!(trafficSignalTimer_ >= 12.2f && trafficSignalTimer_ < 21.0f)) {
+            return false;
+        }
+    }
+
+    // Also verify no fast vehicle is barreling through the crosswalk
+    const Vec2 a{city_.sidewalkCoord(fromU), city_.sidewalkCoord(fromV)};
+    const Vec2 b{city_.sidewalkCoord(toU), city_.sidewalkCoord(toV)};
+    const Vec2 mid = (a + b) * 0.5f;
+
+    for (const auto& v : vehicles_) {
+        if (v.destroyed || v.speed() < 4.0f) continue;
+        const Vec2 vFwd = forwardFromHeading(v.heading);
+        const Vec2 vRight = rightFromHeading(v.heading);
+        const Vec2 toCross = mid - v.pos;
+        const float ahead = toCross.dot(vFwd);
+        const float side = std::abs(toCross.dot(vRight));
+        if (ahead > -2.5f && ahead < 18.0f && side < 6.2f) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void GameWorld::chooseNextSidewalkTarget(NpcCharacter& npc, bool fleeing, const Vec2& dangerPos) {
+    const int minIdx = 1;
+    const int maxIdx = CityMap::kSidewalkNodeCount - 2; // 16
+    const int curU = std::clamp(npc.navToU, minIdx, maxIdx);
+    const int curV = std::clamp(npc.navToV, minIdx, maxIdx);
+    const int prevU = std::clamp(npc.navFromU, minIdx, maxIdx);
+    const int prevV = std::clamp(npc.navFromV, minIdx, maxIdx);
+
+    const int inDu = curU - prevU;
+    const int inDv = curV - prevV;
+    const Vec2 curWorld{city_.sidewalkCoord(curU), city_.sidewalkCoord(curV)};
+    const Vec2 awayDir = (curWorld - dangerPos).normalized();
+
+    struct Candidate {
+        int u = 8;
+        int v = 8;
+        float weight = 0.0f;
+    };
+    std::array<Candidate, 4> cands{};
+    int candCount = 0;
+
+    static constexpr std::array<std::pair<int, int>, 4> kDirs = {{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}};
+    for (const auto& [du, dv] : kDirs) {
+        const int nu = curU + du;
+        const int nv = curV + dv;
+        if (nu < minIdx || nu > maxIdx || nv < minIdx || nv > maxIdx) continue;
+
+        const bool isCrosswalk = CityMap::isCrosswalkEdge(curU, nu) || CityMap::isCrosswalkEdge(curV, nv);
+        const bool safeEdge = isCrosswalkSafeForPedestrian(curU, curV, nu, nv);
+
+        if (fleeing) {
+            const Vec2 nextWorld{city_.sidewalkCoord(nu), city_.sidewalkCoord(nv)};
+            const Vec2 stepDir = (nextWorld - curWorld).normalized();
+            float score = 2.0f + stepDir.dot(awayDir) * 2.2f;
+            if (!isCrosswalk) score += 1.4f;
+            else if (safeEdge) score += 0.4f;
+            else score -= 1.2f;
+            score += rng_.range(0.0f, 0.35f);
+            cands[static_cast<std::size_t>(candCount++)] = {nu, nv, std::max(0.05f, score)};
+        } else {
+            const bool isStraight = (inDu != 0 || inDv != 0) && (du == inDu && dv == inDv);
+            const bool isUTurn = (inDu != 0 || inDv != 0) && (du == -inDu && dv == -inDv);
+
+            float w = 1.0f;
+            if (isUTurn) {
+                w = 0.04f;
+            } else if (isStraight) {
+                w = (!isCrosswalk) ? 5.2f : (safeEdge ? 3.8f : 0.65f);
+            } else {
+                w = (!isCrosswalk) ? 3.4f : (safeEdge ? 2.4f : 0.40f);
+            }
+            cands[static_cast<std::size_t>(candCount++)] = {nu, nv, w};
+        }
+    }
+
+    if (candCount == 0) {
+        npc.navFromU = curU;
+        npc.navFromV = curV;
+        npc.navToU = curU;
+        npc.navToV = curV;
+        return;
+    }
+
+    int chosenIdx = 0;
+    if (fleeing) {
+        float bestW = -1e9f;
+        for (int i = 0; i < candCount; ++i) {
+            if (cands[static_cast<std::size_t>(i)].weight > bestW) {
+                bestW = cands[static_cast<std::size_t>(i)].weight;
+                chosenIdx = i;
+            }
+        }
+    } else {
+        float totalW = 0.0f;
+        for (int i = 0; i < candCount; ++i) {
+            totalW += cands[static_cast<std::size_t>(i)].weight;
+        }
+        float pick = rng_.range(0.0f, totalW);
+        for (int i = 0; i < candCount; ++i) {
+            pick -= cands[static_cast<std::size_t>(i)].weight;
+            if (pick <= 0.0f) {
+                chosenIdx = i;
+                break;
+            }
+        }
+    }
+
+    const auto& chosen = cands[static_cast<std::size_t>(chosenIdx)];
+    npc.navFromU = curU;
+    npc.navFromV = curV;
+    npc.navToU = chosen.u;
+    npc.navToV = chosen.v;
+    npc.waitingAtCrosswalk = false;
+
+    const bool nextIsCrosswalk = CityMap::isCrosswalkEdge(curU, chosen.u) || CityMap::isCrosswalkEdge(curV, chosen.v);
+    if (!fleeing && !nextIsCrosswalk && rng_.chance(0.12f)) {
+        npc.idlePauseTimer = rng_.range(0.9f, 2.2f);
+    }
+}
+
 void GameWorld::triggerCivilianPanicNear(const Vec2& origin, float radius) {
     const float rSq = radius * radius;
     for (auto& npc : npcs_) {
@@ -1386,8 +1730,21 @@ void GameWorld::triggerCivilianPanicNear(const Vec2& origin, float radius) {
         if (npc.role == NpcRole::Civilian) {
             npc.behavior = NpcBehavior::PanicFlee;
             npc.stateTimer = 8.0f;
-            const Vec2 away = (npc.pos - origin).normalized();
-            npc.facingYaw = std::atan2(away.z, away.x);
+            npc.idlePauseTimer = 0.0f;
+            npc.waitingAtCrosswalk = false;
+
+            // If walking along a sidewalk toward the danger source, turn around on the sidewalk!
+            const bool onCrosswalk = CityMap::isCrosswalkEdge(npc.navFromU, npc.navToU) ||
+                                     CityMap::isCrosswalkEdge(npc.navFromV, npc.navToV);
+            if (!onCrosswalk && (npc.navFromU != npc.navToU || npc.navFromV != npc.navToV)) {
+                const Vec2 a{city_.sidewalkCoord(npc.navFromU), city_.sidewalkCoord(npc.navFromV)};
+                const Vec2 b{city_.sidewalkCoord(npc.navToU), city_.sidewalkCoord(npc.navToV)};
+                const Vec2 edgeDir = (b - a).normalized();
+                if (edgeDir.dot(origin - npc.pos) > 0.15f) {
+                    std::swap(npc.navFromU, npc.navToU);
+                    std::swap(npc.navFromV, npc.navToV);
+                }
+            }
         } else if (npc.role == NpcRole::Gangster) {
             npc.behavior = NpcBehavior::CombatEngage;
         }
@@ -1405,6 +1762,8 @@ void GameWorld::damageNpc(NpcCharacter& npc, float dmg, const Vec2& hitDir) {
     } else {
         npc.behavior = NpcBehavior::PanicFlee;
         npc.stateTimer = 8.0f;
+        npc.idlePauseTimer = 0.0f;
+        npc.waitingAtCrosswalk = false;
     }
 
     if (npc.health <= 0.0f) {
@@ -1419,7 +1778,8 @@ void GameWorld::damageNpc(NpcCharacter& npc, float dmg, const Vec2& hitDir) {
 void GameWorld::updateNpcs(float dt) {
     const Vec2 pPos = playerWorldPos();
 
-    for (auto& npc : npcs_) {
+    for (std::size_t idx = 0; idx < npcs_.size(); ++idx) {
+        auto& npc = npcs_[idx];
         if (!npc.alive) {
             npc.corpseTimer += dt;
             continue;
@@ -1490,37 +1850,142 @@ void GameWorld::updateNpcs(float dt) {
                     }
                 }
             } else {
-                npc.velocity = {0.0f, 0.0f};
+                // Smooth turf guard patrol around homeAnchor when idle
+                if (npc.idlePauseTimer > 0.0f) {
+                    npc.idlePauseTimer -= dt;
+                    npc.velocity = {0.0f, 0.0f};
+                } else {
+                    const Vec2 toHome = npc.homeAnchor - npc.pos;
+                    if (toHome.length() > 5.5f) {
+                        const float homeYaw = std::atan2(toHome.z, toHome.x);
+                        npc.facingYaw = moveTowardsAngle(npc.facingYaw, homeYaw, dt * 3.2f);
+                    } else if (rng_.chance(dt * 0.35f)) {
+                        npc.idlePauseTimer = rng_.range(1.2f, 2.8f);
+                        npc.facingYaw = wrapAngle(npc.facingYaw + rng_.range(-1.1f, 1.1f));
+                    }
+                    npc.velocity = forwardFromHeading(npc.facingYaw) * npc.walkSpeed;
+                }
+            }
+
+            npc.pos += npc.velocity * dt;
+            Vec2 wallNormal{};
+            if (city_.resolveCircleWorld(npc.pos, 0.42f, &wallNormal)) {
+                npc.facingYaw = wrapAngle(std::atan2(wallNormal.z, wallNormal.x));
             }
         } else {
-            // Civilian stroll or panic flee
-            if (npc.behavior == NpcBehavior::PanicFlee) {
+            // Civilian structured sidewalk & crosswalk navigation
+            const bool fleeing = (npc.behavior == NpcBehavior::PanicFlee);
+            if (fleeing) {
                 npc.stateTimer -= dt;
                 if (npc.stateTimer <= 0.0f) {
                     npc.behavior = NpcBehavior::Stroll;
                 }
-                const Vec2 away = (npc.pos - pPos).normalized();
-                if (away.lengthSq() > 0.1f) {
-                    npc.facingYaw = moveTowardsAngle(npc.facingYaw, std::atan2(away.z, away.x), dt * 5.0f);
-                }
-                npc.velocity = forwardFromHeading(npc.facingYaw) * 5.2f;
-            } else {
-                if (rng_.chance(dt * 0.25f)) {
-                    npc.facingYaw = wrapAngle(npc.facingYaw + (rng_.chance(0.5f) ? kHalfPi : -kHalfPi));
-                }
-                npc.velocity = forwardFromHeading(npc.facingYaw) * 1.65f;
             }
-        }
 
-        npc.pos += npc.velocity * dt;
-        Vec2 wallNormal{};
-        if (city_.resolveCircleWorld(npc.pos, 0.42f, &wallNormal)) {
-            npc.facingYaw = wrapAngle(std::atan2(wallNormal.z, wallNormal.x) + rng_.range(-0.6f, 0.6f));
+            const Vec2 fromNode{city_.sidewalkCoord(npc.navFromU), city_.sidewalkCoord(npc.navFromV)};
+            const Vec2 toNode{city_.sidewalkCoord(npc.navToU), city_.sidewalkCoord(npc.navToV)};
+
+            if (npc.navFromU == npc.navToU && npc.navFromV == npc.navToV) {
+                const Vec2 toCorner = toNode - npc.pos;
+                const float distCorner = toCorner.length();
+                if (distCorner < 0.85f) {
+                    chooseNextSidewalkTarget(npc, fleeing, pPos);
+                } else {
+                    const Vec2 dir = toCorner / distCorner;
+                    npc.facingYaw = moveTowardsAngle(npc.facingYaw, std::atan2(dir.z, dir.x), dt * 8.0f);
+                    npc.velocity = dir * (fleeing ? 4.8f : npc.walkSpeed);
+                }
+            } else {
+                const Vec2 edgeVec = toNode - fromNode;
+                const float edgeLen = std::max(0.01f, edgeVec.length());
+                const Vec2 edgeDir = edgeVec / edgeLen;
+                const float edgeYaw = std::atan2(edgeDir.z, edgeDir.x);
+                const Vec2 laneOffset = rightFromHeading(edgeYaw) * 0.45f;
+                const Vec2 laneStart = fromNode + laneOffset;
+                const Vec2 laneEnd = toNode + laneOffset;
+
+                const float progress = (npc.pos - laneStart).dot(edgeDir);
+
+                if ((npc.pos - laneEnd).length() < 0.72f || progress >= edgeLen - 0.30f) {
+                    chooseNextSidewalkTarget(npc, fleeing, pPos);
+                }
+
+                // Recompute current edge after potential corner transition
+                const Vec2 curFrom{city_.sidewalkCoord(npc.navFromU), city_.sidewalkCoord(npc.navFromV)};
+                const Vec2 curTo{city_.sidewalkCoord(npc.navToU), city_.sidewalkCoord(npc.navToV)};
+                const Vec2 curVec = curTo - curFrom;
+                const float curLen = std::max(0.01f, curVec.length());
+                const Vec2 curDir = curVec / curLen;
+                const float curYaw = std::atan2(curDir.z, curDir.x);
+                const Vec2 curLaneStart = curFrom + rightFromHeading(curYaw) * 0.45f;
+                const float curProgress = (npc.pos - curLaneStart).dot(curDir);
+                const bool curIsCrosswalk = CityMap::isCrosswalkEdge(npc.navFromU, npc.navToU) ||
+                                            CityMap::isCrosswalkEdge(npc.navFromV, npc.navToV);
+
+                // Curb-side pedestrian signal check before stepping onto crosswalk asphalt
+                if (!fleeing && curIsCrosswalk && curProgress < 1.35f) {
+                    if (!isCrosswalkSafeForPedestrian(npc.navFromU, npc.navFromV, npc.navToU, npc.navToV)) {
+                        npc.waitingAtCrosswalk = true;
+                    } else {
+                        npc.waitingAtCrosswalk = false;
+                    }
+                } else {
+                    npc.waitingAtCrosswalk = false;
+                }
+
+                if (npc.waitingAtCrosswalk) {
+                    const Vec2 waitSpot = curLaneStart + curDir * 0.85f;
+                    const Vec2 toWait = waitSpot - npc.pos;
+                    if (toWait.length() > 0.22f) {
+                        npc.velocity = toWait.normalized() * (npc.walkSpeed * 0.75f);
+                    } else {
+                        npc.velocity = {0.0f, 0.0f};
+                    }
+                    npc.facingYaw = moveTowardsAngle(npc.facingYaw, curYaw, dt * 7.0f);
+                } else if (!fleeing && !curIsCrosswalk && npc.idlePauseTimer > 0.0f) {
+                    npc.idlePauseTimer = std::max(0.0f, npc.idlePauseTimer - dt);
+                    npc.velocity = {0.0f, 0.0f};
+                } else {
+                    const float clampedS = clampf(curProgress, 0.0f, curLen);
+                    const float lookS = std::min(curLen, clampedS + 2.2f);
+                    const Vec2 steerPoint = curLaneStart + curDir * lookS;
+                    const Vec2 desiredDir = (steerPoint - npc.pos).normalized();
+
+                    float moveSpd = npc.walkSpeed;
+                    if (fleeing) {
+                        moveSpd = 4.75f;
+                    } else if (curIsCrosswalk) {
+                        moveSpd = npc.walkSpeed * 1.28f; // Brisk crosswalk pace
+                    }
+
+                    const float targetYaw = (desiredDir.lengthSq() > 0.01f)
+                                                ? std::atan2(desiredDir.z, desiredDir.x)
+                                                : curYaw;
+                    npc.facingYaw = moveTowardsAngle(npc.facingYaw, targetYaw, dt * 9.0f);
+                    npc.velocity = desiredDir * moveSpd;
+                }
+            }
+
+            // Gentle personal-space separation between nearby pedestrians
+            Vec2 sep{0.0f, 0.0f};
+            for (std::size_t j = 0; j < npcs_.size(); ++j) {
+                if (j == idx || !npcs_[j].alive) continue;
+                const Vec2 diff = npc.pos - npcs_[j].pos;
+                const float dSq = diff.lengthSq();
+                if (dSq > 1e-4f && dSq < 0.78f * 0.78f) {
+                    const float d = std::sqrt(dSq);
+                    sep += (diff / d) * ((0.78f - d) * 2.2f);
+                }
+            }
+            npc.pos += (npc.velocity + sep) * dt;
+            city_.resolveCircleWorld(npc.pos, 0.42f);
         }
 
         const float spd = npc.velocity.length();
         if (spd > 0.2f) {
             npc.animPhase = std::fmod(npc.animPhase + dt * spd * 2.2f, kTwoPi);
+        } else {
+            npc.animPhase = lerpf(npc.animPhase, 0.0f, dt * 8.0f);
         }
     }
 }

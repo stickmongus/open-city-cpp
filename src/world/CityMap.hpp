@@ -83,9 +83,11 @@ class CityMap {
 public:
     static constexpr int kRoadCount = 9;          // 9 N-S & 9 E-W avenues -> 8x8 city blocks
     static constexpr int kBlockCount = 8;
+    static constexpr int kSidewalkNodeCount = kRoadCount * 2; // 18 sidewalk lines (0..17)
     static constexpr float kBlockPitch = 84.0f;   // center-to-center road spacing
     static constexpr float kRoadWidth = 18.0f;    // 4-lane avenue width
     static constexpr float kSidewalkWidth = 3.5f;
+    static constexpr float kSidewalkCenterOffset = kRoadWidth * 0.5f + kSidewalkWidth * 0.5f; // 10.75m
     static constexpr float kLaneOffset = 4.2f;    // center of travel lane from road centerline
     static constexpr float kHalfCitySpan = 365.0f;
     static constexpr float kOceanBoundary = 395.0f;
@@ -96,6 +98,11 @@ public:
 
     float roadCoord(int roadIndex) const;
     int nearestRoadIndex(float coord) const;
+    float sidewalkCoord(int sidewalkNodeIndex) const;
+    int nearestSidewalkNodeIndex(float coord) const;
+    static bool isCrosswalkEdge(int fromNode, int toNode) {
+        return (fromNode != toNode) && ((fromNode / 2) == (toNode / 2));
+    }
     bool isOnRoad(const Vec2& p, float margin = 0.0f) const;
     bool isInIntersection(const Vec2& p) const;
 
@@ -115,6 +122,7 @@ public:
     bool resolveCircleWorld(Vec2& pos, float radius, Vec2* outHitNormal = nullptr) const;
     bool resolveOBBBuildings(const OBB2D& obb, Vec2& outPush) const;
     float raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDist) const;
+    float raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const;
 
 private:
     std::vector<Building> buildings_;

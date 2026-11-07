@@ -259,7 +259,7 @@ void Renderer3D::renderWorld(const GameWorld& world, const Camera3D& camera) {
         drawCharacter3D(pl.pos, pl.facingYaw, pl.walkAnimPhase,
                         {38, 128, 232, 255}, {32, 36, 46, 255}, {236, 196, 162, 255},
                         !pl.wasted, pl.currentWeapon != WeaponId::Fists,
-                        pl.currentWeapon, pl.muzzleFlashTimer);
+                        pl.currentWeapon, pl.muzzleFlashTimer, pl.aimPitch);
     }
 
     // Pedestrians & Gangsters
@@ -434,9 +434,24 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus) {
             case StreetPropKind::StreetLight: {
                 DrawCylinder({0.0f, 0.0f, 0.0f}, 0.11f, 0.15f, 6.2f, 6, Color{82, 88, 96, 255});
                 DrawCube({0.65f, 6.15f, 0.0f}, 1.4f, 0.16f, 0.22f, Color{92, 98, 108, 255});
-                if (night && !prop.broken) {
-                    DrawSphere({1.2f, 6.0f, 0.0f}, 0.28f, Color{255, 232, 162, 255});
-                    DrawCylinder({1.2f, 0.03f, 0.0f}, 3.6f, 3.6f, 0.02f, 12, Color{255, 224, 138, 42});
+                if (!prop.broken) {
+                    // Intersection traffic signal housing + live E-W / N-S signal lamps
+                    const bool ewGreen = world.isTrafficGreenForHorizontal();
+                    const bool nsGreen = world.isTrafficGreenForVertical();
+                    const Color ewCol = ewGreen ? Color{56, 238, 98, 255}
+                                                : (nsGreen ? Color{250, 62, 58, 255} : Color{255, 196, 48, 255});
+                    const Color nsCol = nsGreen ? Color{56, 238, 98, 255}
+                                                : (ewGreen ? Color{250, 62, 58, 255} : Color{255, 196, 48, 255});
+                    DrawCube({1.05f, 5.62f, 0.0f}, 0.30f, 0.72f, 0.30f, Color{26, 30, 38, 255});
+                    DrawSphere({1.21f, 5.62f, 0.0f}, 0.11f, ewCol);
+                    DrawSphere({0.89f, 5.62f, 0.0f}, 0.11f, ewCol);
+                    DrawSphere({1.05f, 5.62f, 0.16f}, 0.11f, nsCol);
+                    DrawSphere({1.05f, 5.62f, -0.16f}, 0.11f, nsCol);
+
+                    if (night) {
+                        DrawSphere({1.2f, 6.0f, 0.0f}, 0.26f, Color{255, 232, 162, 255});
+                        DrawCylinder({1.2f, 0.03f, 0.0f}, 3.6f, 3.6f, 0.02f, 12, Color{255, 224, 138, 42});
+                    }
                 }
                 break;
             }
@@ -557,7 +572,8 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode) {
 
 void Renderer3D::drawCharacter3D(const Vec2& pos, float yaw, float animPhase,
                                  ColorRGBA top, ColorRGBA bottom, ColorRGBA skin,
-                                 bool alive, bool armed, WeaponId weapon, float muzzleFlash) {
+                                 bool alive, bool armed, WeaponId weapon, float muzzleFlash,
+                                 float aimPitch) {
     rlPushMatrix();
     rlTranslatef(pos.x, 0.0f, pos.z);
     rlRotatef(-yaw * kRadToDeg, 0.0f, 1.0f, 0.0f);
@@ -589,16 +605,23 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float yaw, float animPhase,
     // Torso
     DrawCube({0.0f, 1.08f, 0.0f}, 0.28f, 0.64f, 0.44f, topC);
 
-    // Head + Hair cap
-    DrawCube({0.0f, 1.56f, 0.0f}, 0.28f, 0.28f, 0.28f, skinC);
-    DrawCube({-0.02f, 1.68f, 0.0f}, 0.30f, 0.09f, 0.30f, Color{38, 32, 28, 255});
+    // Head + Hair cap (tilts naturally with vertical aim)
+    rlPushMatrix();
+    rlTranslatef(0.0f, 1.44f, 0.0f);
+    if (alive) {
+        rlRotatef(clampf(aimPitch * 0.65f, -0.65f, 0.75f) * kRadToDeg, 0.0f, 0.0f, 1.0f);
+    }
+    DrawCube({0.0f, 0.12f, 0.0f}, 0.28f, 0.28f, 0.28f, skinC);
+    DrawCube({-0.02f, 0.24f, 0.0f}, 0.30f, 0.09f, 0.30f, Color{38, 32, 28, 255});
+    rlPopMatrix();
 
     // Arms & Equipped Weapon
     for (int side = -1; side <= 1; side += 2) {
         rlPushMatrix();
         rlTranslatef(0.0f, 1.32f, static_cast<float>(side) * 0.28f);
         if (armed && side == 1 && alive) {
-            // Right arm raised aiming weapon forward (+X)
+            // Right arm raised aiming weapon along exact 3D elevation pitch
+            rlRotatef(aimPitch * kRadToDeg, 0.0f, 0.0f, 1.0f);
             DrawCube({0.26f, -0.04f, 0.0f}, 0.52f, 0.15f, 0.15f, topC);
             const float gunLen = (weapon == WeaponId::AssaultRifle || weapon == WeaponId::Shotgun) ? 0.62f : 0.34f;
             DrawCube({0.54f, 0.02f, 0.0f}, gunLen, 0.11f, 0.09f, Color{32, 35, 42, 255});

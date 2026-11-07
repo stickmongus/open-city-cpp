@@ -132,6 +132,10 @@ struct PlayerState {
     float fireCooldown = 0.0f;
     float reloadTimer = 0.0f;
     float muzzleFlashTimer = 0.0f;
+    float aimPitch = 0.0f;
+    float hitMarkerTimer = 0.0f;
+    bool hitMarkerCritical = false;
+    bool crosshairOnTarget = false;
 
     bool wasted = false;
     float wastedTimer = 0.0f;
@@ -170,6 +174,16 @@ struct NpcCharacter {
     bool alive = true;
     float corpseTimer = 0.0f;
     bool missionTarget = false;
+
+    // Sidewalk & crosswalk lattice navigation / turf patrol state
+    int navFromU = 8;
+    int navFromV = 8;
+    int navToU = 9;
+    int navToV = 8;
+    float walkSpeed = 1.65f;
+    float idlePauseTimer = 0.0f;
+    Vec2 homeAnchor{0.0f, 0.0f};
+    bool waitingAtCrosswalk = false;
 };
 
 enum class PickupKind {
@@ -268,6 +282,10 @@ struct PlayerInput {
     float moveRight = 0.0f;     // [-1, 1] D/A
     float cameraYaw = 0.0f;     // Horizontal camera yaw radians
     float aimYaw = 0.0f;        // World aim direction yaw on XZ plane
+    float aimPitch = 0.0f;      // World aim elevation radians (-down, +up)
+    bool hasAimRay3D = false;   // True when 3D camera crosshair ray is supplied
+    Vec3 aimRayOrigin{0.0f, 0.0f, 0.0f};
+    Vec3 aimRayDir{1.0f, 0.0f, 0.0f};
     bool sprintOrNitro = false; // Left Shift
     bool handbrake = false;     // Space
     bool interactPressed = false; // F or E

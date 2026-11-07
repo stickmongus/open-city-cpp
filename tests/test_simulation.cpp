@@ -256,6 +256,138 @@ void testAllThreeMissionsCompletion() {
     ++gTestsPassed;
 }
 
+void test3DCrosshairAimAndHeadshots() {
+    oc::GameWorld world(2026ULL);
+
+    // Clear vehicles around central intersection so line of sight is completely open
+    for (auto& v : world.vehicles()) {
+        v.pos = {260.0f, 260.0f};
+        v.velocity = {0.0f, 0.0f};
+    }
+
+    // Position player at (0, 0) and place an armed target 22m East at (22, 0)
+    world.player().pos = {0.0f, 0.0f};
+    world.player().currentWeapon = oc::WeaponId::Pistol;
+
+    ASSERT_TRUE(world.startMissionFromPoi(oc::PoiKind::MissionGangRaid));
+    int targetIdx = -1;
+    for (std::size_t i = 0; i < world.npcs().size(); ++i) {
+        if (world.npcs()[i].missionTarget && world.npcs()[i].alive) {
+            targetIdx = static_cast<int>(i);
+            break;
+        }
+    }
+    ASSERT_TRUE(targetIdx >= 0);
+
+    // Move target into open sightline by shooting from right next to its raid zone on an open road
+    const oc::Vec2 targetPos{168.0f, 200.0f};
+    // Put player 20m South of target on Northbound avenue x = 168
+    world.player().pos = {168.0f, 220.0f};
+
+    // Simulate a shoulder-offset 3D camera (+0.56m right of player, y = 2.15m) aiming directly at an NPC's head!
+    // Find an alive civilian or gangster and place player 18m away with clear LOS
+    const oc::NpcCharacter* victim = nullptr;
+    for (const auto& n : world.npcs()) {
+        if (n.missionTarget && n.alive) {
+            victim = &n;
+            break;
+        }
+    }
+    ASSERT_TRUE(victim != nullptr);
+    (void)targetPos;
+
+    world.player().pos = victim->pos + oc::Vec2{-16.0f, 0.0f};
+    // Ensure player is outside buildings
+    world.city().resolveCircleWorld(world.player().pos, 0.5f);
+
+    const oc::Vec3 camOrigin{world.player().pos.x - 3.1f, 2.25f, world.player().pos.z + 0.56f};
+    const oc::Vec3 victimHead{victim->pos.x, 1.56f, victim->pos.z};
+    const oc::Vec3 camRayDir = (victimHead - camOrigin).normalized();
+
+    const float hpBefore = victim->health;
+    oc::PlayerInput aimShot{};
+    aimShot.hasAimRay3D = true;
+    aimShot.aimRayOrigin = camOrigin;
+    aimShot.aimRayDir = camRayDir;
+    aimShot.aimYaw = std::atan2(camRayDir.z, camRayDir.x);
+    aimShot.aimPitch = std::asin(camRayDir.y);
+    aimShot.aimHeld = true;
+    aimShot.fireHeld = true;
+
+    world.update(1.0f / 60.0f, aimShot);
+
+    // Verify shoulder-offset camera ray converged accurately onto the target's head (1.85x critical!)
+    ASSERT_TRUE(world.player().hitMarkerTimer > 0.0f);
+    ASSERT_TRUE(world.player().hitMarkerCritical);
+    ASSERT_TRUE(!world.tracers().empty());
+    ASSERT_TRUE(world.tracers().back().end.y >= 1.38f);
+    ASSERT_TRUE(victim->health < hpBefore - 55.0f);
+
+    ++gTestsPassed;
+}
+
+void testSidewalkPedestrianDiscipline() {
+    oc::GameWorld world(5150ULL);
+    // Place player quietly in Central Park so no gunshots panic civilians
+    world.player().pos = {-42.0f, -42.0f};
+
+    for (int step = 0; step < 600; ++step) {
+        world.update(1.0f / 60.0f, {});
+
+        for (const auto& npc : world.npcs()) {
+            if (!npc.alive || npc.role != oc::NpcRole::Civilian) continue;
+            if (npc.behavior != oc::NpcBehavior::Stroll) continue;
+
+            // 1. Never inside any building footprint
+            for (const auto& b : world.city().buildings()) {
+                ASSERT_TRUE(!b.footprint.contains(npc.pos));
+            }
+
+            // 2. If on road asphalt, MUST be within an intersection crosswalk zone (never jaywalking mid-block!)
+            if (world.city().isOnRoad(npc.pos, -0.55f)) {
+                const float rx = world.city().roadCoord(world.city().nearestRoadIndex(npc.pos.x));
+                const float rz = world.city().roadCoord(world.city().nearestRoadIndex(npc.pos.z));
+                const bool inCrosswalkZone = (std::abs(npc.pos.x - rx) <= 13.0f) &&
+                                             (std::abs(npc.pos.z - rz) <= 13.0f);
+                ASSERT_TRUE(inCrosswalkZone);
+            }
+        }
+    }
+
+    ++gTestsPassed;
+}
+
+void testUpwardCameraAndSkyscraperRaycast() {
+    oc::CityMap city;
+    // Verify upward pitch (+62 deg) produces positive upward view vector
+    const oc::Vec3 upDir = oc::directionFromYawPitch(0.0f, 1.08f);
+    ASSERT_TRUE(upDir.y > 0.85f);
+    ASSERT_TRUE(std::abs(upDir.length() - 1.0f) < 1e-4f);
+
+    // Pick a tall skyscraper and raycast upward at its upper wall vs over its roof
+    const oc::Building* tall = nullptr;
+    for (const auto& b : city.buildings()) {
+        if (b.height > 45.0f) {
+            tall = &b;
+            break;
+        }
+    }
+    ASSERT_TRUE(tall != nullptr);
+
+    const oc::Vec2 center = tall->footprint.center();
+    const oc::Vec3 streetOrigin{tall->footprint.min.x - 10.0f, 1.5f, center.z};
+    const oc::Vec3 midTowerTarget{center.x, tall->height * 0.75f, center.z};
+    const oc::Vec3 rayHitDir = (midTowerTarget - streetOrigin).normalized();
+    const float hitDist = city.raycastBuildings3D(streetOrigin, rayHitDir, 150.0f);
+    ASSERT_TRUE(hitDist > 0.0f && hitDist < 60.0f);
+
+    // Aiming steep skyward away from buildings returns -1 (clear sky)
+    const float skyDist = city.raycastBuildings3D({0.0f, 1.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, 200.0f);
+    ASSERT_TRUE(skyDist < 0.0f);
+
+    ++gTestsPassed;
+}
+
 } // namespace
 
 int main() {
@@ -264,6 +396,9 @@ int main() {
     testVehicleDrivingAndDriftingCashBonus();
     testWeaponsShopsAndGarage();
     testAllThreeMissionsCompletion();
+    test3DCrosshairAimAndHeadshots();
+    testSidewalkPedestrianDiscipline();
+    testUpwardCameraAndSkyscraperRaycast();
 
     std::cout << "[PASS] All " << gTestsPassed << " Open City C++ simulation test suites succeeded!\n";
     return 0;

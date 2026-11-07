@@ -42,10 +42,14 @@ public:
     const MissionState& mission() const { return mission_; }
     const BannerNotification& banner() const { return banner_; }
 
-    // Time of day in [0, 24), starting at golden morning 09:30
+    // Time of day in [0, 24), starting at golden morning 10:00
     float timeOfDayHours() const { return timeOfDayHours_; }
     bool isNightTime() const { return timeOfDayHours_ < 6.2f || timeOfDayHours_ >= 19.3f; }
     float daylightFactor() const;
+
+    // City-wide traffic & pedestrian signal phases (24s cycle)
+    bool isTrafficGreenForHorizontal() const;
+    bool isTrafficGreenForVertical() const;
 
     // Context prompts near shops / vehicles / missions
     const PointOfInterest* activePoiNearPlayer() const { return activePoi_; }
@@ -56,6 +60,25 @@ public:
     std::vector<AudioEvent> consumeAudioEvents();
 
 private:
+    struct RayHit3D {
+        enum class Kind {
+            None,
+            Ground,
+            Building,
+            Npc,
+            Vehicle,
+            Prop
+        };
+
+        Kind kind = Kind::None;
+        float dist = 0.0f;
+        Vec3 point{};
+        NpcCharacter* npc = nullptr;
+        bool headshot = false;
+        Vehicle* vehicle = nullptr;
+        StreetProp* prop = nullptr;
+    };
+
     void spawnInitialWorld();
     void spawnParkedShowroomCars();
     void maintainTrafficPopulation();
@@ -64,7 +87,8 @@ private:
     void updatePlayerOnFoot(float dt, const PlayerInput& input);
     void updatePlayerDriving(float dt, const PlayerInput& input, Vehicle& car);
     void updateWeaponCombat(float dt, const PlayerInput& input);
-    void fireWeapon(WeaponId weaponId, const Vec2& origin, float aimYaw);
+    RayHit3D traceWorldRay3D(const Vec3& origin, const Vec3& dir, float maxDist);
+    void fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& target3D, bool precisionAim);
 
     void updateVehicles(float dt);
     void updateTrafficAi(float dt, Vehicle& v);
@@ -74,6 +98,8 @@ private:
     void explodeVehicle(Vehicle& v);
 
     void updateNpcs(float dt);
+    bool isCrosswalkSafeForPedestrian(int fromU, int fromV, int toU, int toV) const;
+    void chooseNextSidewalkTarget(NpcCharacter& npc, bool fleeing, const Vec2& dangerPos);
     void triggerCivilianPanicNear(const Vec2& origin, float radius);
     void damageNpc(NpcCharacter& npc, float dmg, const Vec2& hitDir);
 
@@ -111,6 +137,7 @@ private:
     const PointOfInterest* activePoi_ = nullptr;
 
     float timeOfDayHours_ = 10.0f; // 10:00 AM bright sunny start
+    float trafficSignalTimer_ = 0.0f; // [0, 24) intersection traffic/crosswalk cycle
 };
 
 } // namespace oc
