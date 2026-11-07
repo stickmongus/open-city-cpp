@@ -93,15 +93,25 @@ jobs:
       - name: Create or Update Release v0.1.0
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
         run: |
           TAG_NAME="v0.1.0"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             TAG_NAME="${GITHUB_REF#refs/tags/}"
           fi
-          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
-            gh release upload "${TAG_NAME}" release-assets/* --clobber
+          cat <<'EOF' > release_notes.md
+          ### 바로 실행하기 (Windows 10 / 11)
+          1. 아래 **Assets**에서 **`OpenCity-Windows-x64.zip`** 파일을 다운로드합니다.
+          2. 압축을 풀고 **`open_city.exe`** 를 더블클릭하면 별도 설치 없이 바로 실행됩니다!
+          EOF
+          ls -la release-assets
+          if gh release view "${TAG_NAME}" -R "${REPO}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" release-assets/* --clobber -R "${REPO}"
           else
             gh release create "${TAG_NAME}" release-assets/* \
+              -R "${REPO}" \
+              --target "${SHA}" \
               --title "Open City C++ ${TAG_NAME} (Windows .exe & Linux)" \
-              --notes "설치 없이 바로 실행 가능한 **Windows x64 실행 파일 (\`OpenCity-Windows-x64.zip\`)** 입니다. 압축을 풀고 \`open_city.exe\`를 실행하세요!"
+              --notes-file release_notes.md
           fi
