@@ -1,0 +1,27 @@
+# Build directories
+build/
+build-*/
+out/
+cmake-build-*/
+_deps/
+
+# Compiled binaries & artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.obj
+*.o
+*.pdb
+*.ilk
+*.lib
+*.a
+*.zip
+
+# IDE & OS files
+.vscode/
+.idea/
+.vs/
+compile_commands.json
+.DS_Store
+Thumbs.db

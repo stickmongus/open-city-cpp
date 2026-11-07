@@ -1,0 +1,107 @@
+name: Build & Package (Windows .exe & Linux)
+
+on:
+  push:
+    branches: [ main, "feat/**" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Linux x64 Build & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenGL & X11 dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev
+
+      - name: Configure & Build (Release)
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Run Simulation Unit Tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package Linux Binary
+        run: |
+          mkdir -p dist/OpenCity-Linux-x64
+          cp build/open_city dist/OpenCity-Linux-x64/
+          cp README.md dist/OpenCity-Linux-x64/
+          tar -czf OpenCity-Linux-x64.tar.gz -C dist OpenCity-Linux-x64
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenCity-Linux-x64
+          path: OpenCity-Linux-x64.tar.gz
+
+  build-windows:
+    name: Windows x64 Standalone .exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake (MSVC x64 Release)
+        run: cmake -B build -A x64
+
+      - name: Build Standalone open_city.exe
+        run: cmake --build build --config Release --parallel
+
+      - name: Run Simulation Unit Tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Package OpenCity-Windows-x64.zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/OpenCity-Windows-x64 | Out-Null
+          Copy-Item build/Release/open_city.exe dist/OpenCity-Windows-x64/open_city.exe
+          Copy-Item README.md dist/OpenCity-Windows-x64/README.md
+          Compress-Archive -Path dist/OpenCity-Windows-x64/* -DestinationPath OpenCity-Windows-x64.zip -Force
+
+      - name: Upload Windows .exe Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenCity-Windows-x64
+          path: OpenCity-Windows-x64.zip
+
+  publish-release:
+    name: Update Latest GitHub Release (.exe)
+    needs: [build-linux, build-windows]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenCity-Windows-x64
+          path: release-assets
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenCity-Linux-x64
+          path: release-assets
+
+      - name: Create or Update Release v0.1.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="v0.1.0"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          fi
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" release-assets/* --clobber
+          else
+            gh release create "${TAG_NAME}" release-assets/* \
+              --title "Open City C++ ${TAG_NAME} (Windows .exe & Linux)" \
+              --notes "설치 없이 바로 실행 가능한 **Windows x64 실행 파일 (\`OpenCity-Windows-x64.zip\`)** 입니다. 압축을 풀고 \`open_city.exe\`를 실행하세요!"
+          fi
