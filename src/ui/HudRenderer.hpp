@@ -21,6 +21,7 @@ public:
     bool isShopMenuOpen() const { return shopMenuOpen_; }
     void setShopMenuOpen(bool open) { shopMenuOpen_ = open; }
 
+    void showGraphicsToast(const char* labelEn, const char* labelKo);
     void renderHud(const GameWorld& world, float cameraYaw, bool cursorLocked);
 
 private:
@@ -46,6 +47,9 @@ private:
     bool useKorean_ = true;
     bool showHelp_ = true;
     bool shopMenuOpen_ = false;
+    std::string gfxToastEn_;
+    std::string gfxToastKo_;
+    float gfxToastTimer_ = 0.0f;
 };
 
 } // namespace oc

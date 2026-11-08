@@ -26,7 +26,8 @@ const char* kKoreanGlyphCorpus =
     "타탁탄탈탐탑탕태택탠터턱턴털텀테텐텔토톡톤톨통퇴투툭툰툴퉁튀튜트특튼틀틈티틱틴틸팀팅"
     "파팍판팔팜팝팡패팩팬퍼퍽펀펄펌페펜펠펴편펼평폐포폭폰폴폼표푸푹푼풀품풍프픈플픔피픽핀필핍핑"
     "하학한할함합항해핵핸햄햇행향허헌험헤헬혀혁현혈혐협형혜호혹혼홀홈홍화확환활황회획횟효후훈훌훔훨휘휴흉흐흑흔흘흠흡흥희흰히힌힐힘"
-    "★·—";
+    "높빛맑윤곽★·—";
+
 
 } // namespace
 
@@ -124,9 +125,18 @@ float HudRenderer::measureUiText(const char* text, float fontSize) const {
     return static_cast<float>(MeasureText(text, std::max(10, static_cast<int>(fontSize))));
 }
 
+void HudRenderer::showGraphicsToast(const char* labelEn, const char* labelKo) {
+    gfxToastEn_ = std::string("GRAPHICS: ") + (labelEn ? labelEn : "");
+    gfxToastKo_ = std::string("그래픽 품질: ") + (labelKo ? labelKo : "");
+    gfxToastTimer_ = 2.4f;
+}
+
 void HudRenderer::renderHud(const GameWorld& world, float cameraYaw, bool cursorLocked) {
     const int sw = GetScreenWidth();
     const int sh = GetScreenHeight();
+    if (gfxToastTimer_ > 0.0f) {
+        gfxToastTimer_ = std::max(0.0f, gfxToastTimer_ - GetFrameTime());
+    }
 
     // Automatically close shop modal if player walked/drove away from shop zone
     if (shopMenuOpen_ && !world.isPlayerInWeaponShopZone() && !world.isPlayerInGarageZone()) {
@@ -526,12 +536,25 @@ void HudRenderer::drawShopModal(const GameWorld& world, int screenW, int screenH
 }
 
 void HudRenderer::drawBannerToast(const GameWorld& world, int screenW, int screenH) {
+    const float midX = static_cast<float>(screenW) * 0.5f;
+
+    if (gfxToastTimer_ > 0.0f) {
+        const float ga = clampf(gfxToastTimer_ * 2.0f, 0.0f, 1.0f);
+        const char* gtxt = pickText(gfxToastEn_.c_str(), gfxToastKo_.c_str());
+        const float gw = measureUiText(gtxt, 19.0f);
+        const float gy = static_cast<float>(screenH) - 112.0f;
+        DrawRectangleRounded({midX - gw * 0.5f - 16.0f, gy - 6.0f, gw + 32.0f, 32.0f},
+                             0.35f, 6, Color{10, 16, 26, static_cast<unsigned char>(215.0f * ga)});
+        DrawRectangleRoundedLinesEx({midX - gw * 0.5f - 16.0f, gy - 6.0f, gw + 32.0f, 32.0f},
+                                    0.35f, 6, 1.4f, Color{86, 212, 255, static_cast<unsigned char>(220.0f * ga)});
+        drawUiText(gtxt, midX - gw * 0.5f, gy, 19.0f, Color{128, 228, 255, static_cast<unsigned char>(255.0f * ga)});
+    }
+
     const auto& b = world.banner();
     if (b.timer <= 0.0f) return;
 
     const float alpha = clampf(b.timer * 1.8f, 0.0f, 1.0f);
     const unsigned char aByte = static_cast<unsigned char>(alpha * 255.0f);
-    const float midX = static_cast<float>(screenW) * 0.5f;
     const float y = static_cast<float>(screenH) * 0.17f;
 
     const char* title = pickText(b.titleEn.c_str(), b.titleKo.c_str());
@@ -554,7 +577,8 @@ void HudRenderer::drawHelpOverlay(int screenW, int screenH, bool cursorLocked) {
         return;
     }
 
-    DrawRectangleRounded({18.0f, 16.0f, 386.0f, 228.0f}, 0.08f, 6, Color{12, 16, 24, 198});
+    DrawRectangleRounded({18.0f, 16.0f, 396.0f, 228.0f}, 0.08f, 6, Color{10, 15, 24, 192});
+    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 396.0f, 228.0f}, 0.08f, 6, 1.2f, Color{72, 148, 205, 110});
     drawUiText(pickText("OPEN CITY C++ - CONTROLS", "OPEN CITY C++ - 조작 안내"),
                30.0f, 24.0f, 19.0f, Color{98, 220, 255, 255});
 
@@ -565,7 +589,7 @@ void HudRenderer::drawHelpOverlay(int screenW, int screenH, bool cursorLocked) {
         "Space : Handbrake Drift   |   Shift : Sprint / Nitro",
         "1-5 : Switch Weapons   |   R : Reload   |   G : Horn",
         "B : Weapon Shop / Tune Garage Menu",
-        "T : Skip Time (+3h)  |  C : Rear View  |  I : Invert Y",
+        "T : Time (+3h) | V : Graphics | C : Rear | I : Inv Y",
         "Tab : Mouse Lock   |   L : Lang   |   F11 : Full   |   H : Hide"
     };
     const char* linesKo[8] = {
@@ -575,7 +599,7 @@ void HudRenderer::drawHelpOverlay(int screenW, int screenH, bool cursorLocked) {
         "Space : 핸드브레이크 드리프트  |  Shift : 달리기·니트로",
         "1~5 : 무기 교체   |   R : 재장전   |   G : 경적",
         "B : 무기 상점 / 튜닝 차고 메뉴 열기",
-        "T : 낮/밤 변경 (+3시간) | C : 후방 시점 | I : 상하반전",
+        "T : 시간변경 | V : 그래픽품질 | C : 후방 | I : 상하반전",
         "Tab : 마우스 잠금  |  L : 한/영 전환  |  H : 안내 숨김"
     };
 

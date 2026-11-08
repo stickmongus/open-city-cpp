@@ -5,22 +5,37 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <raylib.h>
 
 int main(int argc, char** argv) {
     bool smokeTestMode = false;
     const char* screenshotPath = nullptr;
+    float initialTimeOverride = -1.0f;
+    float initialPitchOverride = -999.0f;
+    float initialYawOverride = -999.0f;
+    bool hideHelpInSmoke = false;
+
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--smoke-test") == 0) {
             smokeTestMode = true;
         } else if (std::strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
             screenshotPath = argv[++i];
             smokeTestMode = true;
+        } else if (std::strcmp(argv[i], "--time") == 0 && i + 1 < argc) {
+            initialTimeOverride = std::strtof(argv[++i], nullptr);
+        } else if (std::strcmp(argv[i], "--pitch") == 0 && i + 1 < argc) {
+            initialPitchOverride = std::strtof(argv[++i], nullptr);
+        } else if (std::strcmp(argv[i], "--yaw") == 0 && i + 1 < argc) {
+            initialYawOverride = std::strtof(argv[++i], nullptr);
+        } else if (std::strcmp(argv[i], "--no-help") == 0) {
+            hideHelpInSmoke = true;
         }
     }
+
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1440, 860, "Open City C++ - 3D Open-World Sandbox");
+    InitWindow(1440, 860, "Open City C++ v0.3.0 - 3D Open-World Sandbox");
     SetExitKey(KEY_NULL); // Keep ESC free for menu/cursor release instead of instant quit
     SetTargetFPS(60);
 
@@ -33,12 +48,20 @@ int main(int argc, char** argv) {
     hud.init();
     audio.init();
 
+    if (initialTimeOverride >= 0.0f) {
+        const float deltaH = initialTimeOverride - world.timeOfDayHours();
+        world.advanceTimeOfDayHours(deltaH >= 0.0f ? deltaH : (deltaH + 24.0f));
+    }
+    if (hideHelpInSmoke) {
+        hud.toggleHelpOverlay();
+    }
+
     bool cursorLocked = true;
     bool invertMouseY = false;
     DisableCursor();
 
-    float camYaw = -oc::kHalfPi;
-    float camPitch = -0.14f; // View elevation radians: negative looks down, positive looks up into sky!
+    float camYaw = (initialYawOverride > -100.0f) ? initialYawOverride : -oc::kHalfPi;
+    float camPitch = (initialPitchOverride > -100.0f) ? initialPitchOverride : -0.10f;
     float smoothedPitch = camPitch;
     float manualCamHoldTimer = 0.0f;
     float smoothedFov = 58.0f;
@@ -73,6 +96,10 @@ int main(int argc, char** argv) {
         if (IsKeyPressed(KEY_I)) {
             invertMouseY = !invertMouseY;
         }
+        if (IsKeyPressed(KEY_V)) {
+            renderer.cycleQuality();
+            hud.showGraphicsToast(renderer.qualityNameEn(), renderer.qualityNameKo());
+        }
         if (IsKeyPressed(KEY_T)) {
             world.advanceTimeOfDayHours(3.0f);
         }
@@ -106,7 +133,7 @@ int main(int argc, char** argv) {
                                              ? oc::wrapAngle(car->heading + oc::kPi)
                                              : car->heading;
                 camYaw = oc::moveTowardsAngle(camYaw, desiredYaw, frameDt * 2.8f);
-                camPitch = oc::lerpf(camPitch, -0.18f, frameDt * 3.0f);
+                camPitch = oc::lerpf(camPitch, -0.16f, frameDt * 3.0f);
             }
         }
 
@@ -240,20 +267,15 @@ int main(int argc, char** argv) {
         camera.fovy = smoothedFov;
         camera.projection = CAMERA_PERSPECTIVE;
 
-        // Render frame
+        // Render full 3D pipeline (Shadow Map -> Sky/PBR-lite City -> HDR Bloom + ACES) + crisp 2D HUD
         BeginDrawing();
-        ClearBackground(renderer.computeSkyColor(world));
-
-        BeginMode3D(camera);
-        renderer.renderWorld(world, camera);
-        EndMode3D();
-
+        renderer.renderFrame(world, camera);
         hud.renderHud(world, renderYaw, cursorLocked);
         EndDrawing();
 
         if (smokeTestMode) {
             static int framesRendered = 0;
-            if (++framesRendered >= 5) {
+            if (++framesRendered >= 6) {
                 if (screenshotPath != nullptr) {
                     TakeScreenshot(screenshotPath);
                 }
