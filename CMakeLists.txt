@@ -9,7 +9,7 @@ endif()
 # without requiring a separate VC++ Redistributable install.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(open_city VERSION 0.3.0 LANGUAGES C CXX)
+project(open_city VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

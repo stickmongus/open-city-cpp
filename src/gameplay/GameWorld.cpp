@@ -9,20 +9,62 @@ namespace oc {
 namespace {
 
 constexpr std::array<VehicleSpec, static_cast<std::size_t>(VehicleKind::Count)> kVehicleSpecs = {{
-    {VehicleKind::SportsCoupe, "APEX GT",      "에이펙스 GT 스포츠카", 2.28f, 1.02f, 1.12f, 44.0f, 15.0f, 27.5f, 36.0f, 2.75f, 10.2f, 2.25f, 1320.0f, 165.0f, true},
-    {VehicleKind::MuscleCar,   "V8 DOMINATOR", "V8 도미네이터 머슬카", 2.36f, 1.04f, 1.18f, 40.0f, 14.0f, 26.0f, 32.0f, 2.65f, 8.4f,  1.85f, 1520.0f, 185.0f, false},
-    {VehicleKind::SUV,         "TITAN 4X4",    "타이탄 4X4 SUV",       2.48f, 1.12f, 1.54f, 34.5f, 13.0f, 21.0f, 30.0f, 2.35f, 9.2f,  2.50f, 2150.0f, 250.0f, false},
-    {VehicleKind::Taxi,        "METRO CAB",    "메트로 시티 택시",     2.24f, 1.00f, 1.26f, 35.5f, 13.5f, 22.0f, 32.0f, 2.60f, 9.4f,  2.20f, 1450.0f, 175.0f, false},
-    {VehicleKind::Compact,     "COMET HATCH",  "코멧 해치백",          1.96f, 0.95f, 1.22f, 34.0f, 13.5f, 23.0f, 33.0f, 2.95f, 9.8f,  2.15f, 1180.0f, 145.0f, false},
-    {VehicleKind::DeliveryVan, "CARGO RUNNER", "카고 러너 밴",         2.68f, 1.14f, 1.86f, 29.5f, 11.0f, 17.5f, 28.0f, 2.05f, 8.8f,  2.75f, 2550.0f, 290.0f, false}
+    {VehicleKind::SportsCoupe, "APEX GT",       "에이펙스 GT 스포츠카",   2.28f, 1.03f, 1.14f, 44.5f, 15.0f, 28.0f, 36.0f, 2.75f, 10.2f, 2.25f, 1340.0f, 175.0f, true,   4800},
+    {VehicleKind::MuscleCar,   "DOMINATOR V8",  "도미네이터 V8 머슬카",   2.38f, 1.04f, 1.18f, 41.0f, 14.0f, 26.5f, 32.0f, 2.65f, 8.4f,  1.85f, 1540.0f, 195.0f, false,  3800},
+    {VehicleKind::SUV,         "CAVALCADE XL",  "캐벌케이드 XL SUV",      2.48f, 1.12f, 1.54f, 35.0f, 13.0f, 21.5f, 30.0f, 2.35f, 9.2f,  2.50f, 2150.0f, 255.0f, false,  3200},
+    {VehicleKind::Taxi,        "METRO CAB",     "메트로 시티 택시",       2.26f, 1.00f, 1.26f, 35.5f, 13.5f, 22.0f, 32.0f, 2.60f, 9.4f,  2.20f, 1450.0f, 175.0f, false,     0},
+    {VehicleKind::Compact,     "BLISTA HATCH",  "블리스타 핫해치",        1.98f, 0.96f, 1.22f, 35.0f, 13.5f, 23.5f, 33.0f, 2.95f, 9.8f,  2.15f, 1180.0f, 150.0f, false,  1200},
+    {VehicleKind::DeliveryVan, "CARGO RUNNER",  "카고 러너 밴",           2.68f, 1.14f, 1.86f, 29.5f, 11.0f, 17.5f, 28.0f, 2.05f, 8.8f,  2.75f, 2550.0f, 290.0f, false,     0},
+    {VehicleKind::Hypercar,    "ZENTORNO X",    "젠토르노 X 하이퍼카",    2.36f, 1.08f, 1.05f, 52.5f, 16.5f, 34.0f, 41.0f, 2.90f, 11.4f, 2.35f, 1280.0f, 210.0f, true,  22000},
+    {VehicleKind::ArmoredSuv,  "INSURGENT VIP", "인서전트 VIP 방탄차",    2.58f, 1.16f, 1.66f, 38.5f, 14.0f, 25.0f, 34.0f, 2.30f, 9.6f,  2.40f, 3400.0f, 440.0f, false, 12000},
+    {VehicleKind::LuxurySedan, "COGNOSCENTI S", "코뇨센티 S 럭셔리 세단", 2.46f, 1.04f, 1.24f, 42.5f, 14.5f, 26.0f, 35.0f, 2.55f, 10.0f, 2.15f, 1780.0f, 225.0f, false,  6500}
 }};
 
 constexpr std::array<WeaponSpec, static_cast<std::size_t>(WeaponId::Count)> kWeaponSpecs = {{
-    {WeaponId::Fists,        "Fists",         "맨주먹 격투", 0.36f,  2.4f,  28.0f, 1, 0.08f,   0, 0.0f,  false},
-    {WeaponId::Pistol,       "9mm Pistol",    "9mm 권총",    0.22f, 68.0f,  35.0f, 1, 0.010f, 12, 1.05f, false},
-    {WeaponId::SMG,          "Tactical SMG",  "전술 기관단총", 0.085f, 58.0f, 23.0f, 1, 0.030f, 30, 1.25f, true},
-    {WeaponId::Shotgun,      "Pump Shotgun",  "펌프 샷건",   0.68f, 36.0f,  20.0f, 7, 0.095f,  8, 1.55f, false},
-    {WeaponId::AssaultRifle, "Carbine Rifle", "돌격 카빈소총", 0.105f, 88.0f, 32.0f, 1, 0.015f, 30, 1.40f, true}
+    {WeaponId::Fists,         "Fists",            "맨주먹 격투",      0.36f,  2.4f,  28.0f, 1, 0.080f,  0, 0.00f, false, false},
+    {WeaponId::Pistol,        "9mm Pistol",       "9mm 권총",         0.22f, 68.0f,  35.0f, 1, 0.010f, 12, 1.05f, false, false},
+    {WeaponId::SMG,           "Tactical SMG",     "전술 기관단총",    0.085f, 58.0f, 23.0f, 1, 0.030f, 30, 1.25f, true,  false},
+    {WeaponId::Shotgun,       "Pump Shotgun",     "펌프 샷건",        0.68f, 36.0f,  20.0f, 7, 0.095f,  8, 1.55f, false, false},
+    {WeaponId::AssaultRifle,  "Carbine Rifle",    "돌격 카빈소총",    0.105f, 88.0f, 32.0f, 1, 0.015f, 30, 1.40f, true,  false},
+    {WeaponId::CombatMG,      "Combat MG",        "컴뱃 중기관총",    0.078f, 96.0f, 40.0f, 1, 0.018f, 80, 1.85f, true,  false},
+    {WeaponId::HeavyLauncher, "Tactical Launcher","전술 폭발 런처",   0.95f, 115.0f, 185.0f, 1, 0.006f,  4, 2.10f, false, true}
+}};
+
+constexpr std::array<PropertySpec, static_cast<std::size_t>(PropertyId::Count)> kPropertySpecs = {{
+    {PropertyId::SunsetCondo,      "Sunset Beach Condo",   "선셋 비치 오션뷰 콘도",   "Max HP +25",        "최대 체력 +25",           2500,  220, {-280.0f, -120.0f}},
+    {PropertyId::GlobeOilGas,      "Globe Oil Station",    "글로브 오일 주유소",      "2x Nitro Regen",    "니트로 충전속도 2배",      5000,  480, {-126.0f,   26.5f}},
+    {PropertyId::PayNTuneFranchise,"Pay 'n' Tune Customs", "페이 앤 튠 튜닝 본점",    "50% Off Tuning",    "차고 튜닝·수리 50% 할인",  8500,  850, { -28.5f,   19.0f}},
+    {PropertyId::PulseNightclub,   "Pulse Neon Nightclub", "펄스 네온 나이트클럽",    "+25% Mission Cash", "미션 보상금 +25% 보너스", 15000, 1550, {  28.0f, -153.0f}},
+    {PropertyId::LuxuryShowroom,   "Luxury Autos Stake",   "럭셔리 오토 전시장 지분", "+30% Car Armor",    "호출 차량 내구도 +30%",   25000, 2700, { 116.5f,   20.0f}},
+    {PropertyId::EclipsePenthouse, "Eclipse Penthouse",    "이클립스 스카이 펜트하우스","HP/Armor 150",     "최대체력·방탄 150 & 무료치료", 45000, 5200, {  52.0f, -132.0f}}
+}};
+
+constexpr std::array<OutfitSpec, static_cast<std::size_t>(OutfitId::Count)> kOutfitSpecs = {{
+    {OutfitId::StreetCasual,   "Street Jacket",    "스트리트 캐주얼 재킷",   0, { 48, 126, 225, 255}, { 36,  40,  52, 255}, {236, 240, 248, 255}, true,  false, false, false, 1.00f},
+    {OutfitId::ViceWhiteSuit,  "Vice White Suit",  "바이스 화이트 수트",   800, {238, 240, 245, 255}, {225, 228, 236, 255}, { 46, 198, 238, 255}, true,  true,  false, false, 0.96f},
+    {OutfitId::MidnightTuxedo, "Executive Tuxedo", "다운타운 블랙 턱시도",1500, { 24,  26,  34, 255}, { 20,  22,  28, 255}, {218,  44,  58, 255}, true,  true,  false, false, 0.92f},
+    {OutfitId::RacerLeather,   "Carbon Racer",     "레이서 레더 재킷",    1200, {208,  38,  46, 255}, { 26,  28,  34, 255}, {245, 204,  56, 255}, true,  false, false, false, 0.94f},
+    {OutfitId::TacOpsArmor,    "Spec-Ops Tactical","특수부대 전술 방탄복",2400, { 54,  64,  56, 255}, { 34,  38,  36, 255}, {198, 174, 108, 255}, true,  false, true,  false, 0.82f},
+    {OutfitId::GoldBossCoat,   "VIP Boss Coat",    "VIP 골드 보스 코트",  5000, { 34,  28,  44, 255}, { 24,  22,  30, 255}, {248, 198,  58, 255}, true,  true,  false, true,  0.86f}
+}};
+
+struct PaintPreset {
+    ColorRGBA paint;
+    ColorRGBA stripe;
+    bool matte;
+    const char* nameEn;
+    const char* nameKo;
+};
+
+constexpr std::array<PaintPreset, 8> kCustomPaints = {{
+    {{232,  36,  64, 255}, {248, 248, 252, 255}, false, "Candy Crimson",   "캔디 크림슨 메탈릭"},
+    {{ 32, 138, 248, 255}, {245, 248, 255, 255}, false, "Sapphire Blue",   "사파이어 블루"},
+    {{ 28,  30,  36, 255}, {242, 192,  52, 255}, true,  "Stealth Matte",   "스텔스 매트 블랙"},
+    {{244, 246, 250, 255}, { 34,  38,  46, 255}, false, "Pearl White",     "펄 화이트"},
+    {{248, 188,  38, 255}, { 28,  30,  36, 255}, false, "Solar Gold",      "솔라 골드 메탈릭"},
+    {{ 28, 206, 132, 255}, {242, 248, 246, 255}, false, "Emerald GT",      "에메랄드 그린"},
+    {{148,  52, 242, 255}, { 72, 232, 255, 255}, false, "Ultraviolet",     "울트라바이올렛"},
+    {{ 64,  70,  78, 255}, {238,  72,  48, 255}, true,  "Titanium Satin",  "티타늄 새틴 그레이"}
 }};
 
 ColorRGBA randomTrafficPaint(Rng& rng, VehicleKind kind) {
@@ -31,6 +73,12 @@ ColorRGBA randomTrafficPaint(Rng& rng, VehicleKind kind) {
     }
     if (kind == VehicleKind::DeliveryVan) {
         return rng.chance(0.5f) ? ColorRGBA{228, 232, 238, 255} : ColorRGBA{68, 108, 164, 255};
+    }
+    if (kind == VehicleKind::ArmoredSuv) {
+        return {42, 46, 52, 255};
+    }
+    if (kind == VehicleKind::LuxurySedan) {
+        return rng.chance(0.55f) ? ColorRGBA{28, 32, 40, 255} : ColorRGBA{232, 236, 242, 255};
     }
     static constexpr std::array<ColorRGBA, 9> kPalette = {{
         {218, 48, 56, 255},
@@ -58,6 +106,27 @@ const WeaponSpec& getWeaponSpec(WeaponId id) {
     return kWeaponSpecs[static_cast<std::size_t>(idx)];
 }
 
+const PropertySpec& getPropertySpec(PropertyId id) {
+    const int idx = std::clamp(static_cast<int>(id), 0, static_cast<int>(PropertyId::Count) - 1);
+    return kPropertySpecs[static_cast<std::size_t>(idx)];
+}
+
+const OutfitSpec& getOutfitSpec(OutfitId id) {
+    const int idx = std::clamp(static_cast<int>(id), 0, static_cast<int>(OutfitId::Count) - 1);
+    return kOutfitSpecs[static_cast<std::size_t>(idx)];
+}
+
+ColorRGBA getNeonPresetColor(int neonPreset) {
+    switch (neonPreset) {
+        case 1: return { 42, 228, 255, 255}; // Cyber Cyan
+        case 2: return {192,  64, 255, 255}; // Neon Purple
+        case 3: return {255,  46,  72, 255}; // Crimson Red
+        case 4: return { 52, 248, 128, 255}; // Emerald Green
+        case 5: return {255, 204,  52, 255}; // Solar Gold
+        default: return {0, 0, 0, 0};
+    }
+}
+
 GameWorld::GameWorld(std::uint64_t seed)
     : seed_(seed), rng_(seed), city_() {
     city_.generate(seed_);
@@ -79,16 +148,37 @@ void GameWorld::reset() {
     player_ = PlayerState{};
     player_.pos = {14.5f, 14.5f};
     player_.facingYaw = -kHalfPi;
-    player_.cash = 750;
+    player_.cash = 2500;
     player_.health = 100.0f;
-    player_.armor = 25.0f;
+    player_.maxHealth = 100.0f;
+    player_.armor = 35.0f;
+    player_.maxArmor = 100.0f;
     player_.currentWeapon = WeaponId::Pistol;
 
-    player_.weapons[static_cast<std::size_t>(WeaponId::Fists)] = {true, 0, 0};
-    player_.weapons[static_cast<std::size_t>(WeaponId::Pistol)] = {true, 12, 72};
-    player_.weapons[static_cast<std::size_t>(WeaponId::SMG)] = {false, 0, 0};
-    player_.weapons[static_cast<std::size_t>(WeaponId::Shotgun)] = {false, 0, 0};
-    player_.weapons[static_cast<std::size_t>(WeaponId::AssaultRifle)] = {false, 0, 0};
+    player_.weapons[static_cast<std::size_t>(WeaponId::Fists)]         = {true,  0,  0};
+    player_.weapons[static_cast<std::size_t>(WeaponId::Pistol)]        = {true, 12, 84};
+    player_.weapons[static_cast<std::size_t>(WeaponId::SMG)]           = {false, 0,  0};
+    player_.weapons[static_cast<std::size_t>(WeaponId::Shotgun)]       = {false, 0,  0};
+    player_.weapons[static_cast<std::size_t>(WeaponId::AssaultRifle)]  = {false, 0,  0};
+    player_.weapons[static_cast<std::size_t>(WeaponId::CombatMG)]      = {false, 0,  0};
+    player_.weapons[static_cast<std::size_t>(WeaponId::HeavyLauncher)] = {false, 0,  0};
+
+    // Initialize default personal garage colors + starter owned hatchback
+    player_.garage[static_cast<std::size_t>(VehicleKind::Compact)].owned = true;
+    player_.garage[static_cast<std::size_t>(VehicleKind::Compact)].paintColor = {46, 152, 242, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::MuscleCar)].paintColor = {242, 132, 34, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::SportsCoupe)].paintColor = {228, 42, 58, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::SportsCoupe)].customSpoiler = true;
+    player_.garage[static_cast<std::size_t>(VehicleKind::LuxurySedan)].paintColor = {28, 32, 42, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::ArmoredSuv)].paintColor = {52, 58, 64, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::ArmoredSuv)].mattePaint = true;
+    player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].paintColor = {248, 196, 38, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].customSpoiler = true;
+    player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].neonPreset = 1;
+    player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].rimStyle = 1;
+
+    player_.ownedOutfits[static_cast<std::size_t>(OutfitId::StreetCasual)] = true;
+    player_.currentOutfit = OutfitId::StreetCasual;
 
     mission_ = MissionState{};
     raceCheckpoints_.clear();
@@ -99,13 +189,13 @@ void GameWorld::reset() {
 
     spawnInitialWorld();
     pushBanner("WELCOME TO SUNSET BAY", "선셋 베이 시티에 오신 것을 환영합니다",
-               "Steal rides [F], drift [Space], visit shops [B], or hit missions!",
-               "[F] 차량 탑승 · [Space] 드리프트 · [B] 상점/튜닝 · 미션 마커 방문!",
+               "[F] Drive  |  [B] Shops & Tuning  |  [P] Smartphone (Cars & Real Estate)",
+               "[F] 탑승 · [B] 매장/풀튜닝 · [P] 스마트폰(차량호출·부동산·의상)",
                {92, 224, 255, 255}, 4.8f);
 }
 
 void GameWorld::spawnParkedShowroomCars() {
-    auto addParked = [&](VehicleKind kind, Vec2 pos, float heading, ColorRGBA paint) {
+    auto addParked = [&](VehicleKind kind, Vec2 pos, float heading, ColorRGBA paint, int neon = 0, int rims = 0, bool matte = false) {
         const auto& spec = getVehicleSpec(kind);
         Vehicle v{};
         v.id = nextVehicleId_++;
@@ -115,17 +205,29 @@ void GameWorld::spawnParkedShowroomCars() {
         v.health = spec.maxHealth;
         v.maxHealth = spec.maxHealth;
         v.paintColor = paint;
+        v.customSpoiler = spec.hasSpoiler;
+        v.neonPreset = neon;
+        v.rimStyle = rims;
+        v.mattePaint = matte;
         v.isParked = true;
         v.hasNpcDriver = false;
         vehicles_.push_back(v);
     };
 
-    // Starter exotic & muscle cars parked right along Central Crossroads curb
-    addParked(VehicleKind::SportsCoupe, {22.5f, 7.2f}, 0.0f, {228, 42, 58, 255});
-    addParked(VehicleKind::MuscleCar,   {7.2f, 24.5f}, kHalfPi, {38, 108, 232, 255});
-    addParked(VehicleKind::SUV,         {-23.0f, -7.2f}, kPi, {44, 48, 56, 255});
-    addParked(VehicleKind::SportsCoupe, {-14.5f, 76.0f}, -kHalfPi, {42, 214, 168, 255});
-    addParked(VehicleKind::MuscleCar,   {92.0f, -7.2f}, 0.0f, {245, 148, 36, 255});
+    // Starter sculpted cars parked along Central Crossroads & Midtown curbs
+    addParked(VehicleKind::SportsCoupe, { 22.5f,   7.2f},  0.0f,    {228,  42,  58, 255}, 0, 0);
+    addParked(VehicleKind::MuscleCar,   {  7.2f,  24.5f},  kHalfPi, { 38, 118, 238, 255}, 0, 0);
+    addParked(VehicleKind::LuxurySedan, {-23.0f,  -7.2f},  kPi,     { 28,  32,  42, 255}, 0, 1);
+    addParked(VehicleKind::SportsCoupe, {-14.5f,  76.0f}, -kHalfPi, { 42, 214, 168, 255}, 1, 0);
+
+    // LUXURY AUTOS Dealership Showroom forecourt display lineup (Block 5,4 around x=104..132, z=20)
+    addParked(VehicleKind::Hypercar,    {106.0f,  21.5f}, -kHalfPi * 0.85f, {250, 196,  38, 255}, 5, 1, false);
+    addParked(VehicleKind::Hypercar,    {116.5f,  21.5f}, -kHalfPi,         { 42, 224, 255, 255}, 1, 2, false);
+    addParked(VehicleKind::ArmoredSuv,  {127.0f,  21.5f}, -kHalfPi * 1.15f, { 54,  58,  64, 255}, 0, 2, true);
+
+    // Sunset Beach & Pulse Nightclub VIP curbside exotics
+    addParked(VehicleKind::Hypercar,    { 24.0f, -91.0f},  0.0f,    {168,  54, 248, 255}, 2, 1, false);
+    addParked(VehicleKind::MuscleCar,   {-342.0f, 18.0f},  kHalfPi, {245, 148,  36, 255}, 0, 0, false);
 }
 
 void GameWorld::spawnInitialWorld() {
@@ -156,8 +258,9 @@ void GameWorld::spawnInitialWorld() {
         npcs_.push_back(g);
     }
 
-    pickups_.push_back(WorldPickup{PickupKind::CashBundle, {-42.0f, -42.0f}, 250, 0.0f, false});
-    pickups_.push_back(WorldPickup{PickupKind::HealthKit, {24.0f, 20.0f}, 50, 1.2f, false});
+    pickups_.push_back(WorldPickup{PickupKind::CashBundle, {-42.0f, -42.0f}, 350, 0.0f, false});
+    pickups_.push_back(WorldPickup{PickupKind::CashBundle, {-372.0f, 0.0f},  500, 0.7f, false}); // Sunset Pier end bonus
+    pickups_.push_back(WorldPickup{PickupKind::HealthKit,  { 24.0f,  20.0f},  50, 1.2f, false});
 }
 
 Vec2 GameWorld::playerWorldPos() const {
@@ -187,7 +290,6 @@ const Vehicle* GameWorld::playerVehicle() const {
 }
 
 float GameWorld::daylightFactor() const {
-    // Smooth cosine curve peaking at 13:00 (1.0) and dipping to 0.14 at 01:00
     const float phase = (timeOfDayHours_ - 13.0f) / 24.0f * kTwoPi;
     const float raw = 0.5f + 0.5f * std::cos(phase);
     return 0.14f + 0.86f * raw;
@@ -212,16 +314,114 @@ std::vector<AudioEvent> GameWorld::consumeAudioEvents() {
     return out;
 }
 
+int GameWorld::passiveIncomePerCycle() const {
+    int total = 0;
+    for (int i = 0; i < static_cast<int>(PropertyId::Count); ++i) {
+        if (player_.ownedProperties[static_cast<std::size_t>(i)]) {
+            total += getPropertySpec(static_cast<PropertyId>(i)).incomePerCycle;
+        }
+    }
+    return total;
+}
+
+int GameWorld::ownedPropertyCount() const {
+    int cnt = 0;
+    for (bool owned : player_.ownedProperties) {
+        if (owned) ++cnt;
+    }
+    return cnt;
+}
+
+float GameWorld::tuningDiscountScale() const {
+    return player_.ownedProperties[static_cast<std::size_t>(PropertyId::PayNTuneFranchise)] ? 0.5f : 1.0f;
+}
+
+void GameWorld::recalculatePlayerPropertyPerks() {
+    float maxHp = 100.0f;
+    float maxAr = 100.0f;
+    if (player_.ownedProperties[static_cast<std::size_t>(PropertyId::SunsetCondo)]) {
+        maxHp += 25.0f;
+    }
+    if (player_.ownedProperties[static_cast<std::size_t>(PropertyId::EclipsePenthouse)]) {
+        maxHp = 150.0f;
+        maxAr = 150.0f;
+    }
+    player_.maxHealth = maxHp;
+    player_.maxArmor = maxAr;
+}
+
+void GameWorld::syncPersonalTuningFromVehicle(const Vehicle& car) {
+    auto& slot = player_.garage[static_cast<std::size_t>(car.kind)];
+    slot.paintColor = car.paintColor;
+    slot.stripeColor = car.stripeColor;
+    slot.engineUpgradeLevel = car.engineUpgradeLevel;
+    slot.armorUpgradeLevel = car.armorUpgradeLevel;
+    slot.neonPreset = car.neonPreset;
+    slot.rimStyle = car.rimStyle;
+    slot.customSpoiler = car.customSpoiler;
+    slot.mattePaint = car.mattePaint;
+    slot.paintPresetIndex = car.paintPresetIndex;
+}
+
+void GameWorld::applyPersonalTuningToVehicle(Vehicle& car, const PersonalVehicleTuning& tune) {
+    const auto& spec = getVehicleSpec(car.kind);
+    const float showroomBonus = player_.ownedProperties[static_cast<std::size_t>(PropertyId::LuxuryShowroom)] ? 1.30f : 1.0f;
+    const float armorMult = (1.0f + 0.35f * static_cast<float>(tune.armorUpgradeLevel)) * showroomBonus;
+    car.paintColor = tune.paintColor;
+    car.stripeColor = tune.stripeColor;
+    car.engineUpgradeLevel = tune.engineUpgradeLevel;
+    car.armorUpgradeLevel = tune.armorUpgradeLevel;
+    car.neonPreset = tune.neonPreset;
+    car.rimStyle = tune.rimStyle;
+    car.customSpoiler = tune.customSpoiler;
+    car.mattePaint = tune.mattePaint;
+    car.paintPresetIndex = tune.paintPresetIndex;
+    car.maxHealth = spec.maxHealth * armorMult;
+    car.health = car.maxHealth;
+    car.nitroCharge = 1.0f;
+    car.isPersonalCar = true;
+}
+
 bool GameWorld::isPlayerInWeaponShopZone() const {
     const auto* poi = city_.findPoi(PoiKind::WeaponShop);
     if (!poi || player_.drivingVehicleId >= 0) return false;
-    return (player_.pos - poi->pos).length() <= poi->radius + 1.2f;
+    return (player_.pos - poi->pos).length() <= poi->radius + 1.4f;
 }
 
 bool GameWorld::isPlayerInGarageZone() const {
     const auto* poi = city_.findPoi(PoiKind::TuneGarage);
     if (!poi) return false;
+    return (playerWorldPos() - poi->pos).length() <= poi->radius + 2.4f;
+}
+
+bool GameWorld::isPlayerInDealershipZone() const {
+    const auto* poi = city_.findPoi(PoiKind::CarDealership);
+    if (!poi) return false;
     return (playerWorldPos() - poi->pos).length() <= poi->radius + 2.2f;
+}
+
+bool GameWorld::isPlayerInBoutiqueZone() const {
+    const auto* poi = city_.findPoi(PoiKind::ClothingBoutique);
+    if (!poi || player_.drivingVehicleId >= 0) return false;
+    return (player_.pos - poi->pos).length() <= poi->radius + 1.6f;
+}
+
+bool GameWorld::isPlayerInGasStationZone() const {
+    const auto* poi = city_.findPoi(PoiKind::GasStation);
+    if (!poi) return false;
+    return (playerWorldPos() - poi->pos).length() <= poi->radius + 2.6f;
+}
+
+bool GameWorld::isPlayerInNightclubZone() const {
+    const auto* poi = city_.findPoi(PoiKind::NightclubProperty);
+    if (!poi) return false;
+    return (playerWorldPos() - poi->pos).length() <= poi->radius + 2.0f;
+}
+
+bool GameWorld::isPlayerInAnyShopZone() const {
+    return isPlayerInWeaponShopZone() || isPlayerInGarageZone() ||
+           isPlayerInDealershipZone() || isPlayerInBoutiqueZone() ||
+           isPlayerInGasStationZone() || isPlayerInNightclubZone();
 }
 
 const Vehicle* GameWorld::nearestEnterableVehicle(float maxRange) const {
@@ -291,7 +491,17 @@ void GameWorld::maintainTrafficPopulation() {
         }
         if (tooClose) continue;
 
-        const VehicleKind kind = static_cast<VehicleKind>(rng_.rangeInt(0, static_cast<int>(VehicleKind::Count) - 1));
+        // Weighted realistic city traffic distribution
+        static constexpr std::array<VehicleKind, 14> kTrafficPool = {{
+            VehicleKind::Compact,     VehicleKind::Compact,
+            VehicleKind::Taxi,        VehicleKind::Taxi,
+            VehicleKind::SUV,         VehicleKind::SUV,
+            VehicleKind::LuxurySedan, VehicleKind::LuxurySedan,
+            VehicleKind::SportsCoupe, VehicleKind::SportsCoupe,
+            VehicleKind::MuscleCar,   VehicleKind::MuscleCar,
+            VehicleKind::DeliveryVan, VehicleKind::Hypercar
+        }};
+        const VehicleKind kind = kTrafficPool[static_cast<std::size_t>(rng_.rangeInt(0, static_cast<int>(kTrafficPool.size()) - 1))];
         const auto& spec = getVehicleSpec(kind);
         Vehicle v{};
         v.id = nextVehicleId_++;
@@ -302,6 +512,7 @@ void GameWorld::maintainTrafficPopulation() {
         v.health = spec.maxHealth;
         v.maxHealth = spec.maxHealth;
         v.paintColor = randomTrafficPaint(rng_, kind);
+        v.customSpoiler = spec.hasSpoiler;
         v.hasNpcDriver = true;
         v.aiHorizontalRoad = horiz;
         v.aiRoadIndex = roadIdx;
@@ -471,6 +682,212 @@ bool GameWorld::tryEnterOrExitVehicle() {
     return true;
 }
 
+void GameWorld::applyDamageToPlayer(float rawDamage) {
+    const float scale = getOutfitSpec(player_.currentOutfit).damageTakenScale;
+    const float dmg = rawDamage * scale;
+    const float absorbed = std::min(player_.armor, dmg * 0.65f);
+    player_.armor -= absorbed;
+    player_.health -= (dmg - absorbed);
+}
+
+bool GameWorld::buyOrSummonVehicle(VehicleKind kind) {
+    const auto& spec = getVehicleSpec(kind);
+    auto& slot = player_.garage[static_cast<std::size_t>(kind)];
+
+    bool justPurchased = false;
+    if (!slot.owned) {
+        if (spec.dealershipPrice <= 0 || player_.cash < spec.dealershipPrice) {
+            return false;
+        }
+        player_.cash -= spec.dealershipPrice;
+        slot.owned = true;
+        justPurchased = true;
+    }
+
+    // Remove previous summoned personal vehicle (unless currently driving it)
+    if (player_.activePersonalVehicleId >= 0 && player_.activePersonalVehicleId != player_.drivingVehicleId) {
+        vehicles_.erase(
+            std::remove_if(vehicles_.begin(), vehicles_.end(), [&](const Vehicle& v) {
+                return v.id == player_.activePersonalVehicleId && !v.isMissionTarget;
+            }),
+            vehicles_.end());
+        player_.activePersonalVehicleId = -1;
+    }
+
+    // Choose a clean curbside road position right beside the player!
+    const Vec2 pPos = playerWorldPos();
+    const float nearRx = city_.roadCoord(city_.nearestRoadIndex(pPos.x));
+    const float nearRz = city_.roadCoord(city_.nearestRoadIndex(pPos.z));
+
+    Vec2 spawnPos{};
+    float spawnHeading = 0.0f;
+    if (std::abs(pPos.x - nearRx) < std::abs(pPos.z - nearRz)) {
+        const float zOff = (pPos.z < 0.0f) ? 9.5f : -9.5f;
+        spawnPos = {nearRx + CityMap::kLaneOffset, clampf(pPos.z + zOff, -320.0f, 320.0f)};
+        spawnHeading = kHalfPi;
+    } else {
+        const float xOff = (pPos.x < 0.0f) ? 9.5f : -9.5f;
+        spawnPos = {clampf(pPos.x + xOff, -320.0f, 320.0f), nearRz + CityMap::kLaneOffset};
+        spawnHeading = 0.0f;
+    }
+
+    // Push away any non-player traffic car occupying the exact delivery spot
+    for (auto& other : vehicles_) {
+        if (!other.isPlayerDriving && !other.isMissionTarget && (other.pos - spawnPos).length() < 6.5f) {
+            other.pos += forwardFromHeading(spawnHeading) * 9.0f;
+        }
+    }
+
+    Vehicle delivered{};
+    delivered.id = nextVehicleId_++;
+    delivered.kind = kind;
+    delivered.pos = spawnPos;
+    delivered.heading = spawnHeading;
+    delivered.isParked = true;
+    delivered.hasNpcDriver = false;
+    applyPersonalTuningToVehicle(delivered, slot);
+
+    vehicles_.push_back(delivered);
+    player_.activePersonalVehicleId = delivered.id;
+
+    pushAudio(justPurchased ? AudioEventType::ShopBuy : AudioEventType::CarHorn, 0.95f);
+    if (justPurchased) {
+        pushBanner("NEW VEHICLE PURCHASED!", "신차 구매 및 즉시 배달 완료!",
+                   spec.nameEn, spec.nameKo, {255, 208, 64, 255}, 3.0f);
+    } else {
+        pushBanner("PERSONAL VEHICLE DELIVERED", "내 소유 차량이 도로변에 도착했습니다!",
+                   spec.nameEn, spec.nameKo, {88, 224, 255, 255}, 2.4f);
+    }
+    return true;
+}
+
+bool GameWorld::buyProperty(PropertyId id) {
+    const std::size_t idx = static_cast<std::size_t>(id);
+    if (idx >= player_.ownedProperties.size() || player_.ownedProperties[idx]) {
+        return false;
+    }
+    const auto& spec = getPropertySpec(id);
+    if (player_.cash < spec.price) {
+        return false;
+    }
+
+    player_.cash -= spec.price;
+    player_.ownedProperties[idx] = true;
+    recalculatePlayerPropertyPerks();
+    player_.health = player_.maxHealth;
+    player_.armor = std::max(player_.armor, player_.maxArmor * 0.5f);
+    if (id == PropertyId::EclipsePenthouse) {
+        player_.armor = player_.maxArmor;
+    }
+
+    pushAudio(AudioEventType::MissionComplete, 1.0f);
+    char subEn[96];
+    char subKo[128];
+    std::snprintf(subEn, sizeof(subEn), "+$%d / 25s Income  |  %s", spec.incomePerCycle, spec.perkEn);
+    std::snprintf(subKo, sizeof(subKo), "25초마다 +$%d 수익  |  %s", spec.incomePerCycle, spec.perkKo);
+    pushBanner("PROPERTY ACQUIRED!", "부동산·사업장 매입 완료!",
+               subEn, subKo, {108, 245, 146, 255}, 3.6f);
+    return true;
+}
+
+bool GameWorld::buyOrEquipOutfit(OutfitId id) {
+    const std::size_t idx = static_cast<std::size_t>(id);
+    if (idx >= player_.ownedOutfits.size()) {
+        return false;
+    }
+    const auto& spec = getOutfitSpec(id);
+    bool purchased = false;
+    if (!player_.ownedOutfits[idx]) {
+        if (player_.cash < spec.price) {
+            return false;
+        }
+        player_.cash -= spec.price;
+        player_.ownedOutfits[idx] = true;
+        purchased = true;
+    }
+    player_.currentOutfit = id;
+    pushAudio(AudioEventType::ShopBuy, 0.9f);
+    pushBanner(purchased ? "OUTFIT PURCHASED" : "OUTFIT EQUIPPED",
+               purchased ? "신규 의상 구매 및 착용 완료" : "보유 의상 착용 완료",
+               spec.nameEn, spec.nameKo, {246, 136, 232, 255}, 2.2f);
+    return true;
+}
+
+bool GameWorld::executePhoneAction(int tabIndex, int optionOneBased) {
+    if (optionOneBased < 1 || optionOneBased > 6) return false;
+    const int idx = optionOneBased - 1;
+
+    // Tab 0: AUTOS (Personal Garage Summon & Luxury Dealership Purchase)
+    if (tabIndex == 0) {
+        return buyOrSummonVehicle(kDealershipCatalog[static_cast<std::size_t>(idx)]);
+    }
+    // Tab 1: REALTY (6 City Properties & Passive Income Businesses)
+    if (tabIndex == 1) {
+        return buyProperty(static_cast<PropertyId>(idx));
+    }
+    // Tab 2: STYLE (6 Boutique Character Outfits)
+    if (tabIndex == 2) {
+        return buyOrEquipOutfit(static_cast<OutfitId>(idx));
+    }
+    // Tab 3: SUPPLY (Express Tactical Drop: Armor, Medkit, Ammo, Rifle, Combat MG, Launcher)
+    if (tabIndex == 3) {
+        auto buyQuickWeapon = [&](WeaponId wid, int addAmmo, int price, const char* en, const char* ko) {
+            if (player_.cash < price) return false;
+            player_.cash -= price;
+            auto& slot = player_.weapons[static_cast<std::size_t>(wid)];
+            const auto& spec = getWeaponSpec(wid);
+            if (!slot.owned) {
+                slot.owned = true;
+                slot.magAmmo = spec.magazineSize;
+                slot.reserveAmmo = addAmmo;
+            } else {
+                slot.reserveAmmo += addAmmo;
+            }
+            player_.currentWeapon = wid;
+            pushAudio(AudioEventType::ShopBuy, 1.0f);
+            pushBanner(en, ko, "Express Supply Delivered", "스마트폰 긴급 보급 완료", {255, 168, 72, 255}, 2.2f);
+            return true;
+        };
+
+        switch (optionOneBased) {
+            case 1: {
+                if (player_.cash < 250 || player_.armor >= player_.maxArmor - 0.5f) return false;
+                player_.cash -= 250;
+                player_.armor = player_.maxArmor;
+                pushAudio(AudioEventType::ShopBuy, 1.0f);
+                pushBanner("ARMOR DELIVERED", "긴급 방탄복 100% 보급", "Armor Maxed", "방탄복 충전 완료", {82, 196, 255, 255}, 2.0f);
+                return true;
+            }
+            case 2: {
+                if (player_.cash < 150 || player_.health >= player_.maxHealth - 0.5f) return false;
+                player_.cash -= 150;
+                player_.health = player_.maxHealth;
+                pushAudio(AudioEventType::ShopBuy, 1.0f);
+                pushBanner("MEDKIT DELIVERED", "긴급 의료 키트 100% 회복", "Health Maxed", "체력 완전히 회복됨", {98, 242, 122, 255}, 2.0f);
+                return true;
+            }
+            case 3: {
+                if (player_.cash < 200) return false;
+                player_.cash -= 200;
+                for (int i = 1; i < static_cast<int>(WeaponId::Count); ++i) {
+                    auto& s = player_.weapons[static_cast<std::size_t>(i)];
+                    if (s.owned) {
+                        s.reserveAmmo += getWeaponSpec(static_cast<WeaponId>(i)).magazineSize * 4;
+                    }
+                }
+                pushAudio(AudioEventType::ShopBuy, 1.0f);
+                pushBanner("AMMO DROP RECEIVED", "전 무기 탄약 보급 완료", "+4 Magazines", "+탄창 4개 분량 보충", {255, 214, 72, 255}, 2.0f);
+                return true;
+            }
+            case 4: return buyQuickWeapon(WeaponId::AssaultRifle, 150, 900, "CARBINE RIFLE DELIVERED", "돌격 카빈소총 보급 완료");
+            case 5: return buyQuickWeapon(WeaponId::CombatMG, 240, 2800, "COMBAT MG DELIVERED", "컴뱃 중기관총 보급 완료");
+            case 6: return buyQuickWeapon(WeaponId::HeavyLauncher, 12, 6500, "TACTICAL LAUNCHER UNLOCKED", "전술 폭발 런처 보급 완료");
+            default: return false;
+        }
+    }
+    return false;
+}
+
 bool GameWorld::purchaseShopItem(int optionOneBased) {
     if (isPlayerInWeaponShopZone()) {
         auto buyWeapon = [&](WeaponId wid, int addAmmo, int price, const char* labelEn, const char* labelKo) {
@@ -524,6 +941,8 @@ bool GameWorld::purchaseShopItem(int optionOneBased) {
                 pushBanner("HEALTH RESTORED", "체력 100% 회복", "Medkit Used", "응급 치료 완료", {98, 242, 122, 255}, 2.0f);
                 return true;
             }
+            case 7: return buyWeapon(WeaponId::CombatMG, 240, 2800, "COMBAT MG ACQUIRED", "컴뱃 중기관총 구매 완료");
+            case 8: return buyWeapon(WeaponId::HeavyLauncher, 12, 6500, "TACTICAL LAUNCHER ACQUIRED", "전술 폭발 런처 구매 완료");
             default:
                 return false;
         }
@@ -532,7 +951,6 @@ bool GameWorld::purchaseShopItem(int optionOneBased) {
     if (isPlayerInGarageZone()) {
         Vehicle* car = findVehicleMutable(player_.drivingVehicleId);
         if (!car) {
-            // Also allow tuning a car parked right next to the player inside the garage bay
             const auto* garagePoi = city_.findPoi(PoiKind::TuneGarage);
             for (auto& v : vehicles_) {
                 if (!v.destroyed && garagePoi && (v.pos - garagePoi->pos).length() <= garagePoi->radius + 3.0f) {
@@ -543,42 +961,108 @@ bool GameWorld::purchaseShopItem(int optionOneBased) {
         }
         if (!car) return false;
 
+        const float disc = tuningDiscountScale();
+        auto costOf = [&](int basePrice) {
+            return std::max(20, static_cast<int>(std::round(static_cast<float>(basePrice) * disc)));
+        };
+
         switch (optionOneBased) {
             case 1: {
-                if (player_.cash < 120 || car->health >= car->maxHealth - 0.5f) return false;
-                player_.cash -= 120;
+                const int price = costOf(120);
+                if (player_.cash < price || car->health >= car->maxHealth - 0.5f) return false;
+                player_.cash -= price;
                 car->health = car->maxHealth;
                 pushAudio(AudioEventType::ShopBuy, 1.0f);
                 pushBanner("VEHICLE REPAIRED", "차량 완벽 수리 완료", "Chassis 100%", "내구도 100% 복구", {72, 232, 255, 255}, 2.2f);
                 return true;
             }
             case 2: {
-                if (player_.cash < 450 || car->engineUpgradeLevel >= 3) return false;
-                player_.cash -= 450;
+                const int price = costOf(450);
+                if (player_.cash < price || car->engineUpgradeLevel >= 3) return false;
+                player_.cash -= price;
                 car->engineUpgradeLevel += 1;
                 car->health = car->maxHealth;
+                syncPersonalTuningFromVehicle(*car);
                 pushAudio(AudioEventType::ShopBuy, 1.0f);
                 char subEn[64];
+                char subKo[64];
                 std::snprintf(subEn, sizeof(subEn), "Turbo Stage %d Installed!", car->engineUpgradeLevel);
-                pushBanner("ENGINE UPGRADED", "터보 엔진 스테이지 업그레이드!", subEn, "최고속도 및 가속력 증가!", {72, 232, 255, 255}, 2.4f);
+                std::snprintf(subKo, sizeof(subKo), "터보 엔진 스테이지 %d 장착!", car->engineUpgradeLevel);
+                pushBanner("ENGINE UPGRADED", "터보 엔진 업그레이드 완료!", subEn, subKo, {72, 232, 255, 255}, 2.4f);
                 return true;
             }
-            case 3:
-            case 4:
-            case 5: {
-                if (player_.cash < 100) return false;
-                player_.cash -= 100;
-                if (optionOneBased == 3) car->paintColor = {238, 36, 72, 255};
-                if (optionOneBased == 4) car->paintColor = {32, 212, 248, 255};
-                if (optionOneBased == 5) car->paintColor = {245, 192, 42, 255};
+            case 3: {
+                const int price = costOf(600);
+                if (player_.cash < price || car->armorUpgradeLevel >= 3) return false;
+                player_.cash -= price;
+                car->armorUpgradeLevel += 1;
+                const auto& spec = getVehicleSpec(car->kind);
+                const float showroomBonus = player_.ownedProperties[static_cast<std::size_t>(PropertyId::LuxuryShowroom)] ? 1.30f : 1.0f;
+                car->maxHealth = spec.maxHealth * (1.0f + 0.35f * static_cast<float>(car->armorUpgradeLevel)) * showroomBonus;
                 car->health = car->maxHealth;
+                syncPersonalTuningFromVehicle(*car);
                 pushAudio(AudioEventType::ShopBuy, 1.0f);
-                pushBanner("CUSTOM RESPRAY", "커스텀 메탈릭 도색 완료", "Fresh Paint + Polish", "도색 및 외형 복원 완료", car->paintColor, 2.0f);
+                char subKo[64];
+                std::snprintf(subKo, sizeof(subKo), "방탄 차체·타이어 레벨 %d 강화!", car->armorUpgradeLevel);
+                pushBanner("ARMOR PLATING INSTALLED", "차체 방탄 장갑 업그레이드!", "Reinforced Chassis", subKo, {108, 242, 168, 255}, 2.4f);
+                return true;
+            }
+            case 4: {
+                const int price = costOf(350);
+                if (player_.cash < price) return false;
+                player_.cash -= price;
+                car->neonPreset = (car->neonPreset + 1) % 6;
+                syncPersonalTuningFromVehicle(*car);
+                pushAudio(AudioEventType::ShopBuy, 1.0f);
+                const ColorRGBA ncol = (car->neonPreset > 0) ? getNeonPresetColor(car->neonPreset) : ColorRGBA{180, 190, 205, 255};
+                pushBanner("NEON UNDERGLOW KIT",
+                           (car->neonPreset > 0) ? "LED 네온 언더글로우 장착!" : "네온 언더글로우 해제",
+                           "Chassis LED Kit", "하부 네온 조명 색상 변경 완료", ncol, 2.0f);
+                return true;
+            }
+            case 5: {
+                const int price = costOf(300);
+                if (player_.cash < price) return false;
+                player_.cash -= price;
+                car->customSpoiler = !car->customSpoiler;
+                syncPersonalTuningFromVehicle(*car);
+                pushAudio(AudioEventType::ShopBuy, 1.0f);
+                pushBanner("GT AERO SPOILER",
+                           car->customSpoiler ? "카본 GT 에어로 스포일러 장착!" : "리어 스포일러 탈거 완료",
+                           "Custom Rear Wing", "리어 에어로 파츠 튜닝 완료", {255, 202, 72, 255}, 2.0f);
                 return true;
             }
             case 6: {
-                if (player_.cash < 80 || car->nitroCharge >= 0.99f) return false;
-                player_.cash -= 80;
+                const int price = costOf(250);
+                if (player_.cash < price) return false;
+                player_.cash -= price;
+                car->rimStyle = (car->rimStyle + 1) % 3;
+                syncPersonalTuningFromVehicle(*car);
+                pushAudio(AudioEventType::ShopBuy, 1.0f);
+                const char* rimKo = (car->rimStyle == 0) ? "실버 알로이 휠 장착"
+                                  : ((car->rimStyle == 1) ? "샴페인 골드 단조 휠 장착" : "글로스 블랙 스포츠 휠 장착");
+                pushBanner("FORGED ALLOY RIMS", "커스텀 단조 휠 교체 완료", "Forged Wheel Set", rimKo, {235, 212, 118, 255}, 2.0f);
+                return true;
+            }
+            case 7: {
+                const int price = costOf(150);
+                if (player_.cash < price) return false;
+                player_.cash -= price;
+                car->paintPresetIndex = (car->paintPresetIndex + 1) % static_cast<int>(kCustomPaints.size());
+                const auto& preset = kCustomPaints[static_cast<std::size_t>(car->paintPresetIndex)];
+                car->paintColor = preset.paint;
+                car->stripeColor = preset.stripe;
+                car->mattePaint = preset.matte;
+                car->health = car->maxHealth;
+                syncPersonalTuningFromVehicle(*car);
+                pushAudio(AudioEventType::ShopBuy, 1.0f);
+                pushBanner("CUSTOM RESPRAY", "프리미엄 커스텀 도색 완료", preset.nameEn, preset.nameKo, car->paintColor, 2.0f);
+                return true;
+            }
+            case 8: {
+                const int price = costOf(80);
+                if (player_.cash < price || car->nitroCharge >= 0.99f) return false;
+                player_.cash -= price;
                 car->nitroCharge = 1.0f;
                 pushAudio(AudioEventType::ShopBuy, 1.0f);
                 pushBanner("NITROUS REFILLED", "니트로 탱크 100% 충전", "Hold [Shift] to Boost", "주행 중 [Shift] 부스트", {88, 195, 255, 255}, 2.0f);
@@ -589,6 +1073,51 @@ bool GameWorld::purchaseShopItem(int optionOneBased) {
         }
     }
 
+    if (isPlayerInDealershipZone()) {
+        if (optionOneBased >= 1 && optionOneBased <= 6) {
+            return buyOrSummonVehicle(kDealershipCatalog[static_cast<std::size_t>(optionOneBased - 1)]);
+        }
+        if (optionOneBased == 7) {
+            return buyProperty(PropertyId::LuxuryShowroom);
+        }
+        return false;
+    }
+
+    if (isPlayerInBoutiqueZone()) {
+        if (optionOneBased >= 1 && optionOneBased <= 6) {
+            return buyOrEquipOutfit(static_cast<OutfitId>(optionOneBased - 1));
+        }
+        return false;
+    }
+
+    if (isPlayerInGasStationZone()) {
+        if (optionOneBased == 1) {
+            Vehicle* car = findVehicleMutable(player_.drivingVehicleId);
+            if (!car || player_.cash < 60) return false;
+            player_.cash -= 60;
+            car->health = car->maxHealth;
+            car->nitroCharge = 1.0f;
+            pushAudio(AudioEventType::ShopBuy, 1.0f);
+            pushBanner("FULL TANK & PIT SERVICE", "고급유 주유·니트로 충전 및 급속정비 완료!",
+                       "Vehicle 100% Ready", "차량 내구도 및 니트로 100% 충전", {255, 118, 72, 255}, 2.2f);
+            return true;
+        }
+        if (optionOneBased == 2) {
+            return buyProperty(PropertyId::GlobeOilGas);
+        }
+        return false;
+    }
+
+    if (isPlayerInNightclubZone()) {
+        if (optionOneBased == 1) {
+            return buyProperty(PropertyId::PulseNightclub);
+        }
+        if (optionOneBased == 2) {
+            return buyProperty(PropertyId::EclipsePenthouse);
+        }
+        return false;
+    }
+
     return false;
 }
 
@@ -596,22 +1125,24 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
     if (mission_.kind != ActiveMissionKind::None) return false;
 
     const int tierBonus = mission_.completedCount * 250;
+    const float vipMult = player_.ownedProperties[static_cast<std::size_t>(PropertyId::PulseNightclub)] ? 1.25f : 1.0f;
 
     if (poiKind == PoiKind::MissionDelivery) {
         Vehicle exo{};
         exo.id = nextVehicleId_++;
-        exo.kind = VehicleKind::SportsCoupe;
+        exo.kind = VehicleKind::Hypercar;
         exo.pos = {-168.0f + 7.2f, -150.0f};
         exo.heading = kHalfPi;
-        exo.maxHealth = 210.0f;
-        exo.health = 210.0f;
+        exo.maxHealth = 230.0f;
+        exo.health = 230.0f;
         exo.paintColor = {250, 202, 44, 255};
+        exo.customSpoiler = true;
+        exo.rimStyle = 1;
         exo.isParked = true;
         exo.isMissionTarget = true;
         exo.engineUpgradeLevel = 1;
         vehicles_.push_back(exo);
 
-        // Two rival gang bodyguards watching the VIP car
         for (int i = 0; i < 2; ++i) {
             NpcCharacter guard{};
             guard.id = nextNpcId_++;
@@ -629,31 +1160,31 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
         mission_.kind = ActiveMissionKind::ExoticDelivery;
         mission_.stage = 0;
         mission_.timeRemaining = 115.0f;
-        mission_.rewardCash = 1500 + tierBonus;
+        mission_.rewardCash = static_cast<int>(std::round(static_cast<float>(1800 + tierBonus) * vipMult));
         mission_.targetVehicleId = exo.id;
         mission_.currentObjectivePos = exo.pos;
         mission_.objectiveRadius = 6.5f;
-        mission_.objectiveEn = "Steal the golden VIP Apex GT in Sunset District!";
-        mission_.objectiveKo = "선셋 구역의 황금색 VIP 에이펙스 GT를 탈취하세요!";
+        mission_.objectiveEn = "Steal the golden VIP Zentorno X in Sunset District!";
+        mission_.objectiveKo = "선셋 구역의 황금색 VIP 젠토르노 X 하이퍼카를 탈취하세요!";
 
         pushAudio(AudioEventType::MissionStart, 1.0f);
-        pushBanner("VIP EXOTIC DELIVERY", "미션 시작: 슈퍼카 탈취 & 배달",
-                   "Steal the marked Golden Apex GT!", "미니맵의 노란 마커 차량을 탈취하세요!",
+        pushBanner("VIP EXOTIC DELIVERY", "미션 시작: 하이퍼카 탈취 & 배달",
+                   "Steal the marked Golden Zentorno X!", "미니맵의 노란 마커 하이퍼카를 탈취하세요!",
                    {255, 214, 52, 255}, 3.5f);
         return true;
     }
 
     if (poiKind == PoiKind::MissionRace) {
-        // Ensure player has a car right away if they triggered on foot
         if (player_.drivingVehicleId < 0) {
             Vehicle racer{};
             racer.id = nextVehicleId_++;
             racer.kind = VehicleKind::SportsCoupe;
             racer.pos = {0.0f, -84.0f + CityMap::kLaneOffset};
             racer.heading = 0.0f;
-            racer.maxHealth = 180.0f;
-            racer.health = 180.0f;
+            racer.maxHealth = 190.0f;
+            racer.health = 190.0f;
             racer.paintColor = {68, 238, 118, 255};
+            racer.customSpoiler = true;
             racer.isPlayerDriving = true;
             vehicles_.push_back(racer);
             player_.drivingVehicleId = racer.id;
@@ -672,7 +1203,7 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
         mission_.kind = ActiveMissionKind::StreetSprint;
         mission_.stage = 0;
         mission_.timeRemaining = 58.0f;
-        mission_.rewardCash = 1800 + tierBonus;
+        mission_.rewardCash = static_cast<int>(std::round(static_cast<float>(2200 + tierBonus) * vipMult));
         mission_.checkpointsCleared = 0;
         mission_.totalCheckpoints = static_cast<int>(raceCheckpoints_.size());
         mission_.currentObjectivePos = raceCheckpoints_.front();
@@ -713,7 +1244,7 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
         mission_.kind = ActiveMissionKind::GangRaid;
         mission_.stage = 0;
         mission_.timeRemaining = 140.0f;
-        mission_.rewardCash = 2500 + tierBonus;
+        mission_.rewardCash = static_cast<int>(std::round(static_cast<float>(3000 + tierBonus) * vipMult));
         mission_.enemiesRemaining = static_cast<int>(offsets.size());
         mission_.currentObjectivePos = raidCenter;
         mission_.objectiveRadius = 12.0f;
@@ -745,6 +1276,24 @@ void GameWorld::update(float dt, const PlayerInput& input) {
         player_.hitMarkerTimer = std::max(0.0f, player_.hitMarkerTimer - dt);
     }
 
+    // Real estate & business passive income deposit every 25 seconds!
+    const int cycleIncome = passiveIncomePerCycle();
+    if (cycleIncome > 0) {
+        player_.propertyPayoutTimer += dt;
+        if (player_.propertyPayoutTimer >= 25.0f) {
+            player_.propertyPayoutTimer -= 25.0f;
+            player_.cash += cycleIncome;
+            pushAudio(AudioEventType::CashPickup, 0.75f);
+            if (banner_.timer <= 0.1f) {
+                char subEn[64];
+                char subKo[80];
+                std::snprintf(subEn, sizeof(subEn), "+$%d deposited from %d properties", cycleIncome, ownedPropertyCount());
+                std::snprintf(subKo, sizeof(subKo), "보유 부동산 %d곳에서 +$%d 수익 입금!", ownedPropertyCount(), cycleIncome);
+                pushBanner("BUSINESS PAYOUT", "부동산·사업장 수익 입금", subEn, subKo, {98, 242, 138, 255}, 2.3f);
+            }
+        }
+    }
+
     // Handle player wasted / hospital respawn state
     if (player_.wasted) {
         player_.crosshairOnTarget = false;
@@ -755,8 +1304,12 @@ void GameWorld::update(float dt, const PlayerInput& input) {
             player_.pos = {14.5f, 14.5f};
             player_.velocity = {0.0f, 0.0f};
             player_.health = player_.maxHealth;
-            player_.cash = std::max(0, player_.cash - 100);
-            pushBanner("DISCHARGED FROM MEDICAL", "병원 치료 완료 (-$100)",
+            const bool vipMedical = player_.ownedProperties[static_cast<std::size_t>(PropertyId::EclipsePenthouse)];
+            if (!vipMedical) {
+                player_.cash = std::max(0, player_.cash - 100);
+            }
+            pushBanner("DISCHARGED FROM MEDICAL",
+                       vipMedical ? "VIP 무료 병원 치료 완료 ($0)" : "병원 치료 완료 (-$100)",
                        "Back on the streets", "다시 거리로 복귀했습니다",
                        {112, 238, 148, 255}, 2.8f);
         }
@@ -776,12 +1329,17 @@ void GameWorld::update(float dt, const PlayerInput& input) {
         }
     }
 
-    // Shop purchase input
-    if (input.shopBuyOption >= 1 && input.shopBuyOption <= 6) {
+    // Shop purchase input (options 1..8)
+    if (input.shopBuyOption >= 1 && input.shopBuyOption <= 8) {
         purchaseShopItem(input.shopBuyOption);
     }
 
-    // Weapon slot selection
+    // Smartphone purchase / summon / equip input
+    if (input.phoneTab >= 0 && input.phoneTab <= 3 && input.phoneOption >= 1 && input.phoneOption <= 6) {
+        executePhoneAction(input.phoneTab, input.phoneOption);
+    }
+
+    // Weapon slot selection (slots 0..6)
     if (input.weaponSelectSlot >= 0 && input.weaponSelectSlot < static_cast<int>(WeaponId::Count)) {
         if (player_.weapons[static_cast<std::size_t>(input.weaponSelectSlot)].owned) {
             player_.currentWeapon = static_cast<WeaponId>(input.weaponSelectSlot);
@@ -832,7 +1390,7 @@ void GameWorld::update(float dt, const PlayerInput& input) {
         if (!stillDrifting) {
             player_.driftBankTimer += dt;
             if (player_.driftBankTimer >= 0.95f) {
-                const int bonus = std::clamp(static_cast<int>(player_.activeDriftScore * 0.35f), 20, 600);
+                const int bonus = std::clamp(static_cast<int>(player_.activeDriftScore * 0.45f), 25, 800);
                 player_.cash += bonus;
                 player_.activeDriftScore = 0.0f;
                 player_.driftBankTimer = 0.0f;
@@ -905,10 +1463,7 @@ void GameWorld::updatePlayerOnFoot(float dt, const PlayerInput& input) {
         if (intersectOBB(playerBox, v.obb(), mtv)) {
             player_.pos += mtv;
             if (v.speed() > 11.0f) {
-                const float hitDmg = v.speed() * 1.35f;
-                const float absorbed = std::min(player_.armor, hitDmg * 0.6f);
-                player_.armor -= absorbed;
-                player_.health -= (hitDmg - absorbed);
+                applyDamageToPlayer(v.speed() * 1.35f);
                 player_.velocity += v.velocity * 0.55f;
             }
         }
@@ -999,9 +1554,15 @@ GameWorld::RayHit3D GameWorld::traceWorldRay3D(const Vec3& origin, const Vec3& d
         }
     }
 
-    // 5. Shootable street props (hydrants, crates, cones)
+    // 5. Shootable street props (skip heavy structural streetlights, bus shelters, billboards, and fuel pumps)
     for (auto& prop : city_.streetProps()) {
-        if (prop.broken || prop.kind == StreetPropKind::StreetLight) continue;
+        if (prop.broken ||
+            prop.kind == StreetPropKind::StreetLight ||
+            prop.kind == StreetPropKind::BusShelter ||
+            prop.kind == StreetPropKind::Billboard ||
+            prop.kind == StreetPropKind::FuelPump) {
+            continue;
+        }
         float radius = 0.28f;
         float topY = 0.85f;
         if (prop.kind == StreetPropKind::Crate) {
@@ -1010,6 +1571,15 @@ GameWorld::RayHit3D GameWorld::traceWorldRay3D(const Vec3& origin, const Vec3& d
         } else if (prop.kind == StreetPropKind::TrafficCone) {
             radius = 0.26f;
             topY = 0.70f;
+        } else if (prop.kind == StreetPropKind::Bench) {
+            radius = 0.72f;
+            topY = 0.88f;
+        } else if (prop.kind == StreetPropKind::TrashBin) {
+            radius = 0.34f;
+            topY = 0.95f;
+        } else if (prop.kind == StreetPropKind::BeachUmbrella) {
+            radius = 0.65f;
+            topY = 2.10f;
         }
         const float tProp = intersectRayCylinderY(origin, dir, result.dist, prop.pos, 0.0f, topY, radius, nullptr);
         if (tProp >= 0.0f && tProp < result.dist) {
@@ -1119,15 +1689,85 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
     fireWeapon(player_.currentWeapon, muzzle3D, aimPoint3D, input.aimHeld);
 }
 
+void GameWorld::triggerExplosiveBlast3D(const Vec3& center, float radius, float baseDamage) {
+    const Vec2 center2D{center.x, center.z};
+    pushAudio(AudioEventType::Explosion, 1.0f);
+    emitParticles({center.x, std::max(0.45f, center.y), center.z}, 36, {255, 146, 44, 255}, 14.5f, 0.58f, 0.85f);
+    emitParticles({center.x, std::max(0.75f, center.y + 0.3f), center.z}, 22, {74, 70, 66, 235}, 8.8f, 0.68f, 1.25f);
+    triggerCivilianPanicNear(center2D, 46.0f);
+
+    bool hitAnything = false;
+
+    for (auto& npc : npcs_) {
+        if (!npc.alive) continue;
+        const Vec2 d = npc.pos - center2D;
+        const float len = d.length();
+        if (len <= radius) {
+            const float falloff = std::max(0.22f, 1.0f - len / radius);
+            damageNpc(npc, baseDamage * falloff, (len > 1e-3f) ? (d / len) : Vec2{1.0f, 0.0f});
+            hitAnything = true;
+        }
+    }
+
+    for (auto& v : vehicles_) {
+        if (v.destroyed) continue;
+        const Vec2 d = v.pos - center2D;
+        const float len = d.length();
+        if (len <= radius + 1.8f) {
+            const float falloff = std::max(0.25f, 1.0f - len / (radius + 1.8f));
+            const float armorScale = 1.0f / (1.0f + 0.28f * static_cast<float>(v.armorUpgradeLevel));
+            v.health -= baseDamage * falloff * armorScale;
+            v.velocity += ((len > 1e-3f) ? (d / len) : Vec2{1.0f, 0.0f}) * (9.5f * falloff);
+            v.isParked = false;
+            hitAnything = true;
+            if (v.health <= 0.0f) {
+                explodeVehicle(v);
+            }
+        }
+    }
+
+    for (auto& prop : city_.streetProps()) {
+        if (prop.broken ||
+            prop.kind == StreetPropKind::StreetLight ||
+            prop.kind == StreetPropKind::BusShelter ||
+            prop.kind == StreetPropKind::Billboard ||
+            prop.kind == StreetPropKind::FuelPump) {
+            continue;
+        }
+        const Vec2 d = prop.pos - center2D;
+        const float len = d.length();
+        if (len <= radius) {
+            prop.broken = true;
+            prop.brokenTimer = 0.0f;
+            prop.velocity = ((len > 1e-3f) ? (d / len) : Vec2{1.0f, 0.0f}) * 7.5f;
+        }
+    }
+
+    // Mild self-splash if firing right at feet
+    if (player_.drivingVehicleId < 0) {
+        const float selfDist = (player_.pos - center2D).length();
+        if (selfDist < 4.2f) {
+            applyDamageToPlayer((1.0f - selfDist / 4.2f) * 32.0f);
+        }
+    }
+
+    if (hitAnything) {
+        player_.hitMarkerTimer = 0.20f;
+        player_.hitMarkerCritical = true;
+    }
+}
+
 void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& target3D, bool precisionAim) {
     const auto& spec = getWeaponSpec(weaponId);
 
     switch (weaponId) {
-        case WeaponId::Fists:        pushAudio(AudioEventType::MeleeSwing, 0.8f); break;
-        case WeaponId::Pistol:       pushAudio(AudioEventType::PistolShot, 0.9f); break;
-        case WeaponId::SMG:          pushAudio(AudioEventType::SmgShot, 0.8f); break;
-        case WeaponId::Shotgun:      pushAudio(AudioEventType::ShotgunShot, 1.0f); break;
-        case WeaponId::AssaultRifle: pushAudio(AudioEventType::RifleShot, 0.95f); break;
+        case WeaponId::Fists:         pushAudio(AudioEventType::MeleeSwing, 0.8f); break;
+        case WeaponId::Pistol:        pushAudio(AudioEventType::PistolShot, 0.9f); break;
+        case WeaponId::SMG:           pushAudio(AudioEventType::SmgShot, 0.8f); break;
+        case WeaponId::Shotgun:       pushAudio(AudioEventType::ShotgunShot, 1.0f); break;
+        case WeaponId::AssaultRifle:  pushAudio(AudioEventType::RifleShot, 0.95f); break;
+        case WeaponId::CombatMG:      pushAudio(AudioEventType::RifleShot, 1.0f); break;
+        case WeaponId::HeavyLauncher: pushAudio(AudioEventType::ShotgunShot, 1.0f); break;
         default: break;
     }
 
@@ -1160,6 +1800,18 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
         const Vec3 end3D = hit.point;
         const Vec2 flatDir = Vec2{shotDir.x, shotDir.z}.normalized();
 
+        if (spec.explosive) {
+            tracers_.push_back(BulletTracer{
+                muzzle3D,
+                end3D,
+                {255, 148, 56, 255},
+                0.16f,
+                0.16f
+            });
+            triggerExplosiveBlast3D(end3D, 8.2f, spec.damage);
+            continue;
+        }
+
         if (weaponId != WeaponId::Fists) {
             tracers_.push_back(BulletTracer{
                 muzzle3D,
@@ -1180,7 +1832,8 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
                           hit.headshot ? 5.4f : 4.2f, 0.14f, 0.32f);
         } else if (hit.kind == RayHit3D::Kind::Vehicle && hit.vehicle) {
             if (!hit.vehicle->destroyed) {
-                hit.vehicle->health -= spec.damage;
+                const float armorScale = 1.0f / (1.0f + 0.28f * static_cast<float>(hit.vehicle->armorUpgradeLevel));
+                hit.vehicle->health -= spec.damage * armorScale;
                 player_.hitMarkerTimer = 0.12f;
                 player_.hitMarkerCritical = false;
                 emitParticles(end3D, 6, {255, 198, 72, 255}, 6.0f, 0.15f, 0.28f);
@@ -1245,7 +1898,10 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
     }
 
     if (!v.nitroActive) {
-        v.nitroCharge = std::min(1.0f, v.nitroCharge + dt * 0.055f);
+        const float nitroRate = (v.isPlayerDriving && player_.ownedProperties[static_cast<std::size_t>(PropertyId::GlobeOilGas)])
+                                    ? 0.11f
+                                    : 0.055f;
+        v.nitroCharge = std::min(1.0f, v.nitroCharge + dt * nitroRate);
     }
 
     if (handbrake) {
@@ -1489,7 +2145,8 @@ void GameWorld::resolveVehicleCollisions(float dt) {
                 v.velocity += n * (intoWall * 1.32f);
                 v.velocity *= 0.82f;
                 if (intoWall > 8.5f) {
-                    const float crashDmg = (intoWall - 7.0f) * 1.65f;
+                    const float armorScale = 1.0f / (1.0f + 0.28f * static_cast<float>(v.armorUpgradeLevel));
+                    const float crashDmg = (intoWall - 7.0f) * 1.65f * armorScale;
                     v.health -= crashDmg;
                     emitParticles({v.pos.x - n.x * 1.5f, 0.65f, v.pos.z - n.z * 1.5f},
                                   7, {255, 198, 72, 255}, 5.5f, 0.16f, 0.30f);
@@ -1536,8 +2193,8 @@ void GameWorld::resolveVehicleCollisions(float dt) {
                 const float impactSpeed = -sepVel;
                 if (impactSpeed > 7.5f) {
                     const float dmg = (impactSpeed - 6.0f) * 1.15f;
-                    a.health -= dmg;
-                    b.health -= dmg;
+                    a.health -= dmg / (1.0f + 0.28f * static_cast<float>(a.armorUpgradeLevel));
+                    b.health -= dmg / (1.0f + 0.28f * static_cast<float>(b.armorUpgradeLevel));
                     const Vec2 mid = (a.pos + b.pos) * 0.5f;
                     emitParticles({mid.x, 0.7f, mid.z}, 8, {255, 206, 84, 255}, 6.0f, 0.16f, 0.32f);
                     if (a.isPlayerDriving || b.isPlayerDriving) {
@@ -1564,7 +2221,7 @@ void GameWorld::explodeVehicle(Vehicle& v) {
         player_.drivingVehicleId = -1;
         player_.pos = v.pos - rightFromHeading(v.heading) * 2.4f;
         city_.resolveCircleWorld(player_.pos, 0.45f);
-        player_.health -= 45.0f;
+        applyDamageToPlayer(45.0f);
     }
 
     pushAudio(AudioEventType::Explosion, 1.0f);
@@ -1838,14 +2495,11 @@ void GameWorld::updateNpcs(float dt) {
                         // Hit check against player car or player body
                         if (Vehicle* pCar = findVehicleMutable(player_.drivingVehicleId)) {
                             if (intersectRayOBB(npc.pos, shotDir, distToPlayer + 3.0f, pCar->obb()) >= 0.0f) {
-                                pCar->health -= 8.0f;
+                                pCar->health -= 8.0f / (1.0f + 0.28f * static_cast<float>(pCar->armorUpgradeLevel));
                                 if (pCar->health <= 0.0f) explodeVehicle(*pCar);
                             }
                         } else if (intersectRayCircle(npc.pos, shotDir, distToPlayer + 1.5f, player_.pos, 0.58f) >= 0.0f) {
-                            const float shotDmg = 8.5f;
-                            const float absorbed = std::min(player_.armor, shotDmg * 0.65f);
-                            player_.armor -= absorbed;
-                            player_.health -= (shotDmg - absorbed);
+                            applyDamageToPlayer(8.5f);
                         }
                     }
                 }
@@ -2017,6 +2671,12 @@ void GameWorld::updatePickupsAndProps(float dt) {
 
     // Destructible street props (hydrants spray water geysers when knocked over!)
     for (auto& prop : city_.streetProps()) {
+        if (prop.kind == StreetPropKind::StreetLight ||
+            prop.kind == StreetPropKind::BusShelter ||
+            prop.kind == StreetPropKind::Billboard ||
+            prop.kind == StreetPropKind::FuelPump) {
+            continue;
+        }
         if (prop.broken) {
             prop.brokenTimer += dt;
             prop.pos += prop.velocity * dt;

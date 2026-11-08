@@ -14,7 +14,10 @@ enum class VehicleKind : int {
     Taxi = 3,
     Compact = 4,
     DeliveryVan = 5,
-    Count = 6
+    Hypercar = 6,
+    ArmoredSuv = 7,
+    LuxurySedan = 8,
+    Count = 9
 };
 
 struct VehicleSpec {
@@ -34,9 +37,23 @@ struct VehicleSpec {
     float mass = 1350.0f;
     float maxHealth = 160.0f;
     bool hasSpoiler = false;
+    int dealershipPrice = 0; // 0 = non-dealership commercial vehicle
 };
 
 const VehicleSpec& getVehicleSpec(VehicleKind kind);
+
+struct PersonalVehicleTuning {
+    bool owned = false;
+    ColorRGBA paintColor{228, 42, 58, 255};
+    ColorRGBA stripeColor{245, 245, 250, 255};
+    int engineUpgradeLevel = 0; // 0..3
+    int armorUpgradeLevel = 0;  // 0..3
+    int neonPreset = 0;         // 0=Off, 1=Cyan, 2=Purple, 3=Crimson, 4=Emerald, 5=Gold
+    int rimStyle = 0;           // 0=Silver Alloy, 1=Champagne Gold, 2=Gloss Black
+    bool customSpoiler = false;
+    bool mattePaint = false;
+    int paintPresetIndex = 0;
+};
 
 struct Vehicle {
     int id = 0;
@@ -63,6 +80,13 @@ struct Vehicle {
     float destroyedTimer = 0.0f;
 
     int engineUpgradeLevel = 0;  // 0..3 from Tune Garage
+    int armorUpgradeLevel = 0;   // 0..3 reinforced armor & bulletproof tires
+    int neonPreset = 0;          // 0..5 LED underglow color
+    int rimStyle = 0;            // 0=Alloy, 1=Gold, 2=Black
+    bool customSpoiler = false;
+    bool mattePaint = false;
+    bool isPersonalCar = false;
+    int paintPresetIndex = 0;
     float nitroCharge = 1.0f;    // [0, 1]
 
     // Traffic AI lane-following state
@@ -89,7 +113,9 @@ enum class WeaponId : int {
     SMG = 2,
     Shotgun = 3,
     AssaultRifle = 4,
-    Count = 5
+    CombatMG = 5,
+    HeavyLauncher = 6,
+    Count = 7
 };
 
 struct WeaponSpec {
@@ -104,9 +130,72 @@ struct WeaponSpec {
     int magazineSize = 12;
     float reloadDuration = 1.15f;
     bool automatic = false;
+    bool explosive = false;
 };
 
 const WeaponSpec& getWeaponSpec(WeaponId id);
+
+enum class PropertyId : int {
+    SunsetCondo = 0,
+    GlobeOilGas = 1,
+    PayNTuneFranchise = 2,
+    PulseNightclub = 3,
+    LuxuryShowroom = 4,
+    EclipsePenthouse = 5,
+    Count = 6
+};
+
+struct PropertySpec {
+    PropertyId id = PropertyId::SunsetCondo;
+    const char* nameEn = "Sunset Beach Condo";
+    const char* nameKo = "선셋 비치 오션뷰 콘도";
+    const char* perkEn = "Max HP +25";
+    const char* perkKo = "최대 체력 +25";
+    int price = 2500;
+    int incomePerCycle = 220; // Paid automatically every 25s
+    Vec2 worldPos{-210.0f, -126.0f};
+};
+
+const PropertySpec& getPropertySpec(PropertyId id);
+
+enum class OutfitId : int {
+    StreetCasual = 0,
+    ViceWhiteSuit = 1,
+    MidnightTuxedo = 2,
+    RacerLeather = 3,
+    TacOpsArmor = 4,
+    GoldBossCoat = 5,
+    Count = 6
+};
+
+struct OutfitSpec {
+    OutfitId id = OutfitId::StreetCasual;
+    const char* nameEn = "Street Jacket";
+    const char* nameKo = "스트리트 캐주얼 재킷";
+    int price = 0;
+    ColorRGBA top{48, 126, 225, 255};
+    ColorRGBA bottom{36, 40, 52, 255};
+    ColorRGBA accent{230, 236, 245, 255};
+    bool sunglasses = true;
+    bool suitTie = false;
+    bool tacticalVest = false;
+    bool longCoat = false;
+    float damageTakenScale = 1.0f;
+};
+
+const OutfitSpec& getOutfitSpec(OutfitId id);
+
+// 6 Dealership / Garage personal vehicle slots
+inline constexpr std::array<VehicleKind, 6> kDealershipCatalog = {{
+    VehicleKind::Compact,
+    VehicleKind::MuscleCar,
+    VehicleKind::SportsCoupe,
+    VehicleKind::LuxurySedan,
+    VehicleKind::ArmoredSuv,
+    VehicleKind::Hypercar
+}};
+
+ColorRGBA getNeonPresetColor(int neonPreset);
 
 struct WeaponSlotState {
     bool owned = false;
@@ -124,11 +213,17 @@ struct PlayerState {
     float armor = 25.0f;
     float maxArmor = 100.0f;
     float stamina = 1.0f;
-    int cash = 750;
+    int cash = 2500;
 
     int drivingVehicleId = -1; // -1 when on foot
+    int activePersonalVehicleId = -1;
     WeaponId currentWeapon = WeaponId::Pistol;
     std::array<WeaponSlotState, static_cast<std::size_t>(WeaponId::Count)> weapons{};
+    std::array<PersonalVehicleTuning, static_cast<std::size_t>(VehicleKind::Count)> garage{};
+    std::array<bool, static_cast<std::size_t>(PropertyId::Count)> ownedProperties{};
+    std::array<bool, static_cast<std::size_t>(OutfitId::Count)> ownedOutfits{};
+    OutfitId currentOutfit = OutfitId::StreetCasual;
+
     float fireCooldown = 0.0f;
     float reloadTimer = 0.0f;
     float muzzleFlashTimer = 0.0f;
@@ -143,6 +238,9 @@ struct PlayerState {
     // Live street drift combo scoring
     float activeDriftScore = 0.0f;
     float driftBankTimer = 0.0f;
+
+    // Passive business / real-estate income tracking
+    float propertyPayoutTimer = 0.0f;
 };
 
 enum class NpcRole {
@@ -294,8 +392,10 @@ struct PlayerInput {
     bool reloadPressed = false; // R
     bool hornPressed = false;   // G
     bool abortMissionPressed = false; // Backspace
-    int weaponSelectSlot = -1;  // 0..4 when 1..5 pressed (outside shop menu)
-    int shopBuyOption = -1;     // 1..6 when inside shop menu
+    int weaponSelectSlot = -1;  // 0..6 when 1..7 pressed (outside shop/phone menu)
+    int shopBuyOption = -1;     // 1..8 when inside shop menu
+    int phoneTab = -1;          // 0..3 when Smartphone action triggered
+    int phoneOption = -1;       // 1..6 when Smartphone action triggered
 };
 
 } // namespace oc

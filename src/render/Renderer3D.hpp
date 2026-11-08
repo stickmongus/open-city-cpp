@@ -71,10 +71,16 @@ private:
     void drawCharacter3D(const Vec2& pos, float groundY, float yaw, float animPhase,
                          ColorRGBA top, ColorRGBA bottom, ColorRGBA skin,
                          bool alive, bool armed, WeaponId weapon, float muzzleFlash,
-                         float aimPitch, bool hasSunglasses, bool shadowPass);
+                         float aimPitch, bool hasSunglasses, OutfitId styleOutfit, bool shadowPass);
     void drawPoisAndPickups(const GameWorld& world);
     void drawSkidsTracersParticles(const GameWorld& world);
     void drawGpsOverheadArrow(const GameWorld& world);
+
+    struct CarModelSet {
+        Model body{};
+        Model glass{};
+        Model trim{};
+    };
 
     bool initialized_ = false;
     GraphicsQuality quality_ = GraphicsQuality::Ultra;
@@ -119,17 +125,15 @@ private:
     int sceneTargetW_ = 0;
     int sceneTargetH_ = 0;
 
-    // Reusable GPU-resident procedural meshes
+    // Reusable GPU-resident procedural meshes & smooth-normal sculpted 3D vehicles
     Model cubeModel_{};
     Model cylModel_{};
     Model coneModel_{};
     Model sphereModel_{};
     Model skyDomeModel_{};
-    Model cabinCoupeModel_{};
-    Model cabinSedanModel_{};
-    Model cabinSuvModel_{};
-    Model hoodWedgeModel_{};
     Model wheelModel_{};
+    Model sportRimModel_{};
+    std::array<CarModelSet, static_cast<std::size_t>(VehicleKind::Count)> carModels_{};
 };
 
 } // namespace oc

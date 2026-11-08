@@ -296,13 +296,29 @@ void test3DCrosshairAimAndHeadshots() {
     ASSERT_TRUE(victim != nullptr);
     (void)targetPos;
 
-    world.player().pos = victim->pos + oc::Vec2{-16.0f, 0.0f};
-    // Ensure player is outside buildings
-    world.city().resolveCircleWorld(world.player().pos, 0.5f);
-
-    const oc::Vec3 camOrigin{world.player().pos.x - 3.1f, 2.25f, world.player().pos.z + 0.56f};
+    // Pick a cardinal street sightline around victim with unobstructed building LOS
+    const oc::Vec2 offsets[4] = {{-14.0f, 0.0f}, {14.0f, 0.0f}, {0.0f, -14.0f}, {0.0f, 14.0f}};
+    oc::Vec3 camOrigin{};
+    oc::Vec3 camRayDir{};
     const oc::Vec3 victimHead{victim->pos.x, 1.56f, victim->pos.z};
-    const oc::Vec3 camRayDir = (victimHead - camOrigin).normalized();
+    bool foundClearSightline = false;
+    for (const auto& off : offsets) {
+        oc::Vec2 candidatePos = victim->pos + off;
+        world.city().resolveCircleWorld(candidatePos, 0.5f);
+        const oc::Vec3 candCam{candidatePos.x - 1.8f, 2.25f, candidatePos.z + 0.56f};
+        const oc::Vec3 candDir = (victimHead - candCam).normalized();
+        const float dist = (victimHead - candCam).length();
+        if (world.city().raycastBuildings3D(candCam, candDir, dist) < 0.0f &&
+            world.city().raycastBuildings(candidatePos, (victim->pos - candidatePos).normalized(),
+                                          (victim->pos - candidatePos).length()) < 0.0f) {
+            world.player().pos = candidatePos;
+            camOrigin = candCam;
+            camRayDir = candDir;
+            foundClearSightline = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(foundClearSightline);
 
     const float hpBefore = victim->health;
     oc::PlayerInput aimShot{};
@@ -388,6 +404,123 @@ void testUpwardCameraAndSkyscraperRaycast() {
     ++gTestsPassed;
 }
 
+void testDealershipRealEstateTuningAndHeavyOrdnance() {
+    oc::GameWorld world(4040ULL);
+    world.player().cash = 200000;
+
+    // 1. Smartphone Tab 0 (AUTOS): Purchase Zentorno X Hypercar & verify curbside delivery
+    const int cashStart = world.player().cash;
+    ASSERT_TRUE(world.executePhoneAction(0, 6)); // Slot 6 = Hypercar
+    ASSERT_TRUE(world.player().cash < cashStart);
+    ASSERT_TRUE(world.player().garage[static_cast<std::size_t>(oc::VehicleKind::Hypercar)].owned);
+    ASSERT_TRUE(world.player().activePersonalVehicleId >= 0);
+
+    const int cashAfterBuy = world.player().cash;
+    // Re-summoning an owned vehicle via Smartphone is free!
+    world.player().pos = {-84.0f, 12.0f};
+    ASSERT_TRUE(world.executePhoneAction(0, 6));
+    ASSERT_TRUE(world.player().cash == cashAfterBuy);
+    oc::Vehicle* hyper = world.findVehicleMutable(world.player().activePersonalVehicleId);
+    ASSERT_TRUE(hyper != nullptr && hyper->isPersonalCar && hyper->kind == oc::VehicleKind::Hypercar);
+
+    // 2. Smartphone Tab 1 (REALTY): Buy properties, verify perks & 25s passive income payout
+    ASSERT_TRUE(world.executePhoneAction(1, 1)); // SunsetCondo (+25 Max HP)
+    ASSERT_TRUE(world.executePhoneAction(1, 3)); // PayNTuneFranchise (-40% Tuning Discount)
+    ASSERT_TRUE(world.executePhoneAction(1, 6)); // EclipsePenthouse (+50 Max Armor)
+    ASSERT_TRUE(world.player().maxHealth >= 124.5f);
+    ASSERT_TRUE(world.player().maxArmor >= 149.5f);
+    ASSERT_TRUE(world.tuningDiscountScale() < 0.65f);
+    ASSERT_TRUE(world.passiveIncomePerCycle() > 1500);
+
+    const int cashBeforeRent = world.player().cash;
+    for (int i = 0; i < 520; ++i) {
+        world.update(0.05f, {});
+    }
+    ASSERT_TRUE(world.player().cash >= cashBeforeRent + world.passiveIncomePerCycle());
+
+    // 3. Deep Vehicle Tuning at Pay 'n' Tune & Personal Garage Persistence
+    const auto* gPoi = world.city().findPoi(oc::PoiKind::TuneGarage);
+    ASSERT_TRUE(gPoi != nullptr);
+    hyper = world.findVehicleMutable(world.player().activePersonalVehicleId);
+    ASSERT_TRUE(hyper != nullptr);
+    hyper->pos = gPoi->pos;
+    hyper->isPlayerDriving = true;
+    world.player().drivingVehicleId = hyper->id;
+    ASSERT_TRUE(world.isPlayerInGarageZone());
+
+    ASSERT_TRUE(world.purchaseShopItem(2)); // Turbo Lv+1
+    ASSERT_TRUE(world.purchaseShopItem(3)); // Armor Lv+1
+    ASSERT_TRUE(world.purchaseShopItem(4)); // LED Neon Underglow
+    ASSERT_TRUE(world.purchaseShopItem(5)); // Carbon GT Aero Spoiler toggle
+    ASSERT_TRUE(world.purchaseShopItem(6)); // Forged Alloy Rim finish
+    ASSERT_TRUE(world.purchaseShopItem(7)); // Metallic / Matte Satin custom paint
+
+    const int expectedNeon = hyper->neonPreset;
+    const int expectedRim = hyper->rimStyle;
+    const bool expectedWing = hyper->customSpoiler;
+
+    ASSERT_TRUE(world.tryEnterOrExitVehicle());
+    world.player().pos = {84.0f, 12.0f};
+    ASSERT_TRUE(world.executePhoneAction(0, 6)); // Summon fresh instance from garage
+    const oc::Vehicle* resummoned = world.findVehicle(world.player().activePersonalVehicleId);
+    ASSERT_TRUE(resummoned != nullptr);
+    ASSERT_TRUE(resummoned->engineUpgradeLevel >= 1);
+    ASSERT_TRUE(resummoned->armorUpgradeLevel >= 1);
+    ASSERT_TRUE(resummoned->neonPreset == expectedNeon);
+    ASSERT_TRUE(resummoned->rimStyle == expectedRim);
+    ASSERT_TRUE(resummoned->customSpoiler == expectedWing);
+
+    // 4. Outfits (MODA) + Heavy Ordnance (Combat MG & Tactical Explosive Launcher)
+    ASSERT_TRUE(world.executePhoneAction(2, 5)); // TacOpsArmor outfit
+    ASSERT_TRUE(world.player().currentOutfit == oc::OutfitId::TacOpsArmor);
+    ASSERT_TRUE(oc::getOutfitSpec(world.player().currentOutfit).damageTakenScale < 0.85f);
+
+    ASSERT_TRUE(world.executePhoneAction(3, 5)); // Combat MG
+    ASSERT_TRUE(world.player().weapons[static_cast<std::size_t>(oc::WeaponId::CombatMG)].owned);
+    ASSERT_TRUE(world.executePhoneAction(3, 6)); // HeavyLauncher
+    ASSERT_TRUE(world.player().weapons[static_cast<std::size_t>(oc::WeaponId::HeavyLauncher)].owned);
+    ASSERT_TRUE(world.player().currentWeapon == oc::WeaponId::HeavyLauncher);
+
+    // Fire HeavyLauncher at ground 18m ahead and verify explosive particles spawn
+    const std::size_t particlesBefore = world.particles().size();
+    oc::PlayerInput rocketShot{};
+    rocketShot.hasAimRay3D = true;
+    rocketShot.aimRayOrigin = {world.player().pos.x, 1.8f, world.player().pos.z};
+    rocketShot.aimRayDir = oc::Vec3{18.0f, -1.8f, 0.0f}.normalized();
+    rocketShot.fireHeld = true;
+    world.update(1.0f / 60.0f, rocketShot);
+    ASSERT_TRUE(world.particles().size() > particlesBefore + 15);
+
+    // 5. Realistic City Landmarks, Storefronts & Western Sunset Beach / Ocean Pier
+    const auto& city = world.city();
+    ASSERT_TRUE(city.findPoi(oc::PoiKind::CarDealership) != nullptr);
+    ASSERT_TRUE(city.findPoi(oc::PoiKind::ClothingBoutique) != nullptr);
+    ASSERT_TRUE(city.findPoi(oc::PoiKind::GasStation) != nullptr);
+    ASSERT_TRUE(city.findPoi(oc::PoiKind::NightclubProperty) != nullptr);
+    ASSERT_TRUE(!city.canopies().empty());
+
+    bool hasStorefront = false;
+    bool hasBalconies = false;
+    bool hasHelipad = false;
+    for (const auto& b : city.buildings()) {
+        if (b.hasStorefront) hasStorefront = true;
+        if (b.hasBalconies) hasBalconies = true;
+        if (b.hasHelipad) hasHelipad = true;
+    }
+    ASSERT_TRUE(hasStorefront && hasBalconies && hasHelipad);
+
+    // Verify player can walk onto Sunset Beach (-360, 40) and Sunset Bay Pier (-410, 0)
+    oc::Vec2 beachPos{-360.0f, 40.0f};
+    city.resolveCircleWorld(beachPos, 0.5f);
+    ASSERT_TRUE(std::abs(beachPos.x - (-360.0f)) < 0.01f);
+
+    oc::Vec2 pierPos{-410.0f, 0.0f};
+    city.resolveCircleWorld(pierPos, 0.5f);
+    ASSERT_TRUE(std::abs(pierPos.x - (-410.0f)) < 0.01f);
+
+    ++gTestsPassed;
+}
+
 } // namespace
 
 int main() {
@@ -399,6 +532,7 @@ int main() {
     test3DCrosshairAimAndHeadshots();
     testSidewalkPedestrianDiscipline();
     testUpwardCameraAndSkyscraperRaycast();
+    testDealershipRealEstateTuningAndHeavyOrdnance();
 
     std::cout << "[PASS] All " << gTestsPassed << " Open City C++ simulation test suites succeeded!\n";
     return 0;

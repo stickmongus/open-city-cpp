@@ -15,6 +15,14 @@ int main(int argc, char** argv) {
     float initialTimeOverride = -1.0f;
     float initialPitchOverride = -999.0f;
     float initialYawOverride = -999.0f;
+    bool hasPosOverride = false;
+    float posOverrideX = 0.0f;
+    float posOverrideZ = 0.0f;
+    int openPhoneTabOverride = -1;
+    bool openShopOverride = false;
+    int cashOverride = -1;
+    bool driveHypercarDemo = false;
+    int demoNeonPreset = 0;
     bool hideHelpInSmoke = false;
 
     for (int i = 1; i < argc; ++i) {
@@ -29,13 +37,27 @@ int main(int argc, char** argv) {
             initialPitchOverride = std::strtof(argv[++i], nullptr);
         } else if (std::strcmp(argv[i], "--yaw") == 0 && i + 1 < argc) {
             initialYawOverride = std::strtof(argv[++i], nullptr);
+        } else if (std::strcmp(argv[i], "--pos") == 0 && i + 2 < argc) {
+            hasPosOverride = true;
+            posOverrideX = std::strtof(argv[++i], nullptr);
+            posOverrideZ = std::strtof(argv[++i], nullptr);
+        } else if (std::strcmp(argv[i], "--open-phone") == 0 && i + 1 < argc) {
+            openPhoneTabOverride = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--open-shop") == 0) {
+            openShopOverride = true;
+        } else if (std::strcmp(argv[i], "--cash") == 0 && i + 1 < argc) {
+            cashOverride = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--drive-hypercar") == 0) {
+            driveHypercarDemo = true;
+        } else if (std::strcmp(argv[i], "--neon") == 0 && i + 1 < argc) {
+            demoNeonPreset = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--no-help") == 0) {
             hideHelpInSmoke = true;
         }
     }
 
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1440, 860, "Open City C++ v0.3.0 - 3D Open-World Sandbox");
+    InitWindow(1440, 860, "Open City C++ v0.4.0 - 3D Open-World Sandbox");
     SetExitKey(KEY_NULL); // Keep ESC free for menu/cursor release instead of instant quit
     SetTargetFPS(60);
 
@@ -48,9 +70,41 @@ int main(int argc, char** argv) {
     hud.init();
     audio.init();
 
+    if (cashOverride >= 0) {
+        world.player().cash = cashOverride;
+    }
+    if (hasPosOverride) {
+        world.player().pos = {posOverrideX, posOverrideZ};
+    }
+    if (driveHypercarDemo) {
+        world.player().cash = std::max(world.player().cash, 75000);
+        world.buyOrSummonVehicle(oc::VehicleKind::Hypercar);
+        if (oc::Vehicle* pcar = world.findVehicleMutable(world.player().activePersonalVehicleId)) {
+            if (hasPosOverride) {
+                pcar->pos = {posOverrideX, posOverrideZ};
+            }
+            if (initialYawOverride > -100.0f) {
+                pcar->heading = initialYawOverride;
+            }
+            pcar->neonPreset = demoNeonPreset;
+            pcar->customSpoiler = true;
+            pcar->engineUpgradeLevel = 2;
+            pcar->armorUpgradeLevel = 2;
+            pcar->isPlayerDriving = true;
+            pcar->isParked = false;
+            world.player().drivingVehicleId = pcar->id;
+        }
+    }
     if (initialTimeOverride >= 0.0f) {
         const float deltaH = initialTimeOverride - world.timeOfDayHours();
         world.advanceTimeOfDayHours(deltaH >= 0.0f ? deltaH : (deltaH + 24.0f));
+    }
+    if (openPhoneTabOverride >= 0) {
+        hud.setPhoneOpen(true);
+        hud.setPhoneTab(openPhoneTabOverride);
+    }
+    if (openShopOverride && world.isPlayerInAnyShopZone()) {
+        hud.setShopMenuOpen(true);
     }
     if (hideHelpInSmoke) {
         hud.toggleHelpOverlay();
@@ -63,22 +117,32 @@ int main(int argc, char** argv) {
     float camYaw = (initialYawOverride > -100.0f) ? initialYawOverride : -oc::kHalfPi;
     float camPitch = (initialPitchOverride > -100.0f) ? initialPitchOverride : -0.10f;
     float smoothedPitch = camPitch;
-    float manualCamHoldTimer = 0.0f;
+    float manualCamHoldTimer = (initialYawOverride > -100.0f || initialPitchOverride > -100.0f) ? 5.0f : 0.0f;
     float smoothedFov = 58.0f;
     bool camInitialized = false;
     oc::Vec3 smoothedCamPos{14.5f, 2.4f, 19.5f};
 
+    constexpr int kWeaponSlotCount = static_cast<int>(oc::WeaponId::Count);
+
     while (!WindowShouldClose()) {
         const float frameDt = std::min(GetFrameTime(), 0.05f);
 
-        // Window / cursor / utility hotkeys
-        if (IsKeyPressed(KEY_TAB) || (IsKeyPressed(KEY_ESCAPE) && !hud.isShopMenuOpen())) {
+        // Window / cursor / modal hotkeys
+        if (IsKeyPressed(KEY_ESCAPE)) {
+            if (hud.isShopMenuOpen()) {
+                hud.setShopMenuOpen(false);
+            } else if (hud.isPhoneOpen()) {
+                hud.setPhoneOpen(false);
+            } else {
+                cursorLocked = !cursorLocked;
+                if (cursorLocked) DisableCursor();
+                else EnableCursor();
+            }
+        }
+        if (IsKeyPressed(KEY_TAB)) {
             cursorLocked = !cursorLocked;
             if (cursorLocked) DisableCursor();
             else EnableCursor();
-        }
-        if (IsKeyPressed(KEY_ESCAPE) && hud.isShopMenuOpen()) {
-            hud.setShopMenuOpen(false);
         }
         if (!cursorLocked && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !hud.isShopMenuOpen()) {
             cursorLocked = true;
@@ -103,8 +167,11 @@ int main(int argc, char** argv) {
         if (IsKeyPressed(KEY_T)) {
             world.advanceTimeOfDayHours(3.0f);
         }
+        if (IsKeyPressed(KEY_P)) {
+            hud.setPhoneOpen(!hud.isPhoneOpen());
+        }
         if (IsKeyPressed(KEY_B)) {
-            if (world.isPlayerInWeaponShopZone() || world.isPlayerInGarageZone()) {
+            if (world.isPlayerInAnyShopZone()) {
                 hud.setShopMenuOpen(!hud.isShopMenuOpen());
             } else {
                 hud.setShopMenuOpen(false);
@@ -147,33 +214,44 @@ int main(int argc, char** argv) {
 
             input.sprintOrNitro = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
             input.handbrake = IsKeyDown(KEY_SPACE);
-            input.interactPressed = IsKeyPressed(KEY_F) || IsKeyPressed(KEY_E);
+            input.interactPressed = IsKeyPressed(KEY_F) || (!hud.isPhoneOpen() && IsKeyPressed(KEY_E));
             input.aimHeld = cursorLocked && IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
             input.fireHeld = cursorLocked && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
             input.reloadPressed = IsKeyPressed(KEY_R);
             input.hornPressed = IsKeyPressed(KEY_G);
             input.abortMissionPressed = IsKeyPressed(KEY_BACKSPACE);
 
-            for (int k = 0; k < 5; ++k) {
-                if (IsKeyPressed(KEY_ONE + k)) {
-                    input.weaponSelectSlot = k;
+            if (hud.isPhoneOpen()) {
+                if (IsKeyPressed(KEY_Q)) hud.cyclePhoneTab(-1);
+                if (IsKeyPressed(KEY_E)) hud.cyclePhoneTab(1);
+                for (int opt = 1; opt <= 6; ++opt) {
+                    if (IsKeyPressed(KEY_ONE + (opt - 1))) {
+                        input.phoneTab = hud.phoneTab();
+                        input.phoneOption = opt;
+                    }
                 }
-            }
+            } else {
+                for (int k = 0; k < kWeaponSlotCount; ++k) {
+                    if (IsKeyPressed(KEY_ONE + k)) {
+                        input.weaponSelectSlot = k;
+                    }
+                }
 
-            const float wheel = GetMouseWheelMove();
-            if (std::abs(wheel) > 0.1f && world.player().drivingVehicleId < 0) {
-                int cur = static_cast<int>(world.player().currentWeapon);
-                const int step = (wheel > 0.0f) ? 1 : -1;
-                for (int tries = 0; tries < 5; ++tries) {
-                    cur = (cur + step + 5) % 5;
-                    if (world.player().weapons[static_cast<std::size_t>(cur)].owned) {
-                        input.weaponSelectSlot = cur;
-                        break;
+                const float wheel = GetMouseWheelMove();
+                if (std::abs(wheel) > 0.1f && world.player().drivingVehicleId < 0) {
+                    int cur = static_cast<int>(world.player().currentWeapon);
+                    const int step = (wheel > 0.0f) ? 1 : -1;
+                    for (int tries = 0; tries < kWeaponSlotCount; ++tries) {
+                        cur = (cur + step + kWeaponSlotCount) % kWeaponSlotCount;
+                        if (world.player().weapons[static_cast<std::size_t>(cur)].owned) {
+                            input.weaponSelectSlot = cur;
+                            break;
+                        }
                     }
                 }
             }
         } else {
-            for (int opt = 1; opt <= 6; ++opt) {
+            for (int opt = 1; opt <= 8; ++opt) {
                 if (IsKeyPressed(KEY_ONE + (opt - 1))) {
                     input.shopBuyOption = opt;
                 }
@@ -196,7 +274,7 @@ int main(int argc, char** argv) {
 
             if (const oc::Vehicle* car = world.playerVehicle()) {
                 pivot = {car->pos.x, 1.48f, car->pos.z};
-                boomDist = 8.3f + oc::clampf(car->speed() * 0.065f, 0.0f, 2.8f);
+                boomDist = 7.8f + oc::clampf(car->speed() * 0.065f, 0.0f, 2.8f);
                 outTargetFov = 58.0f + oc::clampf(car->speed() * 0.32f, 0.0f, 14.0f) + (car->nitroActive ? 5.0f : 0.0f);
             } else {
                 const oc::Vec2 rightOff = oc::rightFromHeading(renderYaw) * (input.aimHeld ? 0.56f : 0.32f);

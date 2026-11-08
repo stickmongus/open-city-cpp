@@ -21,7 +21,10 @@ enum class BuildingStyle {
     Warehouse,
     ShippingStack,
     ShopBuilding,
-    GarageBuilding
+    GarageBuilding,
+    DealershipBuilding,
+    BoutiqueBuilding,
+    NightclubBuilding
 };
 
 struct Building {
@@ -30,8 +33,17 @@ struct Building {
     float upperTierHeight = 0.0f; // optional stepped skyscraper upper tier
     ColorRGBA primaryColor{};
     ColorRGBA accentColor{};
+    ColorRGBA awningColor{198, 56, 52, 255};
     BuildingStyle style = BuildingStyle::ModernOffice;
     bool litWindows = true;
+    bool hasStorefront = false;
+    bool hasBalconies = false;
+    bool hasHelipad = false;
+};
+
+struct GasStationCanopy {
+    AABB2D bounds; // Drive-through overhead roof (vehicles pass freely underneath)
+    float clearanceHeight = 4.9f;
 };
 
 struct ParkPatch {
@@ -44,13 +56,20 @@ struct TreeProp {
     float trunkHeight = 2.8f;
     float crownRadius = 2.2f;
     bool palmStyle = false;
+    bool inPlanter = false;
 };
 
 enum class StreetPropKind {
     StreetLight,
     Hydrant,
     Crate,
-    TrafficCone
+    TrafficCone,
+    BusShelter,
+    Bench,
+    TrashBin,
+    Billboard,
+    FuelPump,
+    BeachUmbrella
 };
 
 struct StreetProp {
@@ -65,6 +84,10 @@ struct StreetProp {
 enum class PoiKind {
     WeaponShop,
     TuneGarage,
+    CarDealership,
+    ClothingBoutique,
+    GasStation,
+    NightclubProperty,
     MissionDelivery,
     MissionRace,
     MissionGangRaid
@@ -110,6 +133,7 @@ public:
     DistrictType districtAtWorld(const Vec2& p) const;
 
     const std::vector<Building>& buildings() const { return buildings_; }
+    const std::vector<GasStationCanopy>& canopies() const { return canopies_; }
     const std::vector<ParkPatch>& parks() const { return parks_; }
     const std::vector<TreeProp>& trees() const { return trees_; }
     std::vector<StreetProp>& streetProps() { return streetProps_; }
@@ -126,6 +150,7 @@ public:
 
 private:
     std::vector<Building> buildings_;
+    std::vector<GasStationCanopy> canopies_;
     std::vector<ParkPatch> parks_;
     std::vector<TreeProp> trees_;
     std::vector<StreetProp> streetProps_;

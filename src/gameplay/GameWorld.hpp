@@ -15,11 +15,19 @@ public:
     void reset();
     void update(float dt, const PlayerInput& input);
 
-    // Direct helpers (also handy for automated testing)
+    // Direct helpers (also handy for automated testing & UI actions)
     bool tryEnterOrExitVehicle();
     bool purchaseShopItem(int optionOneBased);
+    bool executePhoneAction(int tabIndex, int optionOneBased);
+    bool buyOrSummonVehicle(VehicleKind kind);
+    bool buyProperty(PropertyId id);
+    bool buyOrEquipOutfit(OutfitId id);
     bool startMissionFromPoi(PoiKind poiKind);
     void advanceTimeOfDayHours(float hours);
+
+    int passiveIncomePerCycle() const;
+    int ownedPropertyCount() const;
+    float tuningDiscountScale() const;
 
     const CityMap& city() const { return city_; }
     CityMap& city() { return city_; }
@@ -55,6 +63,11 @@ public:
     const PointOfInterest* activePoiNearPlayer() const { return activePoi_; }
     bool isPlayerInWeaponShopZone() const;
     bool isPlayerInGarageZone() const;
+    bool isPlayerInDealershipZone() const;
+    bool isPlayerInBoutiqueZone() const;
+    bool isPlayerInGasStationZone() const;
+    bool isPlayerInNightclubZone() const;
+    bool isPlayerInAnyShopZone() const;
     const Vehicle* nearestEnterableVehicle(float maxRange = 4.6f) const;
 
     std::vector<AudioEvent> consumeAudioEvents();
@@ -83,6 +96,12 @@ private:
     void spawnParkedShowroomCars();
     void maintainTrafficPopulation();
     void maintainCivilianPopulation();
+
+    void recalculatePlayerPropertyPerks();
+    void syncPersonalTuningFromVehicle(const Vehicle& car);
+    void applyPersonalTuningToVehicle(Vehicle& car, const PersonalVehicleTuning& tune);
+    void triggerExplosiveBlast3D(const Vec3& center, float radius, float baseDamage);
+    void applyDamageToPlayer(float rawDamage);
 
     void updatePlayerOnFoot(float dt, const PlayerInput& input);
     void updatePlayerDriving(float dt, const PlayerInput& input, Vehicle& car);
