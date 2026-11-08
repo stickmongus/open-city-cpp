@@ -169,9 +169,12 @@ void SynthAudio::init() {
     ready_ = true;
 
     sounds_[static_cast<int>(AudioEventType::PistolShot)]      = buildNoiseBurst(0.16f, 2.6f, 0.42f, 1.3f);
+    sounds_[static_cast<int>(AudioEventType::HeavyPistolShot)] = buildNoiseBurst(0.28f, 1.9f, 0.30f, 0.72f);
     sounds_[static_cast<int>(AudioEventType::SmgShot)]         = buildNoiseBurst(0.11f, 3.1f, 0.48f, 1.6f);
     sounds_[static_cast<int>(AudioEventType::ShotgunShot)]     = buildNoiseBurst(0.32f, 2.0f, 0.28f, 0.75f);
     sounds_[static_cast<int>(AudioEventType::RifleShot)]       = buildNoiseBurst(0.20f, 2.4f, 0.38f, 1.1f);
+    sounds_[static_cast<int>(AudioEventType::SniperShot)]      = buildNoiseBurst(0.42f, 1.75f, 0.34f, 0.62f);
+    sounds_[static_cast<int>(AudioEventType::MinigunShot)]     = buildNoiseBurst(0.068f, 3.4f, 0.52f, 1.45f);
     sounds_[static_cast<int>(AudioEventType::MeleeSwing)]      = buildNoiseBurst(0.10f, 3.5f, 0.18f, 0.9f);
     sounds_[static_cast<int>(AudioEventType::CarDoor)]         = buildNoiseBurst(0.14f, 3.2f, 0.22f, 0.7f);
     sounds_[static_cast<int>(AudioEventType::CarHorn)]         = buildDualHorn(415.0f, 523.25f, 0.34f);

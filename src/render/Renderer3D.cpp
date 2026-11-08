@@ -973,6 +973,14 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
     bool hasPanoRoof  = false;
 
     switch (kind) {
+        case VehicleKind::TrackPrototype:
+            groundClear = 0.13f; wheelR = 0.35f; axleFrac = 0.62f;
+            noseTipY = 0.24f; hoodBaseY = 0.60f; beltMidY = 0.68f; tailDeckY = 0.76f;
+            roofPeakY = 1.08f;
+            sRearBase = -0.68f; sRearTop = -0.16f; sFrontTop = 0.24f; sFrontBase = 0.60f;
+            tumblehome = 0.62f; fenderFlare = 0.094f; waistPinch = 0.055f; noseRound = 0.25f;
+            isCoupeGlass = true; hasPanoRoof = true;
+            break;
         case VehicleKind::Hypercar:
             groundClear = 0.15f; wheelR = 0.35f; axleFrac = 0.62f;
             noseTipY = 0.27f; hoodBaseY = 0.64f; beltMidY = 0.72f; tailDeckY = 0.80f;
@@ -981,6 +989,14 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             tumblehome = 0.70f; fenderFlare = 0.082f; waistPinch = 0.048f; noseRound = 0.22f;
             isCoupeGlass = true; hasPanoRoof = true;
             break;
+        case VehicleKind::ClassicRoadster:
+            groundClear = 0.16f; wheelR = 0.34f; axleFrac = 0.63f;
+            noseTipY = 0.32f; hoodBaseY = 0.72f; beltMidY = 0.74f; tailDeckY = 0.84f;
+            roofPeakY = 1.18f;
+            sRearBase = 0.08f; sRearTop = 0.15f; sFrontTop = 0.22f; sFrontBase = 0.48f;
+            tumblehome = 0.74f; fenderFlare = 0.068f; waistPinch = 0.038f; noseRound = 0.20f;
+            isCoupeGlass = true;
+            break;
         case VehicleKind::SportsCoupe:
             groundClear = 0.17f; wheelR = 0.35f; axleFrac = 0.63f;
             noseTipY = 0.32f; hoodBaseY = 0.72f; beltMidY = 0.78f; tailDeckY = 0.86f;
@@ -988,6 +1004,14 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             sRearBase = -0.72f; sRearTop = -0.24f; sFrontTop = 0.14f; sFrontBase = 0.46f;
             tumblehome = 0.73f; fenderFlare = 0.068f; waistPinch = 0.036f; noseRound = 0.18f;
             isCoupeGlass = true; hasPanoRoof = true;
+            break;
+        case VehicleKind::JdmTuner:
+            groundClear = 0.16f; wheelR = 0.35f; axleFrac = 0.63f;
+            noseTipY = 0.34f; hoodBaseY = 0.76f; beltMidY = 0.82f; tailDeckY = 0.88f;
+            roofPeakY = 1.28f;
+            sRearBase = -0.68f; sRearTop = -0.28f; sFrontTop = 0.14f; sFrontBase = 0.44f;
+            tumblehome = 0.75f; fenderFlare = 0.078f; waistPinch = 0.026f; noseRound = 0.14f;
+            isCoupeGlass = true;
             break;
         case VehicleKind::MuscleCar:
             groundClear = 0.20f; wheelR = 0.36f; axleFrac = 0.64f;
@@ -1033,12 +1057,33 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             sRearBase = -0.90f; sRearTop = -0.74f; sFrontTop = 0.14f; sFrontBase = 0.44f;
             tumblehome = 0.84f; fenderFlare = 0.062f; waistPinch = 0.012f; noseRound = 0.12f;
             break;
+        case VehicleKind::OffroadPickup:
+            groundClear = 0.30f; wheelR = 0.45f; axleFrac = 0.64f;
+            noseTipY = 0.64f; hoodBaseY = 1.10f; beltMidY = 1.12f; tailDeckY = 1.04f;
+            roofPeakY = 1.78f;
+            sRearBase = -0.10f; sRearTop = -0.02f; sFrontTop = 0.24f; sFrontBase = 0.50f;
+            tumblehome = 0.84f; fenderFlare = 0.088f; waistPinch = 0.008f; noseRound = 0.09f;
+            break;
         case VehicleKind::ArmoredSuv:
             groundClear = 0.29f; wheelR = 0.43f; axleFrac = 0.63f;
             noseTipY = 0.62f; hoodBaseY = 1.08f; beltMidY = 1.12f; tailDeckY = 1.14f;
             roofPeakY = 1.78f;
             sRearBase = -0.92f; sRearTop = -0.78f; sFrontTop = 0.14f; sFrontBase = 0.42f;
             tumblehome = 0.86f; fenderFlare = 0.085f; waistPinch = 0.008f; noseRound = 0.08f;
+            break;
+        case VehicleKind::Ambulance:
+            groundClear = 0.24f; wheelR = 0.39f; axleFrac = 0.63f;
+            noseTipY = 0.54f; hoodBaseY = 1.04f; beltMidY = 1.08f; tailDeckY = 1.10f;
+            roofPeakY = 2.02f;
+            sRearBase = -0.97f; sRearTop = -0.92f; sFrontTop = 0.38f; sFrontBase = 0.72f;
+            tumblehome = 0.92f; fenderFlare = 0.046f; waistPinch = 0.0f; noseRound = 0.09f;
+            break;
+        case VehicleKind::FireTruck:
+            groundClear = 0.26f; wheelR = 0.43f; axleFrac = 0.64f;
+            noseTipY = 0.62f; hoodBaseY = 1.14f; beltMidY = 1.16f; tailDeckY = 1.16f;
+            roofPeakY = 2.08f;
+            sRearBase = -0.97f; sRearTop = -0.93f; sFrontTop = 0.52f; sFrontBase = 0.80f;
+            tumblehome = 0.93f; fenderFlare = 0.052f; waistPinch = 0.0f; noseRound = 0.06f;
             break;
         case VehicleKind::DeliveryVan:
         default:
@@ -1154,9 +1199,12 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         const float finalBeltY = std::max(beltY, minAboveArch + 0.06f);
         const float finalBellyY = std::max(lerpf(yBot, finalBeltY, 0.52f), minAboveArch);
 
-        const float hoodCenterCrown = (kind == VehicleKind::MuscleCar && s > sFrontBase + 0.06f && s < 0.84f)
-                                          ? 0.085f
-                                          : ((kind == VehicleKind::Hypercar && s < sRearTop && s > -0.82f) ? 0.055f : 0.036f);
+        const float hoodCenterCrown =
+            (kind == VehicleKind::MuscleCar && s > sFrontBase + 0.06f && s < 0.84f)
+                ? 0.085f
+                : (((kind == VehicleKind::Hypercar || kind == VehicleKind::TrackPrototype) && s < sRearTop && s > -0.82f)
+                       ? 0.055f
+                       : 0.036f);
         const float deckOrRoofSideY = lerpf(finalBeltY + 0.022f, roofPeakY - 0.038f, clampf(cabinFrac, 0.0f, 1.05f));
         const float deckOrRoofTopY  = lerpf(finalBeltY + hoodCenterCrown, roofPeakY, clampf(cabinFrac, 0.0f, 1.05f));
 
@@ -1167,6 +1215,15 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         st.yUpper     = lerpf(finalBeltY, deckOrRoofSideY, 0.52f);
         st.yCrownSide = deckOrRoofSideY;
         st.yTopCenter = std::max(deckOrRoofSideY + 0.015f, deckOrRoofTopY);
+
+        // Open-top convertible cockpit tub (ClassicRoadster) & recessed 4x4 cargo pickup bed (OffroadPickup)
+        if (kind == VehicleKind::ClassicRoadster && s > -0.36f && s < 0.07f) {
+            st.yCrownSide = finalBeltY + 0.015f;
+            st.yTopCenter = finalBeltY - 0.15f;
+        } else if (kind == VehicleKind::OffroadPickup && s > -0.90f && s < -0.12f) {
+            st.yCrownSide = finalBeltY + 0.020f;
+            st.yTopCenter = finalBeltY - 0.16f;
+        }
 
         const float roofNarrow = lerpf(0.86f, tumblehome, clampf(cabinFrac, 0.0f, 1.0f));
         st.wUnder     = wMax * 0.76f;
@@ -1299,8 +1356,11 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         }
     }
 
-    // Rear curved backlight window (except solid rear cargo door on DeliveryVan)
-    if (kind != VehicleKind::DeliveryVan) {
+    // Rear curved backlight window (except solid rear box vans/fire engine & open-top roadster)
+    if (kind != VehicleKind::DeliveryVan &&
+        kind != VehicleKind::Ambulance &&
+        kind != VehicleKind::FireTruck &&
+        kind != VehicleKind::ClassicRoadster) {
         constexpr int kRwRows = 3;
         constexpr int kRwCols = 6;
         const float s0 = sRearBase + 0.028f;
@@ -1327,8 +1387,9 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
     }
 
     // Left & Right Side Windows (framed below roof rail and above shoulder beltline!)
-    {
-        const float swStart = (kind == VehicleKind::DeliveryVan) ? 0.14f : (sRearBase + 0.08f);
+    if (kind != VehicleKind::ClassicRoadster) {
+        const float swStart = (kind == VehicleKind::FireTruck) ? 0.34f
+                            : ((kind == VehicleKind::DeliveryVan || kind == VehicleKind::Ambulance) ? 0.14f : (sRearBase + 0.08f));
         const float swEnd   = sFrontBase - 0.06f;
         const float bPillarS = 0.5f * (swStart + swEnd) + 0.03f;
         constexpr int kSideSegs = 8;
@@ -1339,7 +1400,10 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
                 const float sa = lerpf(swStart, swEnd, static_cast<float>(seg) / kSideSegs);
                 const float sb = lerpf(swStart, swEnd, static_cast<float>(seg + 1) / kSideSegs);
                 // Leave a crisp painted B-pillar gap on 4-door Sedans & SUVs!
-                if (!isCoupeGlass && kind != VehicleKind::DeliveryVan &&
+                if (!isCoupeGlass &&
+                    kind != VehicleKind::DeliveryVan &&
+                    kind != VehicleKind::Ambulance &&
+                    kind != VehicleKind::FireTruck &&
                     std::abs(0.5f * (sa + sb) - bPillarS) < (swEnd - swStart) * 0.065f) {
                     continue;
                 }
@@ -1362,7 +1426,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         }
     }
 
-    // Panoramic tinted glass roof on Hypercar, SportsCoupe & LuxurySedan
+    // Panoramic tinted glass roof on Hypercar, TrackPrototype, SportsCoupe & LuxurySedan
     if (hasPanoRoof) {
         const float p0 = lerpf(sRearTop, sFrontTop, 0.16f);
         const float p1 = lerpf(sRearTop, sFrontTop, 0.84f);
@@ -1423,7 +1487,9 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         trimB.addBox({-halfL * 0.975f, er.yUnder + 0.06f, 0.0f}, {0.12f, 0.13f, er.wBelly * 1.48f});
 
         // Diffuser vertical strakes on performance cars
-        if (kind == VehicleKind::Hypercar || kind == VehicleKind::SportsCoupe || kind == VehicleKind::MuscleCar) {
+        if (kind == VehicleKind::TrackPrototype || kind == VehicleKind::Hypercar ||
+            kind == VehicleKind::SportsCoupe || kind == VehicleKind::JdmTuner ||
+            kind == VehicleKind::ClassicRoadster || kind == VehicleKind::MuscleCar) {
             for (int f = -2; f <= 2; ++f) {
                 if (f == 0) continue;
                 trimB.addBox({-halfL * 0.99f, er.yUnder + 0.06f, static_cast<float>(f) * (halfW * 0.20f)},
@@ -1435,17 +1501,21 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             const StationEval em = evalStation(0.62f);
             trimB.addBox({em.x, em.yTopCenter + 0.05f, 0.0f}, {0.68f, 0.11f, 0.46f});
         }
-        // Hypercar side mid-engine air intakes behind doors
-        if (kind == VehicleKind::Hypercar) {
+        // Hypercar & TrackPrototype side mid-engine air intakes behind doors
+        if (kind == VehicleKind::Hypercar || kind == VehicleKind::TrackPrototype) {
             const StationEval eh = evalStation(-0.22f);
             trimB.addBox({eh.x, eh.yBelly + 0.12f,  eh.wBelly * 0.96f}, {0.56f, 0.22f, 0.08f});
             trimB.addBox({eh.x, eh.yBelly + 0.12f, -eh.wBelly * 0.96f}, {0.56f, 0.22f, 0.08f});
         }
-        // ArmoredSuv heavy steel bullbar & tactical roof rack, plus PoliceCruiser steel push-bumper
+        // ArmoredSuv & OffroadPickup heavy steel bullbars, PoliceCruiser push-bumper
         if (kind == VehicleKind::ArmoredSuv) {
             trimB.addBox({halfL + 0.07f, 0.56f, 0.0f}, {0.10f, 0.44f, halfW * 1.45f});
             trimB.addBox({-0.25f, roofPeakY + 0.055f,  halfW * 0.72f}, {halfL * 1.18f, 0.06f, 0.07f});
             trimB.addBox({-0.25f, roofPeakY + 0.055f, -halfW * 0.72f}, {halfL * 1.18f, 0.06f, 0.07f});
+        } else if (kind == VehicleKind::OffroadPickup) {
+            trimB.addBox({halfL + 0.07f, 0.58f, 0.0f}, {0.10f, 0.42f, halfW * 1.38f});
+            trimB.addBox({halfL + 0.08f, 0.74f,  0.38f}, {0.09f, 0.36f, 0.065f});
+            trimB.addBox({halfL + 0.08f, 0.74f, -0.38f}, {0.09f, 0.36f, 0.065f});
         } else if (kind == VehicleKind::PoliceCruiser) {
             trimB.addBox({halfL + 0.065f, 0.48f,  0.34f}, {0.10f, 0.44f, 0.065f});
             trimB.addBox({halfL + 0.065f, 0.48f, -0.34f}, {0.10f, 0.44f, 0.065f});
@@ -2772,13 +2842,17 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                             {L * 0.52f, 0.03f, 0.05f}, nc, 0.1f, 0.0f, 2.8f, MatKind::EmissiveGlow);
         }
 
-        // Alternating Red & Blue Police Siren Strobe Ground Light Pools!
+        // Alternating Police (Red/Blue) or EMS/Fire (Red/Amber-White) Emergency Siren Ground Light Pools!
         if (!v.destroyed && v.sirenActive) {
             const bool redFlash = (v.sirenPhase < 0.5f);
+            const bool isEmsOrFire = (v.kind == VehicleKind::Ambulance || v.kind == VehicleKind::FireTruck);
             const unsigned char mainA = static_cast<unsigned char>(nightMode ? 96 : 62);
             const unsigned char subA  = static_cast<unsigned char>(nightMode ? 38 : 22);
             const Color leftPool  = redFlash ? Color{255, 34, 48, mainA} : Color{255, 34, 48, subA};
-            const Color rightPool = redFlash ? Color{36, 122, 255, subA} : Color{36, 122, 255, mainA};
+            const Color rightBase = isEmsOrFire ? Color{255, 198, 86, 255} : Color{36, 122, 255, 255};
+            const Color rightPool = redFlash
+                                        ? Color{rightBase.r, rightBase.g, rightBase.b, subA}
+                                        : Color{rightBase.r, rightBase.g, rightBase.b, mainA};
 
             rlPushMatrix();
             rlTranslatef(-0.15f, 0.005f, -W * 1.15f);
@@ -2802,6 +2876,7 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
     rlRotatef(v.bodyRoll * kRadToDeg, 1.0f, 0.0f, 0.0f);
 
     const Color bodyCol = v.destroyed ? Color{44, 42, 40, 255} : toRayColor(v.paintColor);
+    const Color stripeCol = toRayColor(v.stripeColor);
     const Color darkTrim{24, 27, 34, 255};
     const Color chromeCol{222, 228, 238, 255};
     const Color smokedGlass{14, 24, 38, 255};
@@ -2814,10 +2889,14 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
         const Vec3 eyeLocal = driverSeatEyeLocal(v.kind);
         const float hoodStart = eyeLocal.x + 0.56f;
         const float hoodEnd = halfL * 0.94f;
-        if (hoodEnd > hoodStart + 0.18f) {
+        if (hoodEnd > hoodStart + 0.18f &&
+            v.kind != VehicleKind::DeliveryVan &&
+            v.kind != VehicleKind::Ambulance &&
+            v.kind != VehicleKind::FireTruck) {
             const float hoodLen = hoodEnd - hoodStart;
             const float hoodMidX = 0.5f * (hoodStart + hoodEnd);
-            const float hoodY = eyeLocal.y - ((v.kind == VehicleKind::Hypercar) ? 0.27f : 0.30f);
+            const float hoodY = eyeLocal.y -
+                                ((v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype) ? 0.26f : 0.30f);
 
             rlPushMatrix();
             rlTranslatef(hoodMidX, hoodY, 0.0f);
@@ -2829,7 +2908,13 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                                 {0.0f, 1.0f, 0.0f}, 0.0f, {hoodLen * 0.92f, 0.055f, W * 0.16f},
                                 bodyCol, paintRough, paintMetal, 0.0f, paintMat);
             }
-            if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::SportsCoupe) {
+            if (v.kind == VehicleKind::ClassicRoadster) {
+                drawModelStyled(cubeModel_, {0.02f, 0.044f, -0.18f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {hoodLen * 0.94f, 0.014f, 0.16f}, stripeCol, 0.12f, 0.35f, 0.0f, paintMat);
+                drawModelStyled(cubeModel_, {0.02f, 0.044f,  0.18f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {hoodLen * 0.94f, 0.014f, 0.16f}, stripeCol, 0.12f, 0.35f, 0.0f, paintMat);
+            } else if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype ||
+                       v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::JdmTuner) {
                 drawModelStyled(cubeModel_, {0.08f, 0.036f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {hoodLen * 0.52f, 0.025f, W * 0.26f}, darkTrim, 0.38f, 0.45f, 0.0f, MatKind::Standard);
             } else if (v.kind == VehicleKind::MuscleCar) {
@@ -2840,7 +2925,8 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
             }
             rlPopMatrix();
 
-            if (v.kind == VehicleKind::PoliceCruiser || v.kind == VehicleKind::ArmoredSuv) {
+            if (v.kind == VehicleKind::PoliceCruiser || v.kind == VehicleKind::ArmoredSuv ||
+                v.kind == VehicleKind::OffroadPickup) {
                 drawModelStyled(cubeModel_, {halfL * 0.96f, hoodY + 0.06f, -0.32f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {0.05f, 0.24f, 0.055f}, darkTrim, 0.35f, 0.65f, 0.0f, MatKind::Standard);
                 drawModelStyled(cubeModel_, {halfL * 0.96f, hoodY + 0.06f,  0.32f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -2873,7 +2959,8 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                         {1.0f, 1.0f, 1.0f}, smokedGlass, 0.05f, 0.18f, 0.0f, MatKind::CarGlass);
 
         // Sculpted aerodynamic wing mirrors on sleek stalks
-        const float mirrorX = halfL * 0.22f;
+        const float mirrorX = (v.kind == VehicleKind::FireTruck) ? (halfL * 0.62f)
+                            : ((v.kind == VehicleKind::Ambulance || v.kind == VehicleKind::DeliveryVan) ? (halfL * 0.48f) : (halfL * 0.22f));
         const float mirrorY = 0.22f + H * 0.56f;
         for (int side = -1; side <= 1; side += 2) {
             drawModelStyled(sphereModel_, {mirrorX, mirrorY, static_cast<float>(side) * (halfW * 0.99f)},
@@ -2882,7 +2969,8 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
         }
 
         // Rear performance grille vent, license plate & twin/quad chrome exhaust tips
-        if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::SportsCoupe) {
+        if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype ||
+            v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::JdmTuner) {
             drawModelStyled(cubeModel_, {-halfL * 0.995f, 0.52f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.05f, 0.18f, W * 0.76f}, Color{18, 20, 26, 255},
                             0.55f, 0.35f, 0.0f, MatKind::Standard);
@@ -2890,18 +2978,167 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
         drawModelStyled(cubeModel_, {-halfL - 0.008f, 0.39f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.03f, 0.13f, 0.36f}, Color{238, 242, 248, 255},
                         0.45f, 0.10f, 0.0f, MatKind::Standard);
-        const float exY = (v.kind == VehicleKind::Hypercar) ? 0.33f : 0.24f;
-        const float exZ = (v.kind == VehicleKind::Hypercar) ? (halfW * 0.20f) : (halfW * 0.54f);
+        const float exY = (v.kind == VehicleKind::TrackPrototype) ? 0.38f
+                        : ((v.kind == VehicleKind::Hypercar) ? 0.33f : 0.24f);
+        const float exZ = (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype)
+                              ? (halfW * 0.20f)
+                              : (halfW * 0.54f);
         drawModelStyled(wheelModel_, {-halfL - 0.015f, exY, -exZ}, {0.0f, 1.0f, 0.0f}, 90.0f,
                         {0.058f, 0.058f, 0.16f}, chromeCol, 0.18f, 0.92f, 0.0f, MatKind::Standard);
         drawModelStyled(wheelModel_, {-halfL - 0.015f, exY,  exZ}, {0.0f, 1.0f, 0.0f}, 90.0f,
                         {0.058f, 0.058f, 0.16f}, chromeCol, 0.18f, 0.92f, 0.0f, MatKind::Standard);
     }
 
+    // Bespoke 3D Signature Architecture for v0.7 Fleet!
+    if (v.kind == VehicleKind::ClassicRoadster && !v.destroyed) {
+        // Open-top convertible leather bucket seats, center console, twin chrome roll-hoops & racing stripes!
+        drawModelStyled(cubeModel_, {-0.22f, 0.62f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.92f, 0.14f, W * 0.72f}, Color{24, 22, 26, 255}, 0.68f, 0.08f, 0.0f, MatKind::Standard);
+        for (int side = -1; side <= 1; side += 2) {
+            const float sz = static_cast<float>(side) * 0.39f;
+            drawModelStyled(cubeModel_, {-0.32f, 0.78f, sz}, {0.0f, 0.0f, 1.0f}, 14.0f,
+                            {0.14f, 0.44f, 0.36f}, Color{42, 28, 24, 255}, 0.58f, 0.06f, 0.0f, MatKind::Standard);
+            if (!shadowPass) {
+                // Brushed chrome roll-hoop arch behind each headrest
+                drawModelStyled(cylModel_, {-0.44f, 0.76f, sz - 0.13f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.028f, 0.32f, 0.028f}, chromeCol, 0.14f, 0.94f, 0.0f, MatKind::Standard);
+                drawModelStyled(cylModel_, {-0.44f, 0.76f, sz + 0.13f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.028f, 0.32f, 0.028f}, chromeCol, 0.14f, 0.94f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {-0.44f, 1.08f, sz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.052f, 0.052f, 0.30f}, chromeCol, 0.14f, 0.94f, 0.0f, MatKind::Standard);
+            }
+        }
+        if (!shadowPass) {
+            // Dual GT racing stripes on long hood & rear tonneau deck
+            for (int side = -1; side <= 1; side += 2) {
+                const float stZ = static_cast<float>(side) * 0.17f;
+                drawModelStyled(cubeModel_, {halfL * 0.68f, 0.64f, stZ}, {0.0f, 0.0f, 1.0f}, -11.0f,
+                                {halfL * 0.46f, 0.03f, 0.14f}, stripeCol, 0.12f, 0.35f, 0.0f, paintMat);
+                drawModelStyled(cubeModel_, {-halfL * 0.64f, 0.855f, stZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {halfL * 0.44f, 0.025f, 0.14f}, stripeCol, 0.12f, 0.35f, 0.0f, paintMat);
+            }
+        }
+    } else if (v.kind == VehicleKind::OffroadPickup && !v.destroyed) {
+        // Lifted 4x4 dark rugged pickup bedliner + Baja tubular chase rollbar + 4 roof LED floodlights!
+        drawModelStyled(cubeModel_, {-halfL * 0.52f, 0.96f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {halfL * 0.78f, 0.06f, W * 0.74f}, Color{22, 24, 28, 255}, 0.78f, 0.12f, 0.0f, MatKind::Standard);
+        for (int side = -1; side <= 1; side += 2) {
+            const float bz = static_cast<float>(side) * (halfW * 0.72f);
+            drawModelStyled(cylModel_, {-0.34f, 1.12f, bz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.042f, 0.70f, 0.042f}, darkTrim, 0.36f, 0.62f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {-0.72f, 1.44f, bz}, {0.0f, 0.0f, 1.0f}, 38.0f,
+                            {0.055f, 0.88f, 0.055f}, darkTrim, 0.36f, 0.62f, 0.0f, MatKind::Standard);
+        }
+        drawModelStyled(cubeModel_, {-0.34f, 1.82f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.08f, 0.07f, W * 0.76f}, darkTrim, 0.36f, 0.62f, 0.0f, MatKind::Standard);
+        if (!shadowPass) {
+            for (int i = 0; i < 4; ++i) {
+                const float lz = (-1.5f + static_cast<float>(i)) * 0.30f;
+                drawModelStyled(cubeModel_, {0.32f, 1.84f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.09f, 0.11f, 0.18f}, darkTrim, 0.35f, 0.6f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {0.368f, 1.84f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.02f, 0.085f, 0.15f}, Color{240, 248, 255, 255},
+                                0.1f, 0.0f, nightMode ? 2.8f : 1.3f, MatKind::EmissiveGlow);
+            }
+        }
+    } else if (v.kind == VehicleKind::JdmTuner && !v.destroyed && !shadowPass) {
+        // Exposed silver Front-Mount Intercooler (FMIC) core + roof rally intake scoop!
+        drawModelStyled(cubeModel_, {halfL + 0.012f, 0.34f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.06f, 0.18f, 0.82f}, Color{206, 214, 226, 255}, 0.22f, 0.88f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.06f, 1.30f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.34f, 0.075f, 0.28f}, darkTrim, 0.32f, 0.55f, 0.0f, MatKind::Standard);
+    } else if (v.kind == VehicleKind::TrackPrototype && !v.destroyed) {
+        // Le Mans LMP central dorsal aerodynamic shark-fin stabilizer + accent splitter edge!
+        drawModelStyled(cubeModel_, {-halfL * 0.48f, 0.96f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {halfL * 0.72f, 0.26f, 0.032f}, darkTrim, 0.28f, 0.62f, 0.0f, MatKind::Standard);
+        if (!shadowPass) {
+            drawModelStyled(cubeModel_, {-halfL * 0.48f, 1.08f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {halfL * 0.72f, 0.030f, 0.038f}, stripeCol, 0.15f, 0.4f, 0.6f, MatKind::EmissiveGlow);
+            drawModelStyled(cubeModel_, {halfL * 0.99f, 0.16f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.08f, 0.026f, W * 0.88f}, stripeCol, 0.15f, 0.4f, 0.6f, MatKind::EmissiveGlow);
+        }
+    } else if (v.kind == VehicleKind::Ambulance && !v.destroyed) {
+        // Paramedic EMS crimson flank stripes, Red Cross emblems on sides/roof, and Red/White LED Lightbar!
+        const Color emsRed{226, 36, 42, 255};
+        for (int side = -1; side <= 1; side += 2) {
+            const float sz = static_cast<float>(side);
+            drawModelStyled(cubeModel_, {-0.22f, 0.92f, sz * (halfW * 0.965f)}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {L * 0.78f, 0.22f, 0.035f}, emsRed, 0.14f, 0.25f, 0.0f, MatKind::CarClearcoat);
+            if (!shadowPass) {
+                // Red Paramedic Cross (+) on rear medical box flanks
+                drawModelStyled(cubeModel_, {-0.68f, 1.48f, sz * (halfW * 0.955f)}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.42f, 0.13f, 0.035f}, emsRed, 0.16f, 0.2f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {-0.68f, 1.48f, sz * (halfW * 0.955f)}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.13f, 0.42f, 0.035f}, emsRed, 0.16f, 0.2f, 0.0f, MatKind::Standard);
+            }
+        }
+        if (!shadowPass) {
+            // Roof Red Cross + Front Cab Red/White Emergency Strobe Bar
+            drawModelStyled(cubeModel_, {-0.75f, 2.03f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.68f, 0.025f, 0.20f}, emsRed, 0.18f, 0.2f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {-0.75f, 2.03f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.20f, 0.025f, 0.68f}, emsRed, 0.18f, 0.2f, 0.0f, MatKind::Standard);
+
+            const bool redTurn = (v.sirenPhase < 0.5f);
+            const Color redPod = (v.sirenActive && redTurn) ? Color{255, 38, 46, 255} : Color{168, 24, 32, 255};
+            const Color whtPod = (v.sirenActive && !redTurn) ? Color{250, 252, 255, 255} : Color{210, 218, 228, 255};
+            drawModelStyled(cubeModel_, {halfL * 0.34f, 2.07f, -W * 0.22f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.22f, 0.10f, W * 0.32f}, redPod, 0.1f, 0.0f,
+                            v.sirenActive ? (redTurn ? 3.8f : 0.6f) : 0.15f,
+                            v.sirenActive ? MatKind::EmissiveGlow : MatKind::CarGlass);
+            drawModelStyled(cubeModel_, {halfL * 0.34f, 2.07f,  W * 0.22f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.22f, 0.10f, W * 0.32f}, whtPod, 0.1f, 0.0f,
+                            v.sirenActive ? (!redTurn ? 3.6f : 0.5f) : 0.15f,
+                            v.sirenActive ? MatKind::EmissiveGlow : MatKind::CarGlass);
+        }
+    } else if (v.kind == VehicleKind::FireTruck && !v.destroyed) {
+        // SBFD Fire Engine white stripe, chrome bumper, equipment shutters, aluminum roof ladder & Red/Amber Lightbar!
+        drawModelStyled(cubeModel_, {halfL + 0.06f, 0.44f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.14f, 0.24f, W * 0.96f}, chromeCol, 0.14f, 0.94f, 0.0f, MatKind::Standard);
+        for (int side = -1; side <= 1; side += 2) {
+            const float sz = static_cast<float>(side);
+            drawModelStyled(cubeModel_, {0.0f, 0.96f, sz * (halfW * 0.968f)}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {L * 0.88f, 0.18f, 0.035f}, Color{244, 246, 250, 255}, 0.14f, 0.25f, 0.0f, MatKind::CarClearcoat);
+            if (!shadowPass) {
+                // Brushed aluminum roll-up equipment bay doors
+                drawModelStyled(cubeModel_, {-0.45f, 1.38f, sz * (halfW * 0.955f)}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.92f, 0.54f, 0.032f}, Color{186, 194, 206, 255}, 0.28f, 0.82f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {-1.68f, 1.38f, sz * (halfW * 0.955f)}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.92f, 0.54f, 0.032f}, Color{186, 194, 206, 255}, 0.28f, 0.82f, 0.0f, MatKind::Standard);
+            }
+        }
+        // Rooftop silver aluminum extension ladder rack (2 side rails + 7 cross-rungs)
+        drawModelStyled(cubeModel_, {-0.55f, 2.16f, -0.34f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {L * 0.66f, 0.07f, 0.06f}, chromeCol, 0.18f, 0.90f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {-0.55f, 2.16f,  0.34f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {L * 0.66f, 0.07f, 0.06f}, chromeCol, 0.18f, 0.90f, 0.0f, MatKind::Standard);
+        if (!shadowPass) {
+            for (int r = -3; r <= 3; ++r) {
+                drawModelStyled(cubeModel_, {-0.55f + static_cast<float>(r) * 0.62f, 2.16f, 0.0f},
+                                {0.0f, 1.0f, 0.0f}, 0.0f, {0.045f, 0.045f, 0.64f},
+                                chromeCol, 0.20f, 0.88f, 0.0f, MatKind::Standard);
+            }
+            const bool redTurn = (v.sirenPhase < 0.5f);
+            const Color redPod = (v.sirenActive && redTurn) ? Color{255, 36, 44, 255} : Color{168, 22, 30, 255};
+            const Color ambPod = (v.sirenActive && !redTurn) ? Color{255, 196, 48, 255} : Color{182, 124, 24, 255};
+            drawModelStyled(cubeModel_, {halfL * 0.52f, 2.13f, -W * 0.24f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.24f, 0.10f, W * 0.32f}, redPod, 0.1f, 0.0f,
+                            v.sirenActive ? (redTurn ? 3.8f : 0.6f) : 0.15f,
+                            v.sirenActive ? MatKind::EmissiveGlow : MatKind::CarGlass);
+            drawModelStyled(cubeModel_, {halfL * 0.52f, 2.13f,  W * 0.24f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.24f, 0.10f, W * 0.32f}, ambPod, 0.1f, 0.0f,
+                            v.sirenActive ? (!redTurn ? 3.8f : 0.6f) : 0.15f,
+                            v.sirenActive ? MatKind::EmissiveGlow : MatKind::CarGlass);
+        }
+    }
+
     // 3) GT Aero Wing Spoiler, SBPD Black-and-White Police Livery & Roof Red/Blue LED Lightbar!
     if (v.customSpoiler) {
-        const float deckY = (v.kind == VehicleKind::Hypercar) ? 0.80f
-                          : ((v.kind == VehicleKind::SportsCoupe) ? 0.86f : (0.22f + H * 0.62f));
+        const float deckY = (v.kind == VehicleKind::TrackPrototype) ? 0.78f
+                          : ((v.kind == VehicleKind::Hypercar) ? 0.80f
+                          : ((v.kind == VehicleKind::ClassicRoadster) ? 0.84f
+                          : ((v.kind == VehicleKind::SportsCoupe) ? 0.86f
+                          : ((v.kind == VehicleKind::JdmTuner) ? 0.88f : (0.22f + H * 0.62f)))));
         const float spX = -halfL * 0.86f;
         drawModelStyled(cubeModel_, {spX, deckY + 0.12f, -halfW * 0.56f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.16f, 0.22f, 0.045f}, darkTrim, 0.32f, 0.55f, 0.0f, MatKind::Standard);
@@ -2983,16 +3220,22 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
     float wheelR   = 0.35f;
     float tireW    = 0.26f;
     switch (v.kind) {
-        case VehicleKind::Hypercar:      axleFrac = 0.62f; wheelR = 0.35f; tireW = 0.30f; break;
-        case VehicleKind::SportsCoupe:   axleFrac = 0.63f; wheelR = 0.35f; tireW = 0.28f; break;
-        case VehicleKind::MuscleCar:     axleFrac = 0.64f; wheelR = 0.36f; tireW = 0.28f; break;
-        case VehicleKind::LuxurySedan:   axleFrac = 0.64f; wheelR = 0.36f; tireW = 0.26f; break;
-        case VehicleKind::PoliceCruiser: axleFrac = 0.64f; wheelR = 0.35f; tireW = 0.26f; break;
-        case VehicleKind::Taxi:          axleFrac = 0.62f; wheelR = 0.34f; tireW = 0.24f; break;
-        case VehicleKind::Compact:       axleFrac = 0.64f; wheelR = 0.32f; tireW = 0.23f; break;
-        case VehicleKind::SUV:           axleFrac = 0.63f; wheelR = 0.40f; tireW = 0.29f; break;
-        case VehicleKind::ArmoredSuv:    axleFrac = 0.63f; wheelR = 0.43f; tireW = 0.32f; break;
-        case VehicleKind::DeliveryVan:   axleFrac = 0.62f; wheelR = 0.38f; tireW = 0.26f; break;
+        case VehicleKind::TrackPrototype:  axleFrac = 0.62f; wheelR = 0.35f; tireW = 0.32f; break;
+        case VehicleKind::Hypercar:        axleFrac = 0.62f; wheelR = 0.35f; tireW = 0.30f; break;
+        case VehicleKind::ClassicRoadster: axleFrac = 0.63f; wheelR = 0.34f; tireW = 0.27f; break;
+        case VehicleKind::SportsCoupe:     axleFrac = 0.63f; wheelR = 0.35f; tireW = 0.28f; break;
+        case VehicleKind::JdmTuner:        axleFrac = 0.63f; wheelR = 0.35f; tireW = 0.29f; break;
+        case VehicleKind::MuscleCar:       axleFrac = 0.64f; wheelR = 0.36f; tireW = 0.28f; break;
+        case VehicleKind::LuxurySedan:     axleFrac = 0.64f; wheelR = 0.36f; tireW = 0.26f; break;
+        case VehicleKind::PoliceCruiser:   axleFrac = 0.64f; wheelR = 0.35f; tireW = 0.26f; break;
+        case VehicleKind::Taxi:            axleFrac = 0.62f; wheelR = 0.34f; tireW = 0.24f; break;
+        case VehicleKind::Compact:         axleFrac = 0.64f; wheelR = 0.32f; tireW = 0.23f; break;
+        case VehicleKind::SUV:             axleFrac = 0.63f; wheelR = 0.40f; tireW = 0.29f; break;
+        case VehicleKind::OffroadPickup:   axleFrac = 0.64f; wheelR = 0.45f; tireW = 0.34f; break;
+        case VehicleKind::ArmoredSuv:      axleFrac = 0.63f; wheelR = 0.43f; tireW = 0.32f; break;
+        case VehicleKind::DeliveryVan:     axleFrac = 0.62f; wheelR = 0.38f; tireW = 0.26f; break;
+        case VehicleKind::Ambulance:       axleFrac = 0.63f; wheelR = 0.39f; tireW = 0.27f; break;
+        case VehicleKind::FireTruck:       axleFrac = 0.64f; wheelR = 0.43f; tireW = 0.32f; break;
         default: break;
     }
 
@@ -3047,9 +3290,12 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
     if (!shadowPass && !v.destroyed) {
         const Color headCol = nightMode ? Color{242, 248, 255, 255} : Color{228, 240, 252, 255};
         const float headGlow = nightMode ? 2.7f : 1.15f;
-        const float headY = (v.kind == VehicleKind::Hypercar) ? 0.43f
-                          : ((v.kind == VehicleKind::SportsCoupe) ? 0.48f
-                          : ((v.kind == VehicleKind::SUV || v.kind == VehicleKind::ArmoredSuv) ? 0.78f : 0.58f));
+        const float headY = (v.kind == VehicleKind::TrackPrototype) ? 0.38f
+                          : ((v.kind == VehicleKind::Hypercar) ? 0.43f
+                          : ((v.kind == VehicleKind::ClassicRoadster || v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::JdmTuner) ? 0.48f
+                          : ((v.kind == VehicleKind::SUV || v.kind == VehicleKind::ArmoredSuv ||
+                              v.kind == VehicleKind::OffroadPickup || v.kind == VehicleKind::Ambulance ||
+                              v.kind == VehicleKind::FireTruck) ? 0.78f : 0.58f)));
         const float headX = halfL * 0.95f;
         const float headZ = halfW * 0.65f;
 
@@ -3058,7 +3304,7 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
             rlTranslatef(headX, headY, static_cast<float>(side) * headZ);
             rlRotatef(static_cast<float>(-side) * 18.0f, 0.0f, 1.0f, 0.0f);
             drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.10f, (v.kind == VehicleKind::Hypercar ? 0.068f : 0.105f), 0.32f},
+                            {0.10f, ((v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype) ? 0.068f : 0.105f), 0.32f},
                             headCol, 0.1f, 0.0f, headGlow, MatKind::EmissiveGlow);
             rlPopMatrix();
         }
@@ -3069,11 +3315,15 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
 
         const Color tailCol = v.brakingVisual ? Color{255, 38, 36, 255} : Color{228, 28, 38, 255};
         const float tailGlow = v.brakingVisual ? 2.9f : 1.75f;
-        const float tailY = (v.kind == VehicleKind::Hypercar) ? 0.58f
-                          : ((v.kind == VehicleKind::SportsCoupe) ? 0.64f
-                          : ((v.kind == VehicleKind::SUV || v.kind == VehicleKind::ArmoredSuv) ? 0.86f : 0.65f));
+        const float tailY = (v.kind == VehicleKind::TrackPrototype) ? 0.54f
+                          : ((v.kind == VehicleKind::Hypercar) ? 0.58f
+                          : ((v.kind == VehicleKind::ClassicRoadster || v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::JdmTuner) ? 0.64f
+                          : ((v.kind == VehicleKind::SUV || v.kind == VehicleKind::ArmoredSuv ||
+                              v.kind == VehicleKind::OffroadPickup || v.kind == VehicleKind::Ambulance ||
+                              v.kind == VehicleKind::FireTruck) ? 0.86f : 0.65f)));
 
-        if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::SportsCoupe ||
+        if (v.kind == VehicleKind::TrackPrototype || v.kind == VehicleKind::Hypercar ||
+            v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::JdmTuner ||
             v.kind == VehicleKind::LuxurySedan || v.kind == VehicleKind::PoliceCruiser) {
             // Sleek full-width modern LED blade lightbar proud of rear fascia!
             drawModelStyled(cubeModel_, {-halfL - 0.008f, tailY, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -3090,12 +3340,15 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
         }
 
         if (v.nitroActive) {
-            const float exZ = (v.kind == VehicleKind::Hypercar) ? (halfW * 0.18f) : (halfW * 0.54f);
-            const float exY = (v.kind == VehicleKind::Hypercar) ? 0.34f : 0.24f;
+            const float exZ = (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype)
+                                  ? (halfW * 0.18f)
+                                  : (halfW * 0.54f);
+            const float exY = (v.kind == VehicleKind::TrackPrototype) ? 0.38f
+                            : ((v.kind == VehicleKind::Hypercar) ? 0.34f : 0.24f);
             drawModelStyled(coneModel_, {-halfL - 0.06f, exY, -exZ}, {0.0f, 0.0f, 1.0f}, 90.0f,
                             {0.11f, 0.95f, 0.11f}, Color{68, 214, 255, 255},
                             0.1f, 0.0f, 3.3f, MatKind::EmissiveGlow);
-            drawModelStyled(coneModel_, {-halfL - 0.06f, exY,  exZ}, {0.0f, 0.0f, 1.0f}, 90.0f,
+            drawModelStyled(coneModel_, {-halfL - 0.06f, exY,  exZ}, {0.0f, 1.0f, 0.0f}, 90.0f,
                             {0.11f, 0.95f, 0.11f}, Color{68, 214, 255, 255},
                             0.1f, 0.0f, 3.3f, MatKind::EmissiveGlow);
         }
@@ -3270,14 +3523,61 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                 drawModelStyled(cylModel_, {0.98f, 0.10f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
                                 {0.11f, 0.12f, 0.11f}, Color{36, 40, 46, 255},
                                 0.35f, 0.75f, 0.0f, MatKind::Standard);
+            } else if (weapon == WeaponId::Minigun) {
+                // Underslung 6-Barrel Rotary Gatling Minigun!
+                drawModelStyled(cubeModel_, {0.42f, -0.06f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.34f, 0.18f, 0.16f}, Color{32, 36, 44, 255},
+                                0.32f, 0.78f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {0.46f, 0.08f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.16f, 0.08f, 0.14f}, Color{24, 28, 34, 255},
+                                0.38f, 0.65f, 0.0f, MatKind::Standard);
+                rlPushMatrix();
+                rlTranslatef(0.58f, -0.05f, 0.0f);
+                if (muzzleFlash > 0.0f) {
+                    rlRotatef(static_cast<float>(GetTime()) * 2160.0f, 1.0f, 0.0f, 0.0f);
+                }
+                for (int b = 0; b < 6; ++b) {
+                    const float ang = static_cast<float>(b) * (kTwoPi / 6.0f);
+                    drawModelStyled(cylModel_, {0.0f, std::cos(ang) * 0.048f, std::sin(ang) * 0.048f},
+                                    {0.0f, 0.0f, 1.0f}, -90.0f,
+                                    {0.016f, 0.62f, 0.016f}, Color{156, 166, 182, 255},
+                                    0.20f, 0.92f, 0.0f, MatKind::Standard);
+                }
+                drawModelStyled(cylModel_, {0.50f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                                {0.072f, 0.045f, 0.072f}, Color{38, 42, 50, 255},
+                                0.30f, 0.80f, 0.0f, MatKind::Standard);
+                rlPopMatrix();
+                if (!shadowPass && muzzleFlash > 0.0f) {
+                    drawModelStyled(sphereModel_, {1.24f, -0.05f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.24f, 0.18f, 0.18f}, Color{255, 212, 82, 255},
+                                    0.1f, 0.0f, 3.8f, MatKind::EmissiveGlow);
+                }
             } else {
+                const bool isSniper = (weapon == WeaponId::SniperRifle);
+                const bool isRevolver = (weapon == WeaponId::HeavyRevolver);
+                const bool isAutoShot = (weapon == WeaponId::AutoShotgun);
                 const bool heavyMg = (weapon == WeaponId::CombatMG);
-                const bool longGun = (weapon == WeaponId::AssaultRifle || weapon == WeaponId::Shotgun || heavyMg);
-                const float gunLen = heavyMg ? 0.78f : (longGun ? 0.64f : (weapon == WeaponId::SMG ? 0.44f : 0.32f));
-                drawModelStyled(cubeModel_, {0.55f, 0.025f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {gunLen, heavyMg ? 0.12f : 0.10f, 0.075f}, Color{34, 38, 46, 255},
-                                0.28f, 0.82f, 0.0f, MatKind::Standard);
-                if (!shadowPass && heavyMg) {
+                const bool longGun = (weapon == WeaponId::AssaultRifle || weapon == WeaponId::Shotgun ||
+                                      isAutoShot || isSniper || heavyMg);
+                const float gunLen = isSniper ? 0.96f
+                                   : (heavyMg ? 0.78f
+                                   : (longGun ? 0.66f
+                                   : (isRevolver ? 0.42f : (weapon == WeaponId::SMG ? 0.44f : 0.32f))));
+                const Color bodyTint = isRevolver ? Color{210, 218, 230, 255} : Color{34, 38, 46, 255};
+                drawModelStyled(cubeModel_, {0.55f + (isSniper ? 0.12f : 0.0f), 0.025f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {gunLen, heavyMg ? 0.12f : (isSniper ? 0.085f : 0.10f), 0.075f}, bodyTint,
+                                isRevolver ? 0.14f : 0.28f, isRevolver ? 0.94f : 0.82f, 0.0f, MatKind::Standard);
+                if (!shadowPass && isSniper) {
+                    // Telescopic optic tube atop Sniper Rifle
+                    drawModelStyled(cylModel_, {0.46f, 0.105f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                                    {0.030f, 0.32f, 0.030f}, Color{24, 28, 36, 255},
+                                    0.25f, 0.85f, 0.0f, MatKind::Standard);
+                } else if (!shadowPass && isAutoShot) {
+                    // Round 16-shell drum magazine under Assault Shotgun
+                    drawModelStyled(cylModel_, {0.56f, -0.09f, -0.06f}, {1.0f, 0.0f, 0.0f}, 90.0f,
+                                    {0.095f, 0.12f, 0.095f}, Color{28, 32, 38, 255},
+                                    0.38f, 0.65f, 0.0f, MatKind::Standard);
+                } else if (!shadowPass && heavyMg) {
                     // Box drum magazine under Combat MG
                     drawModelStyled(cubeModel_, {0.54f, -0.10f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {0.16f, 0.16f, 0.14f}, Color{54, 66, 52, 255},
@@ -3447,6 +3747,7 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
     const Color skinCol{236, 196, 162, 255};
     const Color gunMetal{34, 38, 46, 255};
     const Color gunSteel{66, 72, 84, 255};
+    const Color chromeBright{214, 222, 234, 255};
     const Color polyDark{20, 23, 28, 255};
 
     // -----------------------------------------------------------------------
@@ -3471,7 +3772,9 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
         const float dashY = eye.y - 0.275f;
         drawModelStyled(cubeModel_, {dashX, dashY, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.26f, 0.18f, halfW * 1.72f}, Color{22, 25, 32, 255}, 0.55f, 0.15f, 0.0f, MatKind::Standard);
-        const Color accentStrip = (car->kind == VehicleKind::Hypercar || car->kind == VehicleKind::SportsCoupe)
+        const Color accentStrip = (car->kind == VehicleKind::Hypercar || car->kind == VehicleKind::TrackPrototype ||
+                                   car->kind == VehicleKind::SportsCoupe || car->kind == VehicleKind::ClassicRoadster ||
+                                   car->kind == VehicleKind::JdmTuner)
                                       ? toRayColor(car->paintColor)
                                       : Color{140, 150, 168, 255};
         drawModelStyled(cubeModel_, {dashX - 0.125f, dashY + 0.055f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -3491,21 +3794,21 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                         {0.0f, 1.0f, 0.0f}, 0.0f, {0.010f, 0.018f, barW},
                         rpmCol, 0.1f, 0.0f, 2.4f, MatKind::EmissiveGlow);
 
-        // 3. Center console infotainment screen (or SBPD Police MDT tactical terminal!)
+        // 3. Center console infotainment screen (or Police / EMS / Fire MDT terminal!)
         rlPushMatrix();
         rlTranslatef(eye.x + 0.48f, eye.y - 0.185f, 0.03f);
         rlRotatef(14.0f, 0.0f, 1.0f, 0.0f);
         drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.026f, 0.115f, 0.19f}, polyDark, 0.35f, 0.35f, 0.0f, MatKind::Standard);
-        const bool copScreen = (car->kind == VehicleKind::PoliceCruiser || car->isPolice);
-        const Color scrCol = copScreen
+        const bool emergencyScreen = isEmergencySirenVehicle(*car);
+        const Color scrCol = emergencyScreen
                                  ? ((car->sirenActive && car->sirenPhase < 0.5f) ? Color{255, 58, 68, 255} : Color{48, 152, 255, 255})
                                  : Color{42, 188, 232, 255};
         drawModelStyled(cubeModel_, {-0.013f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.008f, 0.092f, 0.165f}, scrCol, 0.1f, 0.0f, 1.65f, MatKind::EmissiveGlow);
         rlPopMatrix();
 
-        // 4. Wide-view A-pillars, top sun-visor bar & center rearview mirror
+        // 4. Wide-view A-pillars, top sun-visor bar (omitted on open-top ClassicRoadster!) & center mirror
         for (int side = -1; side <= 1; side += 2) {
             rlPushMatrix();
             rlTranslatef(eye.x + 0.42f, eye.y + 0.05f, static_cast<float>(side) * (halfW * 0.85f));
@@ -3514,8 +3817,10 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                             {0.052f, 0.52f, 0.048f}, polyDark, 0.60f, 0.1f, 0.0f, MatKind::Standard);
             rlPopMatrix();
         }
-        drawModelStyled(cubeModel_, {eye.x + 0.34f, eye.y + 0.265f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.10f, 0.036f, halfW * 1.56f}, polyDark, 0.65f, 0.05f, 0.0f, MatKind::Standard);
+        if (car->kind != VehicleKind::ClassicRoadster) {
+            drawModelStyled(cubeModel_, {eye.x + 0.34f, eye.y + 0.265f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.10f, 0.036f, halfW * 1.56f}, polyDark, 0.65f, 0.05f, 0.0f, MatKind::Standard);
+        }
         drawModelStyled(cubeModel_, {eye.x + 0.42f, eye.y + 0.195f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.026f, 0.052f, 0.20f}, polyDark, 0.35f, 0.25f, 0.0f, MatKind::Standard);
         drawModelStyled(cubeModel_, {eye.x + 0.405f, eye.y + 0.195f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -3536,8 +3841,11 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
             const float angRad = angDeg * (kPi / 180.0f);
             const float ry = std::cos(angRad) * kWheelR;
             const float rz = std::sin(angRad) * kWheelR;
-            const bool topStripe = (s == 0) && (car->kind == VehicleKind::Hypercar ||
+            const bool topStripe = (s == 0) && (car->kind == VehicleKind::TrackPrototype ||
+                                                car->kind == VehicleKind::Hypercar ||
                                                 car->kind == VehicleKind::SportsCoupe ||
+                                                car->kind == VehicleKind::ClassicRoadster ||
+                                                car->kind == VehicleKind::JdmTuner ||
                                                 car->kind == VehicleKind::MuscleCar);
             rlPushMatrix();
             rlTranslatef(0.0f, ry, rz);
@@ -3615,6 +3923,12 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
     rlRotatef(-viewYaw * kRadToDeg, 0.0f, 1.0f, 0.0f);
     rlRotatef(viewPitch * kRadToDeg, 0.0f, 0.0f, 1.0f);
 
+    // Full-screen Optical Mil-Dot Sniper Scope view: hide 3D gun body once zoomed inside the eyepiece!
+    if (pl.currentWeapon == WeaponId::SniperRifle && ads > 0.72f) {
+        rlPopMatrix();
+        return;
+    }
+
     // Slot 1: Unarmed Fists (Dual Guard Hands + Jab Punch)
     if (pl.currentWeapon == WeaponId::Fists) {
         const float punchR = recoilFrac * 0.14f;
@@ -3640,11 +3954,12 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
         return;
     }
 
-    // Slots 2..7: Firearms — at ads=1, gunPos=(x, -0.105f, 0.0f) and sight center is at (+0.105f, 0.0f) -> EXACT screen center!
-    const float gunX = lerpf(0.43f, 0.385f, ads) - kickBack;
-    const float gunY = lerpf(-0.190f, -0.105f, ads) + swayY + jumpDipY + reloadDropY;
-    const float gunZ = lerpf(0.195f, 0.0f, ads) + swayZ;
-    const float inwardYawDeg = lerpf(3.6f, 0.0f, ads);
+    // Slots 2..11: Firearms — at ads=1, gunPos=(x, -0.105f, 0.0f) and sight center is at (+0.105f, 0.0f) -> EXACT screen center!
+    const bool isMinigun = (pl.currentWeapon == WeaponId::Minigun);
+    const float gunX = lerpf(isMinigun ? 0.40f : 0.43f, isMinigun ? 0.37f : 0.385f, ads) - kickBack;
+    const float gunY = lerpf(isMinigun ? -0.225f : -0.190f, isMinigun ? -0.175f : -0.105f, ads) + swayY + jumpDipY + reloadDropY;
+    const float gunZ = lerpf(isMinigun ? 0.165f : 0.195f, isMinigun ? 0.095f : 0.0f, ads) + swayZ;
+    const float inwardYawDeg = lerpf(3.6f, isMinigun ? 1.8f : 0.0f, ads);
 
     rlPushMatrix();
     rlTranslatef(gunX, gunY, gunZ);
@@ -3691,6 +4006,32 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                             {0.010f, 0.018f, 0.005f}, polyDark, 0.35f, 0.4f, 0.0f, MatKind::Standard);
             drawModelStyled(sphereModel_, {0.118f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.004f, 0.004f, 0.004f}, Color{82, 255, 168, 255}, 0.1f, 0.0f, 2.8f, MatKind::EmissiveGlow);
+            break;
+        }
+        case WeaponId::HeavyRevolver: {
+            muzzleTipX = 0.215f;
+            // Walnut wood grip + brushed chrome frame + 6-chamber revolving cylinder + ventilated rib barrel!
+            drawModelStyled(cubeModel_, {-0.028f, -0.042f, 0.0f}, {0.0f, 0.0f, 1.0f}, -18.0f,
+                            {0.042f, 0.094f, 0.032f}, Color{112, 62, 34, 255}, 0.52f, 0.10f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.025f, 0.048f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.11f, 0.056f, 0.032f}, chromeBright, 0.14f, 0.94f, 0.0f, MatKind::Standard);
+            drawModelStyled(cylModel_, {0.005f, 0.054f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.026f, 0.052f, 0.026f}, Color{186, 194, 208, 255}, 0.18f, 0.92f, 0.0f, MatKind::Standard);
+            // Long heavy ventilated-rib .44 barrel + full underlug
+            drawModelStyled(cubeModel_, {0.140f, 0.072f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.155f, 0.032f, 0.024f}, chromeBright, 0.12f, 0.95f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.135f, 0.048f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.140f, 0.018f, 0.020f}, gunSteel, 0.22f, 0.88f, 0.0f, MatKind::Standard);
+            // Left support hand
+            drawModelStyled(cubeModel_, {-0.015f, -0.045f, -0.022f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.048f, 0.052f, 0.036f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
+            // Rear notch + glowing gold target bead aligned at y = +0.105f!
+            drawModelStyled(cubeModel_, {-0.022f, 0.098f, -0.009f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.014f, 0.016f, 0.005f}, polyDark, 0.35f, 0.5f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {-0.022f, 0.098f,  0.009f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.014f, 0.016f, 0.005f}, polyDark, 0.35f, 0.5f, 0.0f, MatKind::Standard);
+            drawModelStyled(sphereModel_, {0.205f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.0042f, 0.0042f, 0.0042f}, Color{255, 214, 68, 255}, 0.1f, 0.0f, 3.0f, MatKind::EmissiveGlow);
             break;
         }
         case WeaponId::SMG: {
@@ -3752,6 +4093,96 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                             {0.012f, 0.018f, 0.005f}, polyDark, 0.35f, 0.5f, 0.0f, MatKind::Standard);
             drawModelStyled(sphereModel_, {0.242f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.0045f, 0.0045f, 0.0045f}, Color{255, 72, 54, 255}, 0.1f, 0.0f, 3.0f, MatKind::EmissiveGlow);
+            break;
+        }
+        case WeaponId::AutoShotgun: {
+            muzzleTipX = 0.258f;
+            // Heavy tactical automatic shotgun receiver + ventilated shroud + 16-shell drum magazine!
+            drawModelStyled(cubeModel_, {0.055f, 0.054f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.22f, 0.064f, 0.048f}, gunMetal, 0.34f, 0.72f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.185f, 0.056f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.11f, 0.048f, 0.042f}, polyDark, 0.45f, 0.45f, 0.0f, MatKind::Standard);
+            drawModelStyled(cylModel_, {0.235f, 0.062f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.015f, 0.052f, 0.015f}, gunSteel, 0.22f, 0.88f, 0.0f, MatKind::Standard);
+            // Round 16-shell drum magazine underneath receiver
+            drawModelStyled(cylModel_, {0.068f, -0.028f, -0.036f}, {1.0f, 0.0f, 0.0f}, 90.0f,
+                            {0.062f, 0.072f, 0.062f}, Color{28, 32, 40, 255}, 0.42f, 0.55f, 0.0f, MatKind::Standard);
+            // Left foregrip hand + sleeve
+            drawModelStyled(cubeModel_, {0.155f, 0.020f, -0.012f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.054f, 0.044f, 0.044f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
+            rlPushMatrix();
+            rlTranslatef(0.040f, -0.052f, -0.078f);
+            rlRotatef(28.0f, 0.0f, 1.0f, 0.0f);
+            rlRotatef(24.0f, 0.0f, 0.0f, 1.0f);
+            drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.19f, 0.052f, 0.052f}, sleeveCol, 0.58f, 0.08f, 0.0f, MatKind::Standard);
+            rlPopMatrix();
+            // Wide CQB Green Reflex Hood centered at y = +0.105f!
+            drawModelStyled(cubeModel_, {0.035f, 0.105f, -0.020f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.042f, 0.036f, 0.0045f}, polyDark, 0.32f, 0.6f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.035f, 0.105f,  0.020f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.042f, 0.036f, 0.0045f}, polyDark, 0.32f, 0.6f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.035f, 0.124f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.042f, 0.0045f, 0.044f}, polyDark, 0.32f, 0.6f, 0.0f, MatKind::Standard);
+            drawModelStyled(sphereModel_, {0.035f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.0036f, 0.0036f, 0.0036f}, Color{112, 255, 96, 255}, 0.1f, 0.0f, 3.2f, MatKind::EmissiveGlow);
+            break;
+        }
+        case WeaponId::SniperRifle: {
+            muzzleTipX = 0.325f;
+            // Precision Marksman Rifle chassis + fluted long barrel + folded bipod + telescopic scope!
+            drawModelStyled(cubeModel_, {0.065f, 0.050f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.26f, 0.052f, 0.038f}, Color{44, 52, 46, 255}, 0.42f, 0.48f, 0.0f, MatKind::Standard);
+            drawModelStyled(cylModel_, {0.185f, 0.058f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.011f, 0.155f, 0.011f}, gunSteel, 0.20f, 0.90f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.330f, 0.058f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.032f, 0.022f, 0.028f}, polyDark, 0.35f, 0.75f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.055f, -0.018f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.054f, 0.075f, 0.028f}, polyDark, 0.45f, 0.40f, 0.0f, MatKind::Standard);
+            // Dual-ring telescopic sniper scope centered at y = +0.105f
+            drawModelStyled(cylModel_, {-0.035f, 0.105f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.019f, 0.175f, 0.019f}, polyDark, 0.28f, 0.72f, 0.0f, MatKind::Standard);
+            drawModelStyled(cylModel_, {0.125f, 0.105f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.024f, 0.038f, 0.024f}, polyDark, 0.28f, 0.72f, 0.0f, MatKind::Standard);
+            drawModelStyled(sphereModel_, {-0.035f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.006f, 0.017f, 0.017f}, Color{48, 178, 232, 255}, 0.06f, 0.85f, 0.6f, MatKind::CarGlass);
+            // Left support hand
+            drawModelStyled(cubeModel_, {0.148f, 0.024f, -0.012f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.054f, 0.044f, 0.042f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
+            break;
+        }
+        case WeaponId::Minigun: {
+            muzzleTipX = 0.315f;
+            // Heavy Rotary Electric Gatling Motor Housing + Top Spade Handle + Live Spinning 6-Barrel Cluster!
+            drawModelStyled(cylModel_, {-0.035f, 0.035f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.052f, 0.14f, 0.052f}, gunMetal, 0.32f, 0.78f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.025f, -0.028f, 0.032f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.095f, 0.088f, 0.065f}, Color{46, 56, 44, 255}, 0.48f, 0.35f, 0.0f, MatKind::Standard);
+            // Top chainsaw-style crossbar support handle + left hand gripping from above
+            drawModelStyled(cubeModel_, {0.075f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.022f, 0.022f, 0.105f}, polyDark, 0.38f, 0.6f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.075f, 0.072f, -0.046f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.022f, 0.068f, 0.018f}, polyDark, 0.38f, 0.6f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.075f, 0.072f,  0.046f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.022f, 0.068f, 0.018f}, polyDark, 0.38f, 0.6f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.075f, 0.112f, -0.018f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.048f, 0.042f, 0.048f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
+
+            // Live Rotating 6-Barrel Cluster + Twin Rotor Clamp Discs!
+            rlPushMatrix();
+            rlTranslatef(0.095f, 0.035f, 0.0f);
+            rlRotatef(pl.minigunSpin * kRadToDeg, 1.0f, 0.0f, 0.0f);
+            for (int b = 0; b < 6; ++b) {
+                const float ang = static_cast<float>(b) * (kTwoPi / 6.0f);
+                drawModelStyled(cylModel_, {0.0f, std::cos(ang) * 0.026f, std::sin(ang) * 0.026f},
+                                {0.0f, 0.0f, 1.0f}, -90.0f,
+                                {0.0075f, 0.215f, 0.0075f}, chromeBright, 0.18f, 0.92f, 0.0f, MatKind::Standard);
+            }
+            drawModelStyled(cylModel_, {0.095f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.038f, 0.016f, 0.038f}, polyDark, 0.32f, 0.80f, 0.0f, MatKind::Standard);
+            drawModelStyled(cylModel_, {0.185f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.038f, 0.020f, 0.038f}, polyDark, 0.32f, 0.80f, 0.0f, MatKind::Standard);
+            rlPopMatrix();
             break;
         }
         case WeaponId::HeavyLauncher: {
@@ -3823,9 +4254,10 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
 
     // 3D Emissive Muzzle Flash Star at the barrel tip!
     if (pl.muzzleFlashTimer > 0.0f) {
-        drawModelStyled(cubeModel_, {muzzleTipX + 0.02f, 0.062f, 0.0f}, {1.0f, 0.0f, 0.0f}, 45.0f,
+        const float flashY = isMinigun ? 0.035f : 0.062f;
+        drawModelStyled(cubeModel_, {muzzleTipX + 0.02f, flashY, 0.0f}, {1.0f, 0.0f, 0.0f}, 45.0f,
                         {0.038f, 0.078f, 0.014f}, Color{255, 224, 112, 255}, 0.1f, 0.0f, 3.8f, MatKind::EmissiveGlow);
-        drawModelStyled(cubeModel_, {muzzleTipX + 0.02f, 0.062f, 0.0f}, {1.0f, 0.0f, 0.0f}, -45.0f,
+        drawModelStyled(cubeModel_, {muzzleTipX + 0.02f, flashY, 0.0f}, {1.0f, 0.0f, 0.0f}, -45.0f,
                         {0.038f, 0.014f, 0.078f}, Color{255, 182, 72, 255}, 0.1f, 0.0f, 3.6f, MatKind::EmissiveGlow);
     }
 

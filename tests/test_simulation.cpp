@@ -696,7 +696,12 @@ void testPolicePursuitWantedEscalationBribeAndBusted() {
     if (auto* myCruiser = world.findVehicleMutable(cruiserId)) {
         myCruiser->pos = gPoi->pos;
     }
-    // Ensure no cop is within 16m of garage by clearing out right after teleporting
+    // Ensure no cop is within 16m of garage so Pay 'n' Tune respray isn't witnessed
+    for (auto& n : world.npcs()) {
+        if (n.alive && n.role == oc::NpcRole::Police && (n.pos - gPoi->pos).length() < 18.0f) {
+            n.pos = gPoi->pos + oc::Vec2{42.0f, 0.0f};
+        }
+    }
     ASSERT_TRUE(world.purchaseShopItem(1)); // Repair & clear heat
     ASSERT_TRUE(world.player().wantedLevel == 0);
 
@@ -813,6 +818,186 @@ void testFirstPersonAimAlignmentAndPrecisionSpread() {
     ++gTestsPassed;
 }
 
+void testExpandedWeaponsVehiclesSniperAndEmergency() {
+    oc::GameWorld world(20261107ULL);
+
+    // 1. Verify expanded roster sizes and valid cockpit eye coordinates for all 16 vehicles & 11 weapons
+    ASSERT_TRUE(static_cast<int>(oc::VehicleKind::Count) == 16);
+    ASSERT_TRUE(static_cast<int>(oc::WeaponId::Count) == 11);
+    ASSERT_TRUE(static_cast<int>(oc::kDealershipCatalog.size()) == 10);
+
+    for (int i = 0; i < static_cast<int>(oc::VehicleKind::Count); ++i) {
+        const auto vk = static_cast<oc::VehicleKind>(i);
+        const auto& vspec = oc::getVehicleSpec(vk);
+        ASSERT_TRUE(vspec.maxForwardSpeed > 15.0f);
+        ASSERT_TRUE(vspec.maxHealth >= 140.0f);
+        const oc::Vec3 eye = oc::driverSeatEyeLocal(vk);
+        ASSERT_TRUE(eye.y > 0.80f && eye.y < 2.20f);
+    }
+
+    // 2. Purchase all 4 new firearms at Ammu-Tech (options 9..12: HeavyRevolver, AutoShotgun, SniperRifle, Minigun)
+    const auto* wPoi = world.city().findPoi(oc::PoiKind::WeaponShop);
+    ASSERT_TRUE(wPoi != nullptr);
+    world.player().pos = wPoi->pos;
+    world.player().posY = 0.0f;
+    world.player().cash = 60000;
+    ASSERT_TRUE(world.isPlayerInWeaponShopZone());
+
+    for (int opt = 9; opt <= 12; ++opt) {
+        oc::PlayerInput buyIn{};
+        buyIn.shopBuyOption = opt;
+        world.update(1.0f / 60.0f, buyIn);
+    }
+
+    ASSERT_TRUE(world.player().weapons[static_cast<std::size_t>(oc::WeaponId::HeavyRevolver)].owned);
+    ASSERT_TRUE(world.player().weapons[static_cast<std::size_t>(oc::WeaponId::HeavyRevolver)].magAmmo == 6);
+    ASSERT_TRUE(world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AutoShotgun)].owned);
+    ASSERT_TRUE(oc::getWeaponSpec(oc::WeaponId::AutoShotgun).pellets == 6);
+    ASSERT_TRUE(oc::getWeaponSpec(oc::WeaponId::AutoShotgun).automatic);
+    ASSERT_TRUE(world.player().weapons[static_cast<std::size_t>(oc::WeaponId::SniperRifle)].owned);
+    ASSERT_TRUE(oc::getWeaponSpec(oc::WeaponId::SniperRifle).range >= 180.0f);
+    ASSERT_TRUE(world.player().weapons[static_cast<std::size_t>(oc::WeaponId::Minigun)].owned);
+    ASSERT_TRUE(world.player().weapons[static_cast<std::size_t>(oc::WeaponId::Minigun)].magAmmo == 200);
+
+    // 3. Verify Minigun rotary barrel spin-up during ADS
+    world.player().currentWeapon = oc::WeaponId::Minigun;
+    for (int f = 0; f < 12; ++f) {
+        oc::PlayerInput spinIn{};
+        spinIn.aimHeld = true;
+        world.update(1.0f / 60.0f, spinIn);
+    }
+    ASSERT_TRUE(world.player().minigunSpinSpeed > 4.0f);
+    ASSERT_TRUE(world.player().minigunSpin > 0.0f);
+
+    // 4. Verify 160m ultra-long-range SniperRifle precision headshot & laser rangefinder telemetry
+    world.player().pos = {0.0f, 0.0f};
+    world.player().posY = 0.0f;
+    world.player().velocity = {0.0f, 0.0f};
+    world.player().currentWeapon = oc::WeaponId::SniperRifle;
+    world.player().fireCooldown = 0.0f;
+
+    for (auto& v : world.vehicles()) {
+        if (std::abs(v.pos.z) < 7.0f && v.pos.x > -4.0f && v.pos.x < 175.0f) {
+            v.pos.z = 28.0f;
+        }
+    }
+    int sniperTargetId = -1;
+    for (auto& n : world.npcs()) {
+        if (!n.alive) continue;
+        if (sniperTargetId < 0 && n.role == oc::NpcRole::Gangster) {
+            sniperTargetId = n.id;
+            n.pos = {160.0f, 0.0f};
+            n.velocity = {0.0f, 0.0f};
+            n.health = 260.0f;
+        } else if (std::abs(n.pos.z) < 5.0f && n.pos.x > 0.0f && n.pos.x < 172.0f) {
+            n.pos.z = 22.0f;
+        }
+    }
+    ASSERT_TRUE(sniperTargetId >= 0);
+
+    const oc::Vec3 sniperEye{0.0f, 1.62f, 0.0f};
+    const oc::Vec3 sniperHead{160.0f, 1.56f, 0.0f};
+    const oc::Vec3 sniperDir = (sniperHead - sniperEye).normalized();
+
+    oc::PlayerInput sniperShot{};
+    sniperShot.firstPerson = true;
+    sniperShot.aimHeld = true;
+    sniperShot.fireHeld = true;
+    sniperShot.hasAimRay3D = true;
+    sniperShot.aimRayOrigin = sniperEye;
+    sniperShot.aimRayDir = sniperDir;
+    sniperShot.aimYaw = 0.0f;
+    sniperShot.aimPitch = std::asin(sniperDir.y);
+    sniperShot.cameraYaw = 0.0f;
+
+    world.update(1.0f / 60.0f, sniperShot);
+    ASSERT_TRUE(world.player().crosshairHitDist > 155.0f);
+    ASSERT_TRUE(world.player().hitMarkerTimer > 0.0f);
+    ASSERT_TRUE(world.player().hitMarkerCritical);
+    for (const auto& n : world.npcs()) {
+        if (n.id == sniperTargetId) {
+            ASSERT_TRUE(!n.alive); // 148 base * 2.15 headshot > 260 HP
+        }
+    }
+
+    // 5. Purchase & summon all 4 new dealership vehicles via Smartphone Autos tab (options 7..10)
+    world.player().cash = 100000;
+    for (int opt = 7; opt <= 10; ++opt) {
+        oc::PlayerInput phoneBuy{};
+        phoneBuy.phoneTab = 0;
+        phoneBuy.phoneOption = opt;
+        world.update(1.0f / 60.0f, phoneBuy);
+    }
+    ASSERT_TRUE(world.player().garage[static_cast<std::size_t>(oc::VehicleKind::OffroadPickup)].owned);
+    ASSERT_TRUE(world.player().garage[static_cast<std::size_t>(oc::VehicleKind::ClassicRoadster)].owned);
+    ASSERT_TRUE(world.player().garage[static_cast<std::size_t>(oc::VehicleKind::JdmTuner)].owned);
+    ASSERT_TRUE(world.player().garage[static_cast<std::size_t>(oc::VehicleKind::TrackPrototype)].owned);
+    const oc::Vehicle* summonedLmp = world.findVehicleMutable(world.player().activePersonalVehicleId);
+    ASSERT_TRUE(summonedLmp != nullptr);
+    ASSERT_TRUE(summonedLmp->kind == oc::VehicleKind::TrackPrototype);
+
+    // 6. Verify Ambulance one-time +35 HP paramedic medkit heal and Ambulance/FireTruck [G] siren toggle
+    oc::Vehicle* ambCar = nullptr;
+    oc::Vehicle* fireCar = nullptr;
+    for (auto& v : world.vehicles()) {
+        if (!v.destroyed && !v.isPersonalCar && v.id != world.player().activePersonalVehicleId) {
+            if (ambCar == nullptr) {
+                ambCar = &v;
+            } else if (fireCar == nullptr) {
+                fireCar = &v;
+                break;
+            }
+        }
+    }
+    ASSERT_TRUE(ambCar != nullptr && fireCar != nullptr);
+
+    // Move summoned personal car aside so nearestEnterableVehicle picks ambCar cleanly
+    if (oc::Vehicle* pCar = world.findVehicleMutable(world.player().activePersonalVehicleId)) {
+        pCar->pos = {-80.0f, -80.0f};
+    }
+    ambCar->kind = oc::VehicleKind::Ambulance;
+    ambCar->isPolice = false;
+    ambCar->hasNpcDriver = false;
+    ambCar->isParked = true;
+    ambCar->medkitAvailable = true;
+    ambCar->sirenActive = false;
+    ambCar->pos = {world.player().pos.x + 1.8f, world.player().pos.z};
+    ambCar->velocity = {0.0f, 0.0f};
+
+    world.player().health = 50.0f;
+    oc::PlayerInput enterAmb{};
+    enterAmb.interactPressed = true;
+    world.update(1.0f / 60.0f, enterAmb);
+    ASSERT_TRUE(world.player().drivingVehicleId == ambCar->id);
+    ASSERT_TRUE(world.player().health >= 84.5f); // +35 HP onboard medkit!
+    ASSERT_TRUE(!ambCar->medkitAvailable);
+
+    oc::PlayerInput toggleSiren{};
+    toggleSiren.hornPressed = true;
+    world.update(1.0f / 60.0f, toggleSiren);
+    ASSERT_TRUE(ambCar->sirenActive);
+
+    // Exit Ambulance and enter FireTruck to verify FireTruck siren toggle
+    world.update(1.0f / 60.0f, enterAmb);
+    ASSERT_TRUE(world.player().drivingVehicleId == -1);
+    ambCar->pos = {-90.0f, -90.0f};
+
+    fireCar->kind = oc::VehicleKind::FireTruck;
+    fireCar->isPolice = false;
+    fireCar->hasNpcDriver = false;
+    fireCar->isParked = true;
+    fireCar->sirenActive = false;
+    fireCar->pos = {world.player().pos.x + 2.0f, world.player().pos.z};
+    fireCar->velocity = {0.0f, 0.0f};
+
+    world.update(1.0f / 60.0f, enterAmb);
+    ASSERT_TRUE(world.player().drivingVehicleId == fireCar->id);
+    world.update(1.0f / 60.0f, toggleSiren);
+    ASSERT_TRUE(fireCar->sirenActive);
+
+    ++gTestsPassed;
+}
+
 } // namespace
 
 int main() {
@@ -829,6 +1014,7 @@ int main() {
     testCivilianRadialPanicFleeAndSidewalkRecovery();
     testPolicePursuitWantedEscalationBribeAndBusted();
     testFirstPersonAimAlignmentAndPrecisionSpread();
+    testExpandedWeaponsVehiclesSniperAndEmergency();
 
     std::cout << "[PASS] All " << gTestsPassed << " Open City C++ simulation test suites succeeded!\n";
     return 0;

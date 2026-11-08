@@ -31,6 +31,8 @@ int main(int argc, char** argv) {
     bool jumpPanicDemo = false;
     bool startFirstPerson = false;
     bool forceAdsDemo = false;
+    int weaponOverride = -1;
+    bool fleetShowcaseDemo = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--smoke-test") == 0) {
@@ -58,7 +60,11 @@ int main(int argc, char** argv) {
             driveHypercarDemo = true;
             driveKindOverride = static_cast<int>(oc::VehicleKind::Hypercar);
         } else if (std::strcmp(argv[i], "--drive") == 0 && i + 1 < argc) {
-            driveKindOverride = std::clamp(std::atoi(argv[++i]), 0, 9);
+            driveKindOverride = std::clamp(std::atoi(argv[++i]), 0, static_cast<int>(oc::VehicleKind::Count) - 1);
+        } else if (std::strcmp(argv[i], "--weapon") == 0 && i + 1 < argc) {
+            weaponOverride = std::clamp(std::atoi(argv[++i]), 0, static_cast<int>(oc::WeaponId::Count) - 1);
+        } else if (std::strcmp(argv[i], "--fleet-demo") == 0) {
+            fleetShowcaseDemo = true;
         } else if (std::strcmp(argv[i], "--steer") == 0 && i + 1 < argc) {
             hasSteerOverride = true;
             demoSteerOverride = oc::clampf(std::strtof(argv[++i], nullptr), -1.0f, 1.0f);
@@ -78,7 +84,7 @@ int main(int argc, char** argv) {
     }
 
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1440, 860, "Open City C++ v0.6.0 - 3D Open-World Sandbox");
+    InitWindow(1440, 860, "Open City C++ v0.7.0 - 3D Open-World Sandbox");
     SetExitKey(KEY_NULL); // Keep ESC free for menu/cursor release instead of instant quit
     SetTargetFPS(60);
 
@@ -98,12 +104,25 @@ int main(int argc, char** argv) {
         world.player().pos = {posOverrideX, posOverrideZ};
         world.player().posY = world.surfaceHeightAt(world.player().pos);
     }
+    if (weaponOverride >= 0) {
+        const auto wid = static_cast<oc::WeaponId>(weaponOverride);
+        const auto& wspec = oc::getWeaponSpec(wid);
+        auto& slot = world.player().weapons[static_cast<std::size_t>(wid)];
+        slot.owned = true;
+        slot.magAmmo = wspec.magazineSize;
+        slot.reserveAmmo = wspec.magazineSize * 4;
+        world.player().currentWeapon = wid;
+        if (wid == oc::WeaponId::Minigun) {
+            world.player().minigunSpinSpeed = 26.0f;
+            world.player().minigunSpin = 0.65f;
+        }
+    }
     if (driveKindOverride >= 0 || driveHypercarDemo) {
         const auto targetKind = static_cast<oc::VehicleKind>(
             driveKindOverride >= 0 ? driveKindOverride : static_cast<int>(oc::VehicleKind::Hypercar));
         oc::Vehicle* chosenCar = nullptr;
         if (oc::getVehicleSpec(targetKind).dealershipPrice > 0 || targetKind == oc::VehicleKind::SportsCoupe) {
-            world.player().cash = std::max(world.player().cash, 75000);
+            world.player().cash = std::max(world.player().cash, 85000);
             world.buyOrSummonVehicle(targetKind);
             chosenCar = world.findVehicleMutable(world.player().activePersonalVehicleId);
         } else {
@@ -111,6 +130,20 @@ int main(int argc, char** argv) {
                 if (!v.destroyed && v.kind == targetKind) {
                     chosenCar = world.findVehicleMutable(v.id);
                     break;
+                }
+            }
+            if (chosenCar == nullptr) {
+                for (auto& v : world.vehicles()) {
+                    if (!v.destroyed && !v.isPersonalCar) {
+                        chosenCar = world.findVehicleMutable(v.id);
+                        if (chosenCar != nullptr) {
+                            chosenCar->kind = targetKind;
+                            chosenCar->maxHealth = oc::getVehicleSpec(targetKind).maxHealth;
+                            chosenCar->health = chosenCar->maxHealth;
+                            chosenCar->isPolice = (targetKind == oc::VehicleKind::PoliceCruiser);
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -122,14 +155,15 @@ int main(int argc, char** argv) {
                 chosenCar->heading = initialYawOverride;
             }
             chosenCar->neonPreset = demoNeonPreset;
-            if (targetKind == oc::VehicleKind::Hypercar || targetKind == oc::VehicleKind::SportsCoupe) {
+            if (targetKind == oc::VehicleKind::Hypercar || targetKind == oc::VehicleKind::SportsCoupe ||
+                targetKind == oc::VehicleKind::JdmTuner || targetKind == oc::VehicleKind::TrackPrototype) {
                 chosenCar->customSpoiler = true;
             }
             chosenCar->engineUpgradeLevel = 2;
             chosenCar->armorUpgradeLevel = 2;
             chosenCar->isPlayerDriving = true;
             chosenCar->isParked = false;
-            if (chosenCar->isPolice || targetKind == oc::VehicleKind::PoliceCruiser) {
+            if (oc::isEmergencySirenVehicle(*chosenCar)) {
                 chosenCar->sirenActive = true;
             }
             if (hasSteerOverride) {
@@ -139,6 +173,61 @@ int main(int argc, char** argv) {
             chosenCar->velocity = cfwd * (smokeTestMode ? 18.5f : 0.0f);
             world.player().drivingVehicleId = chosenCar->id;
             world.player().pos = chosenCar->pos;
+        }
+    }
+    if (fleetShowcaseDemo) {
+        const float lookYaw = (initialYawOverride > -100.0f) ? initialYawOverride : 0.0f;
+        const oc::Vec2 fwd = oc::forwardFromHeading(lookYaw);
+        const oc::Vec2 right = oc::rightFromHeading(lookYaw);
+        const oc::Vec2 base = world.player().pos;
+        // Clear existing street vehicles near showcase zone first
+        for (auto& v : world.vehicles()) {
+            if ((v.pos - (base + fwd * 14.0f)).length() < 34.0f) {
+                v.pos = base - fwd * 65.0f;
+                v.velocity = {0.0f, 0.0f};
+            }
+        }
+        struct ShowcaseEntry {
+            oc::VehicleKind kind;
+            float fwdDist;
+            float rightDist;
+            float yawOff;
+            oc::ColorRGBA paint;
+            bool matte;
+            bool spoiler;
+            int neon;
+            bool siren;
+        };
+        const ShowcaseEntry entries[6] = {
+            {oc::VehicleKind::TrackPrototype,  9.2f, -3.1f,  0.52f, {34, 42, 54, 255},    false, true,  1, false},
+            {oc::VehicleKind::ClassicRoadster, 9.6f,  3.2f, -0.54f, {214, 28, 36, 255},   false, false, 0, false},
+            {oc::VehicleKind::JdmTuner,       15.0f, -5.6f,  0.46f, {24, 98, 228, 255},   false, true,  2, false},
+            {oc::VehicleKind::OffroadPickup,  15.6f,  5.6f, -0.44f, {226, 128, 34, 255},  false, false, 0, false},
+            {oc::VehicleKind::Ambulance,      22.2f, -3.4f,  0.34f, {246, 248, 252, 255}, false, false, 0, true},
+            {oc::VehicleKind::FireTruck,      23.5f,  4.2f, -0.36f, {206, 26, 28, 255},   false, false, 0, true},
+        };
+        int idx = 0;
+        for (auto& v : world.vehicles()) {
+            if (v.destroyed || v.isPersonalCar) continue;
+            if (idx >= 6) break;
+            const auto& e = entries[idx++];
+            v.kind = e.kind;
+            v.maxHealth = oc::getVehicleSpec(e.kind).maxHealth;
+            v.health = v.maxHealth;
+            v.pos = base + fwd * e.fwdDist + right * e.rightDist;
+            v.heading = oc::wrapAngle(lookYaw + oc::kPi + e.yawOff);
+            v.velocity = {0.0f, 0.0f};
+            v.isParked = true;
+            v.hasNpcDriver = false;
+            v.isPolice = false;
+            v.paintColor = e.paint;
+            v.stripeColor = {245, 248, 252, 255};
+            v.mattePaint = e.matte;
+            v.customSpoiler = e.spoiler;
+            v.neonPreset = e.neon;
+            v.rimStyle = idx % 3;
+            v.sirenActive = e.siren;
+            v.sirenPhase = (idx == 5) ? 0.18f : 0.68f;
         }
     }
     if (wantedOverride > 0) {
@@ -266,7 +355,8 @@ int main(int argc, char** argv) {
     float cockpitRelYaw = 0.0f;
     float manualCamHoldTimer = (initialYawOverride > -100.0f || initialPitchOverride > -100.0f) ? 5.0f : 0.0f;
     float adsBlend = forceAdsDemo ? 1.0f : 0.0f;
-    float smoothedFov = startFirstPerson ? (forceAdsDemo ? 57.0f : 68.0f) : 60.0f;
+    const bool initSniperAds = forceAdsDemo && world.player().currentWeapon == oc::WeaponId::SniperRifle;
+    float smoothedFov = initSniperAds ? 24.0f : (startFirstPerson ? (forceAdsDemo ? 57.0f : 68.0f) : 60.0f);
     bool camInitialized = false;
     oc::Vec3 smoothedAnchor{world.player().pos.x, world.player().posY + 1.54f, world.player().pos.z};
     float smoothedBoomDist = 4.60f;
@@ -274,6 +364,16 @@ int main(int argc, char** argv) {
     int prevDrivingId = world.player().drivingVehicleId;
 
     constexpr int kWeaponSlotCount = static_cast<int>(oc::WeaponId::Count);
+
+    auto readMenuOptionKey = []() -> int {
+        for (int k = 0; k < 9; ++k) {
+            if (IsKeyPressed(KEY_ONE + k)) return k + 1;
+        }
+        if (IsKeyPressed(KEY_ZERO)) return 10;
+        if (IsKeyPressed(KEY_MINUS)) return 11;
+        if (IsKeyPressed(KEY_EQUAL)) return 12;
+        return 0;
+    };
 
     while (!WindowShouldClose()) {
         const float frameDt = std::min(GetFrameTime(), 0.05f);
@@ -374,7 +474,10 @@ int main(int argc, char** argv) {
                        ? 1.0f
                        : oc::lerpf(adsBlend, wantPrecisionAim ? 1.0f : 0.0f, std::min(1.0f, frameDt * 12.0f));
 
-        // 1:1 Synchronous Mouse Look (0ms angular lag, cursor-warp spike guard, automatic ADS slowdown)
+        const bool sniperEquipped =
+            (world.player().drivingVehicleId < 0 && world.player().currentWeapon == oc::WeaponId::SniperRifle);
+
+        // 1:1 Synchronous Mouse Look (0ms angular lag, cursor-warp spike guard, automatic ADS / Scope slowdown)
         if (cursorLocked && !hud.isShopMenuOpen()) {
             const Vector2 md = GetMouseDelta();
             if (skipMouseFrames > 0) {
@@ -383,7 +486,8 @@ int main(int argc, char** argv) {
                 const float dx = oc::clampf(md.x, -120.0f, 120.0f);
                 const float dy = oc::clampf(md.y, -120.0f, 120.0f);
                 if (std::abs(dx) > 0.001f || std::abs(dy) > 0.001f) {
-                    const float sens = 0.00175f * mouseSensScale * oc::lerpf(1.0f, 0.58f, adsBlend);
+                    const float adsSensScale = sniperEquipped ? 0.28f : 0.58f;
+                    const float sens = 0.00175f * mouseSensScale * oc::lerpf(1.0f, adsSensScale, adsBlend);
                     const float ySign = invertMouseY ? 1.0f : -1.0f;
                     if (firstPersonMode && world.playerVehicle() != nullptr) {
                         cockpitRelYaw = oc::clampf(cockpitRelYaw + dx * sens, -1.55f, 1.55f);
@@ -405,6 +509,7 @@ int main(int argc, char** argv) {
 
         // Gather gameplay inputs
         oc::PlayerInput input{};
+        const int menuKey = readMenuOptionKey();
         if (!hud.isShopMenuOpen()) {
             if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP))    input.moveForward += 1.0f;
             if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN))  input.moveForward -= 1.0f;
@@ -424,26 +529,29 @@ int main(int argc, char** argv) {
             if (hud.isPhoneOpen()) {
                 if (IsKeyPressed(KEY_Q)) hud.cyclePhoneTab(-1);
                 if (IsKeyPressed(KEY_E)) hud.cyclePhoneTab(1);
-                const int maxOpt = (hud.phoneTab() == 3) ? 7 : 6;
-                for (int opt = 1; opt <= maxOpt; ++opt) {
-                    if (IsKeyPressed(KEY_ONE + (opt - 1))) {
-                        input.phoneTab = hud.phoneTab();
-                        input.phoneOption = opt;
-                    }
+                const int maxOpt = (hud.phoneTab() == 0 || hud.phoneTab() == 3) ? 10 : 6;
+                if (menuKey >= 1 && menuKey <= maxOpt) {
+                    input.phoneTab = hud.phoneTab();
+                    input.phoneOption = menuKey;
                 }
             } else {
-                for (int k = 0; k < kWeaponSlotCount; ++k) {
-                    if (IsKeyPressed(KEY_ONE + k)) {
-                        input.weaponSelectSlot = k;
-                    }
+                if (menuKey >= 1 && menuKey <= kWeaponSlotCount) {
+                    input.weaponSelectSlot = menuKey - 1;
                 }
 
                 const float wheel = GetMouseWheelMove();
-                if (std::abs(wheel) > 0.1f && world.player().drivingVehicleId < 0) {
+                int cycleStep = 0;
+                if (std::abs(wheel) > 0.1f) {
+                    cycleStep = (wheel > 0.0f) ? 1 : -1;
+                } else if (IsKeyPressed(KEY_X)) {
+                    cycleStep = 1;
+                } else if (IsKeyPressed(KEY_Z)) {
+                    cycleStep = -1;
+                }
+                if (cycleStep != 0 && world.player().drivingVehicleId < 0) {
                     int cur = static_cast<int>(world.player().currentWeapon);
-                    const int step = (wheel > 0.0f) ? 1 : -1;
                     for (int tries = 0; tries < kWeaponSlotCount; ++tries) {
-                        cur = (cur + step + kWeaponSlotCount) % kWeaponSlotCount;
+                        cur = (cur + cycleStep + kWeaponSlotCount) % kWeaponSlotCount;
                         if (world.player().weapons[static_cast<std::size_t>(cur)].owned) {
                             input.weaponSelectSlot = cur;
                             break;
@@ -452,15 +560,14 @@ int main(int argc, char** argv) {
                 }
             }
         } else {
-            for (int opt = 1; opt <= 8; ++opt) {
-                if (IsKeyPressed(KEY_ONE + (opt - 1))) {
-                    input.shopBuyOption = opt;
-                }
+            if (menuKey >= 1 && menuKey <= 12) {
+                input.shopBuyOption = menuKey;
             }
         }
 
         const bool lookBack = IsKeyDown(KEY_C);
-        const bool activeFirstPerson = firstPersonMode && !lookBack;
+        const bool sniperScoped = !lookBack && sniperEquipped && adsBlend > 0.72f;
+        const bool activeFirstPerson = (firstPersonMode || sniperScoped) && !lookBack;
 
         // Pre-step aim ray for exact 1:1 hitscan alignment inside world.update()
         const float preAimYaw =
@@ -493,8 +600,15 @@ int main(int argc, char** argv) {
         input.aimRayDir = preViewDir;
 
         // Step simulation BEFORE evaluating final camera pose so 1st-person cockpit/eye has ZERO 1-frame position lag!
-        if (!(smokeTestMode && jumpPanicDemo)) {
+        if (!(smokeTestMode && (jumpPanicDemo || fleetShowcaseDemo))) {
             world.update(frameDt, input);
+        } else if (smokeTestMode && fleetShowcaseDemo) {
+            // Still update siren strobe phases for emergency showcase vehicles
+            for (auto& v : world.vehicles()) {
+                if (v.sirenActive) {
+                    v.sirenPhase = std::fmod(v.sirenPhase + frameDt * 3.1f, 1.0f);
+                }
+            }
         }
         if (smokeTestMode && hasSteerOverride) {
             if (oc::Vehicle* dcar = world.findVehicleMutable(world.player().drivingVehicleId)) {
@@ -515,14 +629,19 @@ int main(int argc, char** argv) {
             prevDrivingId = world.player().drivingVehicleId;
         }
 
-        // Evaluate post-step Camera3D (1st-Person Cockpit / 1st-Person FPS / Stabilized 3rd-Person Orbit)
+        const bool postSniperEquipped =
+            (world.player().drivingVehicleId < 0 && world.player().currentWeapon == oc::WeaponId::SniperRifle);
+        const bool postSniperScoped = !lookBack && postSniperEquipped && adsBlend > 0.72f;
+        const bool postFirstPerson = (firstPersonMode || postSniperScoped) && !lookBack;
+
+        // Evaluate post-step Camera3D (1st-Person Cockpit / 1st-Person FPS & Sniper Scope / Stabilized 3rd-Person Orbit)
         float renderYaw = camYaw;
         float renderPitch = camPitch;
         oc::Vec3 viewDir{};
         oc::Vec3 finalCamPos{};
         float targetFov = 60.0f;
 
-        if (activeFirstPerson && world.playerVehicle() != nullptr) {
+        if (postFirstPerson && world.playerVehicle() != nullptr) {
             // 1st-Person Vehicle Cockpit: locked to left-hand driver seat, chassis turns head naturally
             const oc::Vehicle* car = world.playerVehicle();
             if (manualCamHoldTimer <= 0.0f && car->speed() > 1.5f) {
@@ -548,25 +667,28 @@ int main(int argc, char** argv) {
                 smoothedFov = targetFov;
                 camInitialized = true;
             }
-        } else if (activeFirstPerson) {
-            // 1st-Person On-Foot FPS: rock-steady horizon (zero head-bob; curb step gently filtered on Y only)
+        } else if (postFirstPerson) {
+            // 1st-Person On-Foot FPS & Optical Sniper Scope: rock-steady horizon (zero head-bob)
             const auto& pl = world.player();
             renderYaw = camYaw;
             renderPitch = camPitch;
             viewDir = oc::directionFromYawPitch(renderYaw, renderPitch).normalized();
 
             const float desiredEyeY = pl.posY + 1.62f;
+            const float baseHipFov = firstPersonMode ? 68.0f : 60.0f;
+            targetFov = postSniperEquipped
+                            ? oc::lerpf(baseHipFov, 24.0f, adsBlend)
+                            : oc::lerpf(68.0f, 57.0f, adsBlend);
             if (!camInitialized || !pl.onGround) {
                 smoothedEyeY = desiredEyeY;
                 if (!camInitialized) {
-                    smoothedFov = oc::lerpf(68.0f, 57.0f, adsBlend);
+                    smoothedFov = targetFov;
                     camInitialized = true;
                 }
             } else {
                 smoothedEyeY = oc::lerpf(smoothedEyeY, desiredEyeY, std::min(1.0f, frameDt * 20.0f));
             }
             finalCamPos = {pl.pos.x, smoothedEyeY, pl.pos.z};
-            targetFov = oc::lerpf(68.0f, 57.0f, adsBlend);
         } else {
             // Stabilized 3rd-Person Camera: 1:1 zero-lag viewDir + smoothed anchor ONLY + constant shoulder offset
             if (const oc::Vehicle* car = world.playerVehicle()) {
@@ -599,7 +721,9 @@ int main(int argc, char** argv) {
                 // Constant 0.40m right shoulder offset + gentle 0.70m ADS focus (eliminates dolly-zoom vertigo!)
                 shoulderOff = oc::rightFromHeading(renderYaw) * 0.40f;
                 desiredDist = oc::lerpf(4.60f, 3.90f, adsBlend);
-                targetFov = oc::lerpf(60.0f, 54.0f, adsBlend);
+                targetFov = postSniperEquipped
+                                ? oc::lerpf(60.0f, 24.0f, adsBlend)
+                                : oc::lerpf(60.0f, 54.0f, adsBlend);
             }
 
             if (!camInitialized) {
@@ -642,7 +766,7 @@ int main(int argc, char** argv) {
 
         smoothedFov = oc::lerpf(smoothedFov, targetFov, std::min(1.0f, frameDt * 11.0f));
 
-        // Process synthesized audio events, vehicle engine/drift loops & distance-attenuated police sirens
+        // Process synthesized audio events, vehicle engine/drift loops & distance-attenuated emergency sirens
         audio.playEvents(world.consumeAudioEvents());
         if (const oc::Vehicle* car = world.playerVehicle()) {
             const float ratio = car->speed() / oc::getVehicleSpec(car->kind).maxForwardSpeed;
@@ -673,10 +797,12 @@ int main(int argc, char** argv) {
         camera.fovy = smoothedFov;
         camera.projection = CAMERA_PERSPECTIVE;
 
+        const bool renderAsFirstPerson = firstPersonMode || postSniperScoped;
+
         // Render full 3D pipeline (Shadow Map -> Sky/PBR-lite City -> 1st-Person Viewmodel/Cockpit -> HDR Bloom + ACES)
         BeginDrawing();
-        renderer.renderFrame(world, camera, firstPersonMode, adsBlend, lookBack);
-        hud.renderHud(world, renderYaw, cursorLocked, activeFirstPerson, adsBlend);
+        renderer.renderFrame(world, camera, renderAsFirstPerson, adsBlend, lookBack);
+        hud.renderHud(world, renderYaw, cursorLocked, postFirstPerson, adsBlend);
         EndDrawing();
 
         if (smokeTestMode) {

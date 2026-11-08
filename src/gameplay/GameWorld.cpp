@@ -9,26 +9,36 @@ namespace oc {
 namespace {
 
 constexpr std::array<VehicleSpec, static_cast<std::size_t>(VehicleKind::Count)> kVehicleSpecs = {{
-    {VehicleKind::SportsCoupe,   "APEX GT",          "에이펙스 GT 스포츠카",   2.28f, 1.03f, 1.14f, 44.5f, 15.0f, 28.0f, 36.0f, 2.75f, 10.2f, 2.25f, 1340.0f, 175.0f, true,   4800},
-    {VehicleKind::MuscleCar,     "DOMINATOR V8",     "도미네이터 V8 머슬카",   2.38f, 1.04f, 1.18f, 41.0f, 14.0f, 26.5f, 32.0f, 2.65f, 8.4f,  1.85f, 1540.0f, 195.0f, false,  3800},
-    {VehicleKind::SUV,           "CAVALCADE XL",     "캐벌케이드 XL SUV",      2.48f, 1.12f, 1.54f, 35.0f, 13.0f, 21.5f, 30.0f, 2.35f, 9.2f,  2.50f, 2150.0f, 255.0f, false,  3200},
-    {VehicleKind::Taxi,          "METRO CAB",        "메트로 시티 택시",       2.26f, 1.00f, 1.26f, 35.5f, 13.5f, 22.0f, 32.0f, 2.60f, 9.4f,  2.20f, 1450.0f, 175.0f, false,     0},
-    {VehicleKind::Compact,       "BLISTA HATCH",     "블리스타 핫해치",        1.98f, 0.96f, 1.22f, 35.0f, 13.5f, 23.5f, 33.0f, 2.95f, 9.8f,  2.15f, 1180.0f, 150.0f, false,  1200},
-    {VehicleKind::DeliveryVan,   "CARGO RUNNER",     "카고 러너 밴",           2.68f, 1.14f, 1.86f, 29.5f, 11.0f, 17.5f, 28.0f, 2.05f, 8.8f,  2.75f, 2550.0f, 290.0f, false,     0},
-    {VehicleKind::Hypercar,      "ZENTORNO X",       "젠토르노 X 하이퍼카",    2.36f, 1.08f, 1.05f, 52.5f, 16.5f, 34.0f, 41.0f, 2.90f, 11.4f, 2.35f, 1280.0f, 210.0f, true,  22000},
-    {VehicleKind::ArmoredSuv,    "INSURGENT VIP",    "인서전트 VIP 방탄차",    2.58f, 1.16f, 1.66f, 38.5f, 14.0f, 25.0f, 34.0f, 2.30f, 9.6f,  2.40f, 3400.0f, 440.0f, false, 12000},
-    {VehicleKind::LuxurySedan,   "COGNOSCENTI S",    "코뇨센티 S 럭셔리 세단", 2.46f, 1.04f, 1.24f, 42.5f, 14.5f, 26.0f, 35.0f, 2.55f, 10.0f, 2.15f, 1780.0f, 225.0f, false,  6500},
-    {VehicleKind::PoliceCruiser, "SBPD INTERCEPTOR", "선셋베이 경찰 추격차",   2.38f, 1.04f, 1.24f, 45.5f, 15.5f, 28.5f, 38.0f, 2.70f, 10.4f, 2.25f, 1650.0f, 230.0f, false,     0}
+    {VehicleKind::SportsCoupe,     "APEX GT",           "에이펙스 GT 스포츠카",    2.28f, 1.03f, 1.14f, 44.5f, 15.0f, 28.0f, 36.0f, 2.75f, 10.2f, 2.25f, 1340.0f, 175.0f, true,   4800},
+    {VehicleKind::MuscleCar,       "DOMINATOR V8",      "도미네이터 V8 머슬카",    2.38f, 1.04f, 1.18f, 41.0f, 14.0f, 26.5f, 32.0f, 2.65f, 8.4f,  1.85f, 1540.0f, 195.0f, false,  3800},
+    {VehicleKind::SUV,             "CAVALCADE XL",      "캐벌케이드 XL SUV",       2.48f, 1.12f, 1.54f, 35.0f, 13.0f, 21.5f, 30.0f, 2.35f, 9.2f,  2.50f, 2150.0f, 255.0f, false,  3200},
+    {VehicleKind::Taxi,            "METRO CAB",         "메트로 시티 택시",        2.26f, 1.00f, 1.26f, 35.5f, 13.5f, 22.0f, 32.0f, 2.60f, 9.4f,  2.20f, 1450.0f, 175.0f, false,     0},
+    {VehicleKind::Compact,         "BLISTA HATCH",      "블리스타 핫해치",         1.98f, 0.96f, 1.22f, 35.0f, 13.5f, 23.5f, 33.0f, 2.95f, 9.8f,  2.15f, 1180.0f, 150.0f, false,  1200},
+    {VehicleKind::DeliveryVan,     "CARGO RUNNER",      "카고 러너 밴",            2.68f, 1.14f, 1.86f, 29.5f, 11.0f, 17.5f, 28.0f, 2.05f, 8.8f,  2.75f, 2550.0f, 290.0f, false,     0},
+    {VehicleKind::Hypercar,        "ZENTORNO X",        "젠토르노 X 하이퍼카",     2.36f, 1.08f, 1.05f, 52.5f, 16.5f, 34.0f, 41.0f, 2.90f, 11.4f, 2.35f, 1280.0f, 210.0f, true,  22000},
+    {VehicleKind::ArmoredSuv,      "INSURGENT VIP",     "인서전트 VIP 방탄차",     2.58f, 1.16f, 1.66f, 38.5f, 14.0f, 25.0f, 34.0f, 2.30f, 9.6f,  2.40f, 3400.0f, 440.0f, false, 12000},
+    {VehicleKind::LuxurySedan,     "COGNOSCENTI S",     "코뇨센티 S 럭셔리 세단",  2.46f, 1.04f, 1.24f, 42.5f, 14.5f, 26.0f, 35.0f, 2.55f, 10.0f, 2.15f, 1780.0f, 225.0f, false,  6500},
+    {VehicleKind::PoliceCruiser,   "SBPD INTERCEPTOR",  "선셋베이 경찰 추격차",    2.38f, 1.04f, 1.24f, 45.5f, 15.5f, 28.5f, 38.0f, 2.70f, 10.4f, 2.25f, 1650.0f, 230.0f, false,     0},
+    {VehicleKind::ClassicRoadster, "COQUETTE ROADSTER", "코케트 오픈 로드스터",    2.22f, 1.02f, 1.02f, 46.5f, 15.5f, 29.5f, 37.0f, 2.95f, 10.6f, 2.20f, 1220.0f, 165.0f, false,  5600},
+    {VehicleKind::OffroadPickup,   "SANDKING 4X4",      "샌드킹 4x4 픽업트럭",     2.72f, 1.15f, 1.68f, 39.5f, 14.5f, 25.5f, 33.0f, 2.45f, 9.7f,  2.30f, 2480.0f, 320.0f, false,  4400},
+    {VehicleKind::JdmTuner,        "SULTAN RS TUNER",   "설탄 RS 드리프트 튜너",   2.26f, 1.05f, 1.16f, 48.0f, 15.5f, 31.0f, 38.0f, 3.05f, 10.1f, 1.98f, 1290.0f, 185.0f, true,   7800},
+    {VehicleKind::TrackPrototype,  "VALKYRIE LMP-R",    "발키리 LMP 트랙카",       2.44f, 1.10f, 1.00f, 57.5f, 17.5f, 37.5f, 45.0f, 3.10f, 12.6f, 2.45f, 1160.0f, 225.0f, true,  34000},
+    {VehicleKind::Ambulance,       "PARAMEDIC EMS",     "선셋베이 119 구급차",     2.76f, 1.15f, 1.90f, 38.0f, 13.0f, 22.5f, 32.0f, 2.20f, 9.2f,  2.60f, 2750.0f, 330.0f, false,     0},
+    {VehicleKind::FireTruck,       "SBFD FIRE ENGINE",  "선셋베이 중형 소방차",    3.08f, 1.18f, 1.96f, 36.5f, 12.0f, 21.0f, 31.0f, 2.00f, 9.0f,  2.70f, 4200.0f, 520.0f, false,     0}
 }};
 
 constexpr std::array<WeaponSpec, static_cast<std::size_t>(WeaponId::Count)> kWeaponSpecs = {{
-    {WeaponId::Fists,         "Fists",            "맨주먹 격투",      0.36f,  2.4f,  28.0f, 1, 0.080f,  0, 0.00f, false, false},
-    {WeaponId::Pistol,        "9mm Pistol",       "9mm 권총",         0.22f, 68.0f,  35.0f, 1, 0.010f, 12, 1.05f, false, false},
-    {WeaponId::SMG,           "Tactical SMG",     "전술 기관단총",    0.085f, 58.0f, 23.0f, 1, 0.030f, 30, 1.25f, true,  false},
-    {WeaponId::Shotgun,       "Pump Shotgun",     "펌프 샷건",        0.68f, 36.0f,  20.0f, 7, 0.095f,  8, 1.55f, false, false},
-    {WeaponId::AssaultRifle,  "Carbine Rifle",    "돌격 카빈소총",    0.105f, 88.0f, 32.0f, 1, 0.015f, 30, 1.40f, true,  false},
-    {WeaponId::CombatMG,      "Combat MG",        "컴뱃 중기관총",    0.078f, 96.0f, 40.0f, 1, 0.018f, 80, 1.85f, true,  false},
-    {WeaponId::HeavyLauncher, "Tactical Launcher","전술 폭발 런처",   0.95f, 115.0f, 185.0f, 1, 0.006f,  4, 2.10f, false, true}
+    {WeaponId::Fists,         "Fists",            "맨주먹 격투",       0.36f,   2.4f,  28.0f, 1, 0.080f,   0, 0.00f, false, false},
+    {WeaponId::Pistol,        "9mm Pistol",       "9mm 권총",          0.22f,  68.0f,  35.0f, 1, 0.010f,  12, 1.05f, false, false},
+    {WeaponId::HeavyRevolver, ".44 Magnum",       "44 매그넘 리볼버",  0.42f,  84.0f,  88.0f, 1, 0.006f,   6, 1.45f, false, false},
+    {WeaponId::SMG,           "Tactical SMG",     "전술 기관단총",     0.085f, 58.0f,  23.0f, 1, 0.030f,  30, 1.25f, true,  false},
+    {WeaponId::Shotgun,       "Pump Shotgun",     "펌프 샷건",         0.68f,  36.0f,  20.0f, 7, 0.095f,   8, 1.55f, false, false},
+    {WeaponId::AutoShotgun,   "Assault Shotgun",  "전자동 드럼 샷건",  0.23f,  38.0f,  18.0f, 6, 0.082f,  16, 1.75f, true,  false},
+    {WeaponId::AssaultRifle,  "Carbine Rifle",    "돌격 카빈소총",     0.105f, 88.0f,  32.0f, 1, 0.015f,  30, 1.40f, true,  false},
+    {WeaponId::SniperRifle,   "Marksman Sniper",  "전술 저격소총",     0.68f, 195.0f, 148.0f, 1, 0.0012f,  8, 1.80f, false, false},
+    {WeaponId::CombatMG,      "Combat MG",        "컴뱃 중기관총",     0.078f, 96.0f,  40.0f, 1, 0.018f,  80, 1.85f, true,  false},
+    {WeaponId::Minigun,       "Vulcan Minigun",   "6열 개틀링 미니건", 0.042f,105.0f,  26.0f, 1, 0.022f, 200, 2.35f, true,  false},
+    {WeaponId::HeavyLauncher, "Tactical Launcher","전술 폭발 런처",    0.95f, 115.0f, 185.0f, 1, 0.006f,   4, 2.10f, false, true}
 }};
 
 constexpr std::array<PropertySpec, static_cast<std::size_t>(PropertyId::Count)> kPropertySpecs = {{
@@ -75,6 +85,12 @@ ColorRGBA randomTrafficPaint(Rng& rng, VehicleKind kind) {
     if (kind == VehicleKind::Taxi) {
         return {244, 196, 36, 255};
     }
+    if (kind == VehicleKind::Ambulance) {
+        return {245, 247, 252, 255};
+    }
+    if (kind == VehicleKind::FireTruck) {
+        return {208, 30, 36, 255};
+    }
     if (kind == VehicleKind::DeliveryVan) {
         return rng.chance(0.5f) ? ColorRGBA{228, 232, 238, 255} : ColorRGBA{68, 108, 164, 255};
     }
@@ -83,6 +99,18 @@ ColorRGBA randomTrafficPaint(Rng& rng, VehicleKind kind) {
     }
     if (kind == VehicleKind::LuxurySedan) {
         return rng.chance(0.55f) ? ColorRGBA{28, 32, 40, 255} : ColorRGBA{232, 236, 242, 255};
+    }
+    if (kind == VehicleKind::ClassicRoadster) {
+        return rng.chance(0.5f) ? ColorRGBA{232, 44, 58, 255} : ColorRGBA{38, 196, 214, 255};
+    }
+    if (kind == VehicleKind::OffroadPickup) {
+        return rng.chance(0.5f) ? ColorRGBA{228, 122, 34, 255} : ColorRGBA{54, 96, 68, 255};
+    }
+    if (kind == VehicleKind::JdmTuner) {
+        return rng.chance(0.55f) ? ColorRGBA{42, 116, 246, 255} : ColorRGBA{244, 246, 250, 255};
+    }
+    if (kind == VehicleKind::TrackPrototype) {
+        return rng.chance(0.5f) ? ColorRGBA{32, 224, 172, 255} : ColorRGBA{246, 58, 62, 255};
     }
     static constexpr std::array<ColorRGBA, 9> kPalette = {{
         {218, 48, 56, 255},
@@ -159,13 +187,11 @@ void GameWorld::reset() {
     player_.maxArmor = 100.0f;
     player_.currentWeapon = WeaponId::Pistol;
 
-    player_.weapons[static_cast<std::size_t>(WeaponId::Fists)]         = {true,  0,  0};
-    player_.weapons[static_cast<std::size_t>(WeaponId::Pistol)]        = {true, 12, 84};
-    player_.weapons[static_cast<std::size_t>(WeaponId::SMG)]           = {false, 0,  0};
-    player_.weapons[static_cast<std::size_t>(WeaponId::Shotgun)]       = {false, 0,  0};
-    player_.weapons[static_cast<std::size_t>(WeaponId::AssaultRifle)]  = {false, 0,  0};
-    player_.weapons[static_cast<std::size_t>(WeaponId::CombatMG)]      = {false, 0,  0};
-    player_.weapons[static_cast<std::size_t>(WeaponId::HeavyLauncher)] = {false, 0,  0};
+    for (auto& ws : player_.weapons) {
+        ws = {false, 0, 0};
+    }
+    player_.weapons[static_cast<std::size_t>(WeaponId::Fists)]  = {true,  0,  0};
+    player_.weapons[static_cast<std::size_t>(WeaponId::Pistol)] = {true, 12, 84};
 
     // Initialize default personal garage colors + starter owned hatchback
     player_.garage[static_cast<std::size_t>(VehicleKind::Compact)].owned = true;
@@ -180,6 +206,19 @@ void GameWorld::reset() {
     player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].customSpoiler = true;
     player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].neonPreset = 1;
     player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].rimStyle = 1;
+    player_.garage[static_cast<std::size_t>(VehicleKind::OffroadPickup)].paintColor = {232, 126, 36, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::OffroadPickup)].rimStyle = 2;
+    player_.garage[static_cast<std::size_t>(VehicleKind::ClassicRoadster)].paintColor = {232, 44, 58, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::ClassicRoadster)].stripeColor = {248, 248, 252, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].paintColor = {42, 116, 246, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].customSpoiler = true;
+    player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].neonPreset = 2;
+    player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].rimStyle = 1;
+    player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].paintColor = {32, 224, 172, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].stripeColor = {255, 72, 64, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].customSpoiler = true;
+    player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].neonPreset = 4;
+    player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].rimStyle = 2;
 
     player_.ownedOutfits[static_cast<std::size_t>(OutfitId::StreetCasual)] = true;
     player_.currentOutfit = OutfitId::StreetCasual;
@@ -198,8 +237,8 @@ void GameWorld::reset() {
 
     spawnInitialWorld();
     pushBanner("WELCOME TO SUNSET BAY", "선셋 베이 시티에 오신 것을 환영합니다",
-               "[V] 1st/3rd Person  |  [Space] Jump / Drift  |  [P] Smartphone",
-               "[V] 1인칭·3인칭 전환 · [Space] 점프·드리프트 · [P] 스마트폰",
+               "[V] 1st/3rd Person  |  16 Vehicles & 11 Weapons  |  [P] Smartphone",
+               "[V] 1인칭·3인칭 전환 · 신규 총기 11종 & 차량 16종 · [P] 스마트폰",
                {92, 224, 255, 255}, 4.8f);
 }
 
@@ -224,12 +263,14 @@ void GameWorld::spawnParkedShowroomCars() {
     };
 
     // Starter sculpted cars parked along Central Crossroads & Midtown curbs
-    addParked(VehicleKind::SportsCoupe, { 22.5f,   7.2f},  0.0f,    {228,  42,  58, 255}, 0, 0);
-    addParked(VehicleKind::MuscleCar,   {  7.2f,  24.5f},  kHalfPi, { 38, 118, 238, 255}, 0, 0);
-    addParked(VehicleKind::LuxurySedan, {-23.0f,  -7.2f},  kPi,     { 28,  32,  42, 255}, 0, 1);
-    addParked(VehicleKind::SportsCoupe, {-14.5f,  76.0f}, -kHalfPi, { 42, 214, 168, 255}, 1, 0);
+    addParked(VehicleKind::SportsCoupe,     { 22.5f,   7.2f},  0.0f,    {228,  42,  58, 255}, 0, 0);
+    addParked(VehicleKind::MuscleCar,       {  7.2f,  24.5f},  kHalfPi, { 38, 118, 238, 255}, 0, 0);
+    addParked(VehicleKind::LuxurySedan,     {-23.0f,  -7.2f},  kPi,     { 28,  32,  42, 255}, 0, 1);
+    addParked(VehicleKind::ClassicRoadster, { 26.5f,  -7.2f},  kPi,     {232,  44,  58, 255}, 0, 0);
+    addParked(VehicleKind::JdmTuner,        {-20.5f,  14.5f},  0.0f,    { 42, 116, 246, 255}, 2, 1);
+    addParked(VehicleKind::OffroadPickup,   {-14.5f,  76.0f}, -kHalfPi, {232, 126,  36, 255}, 0, 2);
 
-    // Downtown SBPD Precinct parked Interceptor cruiser
+    // Downtown SBPD Precinct parked Interceptor cruiser + Midtown EMS Ambulance & Fire Engine
     {
         const auto& pspec = getVehicleSpec(VehicleKind::PoliceCruiser);
         Vehicle cruiser{};
@@ -246,15 +287,19 @@ void GameWorld::spawnParkedShowroomCars() {
         cruiser.isPolice = true;
         vehicles_.push_back(cruiser);
     }
+    addParked(VehicleKind::Ambulance, { 14.5f, -24.5f}, -kHalfPi, {245, 247, 252, 255}, 0, 0);
+    addParked(VehicleKind::FireTruck, {-76.5f,  -7.2f},  0.0f,    {208,  30,  36, 255}, 0, 0);
 
-    // LUXURY AUTOS Dealership Showroom forecourt display lineup (Block 5,4 around x=104..132, z=20)
-    addParked(VehicleKind::Hypercar,    {106.0f,  21.5f}, -kHalfPi * 0.85f, {250, 196,  38, 255}, 5, 1, false);
-    addParked(VehicleKind::Hypercar,    {116.5f,  21.5f}, -kHalfPi,         { 42, 224, 255, 255}, 1, 2, false);
-    addParked(VehicleKind::ArmoredSuv,  {127.0f,  21.5f}, -kHalfPi * 1.15f, { 54,  58,  64, 255}, 0, 2, true);
+    // LUXURY AUTOS Dealership Showroom forecourt display lineup (Block 5,4 around x=104..134, z=21.5)
+    addParked(VehicleKind::TrackPrototype,  {105.0f,  21.5f}, -kHalfPi * 0.85f, { 32, 224, 172, 255}, 4, 2, false);
+    addParked(VehicleKind::Hypercar,        {115.5f,  21.5f}, -kHalfPi,         {250, 196,  38, 255}, 5, 1, false);
+    addParked(VehicleKind::ClassicRoadster, {125.5f,  21.5f}, -kHalfPi * 1.10f, { 38, 196, 214, 255}, 1, 0, false);
+    addParked(VehicleKind::ArmoredSuv,      {135.0f,  21.5f}, -kHalfPi * 1.18f, { 54,  58,  64, 255}, 0, 2, true);
 
-    // Sunset Beach & Pulse Nightclub VIP curbside exotics
-    addParked(VehicleKind::Hypercar,    { 24.0f, -91.0f},  0.0f,    {168,  54, 248, 255}, 2, 1, false);
-    addParked(VehicleKind::MuscleCar,   {-342.0f, 18.0f},  kHalfPi, {245, 148,  36, 255}, 0, 0, false);
+    // Sunset Beach & Pulse Nightclub VIP curbside exotics & Baja 4x4
+    addParked(VehicleKind::JdmTuner,        { 24.0f, -91.0f},  0.0f,    {168,  54, 248, 255}, 2, 1, false);
+    addParked(VehicleKind::OffroadPickup,   {-342.0f, 18.0f},  kHalfPi, {232, 126,  36, 255}, 0, 2, false);
+    addParked(VehicleKind::ClassicRoadster, {-342.0f,-22.0f}, -kHalfPi, {236,  52,  64, 255}, 0, 1, false);
 }
 
 void GameWorld::spawnInitialWorld() {
@@ -667,15 +712,19 @@ void GameWorld::maintainTrafficPopulation() {
         }
         if (tooClose) continue;
 
-        // Weighted realistic city traffic distribution
-        static constexpr std::array<VehicleKind, 14> kTrafficPool = {{
-            VehicleKind::Compact,     VehicleKind::Compact,
-            VehicleKind::Taxi,        VehicleKind::Taxi,
-            VehicleKind::SUV,         VehicleKind::SUV,
-            VehicleKind::LuxurySedan, VehicleKind::LuxurySedan,
-            VehicleKind::SportsCoupe, VehicleKind::SportsCoupe,
-            VehicleKind::MuscleCar,   VehicleKind::MuscleCar,
-            VehicleKind::DeliveryVan, VehicleKind::Hypercar
+        // Weighted realistic city traffic distribution across all civilian, performance & emergency classes
+        static constexpr std::array<VehicleKind, 22> kTrafficPool = {{
+            VehicleKind::Compact,         VehicleKind::Compact,
+            VehicleKind::Taxi,            VehicleKind::Taxi,
+            VehicleKind::SUV,             VehicleKind::SUV,
+            VehicleKind::LuxurySedan,     VehicleKind::LuxurySedan,
+            VehicleKind::SportsCoupe,     VehicleKind::SportsCoupe,
+            VehicleKind::MuscleCar,       VehicleKind::MuscleCar,
+            VehicleKind::OffroadPickup,   VehicleKind::OffroadPickup,
+            VehicleKind::ClassicRoadster, VehicleKind::ClassicRoadster,
+            VehicleKind::JdmTuner,        VehicleKind::JdmTuner,
+            VehicleKind::DeliveryVan,     VehicleKind::Hypercar,
+            VehicleKind::Ambulance,       VehicleKind::FireTruck
         }};
         const VehicleKind kind = kTrafficPool[static_cast<std::size_t>(rng_.rangeInt(0, static_cast<int>(kTrafficPool.size()) - 1))];
         const auto& spec = getVehicleSpec(kind);
@@ -1137,6 +1186,24 @@ bool GameWorld::tryEnterOrExitVehicle() {
     player_.onGround = true;
     player_.verticalVel = 0.0f;
     pushAudio(AudioEventType::CarDoor, 1.0f);
+
+    if (best->kind == VehicleKind::Ambulance && best->medkitAvailable) {
+        if (player_.health < player_.maxHealth - 0.5f) {
+            player_.health = std::min(player_.maxHealth, player_.health + 35.0f);
+            best->medkitAvailable = false;
+            pushAudio(AudioEventType::CashPickup, 0.9f);
+            pushBanner("PARAMEDIC MEDKIT (+35 HP)", "119 구급차 응급 키트 사용 (+35 체력 회복!)",
+                       "Press [G] to toggle EMS Siren", "[G] 키로 구급 사이렌을 켤 수 있습니다",
+                       {98, 242, 132, 255}, 2.4f);
+        } else if (player_.armor < player_.maxArmor - 0.5f) {
+            player_.armor = std::min(player_.maxArmor, player_.armor + 25.0f);
+            best->medkitAvailable = false;
+            pushAudio(AudioEventType::CashPickup, 0.9f);
+            pushBanner("EMS TRAUMA KIT (+25 ARMOR)", "119 구급차 외상 방호키트 (+25 방탄 보충!)",
+                       "Press [G] to toggle EMS Siren", "[G] 키로 구급 사이렌을 켤 수 있습니다",
+                       {92, 212, 255, 255}, 2.4f);
+        }
+    }
     return true;
 }
 
@@ -1272,11 +1339,11 @@ bool GameWorld::buyOrEquipOutfit(OutfitId id) {
 }
 
 bool GameWorld::executePhoneAction(int tabIndex, int optionOneBased) {
-    const int maxOpt = (tabIndex == 3) ? 7 : 6;
+    const int maxOpt = (tabIndex == 0 || tabIndex == 3) ? 10 : 6;
     if (optionOneBased < 1 || optionOneBased > maxOpt) return false;
     const int idx = optionOneBased - 1;
 
-    // Tab 0: AUTOS (Personal Garage Summon & Luxury Dealership Purchase)
+    // Tab 0: AUTOS (10 Personal Garage Vehicles: Summon & Luxury Dealership Purchase)
     if (tabIndex == 0) {
         return buyOrSummonVehicle(kDealershipCatalog[static_cast<std::size_t>(idx)]);
     }
@@ -1288,7 +1355,7 @@ bool GameWorld::executePhoneAction(int tabIndex, int optionOneBased) {
     if (tabIndex == 2) {
         return buyOrEquipOutfit(static_cast<OutfitId>(idx));
     }
-    // Tab 3: SUPPLY (Express Tactical Drop + SBPD Bribe Broker)
+    // Tab 3: SUPPLY (Express Tactical Drop + SBPD Bribe Broker + New Heavy Weapons)
     if (tabIndex == 3) {
         auto buyQuickWeapon = [&](WeaponId wid, int addAmmo, int price, const char* en, const char* ko) {
             if (player_.cash < price) return false;
@@ -1353,6 +1420,9 @@ bool GameWorld::executePhoneAction(int tabIndex, int optionOneBased) {
                            {98, 242, 154, 255}, 2.8f);
                 return true;
             }
+            case 8:  return buyQuickWeapon(WeaponId::AutoShotgun, 64, 1700, "ASSAULT SHOTGUN DELIVERED", "전자동 드럼 샷건 보급 완료");
+            case 9:  return buyQuickWeapon(WeaponId::SniperRifle, 32, 2500, "MARKSMAN SNIPER DELIVERED", "전술 저격소총 보급 완료");
+            case 10: return buyQuickWeapon(WeaponId::Minigun, 600, 5400, "VULCAN MINIGUN DELIVERED", "6열 개틀링 미니건 보급 완료");
             default: return false;
         }
     }
@@ -1412,8 +1482,12 @@ bool GameWorld::purchaseShopItem(int optionOneBased) {
                 pushBanner("HEALTH RESTORED", "체력 100% 회복", "Medkit Used", "응급 치료 완료", {98, 242, 122, 255}, 2.0f);
                 return true;
             }
-            case 7: return buyWeapon(WeaponId::CombatMG, 240, 2800, "COMBAT MG ACQUIRED", "컴뱃 중기관총 구매 완료");
-            case 8: return buyWeapon(WeaponId::HeavyLauncher, 12, 6500, "TACTICAL LAUNCHER ACQUIRED", "전술 폭발 런처 구매 완료");
+            case 7:  return buyWeapon(WeaponId::CombatMG, 240, 2800, "COMBAT MG ACQUIRED", "컴뱃 중기관총 구매 완료");
+            case 8:  return buyWeapon(WeaponId::HeavyLauncher, 12, 6500, "TACTICAL LAUNCHER ACQUIRED", "전술 폭발 런처 구매 완료");
+            case 9:  return buyWeapon(WeaponId::HeavyRevolver, 36, 650, ".44 MAGNUM ACQUIRED", "44 매그넘 리볼버 구매 완료");
+            case 10: return buyWeapon(WeaponId::AutoShotgun, 64, 1600, "ASSAULT SHOTGUN ACQUIRED", "전자동 드럼 샷건 구매 완료");
+            case 11: return buyWeapon(WeaponId::SniperRifle, 32, 2400, "MARKSMAN SNIPER ACQUIRED", "전술 저격소총 구매 완료");
+            case 12: return buyWeapon(WeaponId::Minigun, 600, 5200, "VULCAN MINIGUN ACQUIRED", "6열 개틀링 미니건 구매 완료");
             default:
                 return false;
         }
@@ -1563,10 +1637,10 @@ bool GameWorld::purchaseShopItem(int optionOneBased) {
     }
 
     if (isPlayerInDealershipZone()) {
-        if (optionOneBased >= 1 && optionOneBased <= 6) {
+        if (optionOneBased >= 1 && optionOneBased <= static_cast<int>(kDealershipCatalog.size())) {
             return buyOrSummonVehicle(kDealershipCatalog[static_cast<std::size_t>(optionOneBased - 1)]);
         }
-        if (optionOneBased == 7) {
+        if (optionOneBased == static_cast<int>(kDealershipCatalog.size()) + 1) {
             return buyProperty(PropertyId::LuxuryShowroom);
         }
         return false;
@@ -1839,17 +1913,17 @@ void GameWorld::update(float dt, const PlayerInput& input) {
         }
     }
 
-    // Shop purchase input (options 1..8)
-    if (input.shopBuyOption >= 1 && input.shopBuyOption <= 8) {
+    // Shop purchase input (options 1..12)
+    if (input.shopBuyOption >= 1 && input.shopBuyOption <= 12) {
         purchaseShopItem(input.shopBuyOption);
     }
 
-    // Smartphone purchase / summon / equip / bribe input (options 1..7)
-    if (input.phoneTab >= 0 && input.phoneTab <= 3 && input.phoneOption >= 1 && input.phoneOption <= 7) {
+    // Smartphone purchase / summon / equip / bribe input (options 1..10)
+    if (input.phoneTab >= 0 && input.phoneTab <= 3 && input.phoneOption >= 1 && input.phoneOption <= 10) {
         executePhoneAction(input.phoneTab, input.phoneOption);
     }
 
-    // Weapon slot selection (slots 0..6)
+    // Weapon slot selection (slots 0..10)
     if (input.weaponSelectSlot >= 0 && input.weaponSelectSlot < static_cast<int>(WeaponId::Count)) {
         if (player_.weapons[static_cast<std::size_t>(input.weaponSelectSlot)].owned) {
             player_.currentWeapon = static_cast<WeaponId>(input.weaponSelectSlot);
@@ -2072,7 +2146,7 @@ void GameWorld::updatePlayerDriving(float dt, const PlayerInput& input, Vehicle&
 
     if (input.hornPressed && car.hornCooldown <= 0.0f) {
         car.hornCooldown = 0.35f;
-        if (car.isPolice || car.kind == VehicleKind::PoliceCruiser) {
+        if (isEmergencySirenVehicle(car)) {
             car.sirenActive = !car.sirenActive;
             pushAudio(AudioEventType::CarHorn, 0.85f);
             if (car.sirenActive) {
@@ -2100,7 +2174,8 @@ void GameWorld::updatePlayerDriving(float dt, const PlayerInput& input, Vehicle&
     }
 
     if (car.isDrifting) {
-        player_.activeDriftScore += car.speed() * dt * 11.5f;
+        const float driftRate = (car.kind == VehicleKind::JdmTuner) ? 14.5f : 11.5f;
+        player_.activeDriftScore += car.speed() * dt * driftRate;
         car.nitroCharge = std::min(1.0f, car.nitroCharge + dt * 0.16f);
     }
 }
@@ -2202,6 +2277,14 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
     if (player_.fireCooldown > 0.0f) player_.fireCooldown -= dt;
     if (player_.muzzleFlashTimer > 0.0f) player_.muzzleFlashTimer -= dt;
 
+    // Spin 6-barrel rotary Minigun cluster when pre-spooling (ADS) or firing
+    const bool spinBarrels = (player_.currentWeapon == WeaponId::Minigun &&
+                              player_.reloadTimer <= 0.0f &&
+                              (input.fireHeld || input.aimHeld));
+    const float targetSpin = spinBarrels ? (input.fireHeld ? 42.0f : 16.0f) : 0.0f;
+    player_.minigunSpinSpeed = lerpf(player_.minigunSpinSpeed, targetSpin, std::min(1.0f, dt * 10.0f));
+    player_.minigunSpin = std::fmod(player_.minigunSpin + player_.minigunSpinSpeed * dt, kTwoPi);
+
     auto& slot = player_.weapons[static_cast<std::size_t>(player_.currentWeapon)];
     const auto& spec = getWeaponSpec(player_.currentWeapon);
 
@@ -2224,11 +2307,12 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
         traceOrigin = {player_.pos.x + fwd2D.x * 0.52f, player_.posY + 1.38f, player_.pos.z + fwd2D.z * 0.52f};
     }
 
-    const float previewRange = std::max(spec.range + 10.0f, 130.0f);
+    const float previewRange = std::max(spec.range + 15.0f, 210.0f);
     const RayHit3D crosshairHit = traceWorldRay3D(traceOrigin, traceDir, previewRange);
     const Vec3 aimPoint3D = crosshairHit.point;
 
     const float distFromPlayer = (aimPoint3D - Vec3{player_.pos.x, player_.posY + 1.35f, player_.pos.z}).length();
+    player_.crosshairHitDist = distFromPlayer;
     player_.crosshairOnTarget =
         (distFromPlayer <= spec.range + 0.8f) &&
         ((crosshairHit.kind == RayHit3D::Kind::Npc) ||
@@ -2416,10 +2500,14 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
     switch (weaponId) {
         case WeaponId::Fists:         pushAudio(AudioEventType::MeleeSwing, 0.8f); break;
         case WeaponId::Pistol:        pushAudio(AudioEventType::PistolShot, 0.9f); break;
+        case WeaponId::HeavyRevolver: pushAudio(AudioEventType::HeavyPistolShot, 1.0f); break;
         case WeaponId::SMG:           pushAudio(AudioEventType::SmgShot, 0.8f); break;
         case WeaponId::Shotgun:       pushAudio(AudioEventType::ShotgunShot, 1.0f); break;
+        case WeaponId::AutoShotgun:   pushAudio(AudioEventType::ShotgunShot, 0.92f); break;
         case WeaponId::AssaultRifle:  pushAudio(AudioEventType::RifleShot, 0.95f); break;
+        case WeaponId::SniperRifle:   pushAudio(AudioEventType::SniperShot, 1.0f); break;
         case WeaponId::CombatMG:      pushAudio(AudioEventType::RifleShot, 1.0f); break;
+        case WeaponId::Minigun:       pushAudio(AudioEventType::MinigunShot, 0.78f); break;
         case WeaponId::HeavyLauncher: pushAudio(AudioEventType::ShotgunShot, 1.0f); break;
         default: break;
     }
@@ -2444,7 +2532,9 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
     const Vec3 basisRight = baseDir.cross(worldUp).normalized();
     const Vec3 basisUp = basisRight.cross(baseDir).normalized();
 
-    const float spreadScale = (precisionAim && spec.pellets == 1) ? 0.045f : (precisionAim ? 0.68f : 1.0f);
+    const float spreadScale = (weaponId == WeaponId::SniperRifle && precisionAim)
+                                  ? 0.008f
+                                  : ((precisionAim && spec.pellets == 1) ? 0.045f : (precisionAim ? 0.68f : 1.0f));
     const float maxSpread = spec.spreadRadians * spreadScale;
 
     for (int p = 0; p < spec.pellets; ++p) {
@@ -2469,12 +2559,24 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
         }
 
         if (weaponId != WeaponId::Fists) {
+            ColorRGBA trCol{255, 232, 142, 255};
+            float trTtl = 0.065f;
+            if (weaponId == WeaponId::SniperRifle) {
+                trCol = {182, 242, 255, 255};
+                trTtl = 0.14f;
+            } else if (weaponId == WeaponId::HeavyRevolver) {
+                trCol = {255, 206, 88, 255};
+                trTtl = 0.09f;
+            } else if (weaponId == WeaponId::Minigun) {
+                trCol = {255, 174, 64, 255};
+                trTtl = 0.055f;
+            }
             tracers_.push_back(BulletTracer{
                 muzzle3D,
                 end3D,
-                {255, 232, 142, 255},
-                0.065f,
-                0.065f
+                trCol,
+                trTtl,
+                trTtl
             });
             triggerCivilianPanicNear({end3D.x, end3D.z}, 15.0f);
         }

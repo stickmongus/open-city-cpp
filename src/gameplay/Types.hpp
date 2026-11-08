@@ -18,7 +18,13 @@ enum class VehicleKind : int {
     ArmoredSuv = 7,
     LuxurySedan = 8,
     PoliceCruiser = 9,
-    Count = 10
+    ClassicRoadster = 10,
+    OffroadPickup = 11,
+    JdmTuner = 12,
+    TrackPrototype = 13,
+    Ambulance = 14,
+    FireTruck = 15,
+    Count = 16
 };
 
 struct VehicleSpec {
@@ -97,11 +103,12 @@ struct Vehicle {
     int lastTurnIntersectionKey = -1;
     float hornCooldown = 0.0f;
 
-    // Mission / Law-Enforcement / Driver panic tags
+    // Mission / Law-Enforcement / Emergency / Driver panic tags
     bool isMissionTarget = false;
     bool isPolice = false;
     bool sirenActive = false;
     float sirenPhase = 0.0f;
+    bool medkitAvailable = true; // Ambulance one-time +35 HP paramedic kit bonus
     float aiStuckTimer = 0.0f;
     float aiReverseTimer = 0.0f;
     bool dismountedOfficer = false;
@@ -116,26 +123,44 @@ struct Vehicle {
     float speed() const { return velocity.length(); }
 };
 
+inline bool isEmergencySirenVehicle(const Vehicle& v) {
+    return v.isPolice || v.kind == VehicleKind::PoliceCruiser ||
+           v.kind == VehicleKind::Ambulance || v.kind == VehicleKind::FireTruck;
+}
+
 inline Vec3 driverSeatEyeLocal(VehicleKind kind) {
     const auto& spec = getVehicleSpec(kind);
     float fwdX = 0.08f;
-    if (kind == VehicleKind::DeliveryVan) fwdX = 0.56f;
-    else if (kind == VehicleKind::Hypercar) fwdX = 0.16f;
+    if (kind == VehicleKind::DeliveryVan || kind == VehicleKind::Ambulance) fwdX = 0.58f;
+    else if (kind == VehicleKind::FireTruck) fwdX = 0.88f;
+    else if (kind == VehicleKind::Hypercar || kind == VehicleKind::TrackPrototype) fwdX = 0.18f;
+    else if (kind == VehicleKind::OffroadPickup) fwdX = 0.16f;
     else if (kind == VehicleKind::SUV || kind == VehicleKind::ArmoredSuv) fwdX = 0.14f;
-    const float eyeY = 0.24f + spec.chassisHeight * ((kind == VehicleKind::Hypercar) ? 0.80f : 0.77f);
-    const float leftZ = -spec.halfWidth * 0.36f;
+    else if (kind == VehicleKind::ClassicRoadster) fwdX = -0.04f;
+
+    float heightFactor = 0.77f;
+    if (kind == VehicleKind::Hypercar || kind == VehicleKind::TrackPrototype) heightFactor = 0.81f;
+    else if (kind == VehicleKind::FireTruck || kind == VehicleKind::Ambulance) heightFactor = 0.74f;
+    else if (kind == VehicleKind::OffroadPickup) heightFactor = 0.78f;
+
+    const float eyeY = 0.24f + spec.chassisHeight * heightFactor;
+    const float leftZ = -spec.halfWidth * ((kind == VehicleKind::TrackPrototype) ? 0.30f : 0.36f);
     return {fwdX, eyeY, leftZ};
 }
 
 enum class WeaponId : int {
     Fists = 0,
     Pistol = 1,
-    SMG = 2,
-    Shotgun = 3,
-    AssaultRifle = 4,
-    CombatMG = 5,
-    HeavyLauncher = 6,
-    Count = 7
+    HeavyRevolver = 2,
+    SMG = 3,
+    Shotgun = 4,
+    AutoShotgun = 5,
+    AssaultRifle = 6,
+    SniperRifle = 7,
+    CombatMG = 8,
+    Minigun = 9,
+    HeavyLauncher = 10,
+    Count = 11
 };
 
 struct WeaponSpec {
@@ -205,14 +230,18 @@ struct OutfitSpec {
 
 const OutfitSpec& getOutfitSpec(OutfitId id);
 
-// 6 Dealership / Garage personal vehicle slots
-inline constexpr std::array<VehicleKind, 6> kDealershipCatalog = {{
+// 10 Dealership / Personal Garage vehicle slots ([1]-[9], [0])
+inline constexpr std::array<VehicleKind, 10> kDealershipCatalog = {{
     VehicleKind::Compact,
     VehicleKind::MuscleCar,
     VehicleKind::SportsCoupe,
     VehicleKind::LuxurySedan,
     VehicleKind::ArmoredSuv,
-    VehicleKind::Hypercar
+    VehicleKind::Hypercar,
+    VehicleKind::OffroadPickup,
+    VehicleKind::ClassicRoadster,
+    VehicleKind::JdmTuner,
+    VehicleKind::TrackPrototype
 }};
 
 ColorRGBA getNeonPresetColor(int neonPreset);
@@ -258,10 +287,13 @@ struct PlayerState {
     float fireCooldown = 0.0f;
     float reloadTimer = 0.0f;
     float muzzleFlashTimer = 0.0f;
+    float minigunSpin = 0.0f;      // Accumulated 6-barrel gatling rotation radians
+    float minigunSpinSpeed = 0.0f; // Live barrel spin velocity (rad/s)
     float aimPitch = 0.0f;
     float hitMarkerTimer = 0.0f;
     bool hitMarkerCritical = false;
     bool crosshairOnTarget = false;
+    float crosshairHitDist = 50.0f; // Live rangefinder distance for Sniper Scope HUD
 
     bool wasted = false;
     float wastedTimer = 0.0f;
@@ -391,9 +423,12 @@ struct BannerNotification {
 
 enum class AudioEventType {
     PistolShot,
+    HeavyPistolShot,
     SmgShot,
     ShotgunShot,
     RifleShot,
+    SniperShot,
+    MinigunShot,
     MeleeSwing,
     CarDoor,
     CarHorn,
@@ -433,10 +468,10 @@ struct PlayerInput {
     bool reloadPressed = false; // R
     bool hornPressed = false;   // G
     bool abortMissionPressed = false; // Backspace
-    int weaponSelectSlot = -1;  // 0..6 when 1..7 pressed (outside shop/phone menu)
-    int shopBuyOption = -1;     // 1..8 when inside shop menu
+    int weaponSelectSlot = -1;  // 0..10 when 1..9, 0, - pressed or cycled
+    int shopBuyOption = -1;     // 1..12 when inside shop menu
     int phoneTab = -1;          // 0..3 when Smartphone action triggered
-    int phoneOption = -1;       // 1..7 when Smartphone action triggered
+    int phoneOption = -1;       // 1..10 when Smartphone action triggered
 };
 
 } // namespace oc

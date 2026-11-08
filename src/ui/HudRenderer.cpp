@@ -381,10 +381,10 @@ void HudRenderer::renderHud(const GameWorld& world, float cameraYaw, bool cursor
         shopMenuOpen_ = false;
     }
 
+    drawCrosshair(world, sw, sh, firstPerson, adsBlend);
     drawRadarMinimap(world, cameraYaw, sh);
     drawTopRightStatus(world, sw, firstPerson);
     drawSpeedometerAndDrift(world, sw, sh);
-    drawCrosshair(world, sw, sh, firstPerson, adsBlend);
     drawContextPromptsAndMission(world, sw, sh);
 
     if (shopMenuOpen_) {
@@ -695,9 +695,13 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
     const auto& wspec = getWeaponSpec(pl.currentWeapon);
     const auto& wslot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
 
-    DrawRectangleRounded({rightEdge - 236.0f, weaponCardY, 236.0f, 54.0f}, 0.22f, 6, Color{16, 22, 30, 210});
-    const char* wName = pickText(wspec.nameEn, wspec.nameKo);
-    drawUiText(wName, rightEdge - 222.0f, weaponCardY + 6.0f, 18.0f, Color{242, 246, 252, 255});
+    DrawRectangleRounded({rightEdge - 256.0f, weaponCardY, 256.0f, 54.0f}, 0.22f, 6, Color{16, 22, 30, 210});
+    char wTitleBuf[96];
+    std::snprintf(wTitleBuf, sizeof(wTitleBuf), "[%d/%d] %s",
+                  static_cast<int>(pl.currentWeapon) + 1,
+                  static_cast<int>(WeaponId::Count),
+                  pickText(wspec.nameEn, wspec.nameKo));
+    drawUiText(wTitleBuf, rightEdge - 242.0f, weaponCardY + 6.0f, 17.5f, Color{242, 246, 252, 255});
 
     char ammoBuf[64];
     if (pl.reloadTimer > 0.0f) {
@@ -705,9 +709,9 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
     } else if (wspec.magazineSize > 0) {
         std::snprintf(ammoBuf, sizeof(ammoBuf), "%d / %d", wslot.magAmmo, wslot.reserveAmmo);
     } else {
-        std::snprintf(ammoBuf, sizeof(ammoBuf), "%s", pickText("MELEE [1-7]", "근접 격투 [1~7]"));
+        std::snprintf(ammoBuf, sizeof(ammoBuf), "%s", pickText("MELEE [1-0,- · Z/X]", "근접 격투 [1~0,- · Z/X]"));
     }
-    drawUiText(ammoBuf, rightEdge - 222.0f, weaponCardY + 28.0f, 17.0f, Color{255, 214, 92, 255});
+    drawUiText(ammoBuf, rightEdge - 242.0f, weaponCardY + 28.0f, 16.5f, Color{255, 214, 92, 255});
 }
 
 void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, int screenH) {
@@ -769,39 +773,94 @@ void HudRenderer::drawCrosshair(const GameWorld& world, int screenW, int screenH
 
     const auto& pl = world.player();
     const float ads = clampf(adsBlend, 0.0f, 1.0f);
-    // Steady reticle: zero per-shot strobing jump so aiming never induces eye strain or dizziness
-    const float moveSpread = clampf(pl.velocity.length() * 0.16f, 0.0f, 1.4f) * (1.0f - ads * 0.65f);
-    const float gap = lerpf(5.6f, 3.2f, ads) + moveSpread;
-    const float armLen = lerpf(7.2f, 5.4f, ads);
 
-    float tickFade = 1.0f;
-    if (firstPerson && pl.currentWeapon != WeaponId::Fists && ads > 0.55f) {
-        tickFade = clampf((0.88f - ads) / 0.33f, 0.0f, 1.0f);
+    // Illuminated 3.2x Optical Mil-Dot Sniper Scope & Laser Rangefinder HUD
+    if (pl.currentWeapon == WeaponId::SniperRifle && ads > 0.72f) {
+        const float scopeR = std::min(static_cast<float>(screenW), static_cast<float>(screenH)) * 0.415f;
+        const float outerR = std::hypot(cx, cy) + 48.0f;
+
+        DrawRing({cx, cy}, scopeR, outerR, 0.0f, 360.0f, 96, Color{5, 8, 13, 240});
+        DrawRing({cx, cy}, scopeR - 5.0f, scopeR + 4.5f, 0.0f, 360.0f, 96, Color{24, 32, 44, 250});
+        DrawRing({cx, cy}, scopeR - 6.8f, scopeR - 5.0f, 0.0f, 360.0f, 96, Color{88, 228, 255, 190});
+        DrawRing({cx, cy}, scopeR * 0.86f, scopeR - 6.8f, 0.0f, 360.0f, 96, Color{38, 128, 168, 24});
+
+        const float postOuter = scopeR - 5.5f;
+        const float postInner = scopeR * 0.48f;
+        const Color postCol{12, 18, 26, 238};
+        DrawLineEx({cx - postOuter, cy}, {cx - postInner, cy}, 3.2f, postCol);
+        DrawLineEx({cx + postInner, cy}, {cx + postOuter, cy}, 3.2f, postCol);
+        DrawLineEx({cx, cy - postOuter}, {cx, cy - postInner}, 3.2f, postCol);
+        DrawLineEx({cx, cy + postInner}, {cx, cy + postOuter}, 3.2f, postCol);
+
+        const Color hairCol{106, 236, 255, 192};
+        DrawLineEx({cx - postInner, cy}, {cx - 7.0f, cy}, 1.3f, hairCol);
+        DrawLineEx({cx + 7.0f, cy}, {cx + postInner, cy}, 1.3f, hairCol);
+        DrawLineEx({cx, cy - postInner}, {cx, cy - 7.0f}, 1.3f, hairCol);
+        DrawLineEx({cx, cy + 7.0f}, {cx, cy + postInner}, 1.3f, hairCol);
+
+        const float milStep = scopeR * 0.092f;
+        for (int k = -4; k <= 4; ++k) {
+            if (k == 0) continue;
+            const float off = static_cast<float>(k) * milStep;
+            const float tickH = (std::abs(k) % 2 == 0) ? 5.5f : 3.2f;
+            DrawLineEx({cx + off, cy - tickH}, {cx + off, cy + tickH}, 1.2f, hairCol);
+            DrawLineEx({cx - tickH, cy + off}, {cx + tickH, cy + off}, 1.2f, hairCol);
+            DrawCircleV({cx + off, cy}, 1.8f, Color{128, 244, 255, 220});
+            if (k > 0) {
+                DrawCircleV({cx, cy + off}, 1.8f, Color{128, 244, 255, 220});
+            }
+        }
+
+        const Color centerCol = pl.crosshairOnTarget ? Color{255, 72, 68, 255} : Color{102, 246, 255, 250};
+        DrawCircleV({cx, cy}, 3.2f, Color{8, 12, 18, 185});
+        DrawCircleV({cx, cy}, 2.1f, centerCol);
+
+        drawUiText("OPTIC 3.2X  ·  MIL-DOT", cx - scopeR * 0.54f, cy - scopeR * 0.48f, 15.0f,
+                   Color{116, 232, 255, 220});
+        char rngBuf[64];
+        std::snprintf(rngBuf, sizeof(rngBuf), "%s %5.1f M",
+                      pickText("RNG", "거리"), pl.crosshairHitDist);
+        drawUiText(rngBuf, cx + scopeR * 0.16f, cy + scopeR * 0.36f, 16.5f,
+                   pl.crosshairOnTarget ? Color{255, 214, 92, 245} : Color{124, 236, 255, 230});
+        if (pl.crosshairOnTarget) {
+            drawUiText(pickText("TARGET ACQUIRED", "표적 정밀 포착"),
+                       cx + scopeR * 0.16f, cy + scopeR * 0.43f, 15.0f, Color{255, 88, 82, 248});
+        }
+    } else {
+        // Steady reticle: zero per-shot strobing jump so aiming never induces eye strain or dizziness
+        const float moveSpread = clampf(pl.velocity.length() * 0.16f, 0.0f, 1.4f) * (1.0f - ads * 0.65f);
+        const float gap = lerpf(5.6f, 3.2f, ads) + moveSpread;
+        const float armLen = lerpf(7.2f, 5.4f, ads);
+
+        float tickFade = 1.0f;
+        if (firstPerson && pl.currentWeapon != WeaponId::Fists && ads > 0.55f) {
+            tickFade = clampf((0.88f - ads) / 0.33f, 0.0f, 1.0f);
+        }
+
+        const Color col = pl.crosshairOnTarget ? Color{255, 78, 72, 245} : Color{245, 250, 255, 232};
+
+        if (tickFade > 0.02f) {
+            const unsigned char shA = static_cast<unsigned char>(175.0f * tickFade);
+            const unsigned char fgA = static_cast<unsigned char>(static_cast<float>(col.a) * tickFade);
+            const Color shadowCol{10, 14, 20, shA};
+            const Color tickCol{col.r, col.g, col.b, fgA};
+
+            DrawLineEx({cx - gap - armLen - 1.0f, cy}, {cx - gap + 1.0f, cy}, 3.0f, shadowCol);
+            DrawLineEx({cx + gap - 1.0f, cy}, {cx + gap + armLen + 1.0f, cy}, 3.0f, shadowCol);
+            DrawLineEx({cx, cy - gap - armLen - 1.0f}, {cx, cy - gap + 1.0f}, 3.0f, shadowCol);
+            DrawLineEx({cx, cy + gap - 1.0f}, {cx, cy + gap + armLen + 1.0f}, 3.0f, shadowCol);
+
+            DrawLineEx({cx - gap - armLen, cy}, {cx - gap, cy}, 1.7f, tickCol);
+            DrawLineEx({cx + gap, cy}, {cx + gap + armLen, cy}, 1.7f, tickCol);
+            DrawLineEx({cx, cy - gap - armLen}, {cx, cy - gap}, 1.7f, tickCol);
+            DrawLineEx({cx, cy + gap}, {cx, cy + gap + armLen}, 1.7f, tickCol);
+        }
+
+        // Crisp center pinpoint dot (smaller during 1st-person ADS so it sits cleanly inside the 3D red-dot/reflex lens)
+        const float dotR = (firstPerson && ads > 0.65f && pl.currentWeapon != WeaponId::Fists) ? 1.35f : 1.9f;
+        DrawCircleV({cx, cy}, dotR + 0.65f, Color{10, 14, 20, 165});
+        DrawCircleV({cx, cy}, dotR, col);
     }
-
-    const Color col = pl.crosshairOnTarget ? Color{255, 78, 72, 245} : Color{245, 250, 255, 232};
-
-    if (tickFade > 0.02f) {
-        const unsigned char shA = static_cast<unsigned char>(175.0f * tickFade);
-        const unsigned char fgA = static_cast<unsigned char>(static_cast<float>(col.a) * tickFade);
-        const Color shadowCol{10, 14, 20, shA};
-        const Color tickCol{col.r, col.g, col.b, fgA};
-
-        DrawLineEx({cx - gap - armLen - 1.0f, cy}, {cx - gap + 1.0f, cy}, 3.0f, shadowCol);
-        DrawLineEx({cx + gap - 1.0f, cy}, {cx + gap + armLen + 1.0f, cy}, 3.0f, shadowCol);
-        DrawLineEx({cx, cy - gap - armLen - 1.0f}, {cx, cy - gap + 1.0f}, 3.0f, shadowCol);
-        DrawLineEx({cx, cy + gap - 1.0f}, {cx, cy + gap + armLen + 1.0f}, 3.0f, shadowCol);
-
-        DrawLineEx({cx - gap - armLen, cy}, {cx - gap, cy}, 1.7f, tickCol);
-        DrawLineEx({cx + gap, cy}, {cx + gap + armLen, cy}, 1.7f, tickCol);
-        DrawLineEx({cx, cy - gap - armLen}, {cx, cy - gap}, 1.7f, tickCol);
-        DrawLineEx({cx, cy + gap}, {cx, cy + gap + armLen}, 1.7f, tickCol);
-    }
-
-    // Crisp center pinpoint dot (smaller during 1st-person ADS so it sits cleanly inside the 3D red-dot/reflex lens)
-    const float dotR = (firstPerson && ads > 0.65f && pl.currentWeapon != WeaponId::Fists) ? 1.35f : 1.9f;
-    DrawCircleV({cx, cy}, dotR + 0.65f, Color{10, 14, 20, 165});
-    DrawCircleV({cx, cy}, dotR, col);
 
     if (pl.hitMarkerTimer > 0.0f) {
         const float alpha = clampf(pl.hitMarkerTimer / 0.16f, 0.0f, 1.0f);
@@ -897,6 +956,11 @@ void HudRenderer::drawContextPromptsAndMission(const GameWorld& world, int scree
 void HudRenderer::drawShopModal(const GameWorld& world, int screenW, int screenH) {
     if (!world.isPlayerInAnyShopZone()) return;
 
+    auto optKeyLabel = [](int opt1) -> const char* {
+        static const char* kKeys[13] = {"", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="};
+        return (opt1 >= 1 && opt1 <= 12) ? kKeys[opt1] : "?";
+    };
+
     struct ShopRow {
         std::string labelEn;
         std::string labelKo;
@@ -923,7 +987,11 @@ void HudRenderer::drawShopModal(const GameWorld& world, int screenW, int screenH
             {"[5] Heavy Body Armor (100%)",           "[5] 중형 방탄복 100% 장착",            "$200"},
             {"[6] Emergency Medkit (100%)",           "[6] 응급 의료 키트 (체력 100%)",       "$100"},
             {"[7] Combat MG (+240 Rounds)",           "[7] 컴뱃 중기관총 (+240발 대용량)",    "$2,800"},
-            {"[8] Tactical Explosive Launcher (+12)", "[8] 전술 폭발 런처 (+12발 광역폭발)",  "$6,500"}
+            {"[8] Tactical Explosive Launcher (+12)", "[8] 전술 폭발 런처 (+12발 광역폭발)",  "$6,500"},
+            {"[9] .44 Magnum Revolver (+36 Rds)",     "[9] 44 매그넘 리볼버 (+36발 고화력)",  "$650"},
+            {"[0] Assault Drum Shotgun (+48 Shells)", "[0] 전자동 드럼 샷건 (+48발 연사)",    "$1,600"},
+            {"[-] Marksman Sniper Rifle (+24 Rds)",   "[-] 전술 저격소총 (+24발 스코프)",     "$2,400"},
+            {"[=] Vulcan 6-Barrel Minigun (+400)",    "[=] 6열 개틀링 미니건 (+400발 초고속)", "$5,200"}
         };
     } else if (world.isPlayerInGarageZone()) {
         const float disc = world.tuningDiscountScale();
@@ -982,13 +1050,14 @@ void HudRenderer::drawShopModal(const GameWorld& world, int screenW, int screenH
         titleEn = "LUXURY AUTOS SUPERCAR SHOWROOM";
         titleKo = "LUXURY AUTOS 프리미엄 슈퍼카 전시장";
         accent = Color{255, 206, 72, 255};
-        for (int i = 0; i < 6; ++i) {
+        const int catalogCount = static_cast<int>(kDealershipCatalog.size());
+        for (int i = 0; i < catalogCount; ++i) {
             const VehicleKind vk = kDealershipCatalog[static_cast<std::size_t>(i)];
             const auto& spec = getVehicleSpec(vk);
             const bool owned = pl.garage[static_cast<std::size_t>(vk)].owned;
             char lEn[96], lKo[112], pBuf[48];
-            std::snprintf(lEn, sizeof(lEn), "[%d] %s", i + 1, spec.nameEn);
-            std::snprintf(lKo, sizeof(lKo), "[%d] %s", i + 1, spec.nameKo);
+            std::snprintf(lEn, sizeof(lEn), "[%s] %s", optKeyLabel(i + 1), spec.nameEn);
+            std::snprintf(lKo, sizeof(lKo), "[%s] %s", optKeyLabel(i + 1), spec.nameKo);
             if (owned) {
                 std::snprintf(pBuf, sizeof(pBuf), "%s", pickText("SUMMON FREE", "보유중 · 즉시호출"));
             } else {
@@ -1004,8 +1073,10 @@ void HudRenderer::drawShopModal(const GameWorld& world, int screenW, int screenH
         } else {
             std::snprintf(pTag, sizeof(pTag), "$%d", prop.price);
         }
-        std::snprintf(fEn, sizeof(fEn), "[7] Buy Showroom Stake (+$%d/25s, %s)", prop.incomePerCycle, prop.perkEn);
-        std::snprintf(fKo, sizeof(fKo), "[7] 전시장 지분 인수 (+$%d/25초 · %s)", prop.incomePerCycle, prop.perkKo);
+        std::snprintf(fEn, sizeof(fEn), "[%s] Buy Showroom Stake (+$%d/25s, %s)",
+                      optKeyLabel(catalogCount + 1), prop.incomePerCycle, prop.perkEn);
+        std::snprintf(fKo, sizeof(fKo), "[%s] 전시장 지분 인수 (+$%d/25초 · %s)",
+                      optKeyLabel(catalogCount + 1), prop.incomePerCycle, prop.perkKo);
         rows.push_back({
             fEn, fKo, pTag,
             propOwned ? Color{180, 205, 230, 255} : Color{255, 214, 78, 255}
@@ -1083,37 +1154,55 @@ void HudRenderer::drawShopModal(const GameWorld& world, int screenW, int screenH
 
     if (rows.empty()) return;
 
-    const float mw = 564.0f;
-    const float mh = 96.0f + static_cast<float>(rows.size()) * 35.0f;
+    const bool dense = (rows.size() >= 10);
+    const float rowStep = dense ? 31.0f : 35.0f;
+    const float rowBoxH = dense ? 27.0f : 30.0f;
+    const float fontSz = dense ? 16.5f : 17.5f;
+    const float mw = 576.0f;
+    const float mh = (dense ? 92.0f : 96.0f) + static_cast<float>(rows.size()) * rowStep;
     const float mx = (static_cast<float>(screenW) - mw) * 0.5f;
     const float my = (static_cast<float>(screenH) - mh) * 0.5f;
 
     DrawRectangleRounded({mx, my, mw, mh}, 0.06f, 8, Color{12, 18, 28, 244});
     DrawRectangleRoundedLinesEx({mx, my, mw, mh}, 0.06f, 8, 2.4f, accent);
 
-    drawUiText(pickText(titleEn.c_str(), titleKo.c_str()), mx + 22.0f, my + 16.0f, 22.0f, accent);
+    drawUiText(pickText(titleEn.c_str(), titleKo.c_str()), mx + 22.0f, my + 16.0f, 21.5f, accent);
 
     for (std::size_t i = 0; i < rows.size(); ++i) {
-        const float ry = my + 54.0f + static_cast<float>(i) * 35.0f;
-        DrawRectangleRounded({mx + 18.0f, ry, mw - 36.0f, 30.0f}, 0.24f, 4, Color{24, 33, 46, 228});
+        const float ry = my + 52.0f + static_cast<float>(i) * rowStep;
+        DrawRectangleRounded({mx + 18.0f, ry, mw - 36.0f, rowBoxH}, 0.24f, 4, Color{24, 33, 46, 228});
         drawUiText(pickText(rows[i].labelEn.c_str(), rows[i].labelKo.c_str()),
-                   mx + 28.0f, ry + 5.0f, 17.5f, Color{238, 243, 250, 255});
-        const float pw = measureUiText(rows[i].priceTag.c_str(), 17.5f);
-        drawUiText(rows[i].priceTag.c_str(), mx + mw - 28.0f - pw, ry + 5.0f, 17.5f, rows[i].tagColor);
+                   mx + 28.0f, ry + 4.5f, fontSz, Color{238, 243, 250, 255});
+        const float pw = measureUiText(rows[i].priceTag.c_str(), fontSz);
+        drawUiText(rows[i].priceTag.c_str(), mx + mw - 28.0f - pw, ry + 4.5f, fontSz, rows[i].tagColor);
     }
 
-    char hintEn[96], hintKo[112];
-    std::snprintf(hintEn, sizeof(hintEn), "Press [1-%zu] to select   |   [B] or [ESC] Close", rows.size());
-    std::snprintf(hintKo, sizeof(hintKo), "숫자키 [1~%zu] 구매·선택   |   [B] 또는 [ESC] 닫기", rows.size());
-    drawUiText(pickText(hintEn, hintKo), mx + 22.0f, my + mh - 30.0f, 16.5f, Color{182, 194, 210, 255});
+    char hintEn[112], hintKo[128];
+    if (rows.size() == 12) {
+        std::snprintf(hintEn, sizeof(hintEn), "Keys [1-9, 0, -, =] Select   |   [B] or [ESC] Close");
+        std::snprintf(hintKo, sizeof(hintKo), "키 [1~9, 0, -, =] 구매·선택   |   [B] 또는 [ESC] 닫기");
+    } else if (rows.size() == 11) {
+        std::snprintf(hintEn, sizeof(hintEn), "Keys [1-9, 0, -] Select   |   [B] or [ESC] Close");
+        std::snprintf(hintKo, sizeof(hintKo), "키 [1~9, 0, -] 구매·호출   |   [B] 또는 [ESC] 닫기");
+    } else {
+        std::snprintf(hintEn, sizeof(hintEn), "Press [1-%zu] to select   |   [B] or [ESC] Close", rows.size());
+        std::snprintf(hintKo, sizeof(hintKo), "숫자키 [1~%zu] 구매·선택   |   [B] 또는 [ESC] 닫기", rows.size());
+    }
+    drawUiText(pickText(hintEn, hintKo), mx + 22.0f, my + mh - 29.0f, 16.0f, Color{182, 194, 210, 255});
 }
 
 void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int screenH) {
-    const int rowCount = (phoneTab_ == 3) ? 7 : 6;
-    const float pw = 336.0f;
-    const float ph = (phoneTab_ == 3) ? 492.0f : 456.0f;
+    auto optKeyLabel = [](int opt1) -> const char* {
+        static const char* kKeys[13] = {"", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="};
+        return (opt1 >= 1 && opt1 <= 12) ? kKeys[opt1] : "?";
+    };
+
+    const int rowCount = (phoneTab_ == 0 || phoneTab_ == 3) ? 10 : 6;
+    const bool densePhone = (rowCount >= 10);
+    const float pw = 342.0f;
+    const float ph = densePhone ? 530.0f : 456.0f;
     const float px = static_cast<float>(screenW) - pw - 22.0f;
-    const float py = static_cast<float>(screenH) - ph - 22.0f;
+    const float py = static_cast<float>(screenH) - ph - 20.0f;
 
     // Sleek metallic smartphone chassis + glass OLED screen
     DrawRectangleRounded({px - 5.0f, py - 5.0f, pw + 10.0f, ph + 10.0f}, 0.09f, 10, Color{38, 46, 62, 248});
@@ -1131,7 +1220,7 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
     // Top speaker notch & status bar
     DrawRectangleRounded({px + pw * 0.5f - 36.0f, py + 7.0f, 72.0f, 5.0f}, 0.5f, 4, Color{42, 52, 68, 255});
     drawUiText(pickText("iFRUIT OS  |  [Q/E] Switch App", "iFRUIT 스마트폰  |  [Q/E] 앱 전환"),
-               px + 16.0f, py + 18.0f, 15.5f, Color{198, 212, 228, 245});
+               px + 16.0f, py + 17.0f, 15.2f, Color{198, 212, 228, 245});
 
     // 4 App Tab Pills
     const char* tabEn[4] = {"AUTOS", "REALTY", "STYLE", "SUPPLY"};
@@ -1139,26 +1228,27 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
     const float tabW = (pw - 28.0f - 12.0f) / 4.0f;
     for (int t = 0; t < 4; ++t) {
         const float tx = px + 14.0f + static_cast<float>(t) * (tabW + 4.0f);
-        const float ty = py + 43.0f;
+        const float ty = py + 41.0f;
         const bool sel = (t == phoneTab_);
-        DrawRectangleRounded({tx, ty, tabW, 28.0f}, 0.30f, 6,
+        DrawRectangleRounded({tx, ty, tabW, 27.0f}, 0.30f, 6,
                              sel ? Color{activeAccent.r, activeAccent.g, activeAccent.b, 56}
                                  : Color{22, 30, 42, 230});
         if (sel) {
-            DrawRectangleRoundedLinesEx({tx, ty, tabW, 28.0f}, 0.30f, 6, 1.5f, activeAccent);
+            DrawRectangleRoundedLinesEx({tx, ty, tabW, 27.0f}, 0.30f, 6, 1.5f, activeAccent);
         }
         const char* tLabel = pickText(tabEn[t], tabKo[t]);
-        const float tw = measureUiText(tLabel, 15.0f);
-        drawUiText(tLabel, tx + (tabW - tw) * 0.5f, ty + 6.0f, 15.0f,
+        const float tw = measureUiText(tLabel, 14.8f);
+        drawUiText(tLabel, tx + (tabW - tw) * 0.5f, ty + 5.5f, 14.8f,
                    sel ? activeAccent : Color{168, 180, 198, 235});
     }
 
     const auto& pl = world.player();
-    const float listTop = py + 80.0f;
-    const float rowH = (phoneTab_ == 3) ? 49.0f : 54.0f;
+    const float listTop = py + (densePhone ? 75.0f : 80.0f);
+    const float rowH = densePhone ? 39.0f : 54.0f;
+    const float rowGap = densePhone ? 3.0f : 4.0f;
 
     for (int i = 0; i < rowCount; ++i) {
-        const float ry = listTop + static_cast<float>(i) * (rowH + 4.0f);
+        const float ry = listTop + static_cast<float>(i) * (rowH + rowGap);
         const bool isBribeRow = (phoneTab_ == 3 && i == 6);
         DrawRectangleRounded({px + 12.0f, ry, pw - 24.0f, rowH}, 0.20f, 6,
                              (isBribeRow && pl.wantedLevel > 0) ? Color{28, 34, 54, 242} : Color{20, 28, 40, 235});
@@ -1177,8 +1267,8 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
             const VehicleKind vk = kDealershipCatalog[static_cast<std::size_t>(i)];
             const auto& spec = getVehicleSpec(vk);
             const auto& slot = pl.garage[static_cast<std::size_t>(vk)];
-            std::snprintf(line1En, sizeof(line1En), "[%d] %s", i + 1, spec.nameEn);
-            std::snprintf(line1Ko, sizeof(line1Ko), "[%d] %s", i + 1, spec.nameKo);
+            std::snprintf(line1En, sizeof(line1En), "[%s] %s", optKeyLabel(i + 1), spec.nameEn);
+            std::snprintf(line1Ko, sizeof(line1Ko), "[%s] %s", optKeyLabel(i + 1), spec.nameKo);
             std::snprintf(line2En, sizeof(line2En), "Top %d km/h  |  Turbo Lv%d · Armor Lv%d",
                           static_cast<int>(std::round(spec.maxForwardSpeed * 3.6f)),
                           slot.engineUpgradeLevel, slot.armorUpgradeLevel);
@@ -1244,7 +1334,7 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
             std::snprintf(line2En, sizeof(line2En), "%s", srows[i].dEn);
             std::snprintf(line2Ko, sizeof(line2Ko), "%s", srows[i].dKo);
             std::snprintf(rightTag, sizeof(rightTag), "%s", srows[i].cost);
-        } else {
+        } else if (i == 6) {
             // Option [7]: SBPD Police Bribe / Dispatch Record Wipe!
             std::snprintf(line1En, sizeof(line1En), "[7] Clear Wanted Level");
             std::snprintf(line1Ko, sizeof(line1Ko), "[7] 경찰 수배 즉시 해제 브로커");
@@ -1259,21 +1349,40 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
                 std::snprintf(rightTag, sizeof(rightTag), "%s", pickText("CLEAN", "수배 없음"));
                 rightCol = Color{154, 170, 190, 230};
             }
+        } else {
+            struct ExtraSupplyRow { const char* nEn; const char* nKo; const char* dEn; const char* dKo; const char* cost; };
+            const ExtraSupplyRow erows[3] = {
+                {"[8] Assault Shotgun", "[8] 전자동 드럼 샷건 보급", "Auto Drum + 48 Shells", "16발 드럼 연사샷건 지급",   "$1,700"},
+                {"[9] Marksman Sniper", "[9] 전술 저격소총 보급",   "3.2x Scope + 24 Rds",   "정밀 저격총 + 스코프 지급", "$2,500"},
+                {"[0] Vulcan Minigun",  "[0] 6열 개틀링 미니건 보급", "6-Barrel + 400 Rds",   "초고속 개틀링 + 400발 지급", "$5,400"}
+            };
+            const int idx = i - 7;
+            std::snprintf(line1En, sizeof(line1En), "%s", erows[idx].nEn);
+            std::snprintf(line1Ko, sizeof(line1Ko), "%s", erows[idx].nKo);
+            std::snprintf(line2En, sizeof(line2En), "%s", erows[idx].dEn);
+            std::snprintf(line2Ko, sizeof(line2Ko), "%s", erows[idx].dKo);
+            std::snprintf(rightTag, sizeof(rightTag), "%s", erows[idx].cost);
         }
 
-        const float y1Off = (phoneTab_ == 3) ? 5.0f : 7.0f;
-        const float y2Off = (phoneTab_ == 3) ? 26.0f : 29.0f;
-        drawUiText(pickText(line1En, line1Ko), px + 20.0f, ry + y1Off, 15.5f, Color{240, 245, 252, 255});
-        drawUiText(pickText(line2En, line2Ko), px + 20.0f, ry + y2Off, 13.8f, Color{164, 180, 200, 240});
+        const float y1Off = densePhone ? 3.5f : 7.0f;
+        const float y2Off = densePhone ? 21.0f : 29.0f;
+        const float f1 = densePhone ? 14.5f : 15.5f;
+        const float f2 = densePhone ? 12.6f : 13.8f;
+        drawUiText(pickText(line1En, line1Ko), px + 20.0f, ry + y1Off, f1, Color{240, 245, 252, 255});
+        drawUiText(pickText(line2En, line2Ko), px + 20.0f, ry + y2Off, f2, Color{164, 180, 200, 240});
 
-        const float tw = measureUiText(rightTag, 15.5f);
-        drawUiText(rightTag, px + pw - 20.0f - tw, ry + y1Off + 1.0f, 15.5f, rightCol);
+        const float tw = measureUiText(rightTag, f1);
+        drawUiText(rightTag, px + pw - 20.0f - tw, ry + y1Off + 0.5f, f1, rightCol);
     }
 
-    if (phoneTab_ == 3) {
-        drawUiText(pickText("Keys [1-7] Select   |   [P] Close Phone",
-                            "숫자 [1~7] 보급·수배해제   |   [P] 닫기"),
-                   px + 18.0f, py + ph - 23.0f, 14.8f, Color{186, 198, 214, 245});
+    if (phoneTab_ == 0) {
+        drawUiText(pickText("Keys [1-9, 0] Select   |   [P] Close Phone",
+                            "숫자 [1~9, 0] 구매·호출   |   [P] 닫기"),
+                   px + 18.0f, py + ph - 23.0f, 14.5f, Color{186, 198, 214, 245});
+    } else if (phoneTab_ == 3) {
+        drawUiText(pickText("Keys [1-9, 0] Select   |   [P] Close Phone",
+                            "숫자 [1~9, 0] 보급·수배해제   |   [P] 닫기"),
+                   px + 18.0f, py + ph - 23.0f, 14.5f, Color{186, 198, 214, 245});
     } else {
         drawUiText(pickText("Keys [1-6] Select   |   [P] Close Phone",
                             "숫자 [1~6] 구매·호출   |   [P] 휴대폰 닫기"),
@@ -1334,34 +1443,34 @@ void HudRenderer::drawHelpOverlay(int screenW, int screenH, bool cursorLocked) {
         return;
     }
 
-    DrawRectangleRounded({18.0f, 16.0f, 444.0f, 268.0f}, 0.08f, 6, Color{10, 15, 24, 196});
-    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 444.0f, 268.0f}, 0.08f, 6, 1.2f, Color{72, 148, 205, 115});
-    drawUiText(pickText("OPEN CITY C++ v0.6 - CONTROLS", "OPEN CITY C++ v0.6 - 조작 안내"),
+    DrawRectangleRounded({18.0f, 16.0f, 456.0f, 268.0f}, 0.08f, 6, Color{10, 15, 24, 196});
+    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 456.0f, 268.0f}, 0.08f, 6, 1.2f, Color{72, 148, 205, 115});
+    drawUiText(pickText("OPEN CITY C++ v0.7 - CONTROLS", "OPEN CITY C++ v0.7 - 조작 안내"),
                30.0f, 24.0f, 18.5f, Color{98, 220, 255, 255});
 
     const char* linesEn[10] = {
-        "WASD : Walk / Drive & Steer",
-        "Mouse : 1:1 Aim (RMB Precision) & Shoot (LMB)",
+        "WASD : Walk / Drive & Steer (16 Vehicles)",
+        "Mouse : 1:1 Aim (RMB Precision / Scope) & Shoot (LMB)",
         "V (or MMB) : Toggle 1st-Person / 3rd-Person View",
         "[ / ] : Mouse Sensitivity   |   I : Invert Y",
         "F or E : Enter / Carjack / Exit / Start Mission",
         "Space : Jump (On-Foot) / Drift (Car) | Shift : Sprint",
-        "P : Smartphone (Supercars / Realty / Style / Bribe)",
-        "B : Enter Shop / Pay 'n' Tune (Clear Stars) / Dealer",
-        "1-7 : Weapons | R : Reload | T : Time | F3 : Graphics",
-        "C : Rear | G : Horn/Siren | Tab : Mouse | L : Lang | H : Hide"
+        "P : Smartphone (10 Cars / Realty / Style / Supply)",
+        "B : Enter Shop (11 Weapons / Tune / Luxury Autos)",
+        "1-0,- / Z·X / Wheel : 11 Weapons   |   R : Reload",
+        "C : Rear | G : Police/EMS/Fire Siren | T : Time | F3 : GFX"
     };
     const char* linesKo[10] = {
-        "WASD : 이동 / 차량 주행 및 조향",
-        "마우스 : 흔들림 없는 1:1 정밀조준(우클릭) · 사격(좌클릭)",
+        "WASD : 이동 / 16종 차량 주행 및 조향",
+        "마우스 : 1:1 정밀조준 · 저격스코프(우클릭) · 사격(좌클릭)",
         "V (또는 휠클릭) : 1인칭(FPS·운전석) / 3인칭 시점 전환",
         "[ / ] : 마우스 감도 조절  |  I : 마우스 상하 반전",
         "F / E : 차량 탑승·탈취·하차 / 미션 시작",
         "Space : 점프(도보) · 드리프트(차량) | Shift : 질주·니트로",
-        "P : 스마트폰 (슈퍼카 · 부동산 · 보급 · 수배해제)",
-        "B : 매장 이용 (무기점 · 도색 수배해제 · 전시장)",
-        "1~7 : 무기교체 | R : 재장전 | T : 시간 | F3 : 그래픽품질",
-        "C : 후방 | G : 경적·사이렌 | Tab : 마우스 | L : 한/영 | H : 숨김"
+        "P : 스마트폰 (10종 차량호출 · 부동산 · 중화기보급)",
+        "B : 매장 이용 (11종 무기점 · 풀튜닝 공방 · 슈퍼카 전시장)",
+        "1~0,- · Z/X · 휠 : 11종 무기교체  |  R : 재장전",
+        "C : 후방 | G : 경찰·구급·소방 사이렌 | T : 시간 | F3 : 그래픽"
     };
 
     for (int i = 0; i < 10; ++i) {
