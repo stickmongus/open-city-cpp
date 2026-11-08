@@ -732,6 +732,87 @@ void testPolicePursuitWantedEscalationBribeAndBusted() {
     ++gTestsPassed;
 }
 
+void testFirstPersonAimAlignmentAndPrecisionSpread() {
+    // 1. Validate left-hand-drive driver eye coordinates across all 10 vehicle classes
+    for (int k = 0; k < static_cast<int>(oc::VehicleKind::Count); ++k) {
+        const auto kind = static_cast<oc::VehicleKind>(k);
+        const auto& spec = oc::getVehicleSpec(kind);
+        const oc::Vec3 eye = oc::driverSeatEyeLocal(kind);
+        ASSERT_TRUE(eye.z < -0.20f && eye.z > -spec.halfWidth);
+        ASSERT_TRUE(eye.y > 0.90f && eye.y < 2.20f);
+        ASSERT_TRUE(std::abs(eye.x) < spec.halfLength * 0.65f);
+    }
+
+    // 2. Verify 1st-person strafing locks player.facingYaw 1:1 to input.aimYaw without 3rd-person hip-turn drift
+    oc::GameWorld world(20261108ULL);
+    world.player().pos = {0.0f, 0.0f};
+    world.player().posY = world.surfaceHeightAt(world.player().pos);
+
+    oc::PlayerInput strafeIn{};
+    strafeIn.firstPerson = true;
+    strafeIn.cameraYaw = 0.42f;
+    strafeIn.aimYaw = 0.42f;
+    strafeIn.aimPitch = 0.0f;
+    strafeIn.moveRight = 1.0f; // Pure sideways strafe
+    strafeIn.moveForward = -1.0f;
+    for (int i = 0; i < 15; ++i) {
+        world.update(1.0f / 60.0f, strafeIn);
+    }
+    ASSERT_TRUE(std::abs(world.player().facingYaw - 0.42f) < 1e-3f);
+
+    // 3. Verify 1st-person precision ADS eye ray (y = posY + 1.62m) lands exact long-range headshots
+    world.player().pos = {0.0f, 0.0f};
+    world.player().posY = 0.0f;
+    world.player().velocity = {0.0f, 0.0f};
+    world.player().currentWeapon = oc::WeaponId::AssaultRifle;
+    auto& rifle = world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)];
+    rifle.owned = true;
+    rifle.magAmmo = 30;
+    rifle.reserveAmmo = 120;
+
+    // Clear vehicles/props along +X corridor and stage an alive target 36m downrange
+    int targetId = -1;
+    for (auto& v : world.vehicles()) {
+        if (std::abs(v.pos.z) < 6.0f && v.pos.x > -2.0f && v.pos.x < 45.0f) {
+            v.pos.z = 26.0f;
+        }
+    }
+    for (auto& n : world.npcs()) {
+        if (!n.alive) continue;
+        if (targetId < 0 && n.role == oc::NpcRole::Gangster) {
+            targetId = n.id;
+            n.pos = {36.0f, 0.0f};
+            n.velocity = {0.0f, 0.0f};
+            n.health = 200.0f;
+        } else if (std::abs(n.pos.z) < 4.0f && n.pos.x > 0.0f && n.pos.x < 42.0f) {
+            n.pos.z = 18.0f;
+        }
+    }
+    ASSERT_TRUE(targetId >= 0);
+
+    const oc::Vec3 fpEye{0.0f, 1.62f, 0.0f};
+    const oc::Vec3 headTarget{36.0f, 1.56f, 0.0f};
+    const oc::Vec3 rayDir = (headTarget - fpEye).normalized();
+
+    oc::PlayerInput adsShot{};
+    adsShot.firstPerson = true;
+    adsShot.aimHeld = true; // Precision ADS spread tighten (0.045x)
+    adsShot.fireHeld = true;
+    adsShot.hasAimRay3D = true;
+    adsShot.aimRayOrigin = fpEye;
+    adsShot.aimRayDir = rayDir;
+    adsShot.aimYaw = 0.0f;
+    adsShot.aimPitch = std::asin(rayDir.y);
+    adsShot.cameraYaw = 0.0f;
+
+    world.update(1.0f / 60.0f, adsShot);
+    ASSERT_TRUE(world.player().crosshairOnTarget);
+    ASSERT_TRUE(world.player().hitMarkerTimer > 0.0f);
+    ASSERT_TRUE(world.player().hitMarkerCritical);
+
+    ++gTestsPassed;
+}
+
 } // namespace
 
 int main() {
@@ -747,6 +828,7 @@ int main() {
     testPlayerJumpAndVehicleRoofClimbing();
     testCivilianRadialPanicFleeAndSidewalkRecovery();
     testPolicePursuitWantedEscalationBribeAndBusted();
+    testFirstPersonAimAlignmentAndPrecisionSpread();
 
     std::cout << "[PASS] All " << gTestsPassed << " Open City C++ simulation test suites succeeded!\n";
     return 0;

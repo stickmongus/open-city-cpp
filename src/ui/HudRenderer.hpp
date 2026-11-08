@@ -34,8 +34,10 @@ public:
     void setPhoneTab(int tab) { phoneTab_ = ((tab % 4) + 4) % 4; }
     void cyclePhoneTab(int delta) { phoneTab_ = ((phoneTab_ + delta) % 4 + 4) % 4; }
 
+    void showSystemToast(const char* textEn, const char* textKo);
     void showGraphicsToast(const char* labelEn, const char* labelKo);
-    void renderHud(const GameWorld& world, float cameraYaw, bool cursorLocked);
+    void renderHud(const GameWorld& world, float cameraYaw, bool cursorLocked,
+                   bool firstPerson = false, float adsBlend = 0.0f);
 
 private:
     static Font loadCompleteKoreanFont(const char* ttfPath, int fontSize);
@@ -48,9 +50,9 @@ private:
     float measureUiText(const char* text, float fontSize) const;
 
     void drawRadarMinimap(const GameWorld& world, float cameraYaw, int screenH);
-    void drawTopRightStatus(const GameWorld& world, int screenW);
+    void drawTopRightStatus(const GameWorld& world, int screenW, bool firstPerson);
     void drawSpeedometerAndDrift(const GameWorld& world, int screenW, int screenH);
-    void drawCrosshair(const GameWorld& world, int screenW, int screenH);
+    void drawCrosshair(const GameWorld& world, int screenW, int screenH, bool firstPerson, float adsBlend);
     void drawContextPromptsAndMission(const GameWorld& world, int screenW, int screenH);
     void drawShopModal(const GameWorld& world, int screenW, int screenH);
     void drawSmartphoneModal(const GameWorld& world, int screenW, int screenH);

@@ -356,13 +356,20 @@ float HudRenderer::measureUiText(const char* text, float fontSize) const {
     return static_cast<float>(MeasureText(text, std::max(10, static_cast<int>(fontSize))));
 }
 
+void HudRenderer::showSystemToast(const char* textEn, const char* textKo) {
+    gfxToastEn_ = textEn ? textEn : "";
+    gfxToastKo_ = textKo ? textKo : "";
+    gfxToastTimer_ = 2.2f;
+}
+
 void HudRenderer::showGraphicsToast(const char* labelEn, const char* labelKo) {
     gfxToastEn_ = std::string("GRAPHICS: ") + (labelEn ? labelEn : "");
     gfxToastKo_ = std::string("그래픽 품질: ") + (labelKo ? labelKo : "");
     gfxToastTimer_ = 2.4f;
 }
 
-void HudRenderer::renderHud(const GameWorld& world, float cameraYaw, bool cursorLocked) {
+void HudRenderer::renderHud(const GameWorld& world, float cameraYaw, bool cursorLocked,
+                            bool firstPerson, float adsBlend) {
     const int sw = GetScreenWidth();
     const int sh = GetScreenHeight();
     if (gfxToastTimer_ > 0.0f) {
@@ -375,9 +382,9 @@ void HudRenderer::renderHud(const GameWorld& world, float cameraYaw, bool cursor
     }
 
     drawRadarMinimap(world, cameraYaw, sh);
-    drawTopRightStatus(world, sw);
+    drawTopRightStatus(world, sw, firstPerson);
     drawSpeedometerAndDrift(world, sw, sh);
-    drawCrosshair(world, sw, sh);
+    drawCrosshair(world, sw, sh, firstPerson, adsBlend);
     drawContextPromptsAndMission(world, sw, sh);
 
     if (shopMenuOpen_) {
@@ -571,10 +578,10 @@ void HudRenderer::drawRadarMinimap(const GameWorld& world, float cameraYaw, int 
     }
 }
 
-void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW) {
+void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool firstPerson) {
     const float rightEdge = static_cast<float>(screenW) - 24.0f;
 
-    // Time of day + District card
+    // Time of day + District + Camera View Mode ([V] 1st / 3rd Person)
     const int hour = static_cast<int>(world.timeOfDayHours()) % 24;
     const int minute = static_cast<int>((world.timeOfDayHours() - std::floor(world.timeOfDayHours())) * 60.0f);
     const Vec2 pPos = (world.playerVehicle() != nullptr) ? world.playerVehicle()->pos : world.player().pos;
@@ -592,10 +599,14 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW) {
         }
     }
 
-    char clockBuf[112];
-    std::snprintf(clockBuf, sizeof(clockBuf), "%02d:%02d  |  %s", hour, minute, distName);
-    const float clockW = measureUiText(clockBuf, 18.0f);
-    drawUiText(clockBuf, rightEdge - clockW, 18.0f, 18.0f, Color{225, 232, 242, 245});
+    const char* viewBadge = firstPerson
+                                ? pickText("[V] 1ST PERSON", "[V] 1인칭 시점")
+                                : pickText("[V] 3RD PERSON", "[V] 3인칭 시점");
+    char clockBuf[144];
+    std::snprintf(clockBuf, sizeof(clockBuf), "%s  |  %02d:%02d  |  %s", viewBadge, hour, minute, distName);
+    const float clockW = measureUiText(clockBuf, 17.5f);
+    drawUiText(clockBuf, rightEdge - clockW, 18.0f, 17.5f,
+               firstPerson ? Color{128, 228, 255, 250} : Color{225, 232, 242, 245});
 
     // Classic GTA green cash counter
     char cashBuf[48];
@@ -749,33 +760,48 @@ void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, i
     }
 }
 
-void HudRenderer::drawCrosshair(const GameWorld& world, int screenW, int screenH) {
+void HudRenderer::drawCrosshair(const GameWorld& world, int screenW, int screenH,
+                                bool firstPerson, float adsBlend) {
     if (world.player().drivingVehicleId >= 0 || shopMenuOpen_) return;
 
     const float cx = static_cast<float>(screenW) * 0.5f;
     const float cy = static_cast<float>(screenH) * 0.5f;
 
     const auto& pl = world.player();
-    const bool precisionAim = IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
-    const float moveSpread = clampf(pl.velocity.length() * 0.32f, 0.0f, 2.8f);
-    const float shotSpread = (pl.muzzleFlashTimer > 0.0f) ? 2.6f : 0.0f;
-    const float gap = (precisionAim ? 3.4f : 5.4f) + moveSpread + shotSpread;
-    const float armLen = precisionAim ? 6.2f : 7.4f;
+    const float ads = clampf(adsBlend, 0.0f, 1.0f);
+    // Steady reticle: zero per-shot strobing jump so aiming never induces eye strain or dizziness
+    const float moveSpread = clampf(pl.velocity.length() * 0.16f, 0.0f, 1.4f) * (1.0f - ads * 0.65f);
+    const float gap = lerpf(5.6f, 3.2f, ads) + moveSpread;
+    const float armLen = lerpf(7.2f, 5.4f, ads);
 
-    const Color shadowCol{10, 14, 20, 175};
-    const Color col = pl.crosshairOnTarget ? Color{255, 78, 72, 245} : Color{245, 250, 255, 230};
+    float tickFade = 1.0f;
+    if (firstPerson && pl.currentWeapon != WeaponId::Fists && ads > 0.55f) {
+        tickFade = clampf((0.88f - ads) / 0.33f, 0.0f, 1.0f);
+    }
 
-    DrawCircleV({cx, cy}, 2.6f, shadowCol);
-    DrawLineEx({cx - gap - armLen - 1.0f, cy}, {cx - gap + 1.0f, cy}, 3.2f, shadowCol);
-    DrawLineEx({cx + gap - 1.0f, cy}, {cx + gap + armLen + 1.0f, cy}, 3.2f, shadowCol);
-    DrawLineEx({cx, cy - gap - armLen - 1.0f}, {cx, cy - gap + 1.0f}, 3.2f, shadowCol);
-    DrawLineEx({cx, cy + gap - 1.0f}, {cx, cy + gap + armLen + 1.0f}, 3.2f, shadowCol);
+    const Color col = pl.crosshairOnTarget ? Color{255, 78, 72, 245} : Color{245, 250, 255, 232};
 
-    DrawCircleV({cx, cy}, 1.9f, col);
-    DrawLineEx({cx - gap - armLen, cy}, {cx - gap, cy}, 1.8f, col);
-    DrawLineEx({cx + gap, cy}, {cx + gap + armLen, cy}, 1.8f, col);
-    DrawLineEx({cx, cy - gap - armLen}, {cx, cy - gap}, 1.8f, col);
-    DrawLineEx({cx, cy + gap}, {cx, cy + gap + armLen}, 1.8f, col);
+    if (tickFade > 0.02f) {
+        const unsigned char shA = static_cast<unsigned char>(175.0f * tickFade);
+        const unsigned char fgA = static_cast<unsigned char>(static_cast<float>(col.a) * tickFade);
+        const Color shadowCol{10, 14, 20, shA};
+        const Color tickCol{col.r, col.g, col.b, fgA};
+
+        DrawLineEx({cx - gap - armLen - 1.0f, cy}, {cx - gap + 1.0f, cy}, 3.0f, shadowCol);
+        DrawLineEx({cx + gap - 1.0f, cy}, {cx + gap + armLen + 1.0f, cy}, 3.0f, shadowCol);
+        DrawLineEx({cx, cy - gap - armLen - 1.0f}, {cx, cy - gap + 1.0f}, 3.0f, shadowCol);
+        DrawLineEx({cx, cy + gap - 1.0f}, {cx, cy + gap + armLen + 1.0f}, 3.0f, shadowCol);
+
+        DrawLineEx({cx - gap - armLen, cy}, {cx - gap, cy}, 1.7f, tickCol);
+        DrawLineEx({cx + gap, cy}, {cx + gap + armLen, cy}, 1.7f, tickCol);
+        DrawLineEx({cx, cy - gap - armLen}, {cx, cy - gap}, 1.7f, tickCol);
+        DrawLineEx({cx, cy + gap}, {cx, cy + gap + armLen}, 1.7f, tickCol);
+    }
+
+    // Crisp center pinpoint dot (smaller during 1st-person ADS so it sits cleanly inside the 3D red-dot/reflex lens)
+    const float dotR = (firstPerson && ads > 0.65f && pl.currentWeapon != WeaponId::Fists) ? 1.35f : 1.9f;
+    DrawCircleV({cx, cy}, dotR + 0.65f, Color{10, 14, 20, 165});
+    DrawCircleV({cx, cy}, dotR, col);
 
     if (pl.hitMarkerTimer > 0.0f) {
         const float alpha = clampf(pl.hitMarkerTimer / 0.16f, 0.0f, 1.0f);
@@ -1308,43 +1334,45 @@ void HudRenderer::drawHelpOverlay(int screenW, int screenH, bool cursorLocked) {
         return;
     }
 
-    DrawRectangleRounded({18.0f, 16.0f, 430.0f, 248.0f}, 0.08f, 6, Color{10, 15, 24, 196});
-    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 430.0f, 248.0f}, 0.08f, 6, 1.2f, Color{72, 148, 205, 115});
-    drawUiText(pickText("OPEN CITY C++ v0.5 - CONTROLS", "OPEN CITY C++ v0.5 - 조작 안내"),
+    DrawRectangleRounded({18.0f, 16.0f, 444.0f, 268.0f}, 0.08f, 6, Color{10, 15, 24, 196});
+    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 444.0f, 268.0f}, 0.08f, 6, 1.2f, Color{72, 148, 205, 115});
+    drawUiText(pickText("OPEN CITY C++ v0.6 - CONTROLS", "OPEN CITY C++ v0.6 - 조작 안내"),
                30.0f, 24.0f, 18.5f, Color{98, 220, 255, 255});
 
-    const char* linesEn[9] = {
+    const char* linesEn[10] = {
         "WASD : Walk / Drive & Steer",
-        "Mouse : 360 Camera / Aim (RMB) & Shoot (LMB)",
+        "Mouse : 1:1 Aim (RMB Precision) & Shoot (LMB)",
+        "V (or MMB) : Toggle 1st-Person / 3rd-Person View",
+        "[ / ] : Mouse Sensitivity   |   I : Invert Y",
         "F or E : Enter / Carjack / Exit / Start Mission",
         "Space : Jump (On-Foot) / Drift (Car) | Shift : Sprint",
         "P : Smartphone (Supercars / Realty / Style / Bribe)",
         "B : Enter Shop / Pay 'n' Tune (Clear Stars) / Dealer",
-        "1-7 : Switch Weapons (MG & Launcher)  |  R : Reload",
-        "T : Time | V : Graphics | C : Rear | G : Horn / Siren",
-        "Tab : Mouse Lock   |   L : Lang   |   F11 : Full   |   H : Hide"
+        "1-7 : Weapons | R : Reload | T : Time | F3 : Graphics",
+        "C : Rear | G : Horn/Siren | Tab : Mouse | L : Lang | H : Hide"
     };
-    const char* linesKo[9] = {
+    const char* linesKo[10] = {
         "WASD : 이동 / 차량 주행 및 조향",
-        "마우스 : 자유 시점 / 우클릭 정밀조준 · 좌클릭 사격",
+        "마우스 : 흔들림 없는 1:1 정밀조준(우클릭) · 사격(좌클릭)",
+        "V (또는 휠클릭) : 1인칭(FPS·운전석) / 3인칭 시점 전환",
+        "[ / ] : 마우스 감도 조절  |  I : 마우스 상하 반전",
         "F / E : 차량 탑승·탈취·하차 / 미션 시작",
         "Space : 점프(도보) · 드리프트(차량) | Shift : 질주·니트로",
         "P : 스마트폰 (슈퍼카 · 부동산 · 보급 · 수배해제)",
         "B : 매장 이용 (무기점 · 도색 수배해제 · 전시장)",
-        "1~7 : 무기 교체 (중기관총 · 런처)  |  R : 재장전",
-        "T : 시간변경 | V : 그래픽품질 | C : 후방 | G : 경적·사이렌",
-        "Tab : 마우스 잠금  |  L : 한/영 전환  |  H : 안내 숨김"
+        "1~7 : 무기교체 | R : 재장전 | T : 시간 | F3 : 그래픽품질",
+        "C : 후방 | G : 경적·사이렌 | Tab : 마우스 | L : 한/영 | H : 숨김"
     };
 
-    for (int i = 0; i < 9; ++i) {
+    for (int i = 0; i < 10; ++i) {
         drawUiText(pickText(linesEn[i], linesKo[i]),
-                   30.0f, 51.0f + static_cast<float>(i) * 22.0f, 15.5f, Color{226, 232, 242, 242});
+                   30.0f, 50.0f + static_cast<float>(i) * 21.8f, 15.2f, Color{226, 232, 242, 242});
     }
 
     if (!cursorLocked) {
         drawUiText(pickText("Click window or press [Tab] to lock mouse camera",
                             "화면을 클릭하거나 [Tab]을 누르면 마우스 시점이 활성화됩니다"),
-                   30.0f, 270.0f, 16.5f, Color{255, 214, 88, 255});
+                   30.0f, 290.0f, 16.5f, Color{255, 214, 88, 255});
     }
 }
 

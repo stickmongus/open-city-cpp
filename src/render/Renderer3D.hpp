@@ -31,7 +31,8 @@ public:
     Color computeSkyColor(const GameWorld& world) const;
 
     // Executes shadow-map pass, sky + PBR-lite 3D world pass, and HDR bloom + ACES post-process
-    void renderFrame(const GameWorld& world, const Camera3D& camera);
+    void renderFrame(const GameWorld& world, const Camera3D& camera,
+                     bool firstPerson = false, float adsBlend = 0.0f, bool lookBack = false);
     void renderWorld(const GameWorld& world, const Camera3D& camera);
 
 private:
@@ -62,12 +63,14 @@ private:
                          float emissive, MatKind matKind);
 
     void drawSkyDome(const GameWorld& world, const Camera3D& camera, const Vector3& lightDir);
-    void drawSceneGeometry(const GameWorld& world, const Camera3D& camera, bool shadowPass);
+    void drawSceneGeometry(const GameWorld& world, const Camera3D& camera, bool shadowPass,
+                           bool hidePlayerForFps = false);
     void drawOceanAndGround(const GameWorld& world);
     void drawRoadNetwork(const GameWorld& world, const Vec2& focus);
     void drawBuildingsAndParks(const GameWorld& world, const Vec2& focus, bool shadowPass);
     void drawTreesAndProps(const GameWorld& world, const Vec2& focus, bool shadowPass);
-    void drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass);
+    void drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass, bool cockpitHoodOnly = false);
+    void drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D& camera, float adsBlend);
     void drawCharacter3D(const Vec2& pos, float groundY, float yaw, float animPhase,
                          ColorRGBA top, ColorRGBA bottom, ColorRGBA skin,
                          bool alive, bool armed, WeaponId weapon, float muzzleFlash,

@@ -198,8 +198,8 @@ void GameWorld::reset() {
 
     spawnInitialWorld();
     pushBanner("WELCOME TO SUNSET BAY", "선셋 베이 시티에 오신 것을 환영합니다",
-               "[Space] Jump / Drift  |  [B] Shops & Tuning  |  [P] Smartphone",
-               "[Space] 점프·드리프트 · [B] 매장/풀튜닝 · [P] 스마트폰(차량호출·부동산·수배해제)",
+               "[V] 1st/3rd Person  |  [Space] Jump / Drift  |  [P] Smartphone",
+               "[V] 1인칭·3인칭 전환 · [Space] 점프·드리프트 · [P] 스마트폰",
                {92, 224, 255, 255}, 4.8f);
 }
 
@@ -2048,7 +2048,7 @@ void GameWorld::updatePlayerOnFoot(float dt, const PlayerInput& input) {
         player_.onGround = false;
     }
 
-    if (input.aimHeld || input.fireHeld) {
+    if (input.firstPerson || input.aimHeld || input.fireHeld) {
         player_.facingYaw = wrapAngle(input.aimYaw);
     } else if (player_.velocity.length() > 0.4f) {
         const float moveYaw = std::atan2(player_.velocity.z, player_.velocity.x);
@@ -2210,9 +2210,14 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
     Vec3 traceDir{};
     if (input.hasAimRay3D && input.aimRayDir.lengthSq() > 0.25f) {
         traceDir = input.aimRayDir.normalized();
-        const Vec3 playerShoulderCenter{player_.pos.x, player_.posY + 1.42f, player_.pos.z};
-        const float skipBehind = std::max(0.0f, (playerShoulderCenter - input.aimRayOrigin).dot(traceDir) + 0.25f);
-        traceOrigin = input.aimRayOrigin + traceDir * skipBehind;
+        if (input.firstPerson) {
+            const Vec3 fpEye{player_.pos.x, player_.posY + 1.62f, player_.pos.z};
+            traceOrigin = fpEye + traceDir * 0.10f;
+        } else {
+            const Vec3 playerShoulderCenter{player_.pos.x, player_.posY + 1.42f, player_.pos.z};
+            const float skipBehind = std::max(0.0f, (playerShoulderCenter - input.aimRayOrigin).dot(traceDir) + 0.25f);
+            traceOrigin = input.aimRayOrigin + traceDir * skipBehind;
+        }
     } else {
         traceDir = directionFromYawPitch(input.aimYaw, input.aimPitch).normalized();
         const Vec2 fwd2D = forwardFromHeading(input.aimYaw);
@@ -2230,15 +2235,20 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
          (crosshairHit.kind == RayHit3D::Kind::Vehicle && crosshairHit.vehicle && !crosshairHit.vehicle->destroyed));
 
     // Align character facing & arm elevation directly toward the 3D crosshair target when aiming/firing
-    if (input.aimHeld || input.fireHeld) {
-        const Vec2 toTargetXZ{aimPoint3D.x - player_.pos.x, aimPoint3D.z - player_.pos.z};
-        if (toTargetXZ.lengthSq() > 0.04f) {
-            player_.facingYaw = std::atan2(toTargetXZ.z, toTargetXZ.x);
-        } else {
+    if (input.firstPerson || input.aimHeld || input.fireHeld) {
+        if (input.firstPerson) {
             player_.facingYaw = wrapAngle(input.aimYaw);
+            player_.aimPitch = clampf(input.aimPitch, -1.15f, 1.20f);
+        } else {
+            const Vec2 toTargetXZ{aimPoint3D.x - player_.pos.x, aimPoint3D.z - player_.pos.z};
+            if (toTargetXZ.lengthSq() > 0.04f) {
+                player_.facingYaw = std::atan2(toTargetXZ.z, toTargetXZ.x);
+            } else {
+                player_.facingYaw = wrapAngle(input.aimYaw);
+            }
+            const Vec3 fromShoulder = (aimPoint3D - Vec3{player_.pos.x, player_.posY + 1.34f, player_.pos.z}).normalized();
+            player_.aimPitch = clampf(std::asin(clampf(fromShoulder.y, -0.98f, 0.98f)), -1.15f, 1.20f);
         }
-        const Vec3 fromShoulder = (aimPoint3D - Vec3{player_.pos.x, player_.posY + 1.34f, player_.pos.z}).normalized();
-        player_.aimPitch = clampf(std::asin(clampf(fromShoulder.y, -0.98f, 0.98f)), -1.15f, 1.20f);
 
         // Brandishing / aiming a firearm at civilians or traffic drivers causes immediate panic!
         if (input.aimHeld && player_.currentWeapon != WeaponId::Fists) {
@@ -2305,13 +2315,25 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
     player_.fireCooldown = spec.fireInterval;
     player_.muzzleFlashTimer = (player_.currentWeapon == WeaponId::Fists) ? 0.0f : 0.055f;
 
-    const Vec2 right2D = rightFromHeading(player_.facingYaw);
-    const Vec3 shoulder3D{player_.pos.x + right2D.x * 0.28f, player_.posY + 1.34f, player_.pos.z + right2D.z * 0.28f};
-    const Vec3 toAim = aimPoint3D - shoulder3D;
-    const float toAimLen = toAim.length();
-    const Vec3 baseDir = (toAimLen > 1e-4f) ? (toAim / toAimLen) : traceDir;
-    const float barrelOffset = std::min(0.68f, std::max(0.12f, toAimLen * 0.45f));
-    const Vec3 muzzle3D = shoulder3D + baseDir * barrelOffset;
+    Vec3 muzzle3D{};
+    if (input.firstPerson && input.hasAimRay3D) {
+        Vec3 worldUp{0.0f, 1.0f, 0.0f};
+        if (std::abs(traceDir.y) > 0.96f) worldUp = {1.0f, 0.0f, 0.0f};
+        const Vec3 camRight = traceDir.cross(worldUp).normalized();
+        const Vec3 camUp = camRight.cross(traceDir).normalized();
+        const float sideOff = input.aimHeld ? 0.0f : 0.16f;
+        const float downOff = input.aimHeld ? 0.055f : 0.125f;
+        const float fwdOff = std::min(0.54f, std::max(0.14f, crosshairHit.dist * 0.42f));
+        muzzle3D = input.aimRayOrigin + traceDir * fwdOff + camRight * sideOff - camUp * downOff;
+    } else {
+        const Vec2 right2D = rightFromHeading(player_.facingYaw);
+        const Vec3 shoulder3D{player_.pos.x + right2D.x * 0.28f, player_.posY + 1.34f, player_.pos.z + right2D.z * 0.28f};
+        const Vec3 toAim = aimPoint3D - shoulder3D;
+        const float toAimLen = toAim.length();
+        const Vec3 baseDir = (toAimLen > 1e-4f) ? (toAim / toAimLen) : traceDir;
+        const float barrelOffset = std::min(0.68f, std::max(0.12f, toAimLen * 0.45f));
+        muzzle3D = shoulder3D + baseDir * barrelOffset;
+    }
 
     fireWeapon(player_.currentWeapon, muzzle3D, aimPoint3D, input.aimHeld);
 }
@@ -2422,7 +2444,7 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
     const Vec3 basisRight = baseDir.cross(worldUp).normalized();
     const Vec3 basisUp = basisRight.cross(baseDir).normalized();
 
-    const float spreadScale = (precisionAim && spec.pellets == 1) ? 0.14f : (precisionAim ? 0.72f : 1.0f);
+    const float spreadScale = (precisionAim && spec.pellets == 1) ? 0.045f : (precisionAim ? 0.68f : 1.0f);
     const float maxSpread = spec.spreadRadians * spreadScale;
 
     for (int p = 0; p < spec.pellets; ++p) {

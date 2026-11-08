@@ -22,10 +22,15 @@ int main(int argc, char** argv) {
     bool openShopOverride = false;
     int cashOverride = -1;
     bool driveHypercarDemo = false;
+    int driveKindOverride = -1;
+    bool hasSteerOverride = false;
+    float demoSteerOverride = 0.0f;
     int demoNeonPreset = 0;
     bool hideHelpInSmoke = false;
     int wantedOverride = 0;
     bool jumpPanicDemo = false;
+    bool startFirstPerson = false;
+    bool forceAdsDemo = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--smoke-test") == 0) {
@@ -51,6 +56,12 @@ int main(int argc, char** argv) {
             cashOverride = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--drive-hypercar") == 0) {
             driveHypercarDemo = true;
+            driveKindOverride = static_cast<int>(oc::VehicleKind::Hypercar);
+        } else if (std::strcmp(argv[i], "--drive") == 0 && i + 1 < argc) {
+            driveKindOverride = std::clamp(std::atoi(argv[++i]), 0, 9);
+        } else if (std::strcmp(argv[i], "--steer") == 0 && i + 1 < argc) {
+            hasSteerOverride = true;
+            demoSteerOverride = oc::clampf(std::strtof(argv[++i], nullptr), -1.0f, 1.0f);
         } else if (std::strcmp(argv[i], "--neon") == 0 && i + 1 < argc) {
             demoNeonPreset = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--no-help") == 0) {
@@ -59,11 +70,15 @@ int main(int argc, char** argv) {
             wantedOverride = std::clamp(std::atoi(argv[++i]), 1, 5);
         } else if (std::strcmp(argv[i], "--jump-demo") == 0) {
             jumpPanicDemo = true;
+        } else if (std::strcmp(argv[i], "--first-person") == 0) {
+            startFirstPerson = true;
+        } else if (std::strcmp(argv[i], "--ads") == 0) {
+            forceAdsDemo = true;
         }
     }
 
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1440, 860, "Open City C++ v0.5.0 - 3D Open-World Sandbox");
+    InitWindow(1440, 860, "Open City C++ v0.6.0 - 3D Open-World Sandbox");
     SetExitKey(KEY_NULL); // Keep ESC free for menu/cursor release instead of instant quit
     SetTargetFPS(60);
 
@@ -83,23 +98,47 @@ int main(int argc, char** argv) {
         world.player().pos = {posOverrideX, posOverrideZ};
         world.player().posY = world.surfaceHeightAt(world.player().pos);
     }
-    if (driveHypercarDemo) {
-        world.player().cash = std::max(world.player().cash, 75000);
-        world.buyOrSummonVehicle(oc::VehicleKind::Hypercar);
-        if (oc::Vehicle* pcar = world.findVehicleMutable(world.player().activePersonalVehicleId)) {
+    if (driveKindOverride >= 0 || driveHypercarDemo) {
+        const auto targetKind = static_cast<oc::VehicleKind>(
+            driveKindOverride >= 0 ? driveKindOverride : static_cast<int>(oc::VehicleKind::Hypercar));
+        oc::Vehicle* chosenCar = nullptr;
+        if (oc::getVehicleSpec(targetKind).dealershipPrice > 0 || targetKind == oc::VehicleKind::SportsCoupe) {
+            world.player().cash = std::max(world.player().cash, 75000);
+            world.buyOrSummonVehicle(targetKind);
+            chosenCar = world.findVehicleMutable(world.player().activePersonalVehicleId);
+        } else {
+            for (auto& v : world.vehicles()) {
+                if (!v.destroyed && v.kind == targetKind) {
+                    chosenCar = world.findVehicleMutable(v.id);
+                    break;
+                }
+            }
+        }
+        if (chosenCar != nullptr) {
             if (hasPosOverride) {
-                pcar->pos = {posOverrideX, posOverrideZ};
+                chosenCar->pos = {posOverrideX, posOverrideZ};
             }
             if (initialYawOverride > -100.0f) {
-                pcar->heading = initialYawOverride;
+                chosenCar->heading = initialYawOverride;
             }
-            pcar->neonPreset = demoNeonPreset;
-            pcar->customSpoiler = true;
-            pcar->engineUpgradeLevel = 2;
-            pcar->armorUpgradeLevel = 2;
-            pcar->isPlayerDriving = true;
-            pcar->isParked = false;
-            world.player().drivingVehicleId = pcar->id;
+            chosenCar->neonPreset = demoNeonPreset;
+            if (targetKind == oc::VehicleKind::Hypercar || targetKind == oc::VehicleKind::SportsCoupe) {
+                chosenCar->customSpoiler = true;
+            }
+            chosenCar->engineUpgradeLevel = 2;
+            chosenCar->armorUpgradeLevel = 2;
+            chosenCar->isPlayerDriving = true;
+            chosenCar->isParked = false;
+            if (chosenCar->isPolice || targetKind == oc::VehicleKind::PoliceCruiser) {
+                chosenCar->sirenActive = true;
+            }
+            if (hasSteerOverride) {
+                chosenCar->steerVisual = demoSteerOverride;
+            }
+            const oc::Vec2 cfwd = oc::forwardFromHeading(chosenCar->heading);
+            chosenCar->velocity = cfwd * (smokeTestMode ? 18.5f : 0.0f);
+            world.player().drivingVehicleId = chosenCar->id;
+            world.player().pos = chosenCar->pos;
         }
     }
     if (wantedOverride > 0) {
@@ -110,6 +149,9 @@ int main(int argc, char** argv) {
         world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)].magAmmo = 30;
         // Advance pursuit simulation briefly and stage two police units in clear camera view for showcase
         oc::PlayerInput idleIn{};
+        idleIn.firstPerson = startFirstPerson;
+        idleIn.aimYaw = (initialYawOverride > -100.0f) ? initialYawOverride : -oc::kHalfPi;
+        idleIn.cameraYaw = idleIn.aimYaw;
         for (int s = 0; s < 35; ++s) {
             world.update(1.0f / 60.0f, idleIn);
         }
@@ -212,15 +254,24 @@ int main(int argc, char** argv) {
 
     bool cursorLocked = true;
     bool invertMouseY = false;
+    bool firstPersonMode = startFirstPerson;
+    float mouseSensScale = 1.0f;
+    int skipMouseFrames = 2;
     DisableCursor();
 
     float camYaw = (initialYawOverride > -100.0f) ? initialYawOverride : -oc::kHalfPi;
-    float camPitch = (initialPitchOverride > -100.0f) ? initialPitchOverride : -0.10f;
-    float smoothedPitch = camPitch;
+    float camPitch = (initialPitchOverride > -100.0f)
+                         ? initialPitchOverride
+                         : (startFirstPerson ? -0.04f : -0.10f);
+    float cockpitRelYaw = 0.0f;
     float manualCamHoldTimer = (initialYawOverride > -100.0f || initialPitchOverride > -100.0f) ? 5.0f : 0.0f;
-    float smoothedFov = 58.0f;
+    float adsBlend = forceAdsDemo ? 1.0f : 0.0f;
+    float smoothedFov = startFirstPerson ? (forceAdsDemo ? 57.0f : 68.0f) : 60.0f;
     bool camInitialized = false;
-    oc::Vec3 smoothedCamPos{14.5f, 2.4f, 19.5f};
+    oc::Vec3 smoothedAnchor{world.player().pos.x, world.player().posY + 1.54f, world.player().pos.z};
+    float smoothedBoomDist = 4.60f;
+    float smoothedEyeY = world.player().posY + 1.62f;
+    int prevDrivingId = world.player().drivingVehicleId;
 
     constexpr int kWeaponSlotCount = static_cast<int>(oc::WeaponId::Count);
 
@@ -235,18 +286,27 @@ int main(int argc, char** argv) {
                 hud.setPhoneOpen(false);
             } else {
                 cursorLocked = !cursorLocked;
-                if (cursorLocked) DisableCursor();
-                else EnableCursor();
+                if (cursorLocked) {
+                    DisableCursor();
+                    skipMouseFrames = 2;
+                } else {
+                    EnableCursor();
+                }
             }
         }
         if (IsKeyPressed(KEY_TAB)) {
             cursorLocked = !cursorLocked;
-            if (cursorLocked) DisableCursor();
-            else EnableCursor();
+            if (cursorLocked) {
+                DisableCursor();
+                skipMouseFrames = 2;
+            } else {
+                EnableCursor();
+            }
         }
         if (!cursorLocked && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !hud.isShopMenuOpen()) {
             cursorLocked = true;
             DisableCursor();
+            skipMouseFrames = 2;
         }
         if (IsKeyPressed(KEY_F11)) {
             ToggleFullscreen();
@@ -259,10 +319,38 @@ int main(int argc, char** argv) {
         }
         if (IsKeyPressed(KEY_I)) {
             invertMouseY = !invertMouseY;
+            hud.showSystemToast(invertMouseY ? "MOUSE Y-AXIS: INVERTED" : "MOUSE Y-AXIS: STANDARD",
+                                invertMouseY ? "마우스 상하 반전: 켜짐" : "마우스 상하 반전: 기본");
         }
-        if (IsKeyPressed(KEY_V)) {
+        // [V] or Middle Mouse Button: Toggle 1st-Person (FPS / Cockpit) <-> 3rd-Person Camera!
+        if (IsKeyPressed(KEY_V) || (!hud.isShopMenuOpen() && IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE))) {
+            firstPersonMode = !firstPersonMode;
+            camInitialized = false;
+            if (const oc::Vehicle* car = world.playerVehicle()) {
+                cockpitRelYaw = 0.0f;
+                camYaw = car->heading;
+                camPitch = firstPersonMode ? -0.04f : -0.14f;
+            } else if (firstPersonMode) {
+                camPitch = oc::clampf(camPitch, -1.05f, 1.05f);
+            }
+            hud.showSystemToast(firstPersonMode ? "CAMERA: 1ST PERSON (FPS / COCKPIT)" : "CAMERA: 3RD PERSON",
+                                firstPersonMode ? "시점 전환: 1인칭 시점 (FPS · 운전석)" : "시점 전환: 3인칭 숄더 시점");
+        }
+        // [F3]: Cycle graphics quality preset (High / Medium / Low)
+        if (IsKeyPressed(KEY_F3)) {
             renderer.cycleQuality();
             hud.showGraphicsToast(renderer.qualityNameEn(), renderer.qualityNameKo());
+        }
+        // [ / ]: Live mouse sensitivity tuning (30% .. 250%) to suit any DPI without menu diving
+        if (IsKeyPressed(KEY_LEFT_BRACKET) || IsKeyPressed(KEY_RIGHT_BRACKET)) {
+            const float delta = IsKeyPressed(KEY_RIGHT_BRACKET) ? 0.10f : -0.10f;
+            mouseSensScale = oc::clampf(std::round((mouseSensScale + delta) * 10.0f) / 10.0f, 0.30f, 2.50f);
+            const int pct = static_cast<int>(std::round(mouseSensScale * 100.0f));
+            char sensEn[64];
+            char sensKo[80];
+            std::snprintf(sensEn, sizeof(sensEn), "MOUSE SENSITIVITY: %d%%  ([ / ])", pct);
+            std::snprintf(sensKo, sizeof(sensKo), "마우스 감도: %d%%  ([ / ] 조절)", pct);
+            hud.showSystemToast(sensEn, sensKo);
         }
         if (IsKeyPressed(KEY_T)) {
             world.advanceTimeOfDayHours(3.0f);
@@ -278,30 +366,41 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Full 3D mouse look orbit camera (-64 deg downward to +68 deg upward into skyscrapers/sky)
+        const bool wantPrecisionAim =
+            (smokeTestMode && forceAdsDemo) ||
+            (cursorLocked && !hud.isShopMenuOpen() && world.player().drivingVehicleId < 0 &&
+             IsMouseButtonDown(MOUSE_BUTTON_RIGHT));
+        adsBlend = (smokeTestMode && forceAdsDemo)
+                       ? 1.0f
+                       : oc::lerpf(adsBlend, wantPrecisionAim ? 1.0f : 0.0f, std::min(1.0f, frameDt * 12.0f));
+
+        // 1:1 Synchronous Mouse Look (0ms angular lag, cursor-warp spike guard, automatic ADS slowdown)
         if (cursorLocked && !hud.isShopMenuOpen()) {
             const Vector2 md = GetMouseDelta();
-            if (std::abs(md.x) > 0.01f || std::abs(md.y) > 0.01f) {
-                const float ySign = invertMouseY ? 1.0f : -1.0f;
-                camYaw = oc::wrapAngle(camYaw + md.x * 0.0030f);
-                camPitch = oc::clampf(camPitch + ySign * md.y * 0.0028f, -1.12f, 1.18f);
-                manualCamHoldTimer = 1.6f;
+            if (skipMouseFrames > 0) {
+                --skipMouseFrames;
+            } else {
+                const float dx = oc::clampf(md.x, -120.0f, 120.0f);
+                const float dy = oc::clampf(md.y, -120.0f, 120.0f);
+                if (std::abs(dx) > 0.001f || std::abs(dy) > 0.001f) {
+                    const float sens = 0.00175f * mouseSensScale * oc::lerpf(1.0f, 0.58f, adsBlend);
+                    const float ySign = invertMouseY ? 1.0f : -1.0f;
+                    if (firstPersonMode && world.playerVehicle() != nullptr) {
+                        cockpitRelYaw = oc::clampf(cockpitRelYaw + dx * sens, -1.55f, 1.55f);
+                        camPitch = oc::clampf(camPitch + ySign * dy * sens, -0.68f, 0.62f);
+                        camYaw = oc::wrapAngle(world.playerVehicle()->heading + cockpitRelYaw);
+                    } else {
+                        camYaw = oc::wrapAngle(camYaw + dx * sens);
+                        camPitch = oc::clampf(camPitch + ySign * dy * (sens * 0.94f), -1.12f, 1.18f);
+                    }
+                    manualCamHoldTimer = 1.6f;
+                }
             }
+        } else {
+            (void)GetMouseDelta();
         }
         if (manualCamHoldTimer > 0.0f) {
             manualCamHoldTimer = std::max(0.0f, manualCamHoldTimer - frameDt);
-        }
-
-        // Smooth vehicle chase camera auto-alignment when driving and not moving mouse
-        if (const oc::Vehicle* car = world.playerVehicle()) {
-            if (manualCamHoldTimer <= 0.0f && car->speed() > 2.0f) {
-                const oc::Vec2 fwd = oc::forwardFromHeading(car->heading);
-                const float desiredYaw = (car->velocity.dot(fwd) < -2.0f)
-                                             ? oc::wrapAngle(car->heading + oc::kPi)
-                                             : car->heading;
-                camYaw = oc::moveTowardsAngle(camYaw, desiredYaw, frameDt * 2.8f);
-                camPitch = oc::lerpf(camPitch, -0.16f, frameDt * 3.0f);
-            }
         }
 
         // Gather gameplay inputs
@@ -316,7 +415,7 @@ int main(int argc, char** argv) {
             input.handbrake = IsKeyDown(KEY_SPACE);
             input.jumpPressed = IsKeyPressed(KEY_SPACE);
             input.interactPressed = IsKeyPressed(KEY_F) || (!hud.isPhoneOpen() && IsKeyPressed(KEY_E));
-            input.aimHeld = cursorLocked && IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
+            input.aimHeld = wantPrecisionAim;
             input.fireHeld = cursorLocked && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
             input.reloadPressed = IsKeyPressed(KEY_R);
             input.hornPressed = IsKeyPressed(KEY_G);
@@ -361,76 +460,187 @@ int main(int argc, char** argv) {
         }
 
         const bool lookBack = IsKeyDown(KEY_C);
-        const float renderYaw = lookBack ? oc::wrapAngle(camYaw + oc::kPi) : camYaw;
-        const float renderPitch = lookBack ? -0.12f : camPitch;
-        smoothedPitch = camInitialized
-                            ? oc::lerpf(smoothedPitch, renderPitch, std::min(1.0f, frameDt * 22.0f))
-                            : renderPitch;
-        const oc::Vec3 viewDir = oc::directionFromYawPitch(renderYaw, smoothedPitch).normalized();
+        const bool activeFirstPerson = firstPersonMode && !lookBack;
 
-        // Helper to compute collision-safe 3rd-person camera boom for any current player/car pose
-        auto computeDesiredCamera = [&](float& outTargetFov) -> oc::Vec3 {
-            oc::Vec3 pivot{};
-            float boomDist = 5.25f;
-            outTargetFov = 58.0f;
+        // Pre-step aim ray for exact 1:1 hitscan alignment inside world.update()
+        const float preAimYaw =
+            (activeFirstPerson && world.playerVehicle() != nullptr)
+                ? oc::wrapAngle(world.playerVehicle()->heading + cockpitRelYaw)
+                : (lookBack ? oc::wrapAngle(camYaw + oc::kPi) : camYaw);
+        const float preAimPitch = lookBack ? -0.12f : camPitch;
+        const oc::Vec3 preViewDir = oc::directionFromYawPitch(preAimYaw, preAimPitch).normalized();
 
-            if (const oc::Vehicle* car = world.playerVehicle()) {
-                pivot = {car->pos.x, 1.48f, car->pos.z};
-                boomDist = 7.8f + oc::clampf(car->speed() * 0.065f, 0.0f, 2.8f);
-                outTargetFov = 58.0f + oc::clampf(car->speed() * 0.32f, 0.0f, 14.0f) + (car->nitroActive ? 5.0f : 0.0f);
-            } else {
-                const oc::Vec2 rightOff = oc::rightFromHeading(renderYaw) * (input.aimHeld ? 0.56f : 0.32f);
-                const float footElev = std::max(0.0f, world.player().posY - 0.08f) * 0.88f;
-                pivot = {
-                    world.player().pos.x + rightOff.x,
-                    (input.aimHeld ? 1.52f : 1.56f) + footElev,
-                    world.player().pos.z + rightOff.z
-                };
-                boomDist = input.aimHeld ? 3.15f : 5.15f;
-                outTargetFov = input.aimHeld ? 45.0f : 58.0f;
-            }
-
-            // Slide camera smoothly closer to shoulder when looking steeply UP so camPos stays above street y >= 0.42m
-            float actualDist = boomDist;
-            if (viewDir.y > 0.01f) {
-                const float maxGroundDist = (pivot.y - 0.42f) / viewDir.y;
-                actualDist = std::min(actualDist, std::max(0.82f, maxGroundDist));
-            }
-
-            // 3D raycast from shoulder pivot to camera to prevent clipping inside buildings
-            const oc::Vec3 backDir = viewDir * -1.0f;
-            const float hitBld = world.city().raycastBuildings3D(pivot, backDir, actualDist);
-            if (hitBld >= 0.0f && hitBld < actualDist) {
-                actualDist = std::max(0.75f, hitBld - 0.38f);
-            }
-
-            oc::Vec3 pos = pivot - viewDir * actualDist;
-            pos.y = std::max(0.38f, pos.y);
-            return pos;
-        };
-
-        float targetFov = 58.0f;
-        const oc::Vec3 desiredCamPos = computeDesiredCamera(targetFov);
-        if (!camInitialized) {
-            smoothedCamPos = desiredCamPos;
-            camInitialized = true;
+        oc::Vec3 preRayOrigin{};
+        if (activeFirstPerson) {
+            preRayOrigin = {world.player().pos.x, world.player().posY + 1.62f, world.player().pos.z};
         } else {
-            const float posSmooth = input.aimHeld ? std::min(1.0f, frameDt * 24.0f) : std::min(1.0f, frameDt * 18.0f);
-            smoothedCamPos = smoothedCamPos + (desiredCamPos - smoothedCamPos) * posSmooth;
+            const oc::Vec2 rOff = oc::rightFromHeading(preAimYaw) * 0.40f;
+            const oc::Vec3 piv{
+                smoothedAnchor.x + rOff.x,
+                smoothedAnchor.y,
+                smoothedAnchor.z + rOff.z
+            };
+            preRayOrigin = piv - preViewDir * smoothedBoomDist;
+            preRayOrigin.y = std::max(0.38f, preRayOrigin.y);
         }
-        smoothedFov = oc::lerpf(smoothedFov, targetFov, frameDt * 9.0f);
 
+        input.firstPerson = activeFirstPerson;
         input.cameraYaw = camYaw;
-        input.aimYaw = renderYaw;
-        input.aimPitch = smoothedPitch;
+        input.aimYaw = preAimYaw;
+        input.aimPitch = preAimPitch;
         input.hasAimRay3D = !lookBack;
-        input.aimRayOrigin = smoothedCamPos;
-        input.aimRayDir = viewDir;
+        input.aimRayOrigin = preRayOrigin;
+        input.aimRayDir = preViewDir;
 
-        // Step simulation (stopped during smoke-test final capture if jumpPanicDemo already posed mid-air!)
+        // Step simulation BEFORE evaluating final camera pose so 1st-person cockpit/eye has ZERO 1-frame position lag!
         if (!(smokeTestMode && jumpPanicDemo)) {
             world.update(frameDt, input);
         }
+        if (smokeTestMode && hasSteerOverride) {
+            if (oc::Vehicle* dcar = world.findVehicleMutable(world.player().drivingVehicleId)) {
+                dcar->steerVisual = demoSteerOverride;
+            }
+        }
+
+        // Detect vehicle enter/exit transitions so camera anchor resets cleanly without swooping
+        if (world.player().drivingVehicleId != prevDrivingId) {
+            camInitialized = false;
+            cockpitRelYaw = 0.0f;
+            if (const oc::Vehicle* entered = world.playerVehicle()) {
+                if (firstPersonMode) {
+                    camYaw = entered->heading;
+                    camPitch = -0.04f;
+                }
+            }
+            prevDrivingId = world.player().drivingVehicleId;
+        }
+
+        // Evaluate post-step Camera3D (1st-Person Cockpit / 1st-Person FPS / Stabilized 3rd-Person Orbit)
+        float renderYaw = camYaw;
+        float renderPitch = camPitch;
+        oc::Vec3 viewDir{};
+        oc::Vec3 finalCamPos{};
+        float targetFov = 60.0f;
+
+        if (activeFirstPerson && world.playerVehicle() != nullptr) {
+            // 1st-Person Vehicle Cockpit: locked to left-hand driver seat, chassis turns head naturally
+            const oc::Vehicle* car = world.playerVehicle();
+            if (manualCamHoldTimer <= 0.0f && car->speed() > 1.5f) {
+                cockpitRelYaw = oc::lerpf(cockpitRelYaw, car->steerVisual * 0.14f, std::min(1.0f, frameDt * 3.8f));
+                camPitch = oc::lerpf(camPitch, -0.04f, std::min(1.0f, frameDt * 3.5f));
+            }
+            renderYaw = oc::wrapAngle(car->heading + cockpitRelYaw);
+            camYaw = renderYaw;
+            renderPitch = oc::clampf(camPitch, -0.68f, 0.62f);
+            viewDir = oc::directionFromYawPitch(renderYaw, renderPitch).normalized();
+
+            const oc::Vec3 eyeLocal = oc::driverSeatEyeLocal(car->kind);
+            const oc::Vec2 carFwd = oc::forwardFromHeading(car->heading);
+            const oc::Vec2 carRight = oc::rightFromHeading(car->heading);
+            const float seatY = eyeLocal.y + eyeLocal.x * std::sin(car->bodyPitch) - eyeLocal.z * std::sin(car->bodyRoll);
+            finalCamPos = {
+                car->pos.x + carFwd.x * eyeLocal.x + carRight.x * eyeLocal.z,
+                seatY,
+                car->pos.z + carFwd.z * eyeLocal.x + carRight.z * eyeLocal.z
+            };
+            targetFov = 65.0f + oc::clampf(car->speed() * 0.22f, 0.0f, 9.0f) + (car->nitroActive ? 3.5f : 0.0f);
+            if (!camInitialized) {
+                smoothedFov = targetFov;
+                camInitialized = true;
+            }
+        } else if (activeFirstPerson) {
+            // 1st-Person On-Foot FPS: rock-steady horizon (zero head-bob; curb step gently filtered on Y only)
+            const auto& pl = world.player();
+            renderYaw = camYaw;
+            renderPitch = camPitch;
+            viewDir = oc::directionFromYawPitch(renderYaw, renderPitch).normalized();
+
+            const float desiredEyeY = pl.posY + 1.62f;
+            if (!camInitialized || !pl.onGround) {
+                smoothedEyeY = desiredEyeY;
+                if (!camInitialized) {
+                    smoothedFov = oc::lerpf(68.0f, 57.0f, adsBlend);
+                    camInitialized = true;
+                }
+            } else {
+                smoothedEyeY = oc::lerpf(smoothedEyeY, desiredEyeY, std::min(1.0f, frameDt * 20.0f));
+            }
+            finalCamPos = {pl.pos.x, smoothedEyeY, pl.pos.z};
+            targetFov = oc::lerpf(68.0f, 57.0f, adsBlend);
+        } else {
+            // Stabilized 3rd-Person Camera: 1:1 zero-lag viewDir + smoothed anchor ONLY + constant shoulder offset
+            if (const oc::Vehicle* car = world.playerVehicle()) {
+                if (!lookBack && manualCamHoldTimer <= 0.0f && car->speed() > 2.0f) {
+                    const oc::Vec2 fwd = oc::forwardFromHeading(car->heading);
+                    const float desiredYaw = (car->velocity.dot(fwd) < -2.0f)
+                                                 ? oc::wrapAngle(car->heading + oc::kPi)
+                                                 : car->heading;
+                    camYaw = oc::moveTowardsAngle(camYaw, desiredYaw, frameDt * 2.8f);
+                    camPitch = oc::lerpf(camPitch, -0.16f, frameDt * 3.0f);
+                }
+            }
+
+            renderYaw = lookBack ? oc::wrapAngle(camYaw + oc::kPi) : camYaw;
+            renderPitch = lookBack ? -0.12f : camPitch;
+            viewDir = oc::directionFromYawPitch(renderYaw, renderPitch).normalized();
+
+            oc::Vec3 rawAnchor{};
+            float desiredDist = 4.60f;
+            oc::Vec2 shoulderOff{0.0f, 0.0f};
+
+            if (const oc::Vehicle* car = world.playerVehicle()) {
+                rawAnchor = {car->pos.x, 1.48f, car->pos.z};
+                desiredDist = 7.8f + oc::clampf(car->speed() * 0.065f, 0.0f, 2.6f);
+                targetFov = 58.0f + oc::clampf(car->speed() * 0.28f, 0.0f, 12.0f) + (car->nitroActive ? 4.0f : 0.0f);
+            } else {
+                const auto& pl = world.player();
+                const float footElev = std::max(0.0f, pl.posY - 0.08f) * 0.92f;
+                rawAnchor = {pl.pos.x, 1.54f + footElev, pl.pos.z};
+                // Constant 0.40m right shoulder offset + gentle 0.70m ADS focus (eliminates dolly-zoom vertigo!)
+                shoulderOff = oc::rightFromHeading(renderYaw) * 0.40f;
+                desiredDist = oc::lerpf(4.60f, 3.90f, adsBlend);
+                targetFov = oc::lerpf(60.0f, 54.0f, adsBlend);
+            }
+
+            if (!camInitialized) {
+                smoothedAnchor = rawAnchor;
+                smoothedBoomDist = desiredDist;
+                smoothedFov = targetFov;
+                camInitialized = true;
+            } else {
+                const float xzSmooth = std::min(1.0f, frameDt * 32.0f);
+                const float ySmooth = std::min(1.0f, frameDt * 15.0f);
+                smoothedAnchor.x = oc::lerpf(smoothedAnchor.x, rawAnchor.x, xzSmooth);
+                smoothedAnchor.z = oc::lerpf(smoothedAnchor.z, rawAnchor.z, xzSmooth);
+                smoothedAnchor.y = oc::lerpf(smoothedAnchor.y, rawAnchor.y, ySmooth);
+            }
+
+            const oc::Vec3 pivot{
+                smoothedAnchor.x + shoulderOff.x,
+                smoothedAnchor.y,
+                smoothedAnchor.z + shoulderOff.z
+            };
+
+            float clearDist = desiredDist;
+            if (viewDir.y > 0.01f) {
+                const float maxGroundDist = (pivot.y - 0.42f) / viewDir.y;
+                clearDist = std::min(clearDist, std::max(0.82f, maxGroundDist));
+            }
+            const oc::Vec3 backDir = viewDir * -1.0f;
+            const float hitBld = world.city().raycastBuildings3D(pivot, backDir, clearDist);
+            if (hitBld >= 0.0f && hitBld < clearDist) {
+                clearDist = std::max(0.75f, hitBld - 0.38f);
+            }
+
+            // Asymmetric boom smoothing: fast pull-in on wall obstacle, gentle ease-out to prevent rubber-banding
+            const float boomRate = (clearDist < smoothedBoomDist) ? 24.0f : 7.0f;
+            smoothedBoomDist = oc::lerpf(smoothedBoomDist, clearDist, std::min(1.0f, frameDt * boomRate));
+
+            finalCamPos = pivot - viewDir * smoothedBoomDist;
+            finalCamPos.y = std::max(0.38f, finalCamPos.y);
+        }
+
+        smoothedFov = oc::lerpf(smoothedFov, targetFov, std::min(1.0f, frameDt * 11.0f));
 
         // Process synthesized audio events, vehicle engine/drift loops & distance-attenuated police sirens
         audio.playEvents(world.consumeAudioEvents());
@@ -454,19 +664,19 @@ int main(int argc, char** argv) {
                                          : 0.0f;
         audio.updatePoliceSiren(sirenIntensity);
 
-        const oc::Vec3 camTarget = smoothedCamPos + viewDir * 35.0f;
+        const oc::Vec3 camTarget = finalCamPos + viewDir * 35.0f;
 
         Camera3D camera{};
-        camera.position = {smoothedCamPos.x, smoothedCamPos.y, smoothedCamPos.z};
+        camera.position = {finalCamPos.x, finalCamPos.y, finalCamPos.z};
         camera.target = {camTarget.x, camTarget.y, camTarget.z};
         camera.up = {0.0f, 1.0f, 0.0f};
         camera.fovy = smoothedFov;
         camera.projection = CAMERA_PERSPECTIVE;
 
-        // Render full 3D pipeline (Shadow Map -> Sky/PBR-lite City -> HDR Bloom + ACES) + crisp 2D HUD
+        // Render full 3D pipeline (Shadow Map -> Sky/PBR-lite City -> 1st-Person Viewmodel/Cockpit -> HDR Bloom + ACES)
         BeginDrawing();
-        renderer.renderFrame(world, camera);
-        hud.renderHud(world, renderYaw, cursorLocked);
+        renderer.renderFrame(world, camera, firstPersonMode, adsBlend, lookBack);
+        hud.renderHud(world, renderYaw, cursorLocked, activeFirstPerson, adsBlend);
         EndDrawing();
 
         if (smokeTestMode) {

@@ -116,6 +116,17 @@ struct Vehicle {
     float speed() const { return velocity.length(); }
 };
 
+inline Vec3 driverSeatEyeLocal(VehicleKind kind) {
+    const auto& spec = getVehicleSpec(kind);
+    float fwdX = 0.08f;
+    if (kind == VehicleKind::DeliveryVan) fwdX = 0.56f;
+    else if (kind == VehicleKind::Hypercar) fwdX = 0.16f;
+    else if (kind == VehicleKind::SUV || kind == VehicleKind::ArmoredSuv) fwdX = 0.14f;
+    const float eyeY = 0.24f + spec.chassisHeight * ((kind == VehicleKind::Hypercar) ? 0.80f : 0.77f);
+    const float leftZ = -spec.halfWidth * 0.36f;
+    return {fwdX, eyeY, leftZ};
+}
+
 enum class WeaponId : int {
     Fists = 0,
     Pistol = 1,
@@ -410,6 +421,7 @@ struct PlayerInput {
     float aimYaw = 0.0f;        // World aim direction yaw on XZ plane
     float aimPitch = 0.0f;      // World aim elevation radians (-down, +up)
     bool hasAimRay3D = false;   // True when 3D camera crosshair ray is supplied
+    bool firstPerson = false;   // True when 1st-person FPS / cockpit view is active
     Vec3 aimRayOrigin{0.0f, 0.0f, 0.0f};
     Vec3 aimRayDir{1.0f, 0.0f, 0.0f};
     bool sprintOrNitro = false; // Left Shift
