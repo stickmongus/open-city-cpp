@@ -24,6 +24,8 @@ int main(int argc, char** argv) {
     bool driveHypercarDemo = false;
     int demoNeonPreset = 0;
     bool hideHelpInSmoke = false;
+    int wantedOverride = 0;
+    bool jumpPanicDemo = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--smoke-test") == 0) {
@@ -53,11 +55,15 @@ int main(int argc, char** argv) {
             demoNeonPreset = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--no-help") == 0) {
             hideHelpInSmoke = true;
+        } else if (std::strcmp(argv[i], "--wanted") == 0 && i + 1 < argc) {
+            wantedOverride = std::clamp(std::atoi(argv[++i]), 1, 5);
+        } else if (std::strcmp(argv[i], "--jump-demo") == 0) {
+            jumpPanicDemo = true;
         }
     }
 
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1440, 860, "Open City C++ v0.4.0 - 3D Open-World Sandbox");
+    InitWindow(1440, 860, "Open City C++ v0.5.0 - 3D Open-World Sandbox");
     SetExitKey(KEY_NULL); // Keep ESC free for menu/cursor release instead of instant quit
     SetTargetFPS(60);
 
@@ -75,6 +81,7 @@ int main(int argc, char** argv) {
     }
     if (hasPosOverride) {
         world.player().pos = {posOverrideX, posOverrideZ};
+        world.player().posY = world.surfaceHeightAt(world.player().pos);
     }
     if (driveHypercarDemo) {
         world.player().cash = std::max(world.player().cash, 75000);
@@ -93,6 +100,99 @@ int main(int argc, char** argv) {
             pcar->isPlayerDriving = true;
             pcar->isParked = false;
             world.player().drivingVehicleId = pcar->id;
+        }
+    }
+    if (wantedOverride > 0) {
+        const float starHeat[6] = {0.0f, 1.2f, 3.5f, 7.0f, 12.2f, 19.0f};
+        world.reportCrime(starHeat[wantedOverride], wantedOverride, world.player().pos, true);
+        world.player().currentWeapon = oc::WeaponId::AssaultRifle;
+        world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)].owned = true;
+        world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)].magAmmo = 30;
+        // Advance pursuit simulation briefly and stage two police units in clear camera view for showcase
+        oc::PlayerInput idleIn{};
+        for (int s = 0; s < 35; ++s) {
+            world.update(1.0f / 60.0f, idleIn);
+        }
+        const oc::Vec2 anchor = (world.playerVehicle() != nullptr) ? world.playerVehicle()->pos : world.player().pos;
+        const float lookYaw = (initialYawOverride > -100.0f) ? initialYawOverride : -oc::kHalfPi;
+        const oc::Vec2 fwd = oc::forwardFromHeading(lookYaw);
+        const oc::Vec2 right = oc::rightFromHeading(lookYaw);
+        int cruiserStageId = -1;
+        int secondStageId = -1;
+        for (const auto& v : world.vehicles()) {
+            if (!v.isPolice || v.isPlayerDriving || v.destroyed) continue;
+            if (cruiserStageId < 0 && v.kind == oc::VehicleKind::PoliceCruiser) {
+                cruiserStageId = v.id;
+            } else if (secondStageId < 0 && (wantedOverride < 4 || v.kind == oc::VehicleKind::ArmoredSuv)) {
+                secondStageId = v.id;
+            }
+        }
+        if (cruiserStageId >= 0) {
+            if (oc::Vehicle* pv = world.findVehicleMutable(cruiserStageId)) {
+                pv->pos = anchor + fwd * 14.5f - right * 2.6f;
+                pv->heading = oc::wrapAngle(lookYaw + oc::kPi - 0.38f);
+                pv->velocity = {0.0f, 0.0f};
+                pv->sirenActive = true;
+                pv->sirenPhase = 0.18f;
+            }
+        }
+        if (secondStageId >= 0) {
+            if (oc::Vehicle* pv = world.findVehicleMutable(secondStageId)) {
+                pv->pos = anchor + fwd * 21.0f + right * 4.2f;
+                pv->heading = oc::wrapAngle(lookYaw + oc::kPi + 0.42f);
+                pv->velocity = {0.0f, 0.0f};
+                pv->sirenActive = true;
+                pv->sirenPhase = 0.68f;
+            }
+        }
+    }
+    if (jumpPanicDemo) {
+        world.player().currentWeapon = oc::WeaponId::AssaultRifle;
+        world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)].owned = true;
+        world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)].magAmmo = 30;
+        const float lookYaw = (initialYawOverride > -100.0f) ? initialYawOverride : 0.0f;
+        const oc::Vec2 fwd = oc::forwardFromHeading(lookYaw);
+        const oc::Vec2 right = oc::rightFromHeading(lookYaw);
+        // Place existing starter SportsCoupe right under/ahead of the jump trajectory
+        for (auto& v : world.vehicles()) {
+            if (!v.destroyed && v.kind == oc::VehicleKind::SportsCoupe) {
+                v.pos = world.player().pos + fwd * 1.55f - right * 0.25f;
+                v.heading = oc::wrapAngle(lookYaw + 0.28f);
+                v.velocity = {0.0f, 0.0f};
+                break;
+            }
+        }
+        // Gather 4 pedestrians onto the sidewalk ahead so the warning shot sends them sprinting away hands-up!
+        const oc::Vec2 pedOffsets[4] = {
+            fwd * 6.8f + right * 1.6f,
+            fwd * 8.2f - right * 1.9f,
+            fwd * 9.8f + right * 3.1f,
+            fwd * 11.2f + right * 0.5f,
+        };
+        int placedPeds = 0;
+        for (auto& n : world.npcs()) {
+            if (n.alive && n.role == oc::NpcRole::Civilian && placedPeds < 4) {
+                n.pos = world.player().pos + pedOffsets[placedPeds];
+                ++placedPeds;
+            }
+        }
+        // Fire a warning shot in the air to trigger nearby civilians' hands-up PanicFlee sprint, then jump!
+        oc::PlayerInput panicIn{};
+        panicIn.cameraYaw = lookYaw;
+        panicIn.aimYaw = lookYaw;
+        panicIn.aimPitch = 0.35f;
+        panicIn.fireHeld = true;
+        world.update(1.0f / 60.0f, panicIn);
+
+        oc::PlayerInput jumpIn{};
+        jumpIn.cameraYaw = lookYaw;
+        jumpIn.aimYaw = lookYaw;
+        jumpIn.moveForward = 1.0f;
+        jumpIn.sprintOrNitro = true;
+        jumpIn.jumpPressed = true;
+        for (int s = 0; s < 15; ++s) {
+            world.update(1.0f / 60.0f, jumpIn);
+            jumpIn.jumpPressed = false;
         }
     }
     if (initialTimeOverride >= 0.0f) {
@@ -214,6 +314,7 @@ int main(int argc, char** argv) {
 
             input.sprintOrNitro = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
             input.handbrake = IsKeyDown(KEY_SPACE);
+            input.jumpPressed = IsKeyPressed(KEY_SPACE);
             input.interactPressed = IsKeyPressed(KEY_F) || (!hud.isPhoneOpen() && IsKeyPressed(KEY_E));
             input.aimHeld = cursorLocked && IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
             input.fireHeld = cursorLocked && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
@@ -224,7 +325,8 @@ int main(int argc, char** argv) {
             if (hud.isPhoneOpen()) {
                 if (IsKeyPressed(KEY_Q)) hud.cyclePhoneTab(-1);
                 if (IsKeyPressed(KEY_E)) hud.cyclePhoneTab(1);
-                for (int opt = 1; opt <= 6; ++opt) {
+                const int maxOpt = (hud.phoneTab() == 3) ? 7 : 6;
+                for (int opt = 1; opt <= maxOpt; ++opt) {
                     if (IsKeyPressed(KEY_ONE + (opt - 1))) {
                         input.phoneTab = hud.phoneTab();
                         input.phoneOption = opt;
@@ -278,9 +380,10 @@ int main(int argc, char** argv) {
                 outTargetFov = 58.0f + oc::clampf(car->speed() * 0.32f, 0.0f, 14.0f) + (car->nitroActive ? 5.0f : 0.0f);
             } else {
                 const oc::Vec2 rightOff = oc::rightFromHeading(renderYaw) * (input.aimHeld ? 0.56f : 0.32f);
+                const float footElev = std::max(0.0f, world.player().posY - 0.08f) * 0.88f;
                 pivot = {
                     world.player().pos.x + rightOff.x,
-                    input.aimHeld ? 1.52f : 1.56f,
+                    (input.aimHeld ? 1.52f : 1.56f) + footElev,
                     world.player().pos.z + rightOff.z
                 };
                 boomDist = input.aimHeld ? 3.15f : 5.15f;
@@ -324,10 +427,12 @@ int main(int argc, char** argv) {
         input.aimRayOrigin = smoothedCamPos;
         input.aimRayDir = viewDir;
 
-        // Step simulation (uses exact optical center ray identical to Camera3D below!)
-        world.update(frameDt, input);
+        // Step simulation (stopped during smoke-test final capture if jumpPanicDemo already posed mid-air!)
+        if (!(smokeTestMode && jumpPanicDemo)) {
+            world.update(frameDt, input);
+        }
 
-        // Process synthesized audio events & engine/drift loops
+        // Process synthesized audio events, vehicle engine/drift loops & distance-attenuated police sirens
         audio.playEvents(world.consumeAudioEvents());
         if (const oc::Vehicle* car = world.playerVehicle()) {
             const float ratio = car->speed() / oc::getVehicleSpec(car->kind).maxForwardSpeed;
@@ -335,6 +440,19 @@ int main(int argc, char** argv) {
         } else {
             audio.updateVehicleLoops(false, 0.0f, false, false);
         }
+
+        const oc::Vec2 listenerPos = (world.playerVehicle() != nullptr)
+                                         ? world.playerVehicle()->pos
+                                         : world.player().pos;
+        float closestSirenDist = 9999.0f;
+        for (const auto& v : world.vehicles()) {
+            if (v.destroyed || !v.sirenActive) continue;
+            closestSirenDist = std::min(closestSirenDist, (v.pos - listenerPos).length());
+        }
+        const float sirenIntensity = (closestSirenDist < 135.0f)
+                                         ? std::pow(oc::clampf(1.0f - closestSirenDist / 135.0f, 0.0f, 1.0f), 0.72f)
+                                         : 0.0f;
+        audio.updatePoliceSiren(sirenIntensity);
 
         const oc::Vec3 camTarget = smoothedCamPos + viewDir * 35.0f;
 

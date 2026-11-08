@@ -51,6 +51,19 @@ const char* rimStyleNameKo(int rimStyle) {
     }
 }
 
+void drawFivePointStar2D(Vector2 center, float outerR, float innerR, Color col) {
+    Vector2 pts[10];
+    for (int k = 0; k < 10; ++k) {
+        // Decreasing angle in screen space (+Y down) produces CCW triangles for raylib DrawTriangle
+        const float ang = -kHalfPi - static_cast<float>(k) * (kPi / 5.0f);
+        const float r = (k % 2 == 0) ? outerR : innerR;
+        pts[k] = {center.x + std::cos(ang) * r, center.y + std::sin(ang) * r};
+    }
+    for (int k = 0; k < 10; ++k) {
+        DrawTriangle(center, pts[k], pts[(k + 1) % 10], col);
+    }
+}
+
 } // namespace
 
 HudRenderer::~HudRenderer() {
@@ -442,14 +455,26 @@ void HudRenderer::drawRadarMinimap(const GameWorld& world, float cameraYaw, int 
         }
     }
 
-    // Nearby vehicles & personal summoned car highlight
+    // Nearby vehicles, pursuing SBPD cruisers & personal summoned car highlight
+    const int wanted = world.player().wantedLevel;
     for (const auto& v : world.vehicles()) {
         if (v.isPlayerDriving || v.destroyed) continue;
         const bool isPersonal = v.isPersonalCar && (v.id == world.player().activePersonalVehicleId);
-        const Vector2 pv = projectToRadar(v.pos, isPersonal);
+        const bool activePolice = v.isPolice && (wanted > 0 || v.sirenActive);
+        const Vector2 pv = projectToRadar(v.pos, isPersonal || activePolice);
         if (pv.x > -1000.0f) {
             if (v.isMissionTarget) {
                 DrawCircleV(pv, 4.8f, Color{255, 218, 52, 255});
+            } else if (activePolice) {
+                const bool redPhase = (v.sirenPhase < 0.5f);
+                const Color pCol = redPhase ? Color{255, 58, 68, 255} : Color{56, 148, 255, 255};
+                if ((v.pos - centerWorld).lengthSq() < worldRange * worldRange) {
+                    DrawCircleV(pv, 9.5f, Color{pCol.r, pCol.g, pCol.b, 48});
+                }
+                DrawCircleV(pv, 5.2f, Color{12, 16, 22, 255});
+                DrawCircleV(pv, 3.9f, pCol);
+            } else if (v.isPolice) {
+                DrawCircleV(pv, 3.6f, Color{92, 168, 255, 225});
             } else if (isPersonal) {
                 DrawCircleV(pv, 5.2f, Color{14, 18, 24, 255});
                 DrawCircleV(pv, 3.8f, Color{76, 228, 255, 255});
@@ -459,11 +484,23 @@ void HudRenderer::drawRadarMinimap(const GameWorld& world, float cameraYaw, int 
         }
     }
 
+    const bool copBlinkRed = (std::fmod(GetTime() * 3.6, 1.0) < 0.5);
     for (const auto& npc : world.npcs()) {
-        if (!npc.alive || npc.role != NpcRole::Gangster) continue;
-        const Vector2 pn = projectToRadar(npc.pos, false);
-        if (pn.x > -1000.0f) {
-            DrawCircleV(pn, 3.3f, Color{255, 72, 68, 245});
+        if (!npc.alive) continue;
+        if (npc.role == NpcRole::Gangster) {
+            const Vector2 pn = projectToRadar(npc.pos, false);
+            if (pn.x > -1000.0f) {
+                DrawCircleV(pn, 3.3f, Color{255, 72, 68, 245});
+            }
+        } else if (npc.role == NpcRole::Police) {
+            const Vector2 pn = projectToRadar(npc.pos, wanted > 0);
+            if (pn.x > -1000.0f) {
+                const Color cCol = (wanted > 0 && copBlinkRed)
+                                       ? Color{255, 68, 76, 250}
+                                       : Color{64, 162, 255, 250};
+                DrawCircleV(pn, 4.3f, Color{10, 14, 20, 255});
+                DrawCircleV(pn, 3.1f, cCol);
+            }
         }
     }
 
@@ -497,8 +534,17 @@ void HudRenderer::drawRadarMinimap(const GameWorld& world, float cameraYaw, int 
     // Player center arrow
     DrawTriangle({cx, cy - 6.5f}, {cx - 5.0f, cy + 5.5f}, {cx + 5.0f, cy + 5.5f}, Color{255, 255, 255, 255});
 
-    // Radar ring border + North [N] compass badge
-    DrawRing({cx, cy}, radius, radius + 3.5f, 0.0f, 360.0f, 48, Color{210, 220, 232, 235});
+    // Radar ring border (pulses Red/Blue during active police pursuit!) + North [N] compass badge
+    Color ringCol{210, 220, 232, 235};
+    if (wanted > 0) {
+        if (world.player().policeLineOfSight) {
+            ringCol = copBlinkRed ? Color{255, 62, 72, 250} : Color{58, 152, 255, 250};
+        } else {
+            const auto evA = static_cast<unsigned char>(155.0 + 90.0 * (0.5 + 0.5 * std::sin(GetTime() * 8.0)));
+            ringCol = Color{130, 205, 255, evA};
+        }
+    }
+    DrawRing({cx, cy}, radius, radius + 3.8f, 0.0f, 360.0f, 48, ringCol);
 
     const Vec2 northWorld{0.0f, -1.0f};
     const float nx = cx + northWorld.dot(right) * (radius + 1.0f);
@@ -574,14 +620,73 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW) {
     const float assetW = measureUiText(assetBuf, 16.0f);
     drawUiText(assetBuf, rightEdge - assetW, 78.0f, 16.0f, assetCol);
 
-    // Equipped weapon & ammo card
     const auto& pl = world.player();
+    float weaponCardY = 102.0f;
+
+    // 1-5 Star SBPD Wanted Level HUD + Evasion Progress Bar!
+    if (pl.wantedLevel > 0) {
+        const float boxW = 248.0f;
+        const float boxH = pl.policeLineOfSight ? 52.0f : 62.0f;
+        const float boxX = rightEdge - boxW;
+        const float boxY = 100.0f;
+        const bool redBeat = (std::fmod(GetTime() * 4.2, 1.0) < 0.5);
+
+        DrawRectangleRounded({boxX, boxY, boxW, boxH}, 0.22f, 6, Color{12, 17, 26, 228});
+        const Color borderCol = pl.policeLineOfSight
+                                    ? (redBeat ? Color{255, 64, 74, 230} : Color{56, 148, 255, 230})
+                                    : Color{118, 206, 255, 185};
+        DrawRectangleRoundedLinesEx({boxX, boxY, boxW, boxH}, 0.22f, 6, 1.8f, borderCol);
+
+        const float blinkMul = pl.policeLineOfSight
+                                   ? 1.0f
+                                   : static_cast<float>(0.34 + 0.66 * (0.5 + 0.5 * std::sin(GetTime() * 9.0)));
+
+        for (int s = 0; s < 5; ++s) {
+            const Vector2 sc{boxX + 28.0f + static_cast<float>(s) * 34.0f, boxY + 21.0f};
+            drawFivePointStar2D({sc.x + 1.2f, sc.y + 1.4f}, 12.5f, 5.2f, Color{6, 8, 12, 210});
+            if (s < pl.wantedLevel) {
+                const auto starAlpha = static_cast<unsigned char>(clampf(255.0f * blinkMul, 70.0f, 255.0f));
+                const Color litCol = pl.policeLineOfSight
+                                         ? Color{255, 214, 58, starAlpha}
+                                         : Color{176, 228, 255, starAlpha};
+                drawFivePointStar2D(sc, 12.2f, 5.0f, litCol);
+                drawFivePointStar2D(sc, 6.2f, 2.6f, Color{255, 248, 205, starAlpha});
+            } else {
+                drawFivePointStar2D(sc, 11.2f, 4.6f, Color{54, 64, 78, 185});
+            }
+        }
+
+        // Badge label on right of stars + status/evasion bar underneath
+        const char* unitTag = (pl.wantedLevel >= 4) ? "SWAT" : "SBPD";
+        const float uw = measureUiText(unitTag, 15.0f);
+        drawUiText(unitTag, boxX + boxW - uw - 12.0f, boxY + 13.0f, 15.0f,
+                   redBeat ? Color{255, 96, 102, 255} : Color{102, 186, 255, 255});
+
+        if (pl.policeLineOfSight) {
+            const char* pTxt = (pl.wantedLevel >= 4)
+                                   ? pickText("SWAT PURSUIT ACTIVE", "특수기동대 무장 추격 중")
+                                   : pickText("POLICE IN PURSUIT", "경찰 순찰대 추격 중");
+            drawUiText(pTxt, boxX + 14.0f, boxY + 34.0f, 14.0f, Color{255, 198, 196, 245});
+        } else {
+            const float needed = 11.5f + static_cast<float>(pl.wantedLevel) * 2.5f;
+            const float evFrac = clampf(pl.wantedEvadeTimer / needed, 0.0f, 1.0f);
+            drawUiText(pickText("EVADING SIGHT...", "시야 이탈 도주 중"), boxX + 14.0f, boxY + 35.0f, 13.5f,
+                       Color{152, 226, 255, 245});
+            DrawRectangleRounded({boxX + 132.0f, boxY + 40.0f, boxW - 144.0f, 8.0f}, 0.4f, 4, Color{28, 38, 52, 240});
+            DrawRectangleRounded({boxX + 132.0f, boxY + 40.0f, (boxW - 144.0f) * evFrac, 8.0f},
+                                 0.4f, 4, Color{84, 224, 255, 255});
+        }
+
+        weaponCardY = boxY + boxH + 8.0f;
+    }
+
+    // Equipped weapon & ammo card
     const auto& wspec = getWeaponSpec(pl.currentWeapon);
     const auto& wslot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
 
-    DrawRectangleRounded({rightEdge - 236.0f, 102.0f, 236.0f, 54.0f}, 0.22f, 6, Color{16, 22, 30, 210});
+    DrawRectangleRounded({rightEdge - 236.0f, weaponCardY, 236.0f, 54.0f}, 0.22f, 6, Color{16, 22, 30, 210});
     const char* wName = pickText(wspec.nameEn, wspec.nameKo);
-    drawUiText(wName, rightEdge - 222.0f, 108.0f, 18.0f, Color{242, 246, 252, 255});
+    drawUiText(wName, rightEdge - 222.0f, weaponCardY + 6.0f, 18.0f, Color{242, 246, 252, 255});
 
     char ammoBuf[64];
     if (pl.reloadTimer > 0.0f) {
@@ -591,7 +696,7 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW) {
     } else {
         std::snprintf(ammoBuf, sizeof(ammoBuf), "%s", pickText("MELEE [1-7]", "근접 격투 [1~7]"));
     }
-    drawUiText(ammoBuf, rightEdge - 222.0f, 130.0f, 17.0f, Color{255, 214, 92, 255});
+    drawUiText(ammoBuf, rightEdge - 222.0f, weaponCardY + 28.0f, 17.0f, Color{255, 214, 92, 255});
 }
 
 void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, int screenH) {
@@ -978,8 +1083,9 @@ void HudRenderer::drawShopModal(const GameWorld& world, int screenW, int screenH
 }
 
 void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int screenH) {
-    const float pw = 330.0f;
-    const float ph = 456.0f;
+    const int rowCount = (phoneTab_ == 3) ? 7 : 6;
+    const float pw = 336.0f;
+    const float ph = (phoneTab_ == 3) ? 492.0f : 456.0f;
     const float px = static_cast<float>(screenW) - pw - 22.0f;
     const float py = static_cast<float>(screenH) - ph - 22.0f;
 
@@ -1022,12 +1128,17 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
     }
 
     const auto& pl = world.player();
-    const float listTop = py + 82.0f;
-    const float rowH = 54.0f;
+    const float listTop = py + 80.0f;
+    const float rowH = (phoneTab_ == 3) ? 49.0f : 54.0f;
 
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < rowCount; ++i) {
         const float ry = listTop + static_cast<float>(i) * (rowH + 4.0f);
-        DrawRectangleRounded({px + 12.0f, ry, pw - 24.0f, rowH}, 0.20f, 6, Color{20, 28, 40, 235});
+        const bool isBribeRow = (phoneTab_ == 3 && i == 6);
+        DrawRectangleRounded({px + 12.0f, ry, pw - 24.0f, rowH}, 0.20f, 6,
+                             (isBribeRow && pl.wantedLevel > 0) ? Color{28, 34, 54, 242} : Color{20, 28, 40, 235});
+        if (isBribeRow && pl.wantedLevel > 0) {
+            DrawRectangleRoundedLinesEx({px + 12.0f, ry, pw - 24.0f, rowH}, 0.20f, 6, 1.2f, Color{96, 178, 255, 210});
+        }
 
         char line1En[96] = {};
         char line1Ko[112] = {};
@@ -1092,7 +1203,7 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
             } else {
                 std::snprintf(rightTag, sizeof(rightTag), "$%d", ospec.price);
             }
-        } else {
+        } else if (i < 6) {
             struct SupplyRow { const char* nEn; const char* nKo; const char* dEn; const char* dKo; const char* cost; };
             const SupplyRow srows[6] = {
                 {"[1] Heavy Armor Drop",    "[1] 긴급 방탄복 보급",      "Restore Armor 100%",   "방탄복 100% 즉시 충전",      "$250"},
@@ -1107,22 +1218,56 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
             std::snprintf(line2En, sizeof(line2En), "%s", srows[i].dEn);
             std::snprintf(line2Ko, sizeof(line2Ko), "%s", srows[i].dKo);
             std::snprintf(rightTag, sizeof(rightTag), "%s", srows[i].cost);
+        } else {
+            // Option [7]: SBPD Police Bribe / Dispatch Record Wipe!
+            std::snprintf(line1En, sizeof(line1En), "[7] Clear Wanted Level");
+            std::snprintf(line1Ko, sizeof(line1Ko), "[7] 경찰 수배 즉시 해제 브로커");
+            if (pl.wantedLevel > 0) {
+                std::snprintf(line2En, sizeof(line2En), "Wipe %d-Star SBPD Dispatch", pl.wantedLevel);
+                std::snprintf(line2Ko, sizeof(line2Ko), "현재 수배 %d단계 기록 즉시 말소", pl.wantedLevel);
+                std::snprintf(rightTag, sizeof(rightTag), "$%d", pl.wantedLevel * 400);
+                rightCol = Color{102, 224, 255, 255};
+            } else {
+                std::snprintf(line2En, sizeof(line2En), "$400 per Wanted Star");
+                std::snprintf(line2Ko, sizeof(line2Ko), "수배 별 1개당 $400 즉시 해제");
+                std::snprintf(rightTag, sizeof(rightTag), "%s", pickText("CLEAN", "수배 없음"));
+                rightCol = Color{154, 170, 190, 230};
+            }
         }
 
-        drawUiText(pickText(line1En, line1Ko), px + 20.0f, ry + 7.0f, 16.0f, Color{240, 245, 252, 255});
-        drawUiText(pickText(line2En, line2Ko), px + 20.0f, ry + 29.0f, 14.0f, Color{164, 180, 200, 240});
+        const float y1Off = (phoneTab_ == 3) ? 5.0f : 7.0f;
+        const float y2Off = (phoneTab_ == 3) ? 26.0f : 29.0f;
+        drawUiText(pickText(line1En, line1Ko), px + 20.0f, ry + y1Off, 15.5f, Color{240, 245, 252, 255});
+        drawUiText(pickText(line2En, line2Ko), px + 20.0f, ry + y2Off, 13.8f, Color{164, 180, 200, 240});
 
         const float tw = measureUiText(rightTag, 15.5f);
-        drawUiText(rightTag, px + pw - 20.0f - tw, ry + 8.0f, 15.5f, rightCol);
+        drawUiText(rightTag, px + pw - 20.0f - tw, ry + y1Off + 1.0f, 15.5f, rightCol);
     }
 
-    drawUiText(pickText("Keys [1-6] Select   |   [P] Close Phone",
-                        "숫자 [1~6] 구매·호출   |   [P] 휴대폰 닫기"),
-               px + 18.0f, py + ph - 24.0f, 15.0f, Color{186, 198, 214, 245});
+    if (phoneTab_ == 3) {
+        drawUiText(pickText("Keys [1-7] Select   |   [P] Close Phone",
+                            "숫자 [1~7] 보급·수배해제   |   [P] 닫기"),
+                   px + 18.0f, py + ph - 23.0f, 14.8f, Color{186, 198, 214, 245});
+    } else {
+        drawUiText(pickText("Keys [1-6] Select   |   [P] Close Phone",
+                            "숫자 [1~6] 구매·호출   |   [P] 휴대폰 닫기"),
+                   px + 18.0f, py + ph - 24.0f, 15.0f, Color{186, 198, 214, 245});
+    }
 }
 
 void HudRenderer::drawBannerToast(const GameWorld& world, int screenW, int screenH) {
     const float midX = static_cast<float>(screenW) * 0.5f;
+
+    // Cinematic WASTED / BUSTED letterbox bar when incapacitated or arrested
+    if (world.player().wasted) {
+        const bool busted = world.player().lastDeathWasBusted;
+        const bool redPulse = (std::fmod(GetTime() * 4.0, 1.0) < 0.5);
+        const Color overlayCol = busted
+                                     ? (redPulse ? Color{18, 36, 78, 128} : Color{68, 18, 34, 128})
+                                     : Color{56, 10, 14, 132};
+        DrawRectangle(0, 0, screenW, screenH, overlayCol);
+        DrawRectangle(0, static_cast<int>(screenH * 0.12f), screenW, 92, Color{8, 12, 18, 210});
+    }
 
     if (gfxToastTimer_ > 0.0f) {
         const float ga = clampf(gfxToastTimer_ * 2.0f, 0.0f, 1.0f);
@@ -1141,7 +1286,7 @@ void HudRenderer::drawBannerToast(const GameWorld& world, int screenW, int scree
 
     const float alpha = clampf(b.timer * 1.8f, 0.0f, 1.0f);
     const unsigned char aByte = static_cast<unsigned char>(alpha * 255.0f);
-    const float y = static_cast<float>(screenH) * 0.16f;
+    const float y = static_cast<float>(screenH) * 0.145f;
 
     const char* title = pickText(b.titleEn.c_str(), b.titleKo.c_str());
     const float tw = measureUiText(title, 33.0f);
@@ -1163,31 +1308,31 @@ void HudRenderer::drawHelpOverlay(int screenW, int screenH, bool cursorLocked) {
         return;
     }
 
-    DrawRectangleRounded({18.0f, 16.0f, 418.0f, 248.0f}, 0.08f, 6, Color{10, 15, 24, 196});
-    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 418.0f, 248.0f}, 0.08f, 6, 1.2f, Color{72, 148, 205, 115});
-    drawUiText(pickText("OPEN CITY C++ v0.4 - CONTROLS", "OPEN CITY C++ v0.4 - 조작 안내"),
+    DrawRectangleRounded({18.0f, 16.0f, 430.0f, 248.0f}, 0.08f, 6, Color{10, 15, 24, 196});
+    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 430.0f, 248.0f}, 0.08f, 6, 1.2f, Color{72, 148, 205, 115});
+    drawUiText(pickText("OPEN CITY C++ v0.5 - CONTROLS", "OPEN CITY C++ v0.5 - 조작 안내"),
                30.0f, 24.0f, 18.5f, Color{98, 220, 255, 255});
 
     const char* linesEn[9] = {
         "WASD : Walk / Drive & Steer",
         "Mouse : 360 Camera / Aim (RMB) & Shoot (LMB)",
         "F or E : Enter / Carjack / Exit / Start Mission",
-        "Space : Handbrake Drift   |   Shift : Sprint / Nitro",
-        "P : Smartphone (Supercars / Realty / Outfits / Supply)",
-        "B : Enter Shop / Full Custom Tuning / Dealership",
+        "Space : Jump (On-Foot) / Drift (Car) | Shift : Sprint",
+        "P : Smartphone (Supercars / Realty / Style / Bribe)",
+        "B : Enter Shop / Pay 'n' Tune (Clear Stars) / Dealer",
         "1-7 : Switch Weapons (MG & Launcher)  |  R : Reload",
-        "T : Time (+3h) | V : Graphics | C : Rear | G : Horn",
+        "T : Time | V : Graphics | C : Rear | G : Horn / Siren",
         "Tab : Mouse Lock   |   L : Lang   |   F11 : Full   |   H : Hide"
     };
     const char* linesKo[9] = {
         "WASD : 이동 / 차량 주행 및 조향",
         "마우스 : 자유 시점 / 우클릭 정밀조준 · 좌클릭 사격",
         "F / E : 차량 탑승·탈취·하차 / 미션 시작",
-        "Space : 핸드브레이크 드리프트  |  Shift : 전력질주·니트로",
-        "P : 스마트폰 열기 (슈퍼카 호출 · 부동산 · 의상 · 보급)",
-        "B : 매장 이용 (무기점 · 풀튜닝 · 전시장 · 주유소)",
+        "Space : 점프(도보) · 드리프트(차량) | Shift : 질주·니트로",
+        "P : 스마트폰 (슈퍼카 · 부동산 · 보급 · 수배해제)",
+        "B : 매장 이용 (무기점 · 도색 수배해제 · 전시장)",
         "1~7 : 무기 교체 (중기관총 · 런처)  |  R : 재장전",
-        "T : 시간변경 | V : 그래픽품질 | C : 후방 | G : 경적",
+        "T : 시간변경 | V : 그래픽품질 | C : 후방 | G : 경적·사이렌",
         "Tab : 마우스 잠금  |  L : 한/영 전환  |  H : 안내 숨김"
     };
 

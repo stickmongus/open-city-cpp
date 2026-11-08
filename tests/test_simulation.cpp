@@ -521,6 +521,217 @@ void testDealershipRealEstateTuningAndHeavyOrdnance() {
     ++gTestsPassed;
 }
 
+void testPlayerJumpAndVehicleRoofClimbing() {
+    oc::GameWorld world(5050ULL);
+    world.player().pos = {14.5f, 14.5f};
+    world.player().posY = world.surfaceHeightAt(world.player().pos);
+    world.player().onGround = true;
+    world.consumeAudioEvents();
+
+    // 1. Standing jump arc & clean landing
+    oc::PlayerInput jumpIn{};
+    jumpIn.jumpPressed = true;
+    world.update(1.0f / 60.0f, jumpIn);
+
+    const auto events = world.consumeAudioEvents();
+    bool heardJump = false;
+    for (const auto& ev : events) {
+        if (ev.type == oc::AudioEventType::Jump) heardJump = true;
+    }
+    ASSERT_TRUE(heardJump);
+    ASSERT_TRUE(!world.player().onGround);
+
+    float peakY = world.player().posY;
+    for (int i = 0; i < 65; ++i) {
+        world.update(1.0f / 60.0f, {});
+        if (world.player().posY > peakY) peakY = world.player().posY;
+    }
+    ASSERT_TRUE(peakY > 1.25f);
+    ASSERT_TRUE(world.player().onGround);
+    ASSERT_TRUE(std::abs(world.player().posY - world.surfaceHeightAt(world.player().pos)) < 0.03f);
+
+    // 2. Jump onto a parked car roof and stand elevated on top of it!
+    world.player().cash = 50000;
+    ASSERT_TRUE(world.buyOrSummonVehicle(oc::VehicleKind::LuxurySedan));
+    oc::Vehicle* sedan = world.findVehicleMutable(world.player().activePersonalVehicleId);
+    ASSERT_TRUE(sedan != nullptr);
+    sedan->pos = {18.2f, 14.5f};
+    sedan->heading = 0.0f;
+    sedan->velocity = {0.0f, 0.0f};
+
+    world.player().pos = {15.0f, 14.5f};
+    world.player().posY = world.surfaceHeightAt(world.player().pos);
+    world.player().onGround = true;
+
+    oc::PlayerInput climbIn{};
+    climbIn.cameraYaw = 0.0f; // East (+X) toward the parked sedan
+    climbIn.moveForward = 1.0f;
+    climbIn.jumpPressed = true;
+    for (int i = 0; i < 24; ++i) {
+        world.update(1.0f / 60.0f, climbIn);
+        climbIn.jumpPressed = false;
+    }
+    // Let player settle onto the roof of the sedan
+    for (int i = 0; i < 35; ++i) {
+        world.update(1.0f / 60.0f, {});
+    }
+    ASSERT_TRUE(world.player().onGround);
+    ASSERT_TRUE(world.player().posY > 1.15f);
+
+    ++gTestsPassed;
+}
+
+void testCivilianRadialPanicFleeAndSidewalkRecovery() {
+    oc::GameWorld world(6060ULL);
+
+    // Find a strolling civilian and stand 8m away aiming a pistol directly at them
+    int civIdx = -1;
+    for (std::size_t i = 0; i < world.npcs().size(); ++i) {
+        if (world.npcs()[i].role == oc::NpcRole::Civilian && world.npcs()[i].alive) {
+            civIdx = static_cast<int>(i);
+            break;
+        }
+    }
+    ASSERT_TRUE(civIdx >= 0);
+
+    const oc::Vec2 civStart = world.npcs()[static_cast<std::size_t>(civIdx)].pos;
+    world.player().pos = civStart - oc::Vec2{7.5f, 0.0f};
+    world.city().resolveCircleWorld(world.player().pos, 0.5f);
+    world.player().currentWeapon = oc::WeaponId::Pistol;
+
+    const float initialDist = (world.npcs()[static_cast<std::size_t>(civIdx)].pos - world.player().pos).length();
+    const oc::Vec2 toCiv = (civStart - world.player().pos).normalized();
+
+    oc::PlayerInput aimThreat{};
+    aimThreat.aimHeld = true;
+    aimThreat.aimYaw = std::atan2(toCiv.z, toCiv.x);
+    world.update(1.0f / 60.0f, aimThreat);
+
+    ASSERT_TRUE(world.npcs()[static_cast<std::size_t>(civIdx)].behavior == oc::NpcBehavior::PanicFlee);
+
+    // Run 1.2s of simulation and verify rapid radial escape away from the player without entering buildings
+    for (int i = 0; i < 72; ++i) {
+        world.update(1.0f / 60.0f, {});
+        const auto& c = world.npcs()[static_cast<std::size_t>(civIdx)];
+        for (const auto& b : world.city().buildings()) {
+            ASSERT_TRUE(!b.footprint.contains(c.pos));
+        }
+    }
+    const float escapedDist = (world.npcs()[static_cast<std::size_t>(civIdx)].pos - world.player().pos).length();
+    ASSERT_TRUE(escapedDist > initialDist + 3.2f);
+
+    ++gTestsPassed;
+}
+
+void testPolicePursuitWantedEscalationBribeAndBusted() {
+    oc::GameWorld world(7070ULL);
+    world.player().cash = 25000;
+
+    // 1. Verify ambient SBPD police cruisers & beat officers exist calmly at 0 stars
+    int ambientCruisers = 0;
+    int ambientOfficers = 0;
+    for (const auto& v : world.vehicles()) {
+        if (v.kind == oc::VehicleKind::PoliceCruiser && v.isPolice) {
+            ++ambientCruisers;
+            ASSERT_TRUE(!v.sirenActive);
+        }
+    }
+    for (const auto& n : world.npcs()) {
+        if (n.role == oc::NpcRole::Police && n.alive) ++ambientOfficers;
+    }
+    ASSERT_TRUE(ambientCruisers >= 2);
+    ASSERT_TRUE(ambientOfficers >= 2);
+    ASSERT_TRUE(world.player().wantedLevel == 0);
+
+    // 2. Escalate to 4-Star Wanted Level -> verify SWAT ArmoredSuv & active cruiser sirens spawn!
+    world.reportCrime(12.0f, 4, world.player().pos, true);
+    ASSERT_TRUE(world.player().wantedLevel >= 4);
+
+    for (int i = 0; i < 30; ++i) {
+        world.update(1.0f / 60.0f, {});
+    }
+
+    int activeSirens = 0;
+    bool hasSwatUnit = false;
+    for (const auto& v : world.vehicles()) {
+        if (v.isPolice && v.sirenActive) ++activeSirens;
+        if (v.isPolice && v.kind == oc::VehicleKind::ArmoredSuv) hasSwatUnit = true;
+    }
+    for (const auto& n : world.npcs()) {
+        if (n.role == oc::NpcRole::Police && n.isSwat) hasSwatUnit = true;
+    }
+    ASSERT_TRUE(activeSirens >= 2);
+    ASSERT_TRUE(hasSwatUnit);
+
+    // 3. Smartphone Tab 3 Option [7]: Instant Police Bribe clears Wanted Level!
+    const int cashBeforeBribe = world.player().cash;
+    const int starsBefore = world.player().wantedLevel;
+    ASSERT_TRUE(world.executePhoneAction(3, 7));
+    ASSERT_TRUE(world.player().wantedLevel == 0);
+    ASSERT_TRUE(world.player().cash == cashBeforeBribe - starsBefore * 400);
+
+    // 4. Steal a Police Cruiser, toggle siren with [G], and clear Wanted at PAY 'N' TUNE!
+    int cruiserId = -1;
+    for (const auto& v : world.vehicles()) {
+        if (v.kind == oc::VehicleKind::PoliceCruiser && !v.destroyed) {
+            cruiserId = v.id;
+            world.player().pos = v.pos + oc::Vec2{1.4f, 0.0f};
+            break;
+        }
+    }
+    ASSERT_TRUE(cruiserId >= 0);
+    ASSERT_TRUE(world.tryEnterOrExitVehicle());
+    ASSERT_TRUE(world.player().drivingVehicleId == cruiserId);
+    ASSERT_TRUE(world.player().wantedLevel >= 2); // Stealing a police cruiser triggers 2-star pursuit!
+
+    const bool sirenBeforeG = world.playerVehicle()->sirenActive;
+    oc::PlayerInput hornIn{};
+    hornIn.hornPressed = true;
+    world.update(1.0f / 60.0f, hornIn);
+    ASSERT_TRUE(world.playerVehicle()->sirenActive != sirenBeforeG);
+
+    // Move cruiser to PAY 'N' TUNE far from officers and respray to clear stars
+    const auto* gPoi = world.city().findPoi(oc::PoiKind::TuneGarage);
+    ASSERT_TRUE(gPoi != nullptr);
+    if (auto* myCruiser = world.findVehicleMutable(cruiserId)) {
+        myCruiser->pos = gPoi->pos;
+    }
+    // Ensure no cop is within 16m of garage by clearing out right after teleporting
+    ASSERT_TRUE(world.purchaseShopItem(1)); // Repair & clear heat
+    ASSERT_TRUE(world.player().wantedLevel == 0);
+
+    // 5. Verify BUSTED arrest & Downtown Precinct respawn when incapacitated near police while Wanted!
+    ASSERT_TRUE(world.tryEnterOrExitVehicle());
+    world.reportCrime(3.5f, 2, world.player().pos, true);
+    world.update(1.0f / 60.0f, {});
+    ASSERT_TRUE(world.player().wantedLevel >= 2);
+
+    // Place player right next to an active police officer with low health so officer arrests/neutralizes player
+    for (const auto& n : world.npcs()) {
+        if (n.role == oc::NpcRole::Police && n.alive) {
+            world.player().pos = n.pos + oc::Vec2{3.0f, 0.0f};
+            break;
+        }
+    }
+    world.player().armor = 0.0f;
+    world.player().health = 4.0f;
+    for (int i = 0; i < 120 && !world.player().wasted; ++i) {
+        world.update(1.0f / 60.0f, {});
+    }
+    ASSERT_TRUE(world.player().wasted);
+    ASSERT_TRUE(world.player().lastDeathWasBusted);
+
+    // Advance past respawn timer and verify clean respawn at Downtown Precinct (76.5, -14.5)
+    for (int i = 0; i < 200; ++i) {
+        world.update(1.0f / 60.0f, {});
+    }
+    ASSERT_TRUE(!world.player().wasted);
+    ASSERT_TRUE(world.player().wantedLevel == 0);
+    ASSERT_TRUE((world.player().pos - oc::Vec2{76.5f, -14.5f}).length() < 2.0f);
+
+    ++gTestsPassed;
+}
+
 } // namespace
 
 int main() {
@@ -533,6 +744,9 @@ int main() {
     testSidewalkPedestrianDiscipline();
     testUpwardCameraAndSkyscraperRaycast();
     testDealershipRealEstateTuningAndHeavyOrdnance();
+    testPlayerJumpAndVehicleRoofClimbing();
+    testCivilianRadialPanicFleeAndSidewalkRecovery();
+    testPolicePursuitWantedEscalationBribeAndBusted();
 
     std::cout << "[PASS] All " << gTestsPassed << " Open City C++ simulation test suites succeeded!\n";
     return 0;

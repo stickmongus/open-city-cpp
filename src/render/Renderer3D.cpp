@@ -1005,6 +1005,13 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             tumblehome = 0.78f; fenderFlare = 0.048f; waistPinch = 0.020f; noseRound = 0.14f;
             hasPanoRoof = true;
             break;
+        case VehicleKind::PoliceCruiser:
+            groundClear = 0.20f; wheelR = 0.35f; axleFrac = 0.64f;
+            noseTipY = 0.40f; hoodBaseY = 0.82f; beltMidY = 0.86f; tailDeckY = 0.90f;
+            roofPeakY = 1.39f;
+            sRearBase = -0.68f; sRearTop = -0.32f; sFrontTop = 0.16f; sFrontBase = 0.46f;
+            tumblehome = 0.78f; fenderFlare = 0.056f; waistPinch = 0.020f; noseRound = 0.13f;
+            break;
         case VehicleKind::Taxi:
             groundClear = 0.20f; wheelR = 0.34f; axleFrac = 0.62f;
             noseTipY = 0.40f; hoodBaseY = 0.80f; beltMidY = 0.84f; tailDeckY = 0.88f;
@@ -1434,11 +1441,16 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             trimB.addBox({eh.x, eh.yBelly + 0.12f,  eh.wBelly * 0.96f}, {0.56f, 0.22f, 0.08f});
             trimB.addBox({eh.x, eh.yBelly + 0.12f, -eh.wBelly * 0.96f}, {0.56f, 0.22f, 0.08f});
         }
-        // ArmoredSuv heavy steel bullbar & tactical roof rack
+        // ArmoredSuv heavy steel bullbar & tactical roof rack, plus PoliceCruiser steel push-bumper
         if (kind == VehicleKind::ArmoredSuv) {
             trimB.addBox({halfL + 0.07f, 0.56f, 0.0f}, {0.10f, 0.44f, halfW * 1.45f});
             trimB.addBox({-0.25f, roofPeakY + 0.055f,  halfW * 0.72f}, {halfL * 1.18f, 0.06f, 0.07f});
             trimB.addBox({-0.25f, roofPeakY + 0.055f, -halfW * 0.72f}, {halfL * 1.18f, 0.06f, 0.07f});
+        } else if (kind == VehicleKind::PoliceCruiser) {
+            trimB.addBox({halfL + 0.065f, 0.48f,  0.34f}, {0.10f, 0.44f, 0.065f});
+            trimB.addBox({halfL + 0.065f, 0.48f, -0.34f}, {0.10f, 0.44f, 0.065f});
+            trimB.addBox({halfL + 0.075f, 0.58f,  0.0f},  {0.09f, 0.055f, 0.98f});
+            trimB.addBox({halfL + 0.075f, 0.37f,  0.0f},  {0.09f, 0.055f, 0.98f});
         } else if (kind == VehicleKind::SUV) {
             trimB.addBox({-0.22f, roofPeakY + 0.04f,  halfW * 0.68f}, {halfL * 1.10f, 0.045f, 0.05f});
             trimB.addBox({-0.22f, roofPeakY + 0.04f, -halfW * 0.68f}, {halfL * 1.10f, 0.045f, 0.05f});
@@ -1930,30 +1942,30 @@ void Renderer3D::drawSceneGeometry(const GameWorld& world, const Camera3D& camer
     if (world.player().drivingVehicleId < 0) {
         const auto& pl = world.player();
         const auto& outSpec = getOutfitSpec(pl.currentOutfit);
-        float gY = world.city().isOnRoad(pl.pos, 0.1f) ? 0.0f : 0.08f;
-        if (pl.pos.x < -345.0f) {
-            gY = (std::abs(pl.pos.z) < 7.6f) ? 0.24f : 0.02f;
-        }
-        drawCharacter3D(pl.pos, gY, pl.facingYaw, pl.walkAnimPhase,
+        const float surfY = world.surfaceHeightAt(pl.pos);
+        const float baseY = std::max(surfY, pl.posY);
+        drawCharacter3D(pl.pos, baseY, pl.facingYaw, pl.walkAnimPhase,
                         outSpec.top, outSpec.bottom, {236, 196, 162, 255},
                         !pl.wasted, pl.currentWeapon != WeaponId::Fists,
                         pl.currentWeapon, pl.muzzleFlashTimer, pl.aimPitch,
-                        outSpec.sunglasses, pl.currentOutfit, shadowPass);
+                        outSpec.sunglasses, pl.currentOutfit, shadowPass,
+                        surfY, !pl.onGround, false, false, false);
     }
 
-    // Pedestrians & Gangsters
-    const float npcCull = shadowPass ? (110.0f * 110.0f) : (185.0f * 185.0f);
+    // Pedestrians, Gangsters & SBPD Police / SWAT Officers
+    const float npcCull = shadowPass ? (110.0f * 110.0f) : (190.0f * 190.0f);
     for (const auto& npc : world.npcs()) {
         if ((npc.pos - focus).lengthSq() > npcCull) continue;
-        float gY = world.city().isOnRoad(npc.pos, 0.1f) ? 0.0f : 0.08f;
-        if (npc.pos.x < -345.0f) {
-            gY = (std::abs(npc.pos.z) < 7.6f) ? 0.24f : 0.02f;
-        }
+        const float gY = world.surfaceHeightAt(npc.pos);
+        const bool isCop = (npc.role == NpcRole::Police);
+        const bool isArmed = (npc.role == NpcRole::Gangster || isCop);
+        const bool isPanicking = (npc.role == NpcRole::Civilian && npc.behavior == NpcBehavior::PanicFlee);
         drawCharacter3D(npc.pos, gY, npc.facingYaw, npc.animPhase,
                         npc.outfitTop, npc.outfitBottom, npc.skinColor,
-                        npc.alive, npc.role == NpcRole::Gangster,
-                        WeaponId::Pistol, 0.0f, 0.0f, npc.role == NpcRole::Gangster,
-                        OutfitId::StreetCasual, shadowPass);
+                        npc.alive, isArmed, npc.weapon, npc.muzzleFlashTimer,
+                        0.0f, (npc.role == NpcRole::Gangster || isCop),
+                        OutfitId::StreetCasual, shadowPass,
+                        gY, false, isPanicking, isCop, npc.isSwat);
     }
 
     if (!shadowPass) {
@@ -2747,6 +2759,27 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
             drawModelStyled(cubeModel_, {0.0f, 0.14f,  halfW * 0.86f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {L * 0.52f, 0.03f, 0.05f}, nc, 0.1f, 0.0f, 2.8f, MatKind::EmissiveGlow);
         }
+
+        // Alternating Red & Blue Police Siren Strobe Ground Light Pools!
+        if (!v.destroyed && v.sirenActive) {
+            const bool redFlash = (v.sirenPhase < 0.5f);
+            const unsigned char mainA = static_cast<unsigned char>(nightMode ? 96 : 62);
+            const unsigned char subA  = static_cast<unsigned char>(nightMode ? 38 : 22);
+            const Color leftPool  = redFlash ? Color{255, 34, 48, mainA} : Color{255, 34, 48, subA};
+            const Color rightPool = redFlash ? Color{36, 122, 255, subA} : Color{36, 122, 255, mainA};
+
+            rlPushMatrix();
+            rlTranslatef(-0.15f, 0.005f, -W * 1.15f);
+            rlScalef(L * 0.68f, 1.0f, W * 1.25f);
+            DrawCylinder({0.0f, 0.0f, 0.0f}, 1.0f, 1.0f, 0.004f, 18, leftPool);
+            rlPopMatrix();
+
+            rlPushMatrix();
+            rlTranslatef(-0.15f, 0.005f, W * 1.15f);
+            rlScalef(L * 0.68f, 1.0f, W * 1.25f);
+            DrawCylinder({0.0f, 0.0f, 0.0f}, 1.0f, 1.0f, 0.004f, 18, rightPool);
+            rlPopMatrix();
+        }
         rlPopMatrix();
     }
 
@@ -2801,7 +2834,7 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                         {0.058f, 0.058f, 0.16f}, chromeCol, 0.18f, 0.92f, 0.0f, MatKind::Standard);
     }
 
-    // 3) GT Aero Wing Spoiler (Custom Tuned Spoiler!) & Roof Accents
+    // 3) GT Aero Wing Spoiler, SBPD Black-and-White Police Livery & Roof Red/Blue LED Lightbar!
     if (v.customSpoiler) {
         const float deckY = (v.kind == VehicleKind::Hypercar) ? 0.80f
                           : ((v.kind == VehicleKind::SportsCoupe) ? 0.86f : (0.22f + H * 0.62f));
@@ -2819,25 +2852,88 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                         0.2f, 0.0f, 1.8f, MatKind::EmissiveGlow);
     }
 
+    // Authentic SBPD Gloss White Doors, Gold Shield Crest, Roof Panel & Dual A-Pillar Spotlights
+    if (v.kind == VehicleKind::PoliceCruiser && !v.destroyed) {
+        const Color liveryWhite = toRayColor(v.stripeColor);
+        for (int side = -1; side <= 1; side += 2) {
+            const float sz = static_cast<float>(side);
+            drawModelStyled(cubeModel_, {-0.08f, 0.56f, sz * (halfW * 0.962f)}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {halfL * 0.78f, 0.48f, 0.042f}, liveryWhite, 0.10f, 0.35f, 0.0f, MatKind::CarClearcoat);
+            if (!shadowPass) {
+                // Gold SBPD Star Shield Emblem on front doors
+                drawModelStyled(cubeModel_, {0.22f, 0.62f, sz * (halfW * 0.988f)}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.17f, 0.18f, 0.025f}, Color{242, 198, 64, 255}, 0.22f, 0.85f, 0.0f, MatKind::Standard);
+                // Dual A-pillar interceptor spotlights
+                drawModelStyled(sphereModel_, {halfL * 0.35f, 0.97f, sz * (halfW * 0.84f)}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.095f, 0.085f, 0.085f},
+                                v.sirenActive ? Color{245, 250, 255, 255} : chromeCol,
+                                0.12f, 0.80f, v.sirenActive ? 2.4f : 0.0f,
+                                v.sirenActive ? MatKind::EmissiveGlow : MatKind::Standard);
+            }
+        }
+        // High-visibility white aerial unit roof cap
+        drawModelStyled(cubeModel_, {-0.14f, 1.385f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {halfL * 0.44f, 0.032f, W * 0.60f}, liveryWhite, 0.12f, 0.30f, 0.0f, MatKind::CarClearcoat);
+    }
+
+    // Roof Red & Blue LED Police Lightbar + Grille Wig-Wag Strobes (PoliceCruiser & SWAT ArmoredSuv)
+    if ((v.kind == VehicleKind::PoliceCruiser || v.isPolice) && !v.destroyed) {
+        const float barY = (v.kind == VehicleKind::ArmoredSuv) ? 1.84f : 1.455f;
+        const float barX = -0.10f;
+        drawModelStyled(cubeModel_, {barX, barY - 0.035f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.24f, 0.05f, W * 0.64f}, darkTrim, 0.35f, 0.65f, 0.0f, MatKind::Standard);
+
+        if (!shadowPass) {
+            const bool redTurn = (v.sirenPhase < 0.5f);
+            const bool whiteFlash = v.sirenActive && (std::fmod(v.sirenPhase * 2.0f, 1.0f) < 0.36f);
+
+            const Color redPodCol  = (v.sirenActive && redTurn)  ? Color{255, 36, 44, 255}  : Color{156, 22, 32, 255};
+            const Color bluePodCol = (v.sirenActive && !redTurn) ? Color{38, 132, 255, 255} : Color{22, 64, 162, 255};
+            const float redGlow    = v.sirenActive ? (redTurn ? 3.8f : 0.55f) : 0.12f;
+            const float blueGlow   = v.sirenActive ? (!redTurn ? 3.8f : 0.55f) : 0.12f;
+
+            drawModelStyled(cubeModel_, {barX, barY + 0.015f, -W * 0.18f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.22f, 0.088f, W * 0.28f}, redPodCol, 0.10f, 0.0f, redGlow,
+                            v.sirenActive ? MatKind::EmissiveGlow : MatKind::CarGlass);
+            drawModelStyled(cubeModel_, {barX, barY + 0.015f,  W * 0.18f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.22f, 0.088f, W * 0.28f}, bluePodCol, 0.10f, 0.0f, blueGlow,
+                            v.sirenActive ? MatKind::EmissiveGlow : MatKind::CarGlass);
+            drawModelStyled(cubeModel_, {barX, barY + 0.018f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.23f, 0.082f, 0.15f},
+                            whiteFlash ? Color{250, 252, 255, 255} : chromeCol,
+                            0.12f, 0.65f, whiteFlash ? 3.4f : 0.0f,
+                            whiteFlash ? MatKind::EmissiveGlow : MatKind::Standard);
+
+            // Front push-bumper red/blue Wig-Wag grille strobes when siren is active!
+            if (v.sirenActive) {
+                drawModelStyled(cubeModel_, {halfL + 0.11f, 0.58f, -0.20f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.04f, 0.065f, 0.16f}, redPodCol, 0.1f, 0.0f, redTurn ? 3.5f : 0.4f, MatKind::EmissiveGlow);
+                drawModelStyled(cubeModel_, {halfL + 0.11f, 0.58f,  0.20f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.04f, 0.065f, 0.16f}, bluePodCol, 0.1f, 0.0f, !redTurn ? 3.5f : 0.4f, MatKind::EmissiveGlow);
+            }
+        }
+    }
+
     // 4) Recessed Round 24-Segment Bevelled Tires + 5-Twin-Spoke Concave Alloy Rims + Brake Calipers!
     float axleFrac = 0.63f;
     float wheelR   = 0.35f;
     float tireW    = 0.26f;
     switch (v.kind) {
-        case VehicleKind::Hypercar:    axleFrac = 0.62f; wheelR = 0.35f; tireW = 0.30f; break;
-        case VehicleKind::SportsCoupe: axleFrac = 0.63f; wheelR = 0.35f; tireW = 0.28f; break;
-        case VehicleKind::MuscleCar:   axleFrac = 0.64f; wheelR = 0.36f; tireW = 0.28f; break;
-        case VehicleKind::LuxurySedan: axleFrac = 0.64f; wheelR = 0.36f; tireW = 0.26f; break;
-        case VehicleKind::Taxi:        axleFrac = 0.62f; wheelR = 0.34f; tireW = 0.24f; break;
-        case VehicleKind::Compact:     axleFrac = 0.64f; wheelR = 0.32f; tireW = 0.23f; break;
-        case VehicleKind::SUV:         axleFrac = 0.63f; wheelR = 0.40f; tireW = 0.29f; break;
-        case VehicleKind::ArmoredSuv:  axleFrac = 0.63f; wheelR = 0.43f; tireW = 0.32f; break;
-        case VehicleKind::DeliveryVan: axleFrac = 0.62f; wheelR = 0.38f; tireW = 0.26f; break;
+        case VehicleKind::Hypercar:      axleFrac = 0.62f; wheelR = 0.35f; tireW = 0.30f; break;
+        case VehicleKind::SportsCoupe:   axleFrac = 0.63f; wheelR = 0.35f; tireW = 0.28f; break;
+        case VehicleKind::MuscleCar:     axleFrac = 0.64f; wheelR = 0.36f; tireW = 0.28f; break;
+        case VehicleKind::LuxurySedan:   axleFrac = 0.64f; wheelR = 0.36f; tireW = 0.26f; break;
+        case VehicleKind::PoliceCruiser: axleFrac = 0.64f; wheelR = 0.35f; tireW = 0.26f; break;
+        case VehicleKind::Taxi:          axleFrac = 0.62f; wheelR = 0.34f; tireW = 0.24f; break;
+        case VehicleKind::Compact:       axleFrac = 0.64f; wheelR = 0.32f; tireW = 0.23f; break;
+        case VehicleKind::SUV:           axleFrac = 0.63f; wheelR = 0.40f; tireW = 0.29f; break;
+        case VehicleKind::ArmoredSuv:    axleFrac = 0.63f; wheelR = 0.43f; tireW = 0.32f; break;
+        case VehicleKind::DeliveryVan:   axleFrac = 0.62f; wheelR = 0.38f; tireW = 0.26f; break;
         default: break;
     }
 
     const Color rimCol = (v.rimStyle == 1) ? Color{236, 198, 92, 255}  // Champagne Gold
-                       : (v.rimStyle == 2) ? Color{34, 38, 46, 255}    // Gloss Obsidian Black
+                       : (v.rimStyle == 2) ? Color{34, 38, 46, 255}    // Gloss Obsidian Black / Police Steel
                                            : Color{218, 226, 236, 255}; // Brushed Silver Alloy
     const float axleX = halfL * axleFrac;
     const float axleZ = halfW * 0.89f; // Recessed flush inside sculpted fender flares!
@@ -2872,6 +2968,12 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                 drawModelStyled(sportRimModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {wheelR, wheelR, tireW}, rimCol,
                                 (v.rimStyle == 2) ? 0.16f : 0.20f, 0.88f, 0.0f, MatKind::Standard);
+                if (v.kind == VehicleKind::PoliceCruiser) {
+                    // Classic police interceptor chrome center dog-dish cap
+                    drawModelStyled(wheelModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {wheelR * 0.26f, wheelR * 0.26f, tireW * 1.06f}, chromeCol,
+                                    0.14f, 0.95f, 0.0f, MatKind::Standard);
+                }
             }
             rlPopMatrix();
         }
@@ -2907,7 +3009,8 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                           : ((v.kind == VehicleKind::SportsCoupe) ? 0.64f
                           : ((v.kind == VehicleKind::SUV || v.kind == VehicleKind::ArmoredSuv) ? 0.86f : 0.65f));
 
-        if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::LuxurySedan) {
+        if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::SportsCoupe ||
+            v.kind == VehicleKind::LuxurySedan || v.kind == VehicleKind::PoliceCruiser) {
             // Sleek full-width modern LED blade lightbar proud of rear fascia!
             drawModelStyled(cubeModel_, {-halfL - 0.008f, tailY, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.05f, 0.062f, W * 0.80f}, tailCol, 0.1f, 0.0f, tailGlow, MatKind::EmissiveGlow);
@@ -2940,7 +3043,9 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
 void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, float animPhase,
                                  ColorRGBA top, ColorRGBA bottom, ColorRGBA skin,
                                  bool alive, bool armed, WeaponId weapon, float muzzleFlash,
-                                 float aimPitch, bool hasSunglasses, OutfitId styleOutfit, bool shadowPass) {
+                                 float aimPitch, bool hasSunglasses, OutfitId styleOutfit, bool shadowPass,
+                                 float shadowGroundY, bool jumping,
+                                 bool panicking, bool isPolice, bool isSwat) {
     rlPushMatrix();
     rlTranslatef(pos.x, groundY, pos.z);
     rlRotatef(-yaw * kRadToDeg, 0.0f, 1.0f, 0.0f);
@@ -2950,22 +3055,33 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
         rlRotatef(90.0f, 0.0f, 0.0f, 1.0f);
     }
 
-    const float legSwing = alive ? std::sin(animPhase) * 28.0f : 0.0f;
+    const float strideAmp = panicking ? 38.0f : 28.0f;
+    const float legSwing  = alive ? std::sin(animPhase) * strideAmp : 0.0f;
     const Color topC  = toRayColor(top);
     const Color botC  = toRayColor(bottom);
     const Color skinC = toRayColor(skin);
     const Color accC  = toRayColor(getOutfitSpec(styleOutfit).accent);
     const Color shoeC = (styleOutfit == OutfitId::ViceWhiteSuit) ? Color{230, 232, 238, 255} : Color{26, 28, 34, 255};
 
+    // Grounded contact shadow anchored on street or car roof directly beneath the character!
     if (!shadowPass && alive) {
-        DrawCylinder({0.0f, 0.012f, 0.0f}, 0.36f, 0.36f, 0.008f, 12, Color{10, 12, 16, 115});
+        const float surfY = (shadowGroundY > -900.0f) ? shadowGroundY : groundY;
+        const float airH = std::max(0.0f, groundY - surfY);
+        const float shScale = clampf(1.0f - airH * 0.22f, 0.42f, 1.0f);
+        const auto shAlpha = static_cast<unsigned char>(clampf(115.0f * shScale, 36.0f, 115.0f));
+        DrawCylinder({0.0f, (surfY - groundY) + 0.012f, 0.0f},
+                     0.36f * shScale, 0.36f * shScale, 0.008f, 12, Color{10, 12, 16, shAlpha});
     }
 
-    // Left & Right Legs + Sneakers/Dress Shoes
+    // Left & Right Legs + Sneakers/Dress Shoes (with dynamic tucked airborne jump pose!)
     for (int side = -1; side <= 1; side += 2) {
         rlPushMatrix();
-        rlTranslatef(0.0f, 0.76f, static_cast<float>(side) * 0.125f);
-        rlRotatef(static_cast<float>(side) * legSwing, 0.0f, 0.0f, 1.0f);
+        const float hipLift = (jumping && alive) ? ((side < 0) ? 0.11f : 0.06f) : 0.0f;
+        rlTranslatef(0.0f, 0.76f + hipLift, static_cast<float>(side) * 0.125f);
+        const float legAngle = (jumping && alive)
+                                   ? ((side < 0) ? 34.0f : -22.0f)
+                                   : (static_cast<float>(side) * legSwing);
+        rlRotatef(legAngle, 0.0f, 0.0f, 1.0f);
         drawModelStyled(cubeModel_, {0.0f, -0.34f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.19f, 0.66f, 0.19f}, botC, 0.78f, 0.0f, 0.0f, MatKind::Standard);
         if (!shadowPass) {
@@ -2975,17 +3091,38 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
         rlPopMatrix();
     }
 
-    // Belt + Sculpted Jacket/Torso + Bespoke Boutique 3D Outfit Details!
+    // Slight forward torso lean when sprinting away in panic!
+    rlPushMatrix();
+    if (panicking && alive) {
+        rlTranslatef(0.04f, 0.0f, 0.0f);
+        rlRotatef(-9.5f, 0.0f, 0.0f, 1.0f);
+    }
+
+    // Belt + Sculpted Jacket/Torso + Bespoke Boutique / SBPD / SWAT 3D Details!
     drawModelStyled(cubeModel_, {0.0f, 0.77f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.27f, 0.08f, 0.43f}, Color{30, 32, 38, 255}, 0.52f, 0.20f, 0.0f, MatKind::Standard);
+                    {0.27f, 0.08f, 0.43f}, Color{24, 26, 32, 255}, 0.48f, 0.30f, 0.0f, MatKind::Standard);
     drawModelStyled(cubeModel_, {0.0f, 1.09f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                     {0.27f, 0.60f, 0.44f}, topC,
-                    (styleOutfit == OutfitId::RacerLeather) ? 0.28f : 0.66f,
-                    (styleOutfit == OutfitId::GoldBossCoat) ? 0.35f : 0.04f,
+                    (styleOutfit == OutfitId::RacerLeather) ? 0.28f : 0.62f,
+                    (styleOutfit == OutfitId::GoldBossCoat) ? 0.35f : 0.06f,
                     0.0f, MatKind::Standard);
 
     if (!shadowPass) {
-        if (styleOutfit == OutfitId::ViceWhiteSuit || styleOutfit == OutfitId::MidnightTuxedo) {
+        if (isPolice && isSwat) {
+            // Heavy SWAT Kevlar tactical plate-carrier vest + shoulder armor
+            drawModelStyled(cubeModel_, {0.0f, 1.10f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.34f, 0.48f, 0.48f}, Color{26, 32, 40, 255}, 0.40f, 0.42f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.175f, 1.16f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.025f, 0.08f, 0.24f}, Color{236, 240, 248, 255}, 0.35f, 0.1f, 0.0f, MatKind::Standard);
+        } else if (isPolice) {
+            // SBPD Officer uniform tie, duty belt brass buckle & gold shield chest badge!
+            drawModelStyled(cubeModel_, {0.140f, 1.12f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.025f, 0.34f, 0.055f}, Color{16, 20, 30, 255}, 0.45f, 0.15f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.144f, 1.22f, -0.095f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.025f, 0.085f, 0.068f}, Color{246, 204, 62, 255}, 0.20f, 0.90f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.142f, 0.77f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.025f, 0.065f, 0.08f}, Color{232, 194, 68, 255}, 0.25f, 0.85f, 0.0f, MatKind::Standard);
+        } else if (styleOutfit == OutfitId::ViceWhiteSuit || styleOutfit == OutfitId::MidnightTuxedo) {
             // Crisp dress shirt V-front + silk necktie!
             drawModelStyled(cubeModel_, {0.132f, 1.16f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.03f, 0.40f, 0.17f}, WHITE, 0.65f, 0.0f, 0.0f, MatKind::Standard);
@@ -3007,7 +3144,7 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
         }
     }
 
-    // Neck + Rounded Head + Hair/Helmet + Optional Sunglasses
+    // Neck + Rounded Head + Hair / SBPD Police Cap / SWAT Ballistic Helmet + Sunglasses
     rlPushMatrix();
     rlTranslatef(0.0f, 1.42f, 0.0f);
     if (alive) {
@@ -3017,18 +3154,40 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                     {0.075f, 0.08f, 0.075f}, skinC, 0.65f, 0.0f, 0.0f, MatKind::Standard);
     drawModelStyled(cubeModel_, {0.0f, 0.16f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                     {0.25f, 0.26f, 0.25f}, skinC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
-    drawModelStyled(cubeModel_, {-0.015f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.27f, 0.085f, 0.27f},
-                    (styleOutfit == OutfitId::TacOpsArmor) ? Color{32, 38, 34, 255} : Color{36, 30, 26, 255},
-                    0.65f, 0.15f, 0.0f, MatKind::Standard);
-    if (!shadowPass && hasSunglasses) {
+
+    if (isPolice && isSwat) {
+        // Ballistic SWAT tactical helmet + dark visor goggles
+        drawModelStyled(sphereModel_, {-0.005f, 0.23f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.168f, 0.155f, 0.168f}, Color{26, 30, 38, 255}, 0.38f, 0.45f, 0.0f, MatKind::Standard);
+        if (!shadowPass) {
+            drawModelStyled(cubeModel_, {0.128f, 0.185f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.04f, 0.075f, 0.24f}, Color{14, 22, 34, 255}, 0.08f, 0.55f, 0.0f, MatKind::CarGlass);
+        }
+    } else if (isPolice) {
+        // Peaked Navy SBPD Police Officer Cap + Gloss Visor + Gold Cap Crest!
+        drawModelStyled(cylModel_, {-0.01f, 0.275f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.156f, 0.085f, 0.156f}, Color{22, 34, 64, 255}, 0.48f, 0.15f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.105f, 0.272f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.13f, 0.024f, 0.22f}, Color{16, 18, 24, 255}, 0.16f, 0.45f, 0.0f, MatKind::Standard);
+        if (!shadowPass) {
+            drawModelStyled(cubeModel_, {0.145f, 0.318f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.022f, 0.048f, 0.045f}, Color{246, 204, 62, 255}, 0.20f, 0.90f, 0.0f, MatKind::Standard);
+        }
+    } else {
+        drawModelStyled(cubeModel_, {-0.015f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.27f, 0.085f, 0.27f},
+                        (styleOutfit == OutfitId::TacOpsArmor) ? Color{32, 38, 34, 255} : Color{36, 30, 26, 255},
+                        0.65f, 0.15f, 0.0f, MatKind::Standard);
+    }
+
+    if (!shadowPass && hasSunglasses && !(isPolice && isSwat)) {
         drawModelStyled(cubeModel_, {0.125f, 0.18f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.03f, 0.06f, 0.22f}, Color{16, 20, 28, 255},
                         0.12f, 0.45f, 0.0f, MatKind::CarGlass);
     }
     rlPopMatrix();
 
-    // Arms, Hands & Multi-Part 3D Weapons (including Combat MG & Heavy Tactical Launcher!)
+    // Arms, Hands & Multi-Part 3D Weapons (or Hands-Up Panic Waving / Athletic Jump Balance!)
     for (int side = -1; side <= 1; side += 2) {
         rlPushMatrix();
         rlTranslatef(0.0f, 1.32f, static_cast<float>(side) * 0.27f);
@@ -3070,6 +3229,27 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                                     0.1f, 0.0f, 3.4f, MatKind::EmissiveGlow);
                 }
             }
+        } else if (panicking && alive) {
+            // Both arms thrown high above the head waving frantically while fleeing!
+            const float waveDeg = 154.0f + std::sin(animPhase * 1.45f + static_cast<float>(side) * 1.15f) * 20.0f;
+            rlRotatef(waveDeg, 0.0f, 0.0f, 1.0f);
+            rlRotatef(static_cast<float>(-side) * 14.0f, 1.0f, 0.0f, 0.0f);
+            drawModelStyled(cubeModel_, {0.0f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.15f, 0.44f, 0.15f}, topC, 0.68f, 0.04f, 0.0f, MatKind::Standard);
+            if (!shadowPass) {
+                drawModelStyled(cubeModel_, {0.0f, -0.47f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.12f, 0.11f, 0.12f}, skinC, 0.65f, 0.0f, 0.0f, MatKind::Standard);
+            }
+        } else if (jumping && alive) {
+            // Athletic mid-air arm lift for jump balance
+            rlRotatef((side < 0) ? 46.0f : 32.0f, 0.0f, 0.0f, 1.0f);
+            rlRotatef(static_cast<float>(-side) * 18.0f, 1.0f, 0.0f, 0.0f);
+            drawModelStyled(cubeModel_, {0.0f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.15f, 0.44f, 0.15f}, topC, 0.68f, 0.04f, 0.0f, MatKind::Standard);
+            if (!shadowPass) {
+                drawModelStyled(cubeModel_, {0.0f, -0.47f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.12f, 0.11f, 0.12f}, skinC, 0.65f, 0.0f, 0.0f, MatKind::Standard);
+            }
         } else {
             rlRotatef(static_cast<float>(-side) * legSwing * 0.8f, 0.0f, 0.0f, 1.0f);
             drawModelStyled(cubeModel_, {0.0f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -3082,7 +3262,8 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
         rlPopMatrix();
     }
 
-    rlPopMatrix();
+    rlPopMatrix(); // end torso lean
+    rlPopMatrix(); // end character root
 }
 
 void Renderer3D::drawPoisAndPickups(const GameWorld& world) {

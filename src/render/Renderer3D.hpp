@@ -71,7 +71,9 @@ private:
     void drawCharacter3D(const Vec2& pos, float groundY, float yaw, float animPhase,
                          ColorRGBA top, ColorRGBA bottom, ColorRGBA skin,
                          bool alive, bool armed, WeaponId weapon, float muzzleFlash,
-                         float aimPitch, bool hasSunglasses, OutfitId styleOutfit, bool shadowPass);
+                         float aimPitch, bool hasSunglasses, OutfitId styleOutfit, bool shadowPass,
+                         float shadowGroundY = -999.0f, bool jumping = false,
+                         bool panicking = false, bool isPolice = false, bool isSwat = false);
     void drawPoisAndPickups(const GameWorld& world);
     void drawSkidsTracersParticles(const GameWorld& world);
     void drawGpsOverheadArrow(const GameWorld& world);

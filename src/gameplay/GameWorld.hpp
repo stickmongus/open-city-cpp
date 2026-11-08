@@ -29,6 +29,13 @@ public:
     int ownedPropertyCount() const;
     float tuningDiscountScale() const;
 
+    // 3D Ground/Platform Height & SBPD Wanted System
+    float surfaceHeightAt(const Vec2& pos) const;
+    float computePlayerSupportHeight(const Vec2& pos, float currentY, Vec2* platformCarryVel = nullptr) const;
+    void reportCrime(float heatDelta, int minStars, const Vec2& crimePos, bool directWitness = false);
+    void clearWantedLevel(bool showToast = true);
+    float requiredEvadeDuration() const;
+
     const CityMap& city() const { return city_; }
     CityMap& city() { return city_; }
 
@@ -42,6 +49,7 @@ public:
     const Vehicle* playerVehicle() const;
 
     const std::vector<NpcCharacter>& npcs() const { return npcs_; }
+    std::vector<NpcCharacter>& npcs() { return npcs_; }
     const std::vector<WorldPickup>& pickups() const { return pickups_; }
     const std::vector<BulletTracer>& tracers() const { return tracers_; }
     const std::deque<SkidMark>& skidMarks() const { return skidMarks_; }
@@ -96,6 +104,10 @@ private:
     void spawnParkedShowroomCars();
     void maintainTrafficPopulation();
     void maintainCivilianPopulation();
+    void maintainPolicePopulation(float dt);
+    void updateWantedSystem(float dt);
+    void updatePoliceVehicleAi(float dt, Vehicle& v);
+    void spawnPoliceOfficerNear(const Vec2& pos, bool swat);
 
     void recalculatePlayerPropertyPerks();
     void syncPersonalTuningFromVehicle(const Vehicle& car);
@@ -157,6 +169,8 @@ private:
 
     float timeOfDayHours_ = 10.0f; // 10:00 AM bright sunny start
     float trafficSignalTimer_ = 0.0f; // [0, 24) intersection traffic/crosswalk cycle
+    float policeSpawnCooldown_ = 0.0f;
+    float panicScreamCooldown_ = 0.0f;
 };
 
 } // namespace oc

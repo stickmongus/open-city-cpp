@@ -17,7 +17,8 @@ enum class VehicleKind : int {
     Hypercar = 6,
     ArmoredSuv = 7,
     LuxurySedan = 8,
-    Count = 9
+    PoliceCruiser = 9,
+    Count = 10
 };
 
 struct VehicleSpec {
@@ -96,8 +97,16 @@ struct Vehicle {
     int lastTurnIntersectionKey = -1;
     float hornCooldown = 0.0f;
 
-    // Mission tag
+    // Mission / Law-Enforcement / Driver panic tags
     bool isMissionTarget = false;
+    bool isPolice = false;
+    bool sirenActive = false;
+    float sirenPhase = 0.0f;
+    float aiStuckTimer = 0.0f;
+    float aiReverseTimer = 0.0f;
+    bool dismountedOfficer = false;
+    bool driverPanicked = false;
+    float driverPanicTimer = 0.0f;
 
     OBB2D obb() const {
         const auto& spec = getVehicleSpec(kind);
@@ -205,6 +214,10 @@ struct WeaponSlotState {
 
 struct PlayerState {
     Vec2 pos{15.5f, 15.5f};
+    float posY = 0.0f;          // 3D vertical height above sea/road datum (jump & roof climbing!)
+    float verticalVel = 0.0f;   // Upward jump velocity (m/s)
+    bool onGround = true;
+    float coyoteTimer = 0.0f;
     Vec2 velocity{0.0f, 0.0f};
     float facingYaw = -kHalfPi;
     float walkAnimPhase = 0.0f;
@@ -214,6 +227,13 @@ struct PlayerState {
     float maxArmor = 100.0f;
     float stamina = 1.0f;
     int cash = 2500;
+
+    // SBPD Wanted Level (0..5 stars) & Pursuit Evasion State
+    int wantedLevel = 0;
+    float wantedHeat = 0.0f;
+    float wantedEvadeTimer = 0.0f;
+    bool policeLineOfSight = false;
+    bool lastDeathWasBusted = false;
 
     int drivingVehicleId = -1; // -1 when on foot
     int activePersonalVehicleId = -1;
@@ -245,7 +265,8 @@ struct PlayerState {
 
 enum class NpcRole {
     Civilian,
-    Gangster
+    Gangster,
+    Police
 };
 
 enum class NpcBehavior {
@@ -265,7 +286,11 @@ struct NpcCharacter {
     float health = 65.0f;
     float maxHealth = 65.0f;
     float fireCooldown = 0.8f;
+    float muzzleFlashTimer = 0.0f;
     float stateTimer = 0.0f;
+    WeaponId weapon = WeaponId::Pistol;
+    bool isSwat = false;
+    Vec2 panicOrigin{0.0f, 0.0f};
     ColorRGBA outfitTop{120, 140, 180, 255};
     ColorRGBA outfitBottom{45, 50, 62, 255};
     ColorRGBA skinColor{232, 192, 158, 255};
@@ -367,7 +392,10 @@ enum class AudioEventType {
     ShopBuy,
     MissionStart,
     MissionComplete,
-    MissionFail
+    MissionFail,
+    Jump,
+    NpcScream,
+    PoliceDispatch
 };
 
 struct AudioEvent {
@@ -385,7 +413,8 @@ struct PlayerInput {
     Vec3 aimRayOrigin{0.0f, 0.0f, 0.0f};
     Vec3 aimRayDir{1.0f, 0.0f, 0.0f};
     bool sprintOrNitro = false; // Left Shift
-    bool handbrake = false;     // Space
+    bool handbrake = false;     // Space (held: vehicle handbrake)
+    bool jumpPressed = false;   // Space (pressed: on-foot 3D jump)
     bool interactPressed = false; // F or E
     bool fireHeld = false;      // LMB
     bool aimHeld = false;       // RMB
@@ -395,7 +424,7 @@ struct PlayerInput {
     int weaponSelectSlot = -1;  // 0..6 when 1..7 pressed (outside shop/phone menu)
     int shopBuyOption = -1;     // 1..8 when inside shop menu
     int phoneTab = -1;          // 0..3 when Smartphone action triggered
-    int phoneOption = -1;       // 1..6 when Smartphone action triggered
+    int phoneOption = -1;       // 1..7 when Smartphone action triggered
 };
 
 } // namespace oc

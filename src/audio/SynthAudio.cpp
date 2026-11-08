@@ -132,6 +132,34 @@ Sound SynthAudio::buildContinuousLoop(bool screechMode) {
     return s;
 }
 
+Sound SynthAudio::buildPoliceSirenLoop() {
+    constexpr int sampleRate = 44100;
+    const int frames = static_cast<int>(sampleRate * 1.6f); // 1.6s seamless wail cycle
+
+    Wave wave{};
+    wave.frameCount = static_cast<unsigned int>(frames);
+    wave.sampleRate = sampleRate;
+    wave.sampleSize = 16;
+    wave.channels = 1;
+    auto* data = static_cast<short*>(RL_MALLOC(static_cast<std::size_t>(frames) * sizeof(short)));
+
+    float phase = 0.0f;
+    for (int i = 0; i < frames; ++i) {
+        const float u = static_cast<float>(i) / static_cast<float>(frames);
+        const float sweep = 0.5f - 0.5f * std::cos(kTwoPi * u);
+        const float freq = 640.0f + 560.0f * sweep;
+        phase += kTwoPi * freq / static_cast<float>(sampleRate);
+        if (phase > kTwoPi) phase -= kTwoPi;
+        const float sample = 0.68f * std::sin(phase) + 0.22f * std::sin(phase * 2.0f) + 0.10f * std::sin(phase * 3.0f);
+        data[i] = static_cast<short>(clampf(sample, -1.0f, 1.0f) * 16500.0f);
+    }
+
+    wave.data = data;
+    Sound s = LoadSoundFromWave(wave);
+    UnloadWave(wave);
+    return s;
+}
+
 void SynthAudio::init() {
     InitAudioDevice();
     if (!IsAudioDeviceReady()) {
@@ -140,23 +168,27 @@ void SynthAudio::init() {
     }
     ready_ = true;
 
-    sounds_[static_cast<int>(AudioEventType::PistolShot)]   = buildNoiseBurst(0.16f, 2.6f, 0.42f, 1.3f);
-    sounds_[static_cast<int>(AudioEventType::SmgShot)]      = buildNoiseBurst(0.11f, 3.1f, 0.48f, 1.6f);
-    sounds_[static_cast<int>(AudioEventType::ShotgunShot)]  = buildNoiseBurst(0.32f, 2.0f, 0.28f, 0.75f);
-    sounds_[static_cast<int>(AudioEventType::RifleShot)]    = buildNoiseBurst(0.20f, 2.4f, 0.38f, 1.1f);
-    sounds_[static_cast<int>(AudioEventType::MeleeSwing)]   = buildNoiseBurst(0.10f, 3.5f, 0.18f, 0.9f);
-    sounds_[static_cast<int>(AudioEventType::CarDoor)]      = buildNoiseBurst(0.14f, 3.2f, 0.22f, 0.7f);
-    sounds_[static_cast<int>(AudioEventType::CarHorn)]      = buildDualHorn(415.0f, 523.25f, 0.34f);
-    sounds_[static_cast<int>(AudioEventType::CarCrash)]     = buildNoiseBurst(0.36f, 1.9f, 0.24f, 0.65f);
-    sounds_[static_cast<int>(AudioEventType::Explosion)]    = buildNoiseBurst(0.88f, 1.5f, 0.14f, 0.45f);
-    sounds_[static_cast<int>(AudioEventType::CashPickup)]   = buildToneArp({880.0f, 1318.5f}, 0.075f, 0.55f);
-    sounds_[static_cast<int>(AudioEventType::ShopBuy)]      = buildToneArp({659.25f, 880.0f, 1174.66f}, 0.075f, 0.6f);
-    sounds_[static_cast<int>(AudioEventType::MissionStart)] = buildToneArp({440.0f, 554.37f, 659.25f}, 0.10f, 0.65f);
+    sounds_[static_cast<int>(AudioEventType::PistolShot)]      = buildNoiseBurst(0.16f, 2.6f, 0.42f, 1.3f);
+    sounds_[static_cast<int>(AudioEventType::SmgShot)]         = buildNoiseBurst(0.11f, 3.1f, 0.48f, 1.6f);
+    sounds_[static_cast<int>(AudioEventType::ShotgunShot)]     = buildNoiseBurst(0.32f, 2.0f, 0.28f, 0.75f);
+    sounds_[static_cast<int>(AudioEventType::RifleShot)]       = buildNoiseBurst(0.20f, 2.4f, 0.38f, 1.1f);
+    sounds_[static_cast<int>(AudioEventType::MeleeSwing)]      = buildNoiseBurst(0.10f, 3.5f, 0.18f, 0.9f);
+    sounds_[static_cast<int>(AudioEventType::CarDoor)]         = buildNoiseBurst(0.14f, 3.2f, 0.22f, 0.7f);
+    sounds_[static_cast<int>(AudioEventType::CarHorn)]         = buildDualHorn(415.0f, 523.25f, 0.34f);
+    sounds_[static_cast<int>(AudioEventType::CarCrash)]        = buildNoiseBurst(0.36f, 1.9f, 0.24f, 0.65f);
+    sounds_[static_cast<int>(AudioEventType::Explosion)]       = buildNoiseBurst(0.88f, 1.5f, 0.14f, 0.45f);
+    sounds_[static_cast<int>(AudioEventType::CashPickup)]      = buildToneArp({880.0f, 1318.5f}, 0.075f, 0.55f);
+    sounds_[static_cast<int>(AudioEventType::ShopBuy)]         = buildToneArp({659.25f, 880.0f, 1174.66f}, 0.075f, 0.6f);
+    sounds_[static_cast<int>(AudioEventType::MissionStart)]    = buildToneArp({440.0f, 554.37f, 659.25f}, 0.10f, 0.65f);
     sounds_[static_cast<int>(AudioEventType::MissionComplete)] = buildToneArp({523.25f, 659.25f, 783.99f, 1046.5f}, 0.12f, 0.72f);
-    sounds_[static_cast<int>(AudioEventType::MissionFail)]  = buildToneArp({392.0f, 349.23f, 293.66f}, 0.15f, 0.65f);
+    sounds_[static_cast<int>(AudioEventType::MissionFail)]     = buildToneArp({392.0f, 349.23f, 293.66f}, 0.15f, 0.65f);
+    sounds_[static_cast<int>(AudioEventType::Jump)]            = buildToneArp({195.0f, 290.0f, 370.0f}, 0.032f, 0.42f);
+    sounds_[static_cast<int>(AudioEventType::NpcScream)]       = buildToneArp({760.0f, 980.0f, 830.0f}, 0.044f, 0.38f);
+    sounds_[static_cast<int>(AudioEventType::PoliceDispatch)]  = buildToneArp({1240.0f, 940.0f, 1480.0f}, 0.048f, 0.52f);
 
     engineLoop_ = buildContinuousLoop(false);
     driftLoop_ = buildContinuousLoop(true);
+    sirenLoop_ = buildPoliceSirenLoop();
     hasLoops_ = true;
 }
 
@@ -169,6 +201,7 @@ void SynthAudio::shutdown() {
     if (hasLoops_) {
         UnloadSound(engineLoop_);
         UnloadSound(driftLoop_);
+        UnloadSound(sirenLoop_);
         hasLoops_ = false;
     }
     CloseAudioDevice();
@@ -207,6 +240,20 @@ void SynthAudio::updateVehicleLoops(bool driving, float speedRatio, bool driftin
         SetSoundVolume(driftLoop_, 0.26f);
     } else if (IsSoundPlaying(driftLoop_)) {
         StopSound(driftLoop_);
+    }
+}
+
+void SynthAudio::updatePoliceSiren(float proximityIntensity) {
+    if (!ready_ || !hasLoops_) return;
+    const float clamped = clampf(proximityIntensity, 0.0f, 1.0f);
+    if (clamped > 0.02f) {
+        if (!IsSoundPlaying(sirenLoop_)) {
+            PlaySound(sirenLoop_);
+        }
+        SetSoundVolume(sirenLoop_, 0.06f + clamped * 0.30f);
+        SetSoundPitch(sirenLoop_, 0.98f + clamped * 0.08f);
+    } else if (IsSoundPlaying(sirenLoop_)) {
+        StopSound(sirenLoop_);
     }
 }
 
