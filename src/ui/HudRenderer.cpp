@@ -39,6 +39,8 @@ const char* rimStyleNameEn(int rimStyle) {
     switch (rimStyle) {
         case 1: return "Gold";
         case 2: return "Gloss Black";
+        case 3: return "Cyber Cyan";
+        case 4: return "Crimson Track";
         default: return "Silver Alloy";
     }
 }
@@ -47,8 +49,14 @@ const char* rimStyleNameKo(int rimStyle) {
     switch (rimStyle) {
         case 1: return "샴페인 골드";
         case 2: return "글로스 블랙";
+        case 3: return "사이버 시안";
+        case 4: return "크림슨 레드";
         default: return "실버 알로이";
     }
+}
+
+Color toRayColor(ColorRGBA c, unsigned char alphaOverride = 255) {
+    return Color{c.r, c.g, c.b, alphaOverride};
 }
 
 void drawFivePointStar2D(Vector2 center, float outerR, float innerR, Color col) {
@@ -391,10 +399,14 @@ void HudRenderer::renderHud(const GameWorld& world, float cameraYaw, bool cursor
         drawShopModal(world, sw, sh);
     } else if (phoneOpen_) {
         drawSmartphoneModal(world, sw, sh);
+    } else if (customStudioOpen_) {
+        drawCustomStudioModal(world, sw, sh);
     }
 
     drawBannerToast(world, sw, sh);
-    drawHelpOverlay(sw, sh, cursorLocked);
+    if (!customStudioOpen_) {
+        drawHelpOverlay(world, sw, sh, cursorLocked);
+    }
 }
 
 void HudRenderer::drawRadarMinimap(const GameWorld& world, float cameraYaw, int screenH) {
@@ -614,24 +626,27 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
     const float cashW = measureUiText(cashBuf, 32.0f);
     drawUiText(cashBuf, rightEdge - cashW, 42.0f, 32.0f, Color{92, 232, 112, 255});
 
-    // Passive income / Smartphone quick hint line
-    char assetBuf[128];
+    // Passive income / Smartphone + Custom Studio quick hint line
+    const auto& pl = world.player();
+    const ColorRGBA themeRgba = getHudThemeColorRGBA(pl.hudCustom.hudThemeIdx);
+    const Color themeCol = toRayColor(themeRgba, 245);
+
+    char assetBuf[160];
     const int propCount = world.ownedPropertyCount();
     if (propCount > 0) {
         std::snprintf(assetBuf, sizeof(assetBuf),
-                      pickText("INCOME +$%d / 25s  (%d/6 Properties)  |  [P] Phone",
-                               "수익 +$%d / 25초  (자산 %d/6)  |  [P] 스마트폰"),
+                      pickText("INCOME +$%d / 25s (%d/6)  |  [P] Phone  ·  [K] Studio",
+                               "수익 +$%d / 25초 (자산 %d/6)  |  [P] 스마트폰  ·  [K] 커스텀"),
                       world.passiveIncomePerCycle(), propCount);
     } else {
         std::snprintf(assetBuf, sizeof(assetBuf), "%s",
-                      pickText("[P] Smartphone: Supercars, Real Estate & Supply",
-                               "[P] 스마트폰: 슈퍼카 호출 · 부동산 투자 · 보급"));
+                      pickText("[P] Smartphone  |  [K] Custom Studio (Char · Gun · Car · HUD)",
+                               "[P] 스마트폰  |  [K] 커스텀 스튜디오 (캐릭터 · 총기 · 차량 · HUD)"));
     }
-    const Color assetCol = (propCount > 0) ? Color{255, 218, 92, 250} : Color{168, 212, 245, 235};
+    const Color assetCol = (propCount > 0) ? Color{255, 218, 92, 250} : toRayColor(themeRgba, 232);
     const float assetW = measureUiText(assetBuf, 16.0f);
     drawUiText(assetBuf, rightEdge - assetW, 78.0f, 16.0f, assetCol);
 
-    const auto& pl = world.player();
     float weaponCardY = 102.0f;
 
     // 1-5 Star SBPD Wanted Level HUD + Evasion Progress Bar!
@@ -691,17 +706,19 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
         weaponCardY = boxY + boxH + 8.0f;
     }
 
-    // Equipped weapon & ammo card
+    // Equipped weapon & ammo card (with HUD theme accent + Gunsmith attachment badges)
     const auto& wspec = getWeaponSpec(pl.currentWeapon);
     const auto& wslot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
 
-    DrawRectangleRounded({rightEdge - 256.0f, weaponCardY, 256.0f, 54.0f}, 0.22f, 6, Color{16, 22, 30, 210});
+    DrawRectangleRounded({rightEdge - 264.0f, weaponCardY, 264.0f, 54.0f}, 0.22f, 6, Color{14, 20, 28, 218});
+    DrawRectangleRoundedLinesEx({rightEdge - 264.0f, weaponCardY, 264.0f, 54.0f},
+                                0.22f, 6, 1.2f, toRayColor(themeRgba, 135));
     char wTitleBuf[96];
     std::snprintf(wTitleBuf, sizeof(wTitleBuf), "[%d/%d] %s",
                   static_cast<int>(pl.currentWeapon) + 1,
                   static_cast<int>(WeaponId::Count),
                   pickText(wspec.nameEn, wspec.nameKo));
-    drawUiText(wTitleBuf, rightEdge - 242.0f, weaponCardY + 6.0f, 17.5f, Color{242, 246, 252, 255});
+    drawUiText(wTitleBuf, rightEdge - 250.0f, weaponCardY + 6.0f, 17.5f, Color{242, 246, 252, 255});
 
     char ammoBuf[64];
     if (pl.reloadTimer > 0.0f) {
@@ -711,7 +728,19 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
     } else {
         std::snprintf(ammoBuf, sizeof(ammoBuf), "%s", pickText("MELEE [1-0,- · Z/X]", "근접 격투 [1~0,- · Z/X]"));
     }
-    drawUiText(ammoBuf, rightEdge - 242.0f, weaponCardY + 28.0f, 16.5f, Color{255, 214, 92, 255});
+    drawUiText(ammoBuf, rightEdge - 250.0f, weaponCardY + 28.0f, 16.5f, Color{255, 214, 92, 255});
+
+    if (pl.currentWeapon != WeaponId::Fists) {
+        char modBuf[48];
+        int modLen = 0;
+        if (wslot.suppressor) modLen += std::snprintf(modBuf + modLen, sizeof(modBuf) - modLen, "SUP ");
+        if (wslot.extendedMag) modLen += std::snprintf(modBuf + modLen, sizeof(modBuf) - modLen, "EXT ");
+        if (wslot.laserSightColor > 0) modLen += std::snprintf(modBuf + modLen, sizeof(modBuf) - modLen, "LSR");
+        if (modLen > 0) {
+            const float mw = measureUiText(modBuf, 13.5f);
+            drawUiText(modBuf, rightEdge - mw - 12.0f, weaponCardY + 31.0f, 13.5f, themeCol);
+        }
+    }
 }
 
 void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, int screenH) {
@@ -719,27 +748,30 @@ void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, i
     if (!car) return;
 
     const auto& spec = getVehicleSpec(car->kind);
+    const auto& hc = world.player().hudCustom;
+    const ColorRGBA themeRgba = getHudThemeColorRGBA(hc.hudThemeIdx);
     const float phoneShift = phoneOpen_ ? 342.0f : 0.0f;
     const float rx = static_cast<float>(screenW) - 252.0f - phoneShift;
     const float ry = static_cast<float>(screenH) - 138.0f;
 
     DrawRectangleRounded({rx, ry, 228.0f, 112.0f}, 0.20f, 8, Color{14, 18, 26, 224});
+    DrawRectangleRoundedLinesEx({rx, ry, 228.0f, 112.0f}, 0.20f, 8, 1.2f, toRayColor(themeRgba, 128));
 
     const char* vName = pickText(spec.nameEn, spec.nameKo);
     drawUiText(vName, rx + 14.0f, ry + 9.0f, 17.0f,
-               car->isPersonalCar ? Color{112, 232, 255, 255} : Color{182, 216, 250, 255});
+               car->isPersonalCar ? toRayColor(themeRgba, 255) : Color{182, 216, 250, 255});
 
-    const int kmh = static_cast<int>(std::round(car->speed() * 3.6f));
+    const int dispSpd = static_cast<int>(std::round(car->speed() * (hc.useMph ? 2.23694f : 3.6f)));
     char spdBuf[32];
-    std::snprintf(spdBuf, sizeof(spdBuf), "%3d", kmh);
+    std::snprintf(spdBuf, sizeof(spdBuf), "%3d", dispSpd);
     drawUiText(spdBuf, rx + 14.0f, ry + 30.0f, 36.0f,
                car->nitroActive ? Color{92, 224, 255, 255} : Color{255, 255, 255, 255});
-    drawUiText("KM/H", rx + 90.0f, ry + 34.0f, 16.0f, Color{175, 185, 198, 255});
+    drawUiText(hc.useMph ? "MPH" : "KM/H", rx + 92.0f, ry + 34.0f, 16.0f, Color{175, 185, 198, 255});
 
     if (car->engineUpgradeLevel > 0 || car->armorUpgradeLevel > 0) {
         char tuneBuf[48];
         std::snprintf(tuneBuf, sizeof(tuneBuf), "T%d · A%d", car->engineUpgradeLevel, car->armorUpgradeLevel);
-        drawUiText(tuneBuf, rx + 90.0f, ry + 52.0f, 15.0f, Color{255, 212, 88, 255});
+        drawUiText(tuneBuf, rx + 92.0f, ry + 52.0f, 15.0f, Color{255, 212, 88, 255});
     }
 
     // Nitro & Vehicle Integrity bars
@@ -766,23 +798,28 @@ void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, i
 
 void HudRenderer::drawCrosshair(const GameWorld& world, int screenW, int screenH,
                                 bool firstPerson, float adsBlend) {
-    if (world.player().drivingVehicleId >= 0 || shopMenuOpen_) return;
+    if (shopMenuOpen_) return;
+    if (world.player().drivingVehicleId >= 0 && !(customStudioOpen_ && customTab_ == 3)) return;
+    if (customStudioOpen_ && !firstPerson && (customTab_ == 0 || customTab_ == 2)) return;
 
     const float cx = static_cast<float>(screenW) * 0.5f;
     const float cy = static_cast<float>(screenH) * 0.5f;
 
     const auto& pl = world.player();
+    const auto& hc = pl.hudCustom;
+    const auto& wslot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
     const float ads = clampf(adsBlend, 0.0f, 1.0f);
 
-    // Illuminated 3.2x Optical Mil-Dot Sniper Scope & Laser Rangefinder HUD
+    // Illuminated 3.2x Optical Mil-Dot Sniper Scope & Laser Rangefinder HUD (tinted by Gunsmith Optic Reticle!)
     if (pl.currentWeapon == WeaponId::SniperRifle && ads > 0.72f) {
         const float scopeR = std::min(static_cast<float>(screenW), static_cast<float>(screenH)) * 0.415f;
         const float outerR = std::hypot(cx, cy) + 48.0f;
+        const ColorRGBA optRgba = getOpticReticleColorRGBA(wslot.opticColorIdx, {106, 236, 255, 255});
 
         DrawRing({cx, cy}, scopeR, outerR, 0.0f, 360.0f, 96, Color{5, 8, 13, 240});
         DrawRing({cx, cy}, scopeR - 5.0f, scopeR + 4.5f, 0.0f, 360.0f, 96, Color{24, 32, 44, 250});
-        DrawRing({cx, cy}, scopeR - 6.8f, scopeR - 5.0f, 0.0f, 360.0f, 96, Color{88, 228, 255, 190});
-        DrawRing({cx, cy}, scopeR * 0.86f, scopeR - 6.8f, 0.0f, 360.0f, 96, Color{38, 128, 168, 24});
+        DrawRing({cx, cy}, scopeR - 6.8f, scopeR - 5.0f, 0.0f, 360.0f, 96, toRayColor(optRgba, 195));
+        DrawRing({cx, cy}, scopeR * 0.86f, scopeR - 6.8f, 0.0f, 360.0f, 96, toRayColor(optRgba, 22));
 
         const float postOuter = scopeR - 5.5f;
         const float postInner = scopeR * 0.48f;
@@ -792,7 +829,7 @@ void HudRenderer::drawCrosshair(const GameWorld& world, int screenW, int screenH
         DrawLineEx({cx, cy - postOuter}, {cx, cy - postInner}, 3.2f, postCol);
         DrawLineEx({cx, cy + postInner}, {cx, cy + postOuter}, 3.2f, postCol);
 
-        const Color hairCol{106, 236, 255, 192};
+        const Color hairCol = toRayColor(optRgba, 195);
         DrawLineEx({cx - postInner, cy}, {cx - 7.0f, cy}, 1.3f, hairCol);
         DrawLineEx({cx + 7.0f, cy}, {cx + postInner, cy}, 1.3f, hairCol);
         DrawLineEx({cx, cy - postInner}, {cx, cy - 7.0f}, 1.3f, hairCol);
@@ -805,61 +842,103 @@ void HudRenderer::drawCrosshair(const GameWorld& world, int screenW, int screenH
             const float tickH = (std::abs(k) % 2 == 0) ? 5.5f : 3.2f;
             DrawLineEx({cx + off, cy - tickH}, {cx + off, cy + tickH}, 1.2f, hairCol);
             DrawLineEx({cx - tickH, cy + off}, {cx + tickH, cy + off}, 1.2f, hairCol);
-            DrawCircleV({cx + off, cy}, 1.8f, Color{128, 244, 255, 220});
+            DrawCircleV({cx + off, cy}, 1.8f, toRayColor(optRgba, 225));
             if (k > 0) {
-                DrawCircleV({cx, cy + off}, 1.8f, Color{128, 244, 255, 220});
+                DrawCircleV({cx, cy + off}, 1.8f, toRayColor(optRgba, 225));
             }
         }
 
-        const Color centerCol = pl.crosshairOnTarget ? Color{255, 72, 68, 255} : Color{102, 246, 255, 250};
+        const Color centerCol = pl.crosshairOnTarget ? Color{255, 72, 68, 255} : toRayColor(optRgba, 250);
         DrawCircleV({cx, cy}, 3.2f, Color{8, 12, 18, 185});
         DrawCircleV({cx, cy}, 2.1f, centerCol);
 
         drawUiText("OPTIC 3.2X  ·  MIL-DOT", cx - scopeR * 0.54f, cy - scopeR * 0.48f, 15.0f,
-                   Color{116, 232, 255, 220});
+                   toRayColor(optRgba, 225));
         char rngBuf[64];
         std::snprintf(rngBuf, sizeof(rngBuf), "%s %5.1f M",
                       pickText("RNG", "거리"), pl.crosshairHitDist);
         drawUiText(rngBuf, cx + scopeR * 0.16f, cy + scopeR * 0.36f, 16.5f,
-                   pl.crosshairOnTarget ? Color{255, 214, 92, 245} : Color{124, 236, 255, 230});
+                   pl.crosshairOnTarget ? Color{255, 214, 92, 245} : toRayColor(optRgba, 235));
         if (pl.crosshairOnTarget) {
             drawUiText(pickText("TARGET ACQUIRED", "표적 정밀 포착"),
                        cx + scopeR * 0.16f, cy + scopeR * 0.43f, 15.0f, Color{255, 88, 82, 248});
         }
     } else {
-        // Steady reticle: zero per-shot strobing jump so aiming never induces eye strain or dizziness
+        // Customizable 4-style steady reticle (Cross+Dot / Pinpoint Dot / Circle+Dot / Tactical Chevron)
+        const float scale = (hc.crosshairScaleIdx == 0) ? 0.80f : ((hc.crosshairScaleIdx == 2) ? 1.32f : 1.0f);
         const float moveSpread = clampf(pl.velocity.length() * 0.16f, 0.0f, 1.4f) * (1.0f - ads * 0.65f);
-        const float gap = lerpf(5.6f, 3.2f, ads) + moveSpread;
-        const float armLen = lerpf(7.2f, 5.4f, ads);
+        const float gap = (lerpf(5.6f, 3.2f, ads) + moveSpread) * scale;
+        const float armLen = lerpf(7.2f, 5.4f, ads) * scale;
 
         float tickFade = 1.0f;
         if (firstPerson && pl.currentWeapon != WeaponId::Fists && ads > 0.55f) {
             tickFade = clampf((0.88f - ads) / 0.33f, 0.0f, 1.0f);
         }
 
-        const Color col = pl.crosshairOnTarget ? Color{255, 78, 72, 245} : Color{245, 250, 255, 232};
+        const ColorRGBA customRgba = getCrosshairColorRGBA(hc.crosshairColorIdx);
+        const Color col = pl.crosshairOnTarget
+                              ? Color{255, 78, 72, 248}
+                              : Color{customRgba.r, customRgba.g, customRgba.b, 238};
+        const bool drawOut = hc.crosshairOutline;
 
-        if (tickFade > 0.02f) {
+        if (tickFade > 0.02f && hc.crosshairStyle != 1) {
             const unsigned char shA = static_cast<unsigned char>(175.0f * tickFade);
             const unsigned char fgA = static_cast<unsigned char>(static_cast<float>(col.a) * tickFade);
             const Color shadowCol{10, 14, 20, shA};
             const Color tickCol{col.r, col.g, col.b, fgA};
 
-            DrawLineEx({cx - gap - armLen - 1.0f, cy}, {cx - gap + 1.0f, cy}, 3.0f, shadowCol);
-            DrawLineEx({cx + gap - 1.0f, cy}, {cx + gap + armLen + 1.0f, cy}, 3.0f, shadowCol);
-            DrawLineEx({cx, cy - gap - armLen - 1.0f}, {cx, cy - gap + 1.0f}, 3.0f, shadowCol);
-            DrawLineEx({cx, cy + gap - 1.0f}, {cx, cy + gap + armLen + 1.0f}, 3.0f, shadowCol);
-
-            DrawLineEx({cx - gap - armLen, cy}, {cx - gap, cy}, 1.7f, tickCol);
-            DrawLineEx({cx + gap, cy}, {cx + gap + armLen, cy}, 1.7f, tickCol);
-            DrawLineEx({cx, cy - gap - armLen}, {cx, cy - gap}, 1.7f, tickCol);
-            DrawLineEx({cx, cy + gap}, {cx, cy + gap + armLen}, 1.7f, tickCol);
+            if (hc.crosshairStyle == 0) {
+                // Style 0: Dynamic Cross + Dot
+                if (drawOut) {
+                    DrawLineEx({cx - gap - armLen - 1.0f, cy}, {cx - gap + 1.0f, cy}, 3.0f * scale, shadowCol);
+                    DrawLineEx({cx + gap - 1.0f, cy}, {cx + gap + armLen + 1.0f, cy}, 3.0f * scale, shadowCol);
+                    DrawLineEx({cx, cy - gap - armLen - 1.0f}, {cx, cy - gap + 1.0f}, 3.0f * scale, shadowCol);
+                    DrawLineEx({cx, cy + gap - 1.0f}, {cx, cy + gap + armLen + 1.0f}, 3.0f * scale, shadowCol);
+                }
+                DrawLineEx({cx - gap - armLen, cy}, {cx - gap, cy}, 1.7f * scale, tickCol);
+                DrawLineEx({cx + gap, cy}, {cx + gap + armLen, cy}, 1.7f * scale, tickCol);
+                DrawLineEx({cx, cy - gap - armLen}, {cx, cy - gap}, 1.7f * scale, tickCol);
+                DrawLineEx({cx, cy + gap}, {cx, cy + gap + armLen}, 1.7f * scale, tickCol);
+            } else if (hc.crosshairStyle == 2) {
+                // Style 2: Tactical Circle + Dot + 4 Micro Compass Ticks
+                const float ringR = gap + 4.8f * scale;
+                if (drawOut) {
+                    DrawRing({cx, cy}, ringR - 1.7f, ringR + 1.7f, 0.0f, 360.0f, 40, shadowCol);
+                }
+                DrawRing({cx, cy}, ringR - 0.85f, ringR + 0.85f, 0.0f, 360.0f, 40, tickCol);
+                const float tk = 3.2f * scale;
+                DrawLineEx({cx - ringR - tk, cy}, {cx - ringR + 0.5f, cy}, 1.5f * scale, tickCol);
+                DrawLineEx({cx + ringR - 0.5f, cy}, {cx + ringR + tk, cy}, 1.5f * scale, tickCol);
+                DrawLineEx({cx, cy - ringR - tk}, {cx, cy - ringR + 0.5f}, 1.5f * scale, tickCol);
+                DrawLineEx({cx, cy + ringR - 0.5f}, {cx, cy + ringR + tk}, 1.5f * scale, tickCol);
+            } else if (hc.crosshairStyle == 3) {
+                // Style 3: Spec-Ops Inverted V Chevron ^
+                const float chevW = 7.4f * scale;
+                const float chevH = 8.4f * scale;
+                if (drawOut) {
+                    DrawLineEx({cx, cy}, {cx - chevW, cy + chevH}, 3.2f * scale, shadowCol);
+                    DrawLineEx({cx, cy}, {cx + chevW, cy + chevH}, 3.2f * scale, shadowCol);
+                    DrawLineEx({cx - gap - 5.5f * scale, cy}, {cx - gap - 1.5f * scale, cy}, 2.8f * scale, shadowCol);
+                    DrawLineEx({cx + gap + 1.5f * scale, cy}, {cx + gap + 5.5f * scale, cy}, 2.8f * scale, shadowCol);
+                }
+                DrawLineEx({cx, cy}, {cx - chevW, cy + chevH}, 1.8f * scale, tickCol);
+                DrawLineEx({cx, cy}, {cx + chevW, cy + chevH}, 1.8f * scale, tickCol);
+                DrawLineEx({cx - gap - 5.2f * scale, cy}, {cx - gap - 1.8f * scale, cy}, 1.5f * scale, tickCol);
+                DrawLineEx({cx + gap + 1.8f * scale, cy}, {cx + gap + 5.2f * scale, cy}, 1.5f * scale, tickCol);
+            }
         }
 
-        // Crisp center pinpoint dot (smaller during 1st-person ADS so it sits cleanly inside the 3D red-dot/reflex lens)
-        const float dotR = (firstPerson && ads > 0.65f && pl.currentWeapon != WeaponId::Fists) ? 1.35f : 1.9f;
-        DrawCircleV({cx, cy}, dotR + 0.65f, Color{10, 14, 20, 165});
-        DrawCircleV({cx, cy}, dotR, col);
+        // Crisp center pinpoint dot (for Styles 0, 1, 2; Style 3 uses Chevron apex!)
+        if (hc.crosshairStyle != 3) {
+            const float baseDotR = (hc.crosshairStyle == 1) ? 2.35f : 1.9f;
+            const float dotR = ((firstPerson && ads > 0.65f && pl.currentWeapon != WeaponId::Fists)
+                                    ? 1.35f
+                                    : baseDotR) * scale;
+            if (drawOut) {
+                DrawCircleV({cx, cy}, dotR + 0.8f, Color{10, 14, 20, 175});
+            }
+            DrawCircleV({cx, cy}, dotR, col);
+        }
     }
 
     if (pl.hitMarkerTimer > 0.0f) {
@@ -1390,6 +1469,530 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
     }
 }
 
+void HudRenderer::drawCustomStudioModal(const GameWorld& world, int screenW, int screenH) {
+    (void)screenW;
+    (void)screenH;
+
+    const auto& pl = world.player();
+    const auto& cc = pl.characterCustom;
+    const auto& hc = pl.hudCustom;
+    const ColorRGBA themeRgba = getHudThemeColorRGBA(hc.hudThemeIdx);
+    const Color themeCol = toRayColor(themeRgba, 255);
+
+    const float px = 22.0f;
+    const float py = 18.0f;
+    const float pw = 452.0f;
+    const float ph = 504.0f;
+
+    // Studio glass backdrop & themed neon bezel
+    DrawRectangleRounded({px - 4.0f, py - 4.0f, pw + 8.0f, ph + 8.0f}, 0.05f, 8, Color{6, 9, 15, 238});
+    DrawRectangleRounded({px, py, pw, ph}, 0.05f, 8, Color{13, 19, 30, 236});
+    DrawRectangleRoundedLinesEx({px, py, pw, ph}, 0.05f, 8, 1.8f, toRayColor(themeRgba, 195));
+
+    // Title bar
+    drawUiText(pickText("CUSTOM STUDIO", "커스텀 스튜디오"), px + 16.0f, py + 11.0f, 21.0f, themeCol);
+    const char* topHint = pickText("[Q/E] Tab  ·  [K] Close", "[Q/E] 탭 전환  ·  [K] 닫기");
+    const float thw = measureUiText(topHint, 14.5f);
+    drawUiText(topHint, px + pw - 16.0f - thw, py + 15.0f, 14.5f, Color{196, 210, 228, 240});
+
+    // 4 Studio Category Tabs
+    const char* tabsEn[4] = {"CHARACTER", "GUNSMITH", "VEHICLE", "HUD / AIM"};
+    const char* tabsKo[4] = {"캐릭터", "총기 건스미스", "차량 커스텀", "조준·HUD"};
+    const float tabGap = 6.0f;
+    const float tabW = (pw - 32.0f - tabGap * 3.0f) * 0.25f;
+    for (int t = 0; t < 4; ++t) {
+        const float tx = px + 16.0f + static_cast<float>(t) * (tabW + tabGap);
+        const bool active = (customTab_ == t);
+        DrawRectangleRounded({tx, py + 42.0f, tabW, 29.0f}, 0.26f, 6,
+                             active ? toRayColor(themeRgba, 235) : Color{26, 35, 50, 230});
+        const char* tLabel = pickText(tabsEn[t], tabsKo[t]);
+        const float lw = measureUiText(tLabel, 14.5f);
+        drawUiText(tLabel, tx + (tabW - lw) * 0.5f, py + 48.0f, 14.5f,
+                   active ? Color{10, 14, 20, 255} : Color{205, 216, 232, 240});
+    }
+
+    // Target / Context status strip
+    DrawRectangleRounded({px + 16.0f, py + 79.0f, pw - 32.0f, 30.0f}, 0.22f, 6, Color{20, 29, 44, 232});
+    char ctxBuf[144];
+    Color ctxCol = Color{212, 228, 246, 248};
+
+    const WeaponId gunWid =
+        (pl.currentWeapon == WeaponId::Fists && pl.weapons[static_cast<std::size_t>(WeaponId::Pistol)].owned)
+            ? WeaponId::Pistol
+            : pl.currentWeapon;
+    const auto& gunSpec = getWeaponSpec(gunWid);
+    const auto& gunSlot = pl.weapons[static_cast<std::size_t>(gunWid)];
+    const Vehicle* targetCar = world.customizationTargetVehicle();
+
+    if (customTab_ == 0) {
+        const auto& ospec = getOutfitSpec(pl.currentOutfit);
+        if (cc.hairOrHatStyle == 4) {
+            std::snprintf(ctxBuf, sizeof(ctxBuf), "%s  |  %s",
+                          pickText(ospec.nameEn, ospec.nameKo),
+                          pickText("Helmet Armor -8% DMG", "풀페이스 헬멧 피해 -8% 적용"));
+            ctxCol = Color{112, 245, 162, 255};
+        } else {
+            std::snprintf(ctxBuf, sizeof(ctxBuf), "%s  |  %s",
+                          pickText("Live 1st & 3rd Person Avatar", "1·3인칭 캐릭터 실시간 반영"),
+                          pickText(ospec.nameEn, ospec.nameKo));
+        }
+    } else if (customTab_ == 1) {
+        std::snprintf(ctxBuf, sizeof(ctxBuf), "%s: %s  (%d %s)",
+                      pickText("TARGET", "대상 총기"),
+                      pickText(gunSpec.nameEn, gunSpec.nameKo),
+                      effectiveMagazineSize(gunWid, gunSlot.extendedMag),
+                      pickText("rds", "발 탄창"));
+        ctxCol = Color{255, 218, 98, 255};
+    } else if (customTab_ == 2) {
+        if (targetCar != nullptr) {
+            const auto& vspec = getVehicleSpec(targetCar->kind);
+            std::snprintf(ctxBuf, sizeof(ctxBuf), "%s  |  %s",
+                          pickText(vspec.nameEn, vspec.nameKo),
+                          targetCar->isPersonalCar
+                              ? pickText("Saved to Personal Garage", "내 차고 영구 저장됨")
+                              : pickText("Live Street Custom", "현장 즉시 풀 커스텀"));
+            ctxCol = Color{108, 236, 255, 255};
+        } else {
+            std::snprintf(ctxBuf, sizeof(ctxBuf), "%s",
+                          pickText("Enter a car or stand within 9.5m (or [P] Summon)",
+                                   "차량 탑승 또는 근처(9.5m) 이동 시 개조 가능 ([P] 호출)"));
+            ctxCol = Color{255, 168, 88, 255};
+        }
+    } else {
+        std::snprintf(ctxBuf, sizeof(ctxBuf), "%s",
+                      pickText("Live Reticle, Sniper Optic, Speedometer & Theme",
+                               "실시간 조준선 · 속도계 단위 · 인터페이스 테마"));
+    }
+    drawUiText(ctxBuf, px + 26.0f, py + 86.0f, 14.2f, ctxCol);
+
+    const float disc = world.tuningDiscountScale();
+    auto discounted = [&](int basePrice) {
+        return std::max(20, static_cast<int>(std::round(static_cast<float>(basePrice) * disc)));
+    };
+
+    const int rowCount = (customTab_ == 0 || customTab_ == 2) ? 8 : 6;
+    const float rowStep = (rowCount == 8) ? 43.0f : 54.0f;
+    const float rowH = (rowCount == 8) ? 38.5f : 46.0f;
+
+    for (int i = 0; i < rowCount; ++i) {
+        const float ry = py + 116.0f + static_cast<float>(i) * rowStep;
+        DrawRectangleRounded({px + 16.0f, ry, pw - 32.0f, rowH}, 0.20f, 6, Color{22, 31, 46, 224});
+        DrawRectangleRoundedLinesEx({px + 16.0f, ry, pw - 32.0f, rowH}, 0.20f, 6, 1.0f, Color{54, 74, 102, 130});
+
+        char titleEn[96] = "";
+        char titleKo[96] = "";
+        char valEn[96] = "";
+        char valKo[96] = "";
+        char badge[40] = "";
+        Color badgeCol = Color{124, 236, 162, 245};
+        bool hasSwatch = false;
+        Color swatchCol = WHITE;
+
+        if (customTab_ == 0) {
+            std::snprintf(badge, sizeof(badge), "%s", pickText("FREE", "무료"));
+            switch (i) {
+                case 0: {
+                    static constexpr const char* kEn[7] = {
+                        "Classic Short", "Slick Pompadour", "Spiky Mohawk", "Street Snapback",
+                        "Aero Moto Helmet (-8% DMG)", "Cyber Neon Visor", "24K VIP Gold Crown"
+                    };
+                    static constexpr const char* kKo[7] = {
+                        "클래식 숏컷", "슬릭 포마드", "스트리트 모호크", "스트리트 스냅백 캡",
+                        "풀페이스 헬멧 (피해 -8%)", "사이버 네온 바이저", "24K VIP 골드 크라운"
+                    };
+                    std::snprintf(titleEn, sizeof(titleEn), "[1] Hair & Headgear (7 Models)");
+                    std::snprintf(titleKo, sizeof(titleKo), "[1] 헤어 · 헤드기어 (7종)");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.hairOrHatStyle % 7]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.hairOrHatStyle % 7]);
+                    break;
+                }
+                case 1: {
+                    static constexpr const char* kEn[6] = {
+                        "Jet Black", "Chestnut Brown", "Platinum Blonde", "Crimson Red", "Cyber Cyan", "Royal Gold"
+                    };
+                    static constexpr const char* kKo[6] = {
+                        "제트 블랙", "체스트넛 브라운", "플래티넘 블론드", "크림슨 레드", "사이버 시안", "로얄 골드"
+                    };
+                    std::snprintf(titleEn, sizeof(titleEn), "[2] Hair / Cap Accent Color");
+                    std::snprintf(titleKo, sizeof(titleKo), "[2] 헤어 · 모자 컬러");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.hairColorIdx % 6]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.hairColorIdx % 6]);
+                    hasSwatch = true;
+                    swatchCol = toRayColor(getPlayerHairColor(pl.currentOutfit, cc.hairColorIdx));
+                    break;
+                }
+                case 2: {
+                    static constexpr const char* kEn[4] = {"None", "Dark Shades", "Gold Aviator", "Cyan Tactical Goggles"};
+                    static constexpr const char* kKo[4] = {"착용 안 함", "다크 선글라스", "골드 에비에이터", "사이버 전술 고글"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[3] Eyewear & Goggles");
+                    std::snprintf(titleKo, sizeof(titleKo), "[3] 선글라스 · 전술 고글");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.glassesStyle % 4]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.glassesStyle % 4]);
+                    break;
+                }
+                case 3: {
+                    static constexpr const char* kEn[5] = {"Warm Ivory", "Natural Beige", "Golden Tan", "Olive Bronze", "Deep Espresso"};
+                    static constexpr const char* kKo[5] = {"웜 아이보리", "내추럴 베이지", "골든 태닝", "올리브 브론즈", "딥 에스프레소"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[4] Skin Tone (1st & 3rd Person)");
+                    std::snprintf(titleKo, sizeof(titleKo), "[4] 피부 톤 (1인칭 손 포함)");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.skinToneIdx % 5]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.skinToneIdx % 5]);
+                    hasSwatch = true;
+                    swatchCol = toRayColor(getPlayerSkinColor(cc.skinToneIdx));
+                    break;
+                }
+                case 4: {
+                    static constexpr const char* kEn[9] = {
+                        "Outfit Default", "Crimson Red", "Sapphire Blue", "Stealth Black",
+                        "Arctic White", "Emerald Green", "Royal Gold", "Cyber Cyan", "Neon Violet"
+                    };
+                    static constexpr const char* kKo[9] = {
+                        "의상 기본 컬러", "크림슨 레드", "사파이어 블루", "스텔스 블랙",
+                        "아틱 화이트", "에메랄드 그린", "로얄 골드", "사이버 시안", "네온 바이올렛"
+                    };
+                    std::snprintf(titleEn, sizeof(titleEn), "[5] Jacket / Top Custom Color");
+                    std::snprintf(titleKo, sizeof(titleKo), "[5] 재킷 · 상의 커스텀 컬러");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.customTopColorIdx % 9]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.customTopColorIdx % 9]);
+                    hasSwatch = true;
+                    swatchCol = toRayColor(getPlayerTopColor(pl.currentOutfit, cc.customTopColorIdx));
+                    break;
+                }
+                case 5: {
+                    static constexpr const char* kEn[7] = {
+                        "Outfit Default", "Jet Black", "Indigo Denim", "Arctic White",
+                        "Tactical Khaki", "Crimson Track", "Charcoal Grey"
+                    };
+                    static constexpr const char* kKo[7] = {
+                        "의상 기본 컬러", "제트 블랙", "인디고 데님", "아틱 화이트",
+                        "택티컬 카키", "크림슨 트랙", "차콜 그레이"
+                    };
+                    std::snprintf(titleEn, sizeof(titleEn), "[6] Pants Custom Color");
+                    std::snprintf(titleKo, sizeof(titleKo), "[6] 바지 · 하의 커스텀 컬러");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.customBottomColorIdx % 7]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.customBottomColorIdx % 7]);
+                    hasSwatch = true;
+                    swatchCol = toRayColor(getPlayerBottomColor(pl.currentOutfit, cc.customBottomColorIdx));
+                    break;
+                }
+                case 6: {
+                    static constexpr const char* kEn[4] = {"None", "Tactical Backpack", "Heist Duffle Bag", "Cyber Neon Wing Pack"};
+                    static constexpr const char* kKo[4] = {"착용 안 함", "전술 백팩", "하이스트 더플백", "사이버 네온 윙팩"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[7] 3D Back Gear Accessory");
+                    std::snprintf(titleKo, sizeof(titleKo), "[7] 등 액세서리 (백팩·윙팩)");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.backGearStyle % 4]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.backGearStyle % 4]);
+                    break;
+                }
+                case 7: {
+                    const auto& ospec = getOutfitSpec(pl.currentOutfit);
+                    std::snprintf(titleEn, sizeof(titleEn), "[8] Cycle Owned Base Outfit");
+                    std::snprintf(titleKo, sizeof(titleKo), "[8] 베이스 의상 프리셋 교체");
+                    std::snprintf(valEn, sizeof(valEn), "%s", ospec.nameEn);
+                    std::snprintf(valKo, sizeof(valKo), "%s", ospec.nameKo);
+                    std::snprintf(badge, sizeof(badge), "%s", pickText("CYCLE", "교체"));
+                    badgeCol = themeCol;
+                    break;
+                }
+            }
+        } else if (customTab_ == 1) {
+            switch (i) {
+                case 0: {
+                    static constexpr const char* kEn[6] = {
+                        "Factory Black", "Brushed Chrome", "24K Royal Gold",
+                        "Crimson Carbon", "Cyber Neon", "Arctic Whiteout"
+                    };
+                    static constexpr const char* kKo[6] = {
+                        "팩토리 블랙", "브러시드 실버 크롬", "24K 로얄 골드",
+                        "크림슨 카본", "사이버 네온", "아틱 화이트아웃"
+                    };
+                    std::snprintf(titleEn, sizeof(titleEn), "[1] Weapon Finish & Skin");
+                    std::snprintf(titleKo, sizeof(titleKo), "[1] 총기 메탈릭 도색 · 스킨");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[gunSlot.skinIndex % 6]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[gunSlot.skinIndex % 6]);
+                    std::snprintf(badge, sizeof(badge), "%s", pickText("FREE", "무료"));
+                    hasSwatch = true;
+                    swatchCol = toRayColor(getWeaponFinishMaterial(gunWid, gunSlot.skinIndex).primary);
+                    break;
+                }
+                case 1: {
+                    std::snprintf(titleEn, sizeof(titleEn), "[2] Tactical Barrel Suppressor");
+                    std::snprintf(titleKo, sizeof(titleKo), "[2] 전술 소음기 (은밀 사격·집탄 향상)");
+                    if (!weaponSupportsSuppressor(gunWid)) {
+                        std::snprintf(valEn, sizeof(valEn), "Not supported on heavy ordnance");
+                        std::snprintf(valKo, sizeof(valKo), "중화기 장착 불가");
+                        std::snprintf(badge, sizeof(badge), "N/A");
+                        badgeCol = Color{150, 160, 175, 220};
+                    } else if (!gunSlot.suppressorOwned) {
+                        std::snprintf(valEn, sizeof(valEn), "Stealth audio + -80%% police heat");
+                        std::snprintf(valKo, sizeof(valKo), "소음 사격 · 경찰 수배열기 -80%% 감소");
+                        std::snprintf(badge, sizeof(badge), "$%d", discounted(250));
+                        badgeCol = Color{255, 214, 82, 255};
+                    } else {
+                        std::snprintf(valEn, sizeof(valEn), "%s", gunSlot.suppressor ? "Equipped (Stealth Active)" : "Detached (Loud)");
+                        std::snprintf(valKo, sizeof(valKo), "%s", gunSlot.suppressor ? "장착됨 (은밀 소음 사격)" : "탈거됨 (일반 격발)");
+                        std::snprintf(badge, sizeof(badge), "%s", gunSlot.suppressor ? "ON" : "OFF");
+                        badgeCol = gunSlot.suppressor ? Color{96, 245, 168, 255} : Color{178, 190, 208, 240};
+                    }
+                    break;
+                }
+                case 2: {
+                    std::snprintf(titleEn, sizeof(titleEn), "[3] Extended Magazine (+50%% Ammo)");
+                    std::snprintf(titleKo, sizeof(titleKo), "[3] 대용량 확장 탄창 (+50%% 장탄수)");
+                    const int extCap = effectiveMagazineSize(gunWid, true);
+                    if (!gunSlot.extendedMagOwned) {
+                        std::snprintf(valEn, sizeof(valEn), "Boost magazine %d -> %d rounds", gunSpec.magazineSize, extCap);
+                        std::snprintf(valKo, sizeof(valKo), "탄창 용량 %d발 -> %d발 확장", gunSpec.magazineSize, extCap);
+                        std::snprintf(badge, sizeof(badge), "$%d", discounted(200));
+                        badgeCol = Color{255, 214, 82, 255};
+                    } else {
+                        std::snprintf(valEn, sizeof(valEn), "%s (%d rds)",
+                                      gunSlot.extendedMag ? "Extended Drum/Box" : "Standard Mag",
+                                      effectiveMagazineSize(gunWid, gunSlot.extendedMag));
+                        std::snprintf(valKo, sizeof(valKo), "%s (%d발)",
+                                      gunSlot.extendedMag ? "대용량 탄창 장착됨" : "기본 탄창 장착됨",
+                                      effectiveMagazineSize(gunWid, gunSlot.extendedMag));
+                        std::snprintf(badge, sizeof(badge), "%s", gunSlot.extendedMag ? "ON" : "OFF");
+                        badgeCol = gunSlot.extendedMag ? Color{96, 245, 168, 255} : Color{178, 190, 208, 240};
+                    }
+                    break;
+                }
+                case 3: {
+                    static constexpr const char* kEn[4] = {"OFF", "Tactical Red (+30% Hip)", "Spec-Ops Green (+30% Hip)", "Cyber Cyan (+30% Hip)"};
+                    static constexpr const char* kKo[4] = {"꺼짐", "레드 레이저 (지향집탄 +30%)", "그린 레이저 (지향집탄 +30%)", "시안 레이저 (지향집탄 +30%)"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[4] 3D Tactical Laser Sight");
+                    std::snprintf(titleKo, sizeof(titleKo), "[4] 3D 전술 레이저 사이트");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[gunSlot.laserSightColor % 4]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[gunSlot.laserSightColor % 4]);
+                    std::snprintf(badge, sizeof(badge), "%s", (gunSlot.laserSightColor > 0) ? "ON" : "OFF");
+                    if (gunSlot.laserSightColor > 0) {
+                        hasSwatch = true;
+                        swatchCol = toRayColor(getLaserSightColorRGBA(gunSlot.laserSightColor));
+                    } else {
+                        badgeCol = Color{178, 190, 208, 240};
+                    }
+                    break;
+                }
+                case 4: {
+                    static constexpr const char* kEn[6] = {"Standard", "Solar Gold", "Cyber Cyan", "Crimson Red", "Plasma Purple", "Emerald Green"};
+                    static constexpr const char* kKo[6] = {"기본 예광탄", "솔라 골드", "사이버 시안", "크림슨 레드", "플라즈마 퍼플", "에메랄드 그린"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[5] Bullet Tracer Beam Color");
+                    std::snprintf(titleKo, sizeof(titleKo), "[5] 사격 예광탄 궤적 컬러");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[gunSlot.tracerColorIdx % 6]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[gunSlot.tracerColorIdx % 6]);
+                    std::snprintf(badge, sizeof(badge), "%s", pickText("FREE", "무료"));
+                    hasSwatch = true;
+                    swatchCol = toRayColor(getCustomTracerColorRGBA(gunWid, gunSlot.tracerColorIdx));
+                    break;
+                }
+                case 5: {
+                    static constexpr const char* kEn[5] = {"Default", "Crimson Red", "Emerald Green", "Cyber Cyan", "Solar Gold"};
+                    static constexpr const char* kKo[5] = {"기본 조준경", "레드 도트·스코프", "그린 도트·스코프", "시안 도트·스코프", "골드 도트·스코프"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[6] 1st-Person Optic & Scope Tint");
+                    std::snprintf(titleKo, sizeof(titleKo), "[6] 1인칭 도트 · 저격 스코프 색상");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[gunSlot.opticColorIdx % 5]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[gunSlot.opticColorIdx % 5]);
+                    std::snprintf(badge, sizeof(badge), "%s", pickText("FREE", "무료"));
+                    hasSwatch = true;
+                    swatchCol = toRayColor(getOpticReticleColorRGBA(gunSlot.opticColorIdx, {96, 236, 255, 255}));
+                    break;
+                }
+            }
+        } else if (customTab_ == 2) {
+            std::snprintf(badge, sizeof(badge), "%s", pickText("FREE", "무료"));
+            static constexpr const char* kPaintEn[12] = {
+                "Candy Crimson", "Sapphire Blue", "Stealth Matte", "Pearl White",
+                "Solar Gold", "Emerald GT", "Ultraviolet", "Titanium Satin",
+                "Mirror Chrome", "24K Gold Chrome", "Cyber Cyan", "Vice Rose"
+            };
+            static constexpr const char* kPaintKo[12] = {
+                "캔디 크림슨", "사파이어 블루", "스텔스 매트 블랙", "펄 화이트",
+                "솔라 골드", "에메랄드 그린", "울트라바이올렛", "티타늄 새틴",
+                "미러 실버 크롬", "24K 골드 크롬", "사이버 네온 시안", "바이스 로즈"
+            };
+            const int pIdx = targetCar ? (targetCar->paintPresetIndex % 12) : 0;
+            const int stIdx = targetCar ? (targetCar->stripeStyle % 5) : 0;
+            const int rmIdx = targetCar ? (targetCar->rimStyle % 5) : 0;
+            const int spIdx = targetCar ? (targetCar->spoilerStyle % 3) : 0;
+            const int scIdx = targetCar ? (targetCar->stanceStyle % 4) : 0;
+            const int hlIdx = targetCar ? (targetCar->headlightColorIdx % 5) : 0;
+            const int nnIdx = targetCar ? (targetCar->neonPreset % 6) : 0;
+            const int smIdx = targetCar ? (targetCar->driftSmokeColorIdx % 6) : 0;
+
+            switch (i) {
+                case 0: {
+                    std::snprintf(titleEn, sizeof(titleEn), "[1] Body Paint & Chrome Wrap (12)");
+                    std::snprintf(titleKo, sizeof(titleKo), "[1] 차체 도색 · 미러 크롬 랩핑 (12종)");
+                    std::snprintf(valEn, sizeof(valEn), "%s", targetCar ? kPaintEn[pIdx] : "-");
+                    std::snprintf(valKo, sizeof(valKo), "%s", targetCar ? kPaintKo[pIdx] : "차량 없음");
+                    if (targetCar) {
+                        hasSwatch = true;
+                        swatchCol = toRayColor(targetCar->paintColor);
+                    }
+                    break;
+                }
+                case 1: {
+                    static constexpr const char* kEn[5] = {"None", "White Dual GT", "Royal Gold GT", "Cyber Cyan GT", "Stealth Carbon"};
+                    static constexpr const char* kKo[5] = {"없음", "화이트 듀얼 GT", "로얄 골드 스트라이프", "사이버 시안 스트라이프", "스텔스 카본 블랙"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[2] Racing Stripe Livery");
+                    std::snprintf(titleKo, sizeof(titleKo), "[2] 듀얼 GT 레이싱 스트라이프");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[stIdx]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[stIdx]);
+                    if (targetCar && stIdx > 0) {
+                        hasSwatch = true;
+                        swatchCol = toRayColor(getVehicleStripeColorRGBA(stIdx, targetCar->stripeColor));
+                    }
+                    break;
+                }
+                case 2: {
+                    std::snprintf(titleEn, sizeof(titleEn), "[3] Forged Alloy Rims (5 Styles)");
+                    std::snprintf(titleKo, sizeof(titleKo), "[3] 커스텀 단조 휠 컬러 (5종)");
+                    std::snprintf(valEn, sizeof(valEn), "%s", rimStyleNameEn(rmIdx));
+                    std::snprintf(valKo, sizeof(valKo), "%s", rimStyleNameKo(rmIdx));
+                    break;
+                }
+                case 3: {
+                    static constexpr const char* kEn[3] = {"Stock (No Wing)", "Carbon GT Wing (+2% Grip)", "Swan-Neck Time-Attack (+6% Grip)"};
+                    static constexpr const char* kKo[3] = {"순정 (스포일러 없음)", "카본 GT 윙 (그립 +2%)", "스완넥 타임어택 대형 윙 (그립 +6%)"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[4] Rear Aero Wing & Downforce");
+                    std::snprintf(titleKo, sizeof(titleKo), "[4] 리어 에어로 스포일러 · 대형 윙");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[spIdx]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[spIdx]);
+                    break;
+                }
+                case 4: {
+                    static constexpr const char* kEn[4] = {"Stock Height", "Street Lowered (-45mm)", "Slammed Camber (-82mm)", "Rally Lift (+95mm)"};
+                    static constexpr const char* kKo[4] = {"순정 차고", "스트리트 로우다운 (-45mm)", "슬램드 마이너스 캠버 (-82mm)", "오프로드 리프트업 (+95mm)"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[5] Suspension Stance & Camber");
+                    std::snprintf(titleKo, sizeof(titleKo), "[5] 서스펜션 차고 · 마이너스 캠버");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[scIdx]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[scIdx]);
+                    break;
+                }
+                case 5: {
+                    static constexpr const char* kEn[5] = {"Xenon White", "Cyber Cyan", "GT Yellow", "UV Purple", "Demon-Eye Red"};
+                    static constexpr const char* kKo[5] = {"제논 화이트", "사이버 시안", "GT 레이싱 옐로우", "UV 네온 퍼플", "데몬아이 레드"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[6] Headlight & Night Beam Tint");
+                    std::snprintf(titleKo, sizeof(titleKo), "[6] 헤드라이트 · 야간 빔 컬러");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[hlIdx]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[hlIdx]);
+                    hasSwatch = true;
+                    swatchCol = toRayColor(getVehicleHeadlightColorRGBA(hlIdx, true));
+                    break;
+                }
+                case 6: {
+                    std::snprintf(titleEn, sizeof(titleEn), "[7] LED Neon Underglow");
+                    std::snprintf(titleKo, sizeof(titleKo), "[7] 하부 LED 네온 언더글로우");
+                    std::snprintf(valEn, sizeof(valEn), "%s", neonPresetNameEn(nnIdx));
+                    std::snprintf(valKo, sizeof(valKo), "%s", neonPresetNameKo(nnIdx));
+                    if (nnIdx > 0) {
+                        hasSwatch = true;
+                        swatchCol = toRayColor(getNeonPresetColor(nnIdx));
+                    }
+                    break;
+                }
+                case 7: {
+                    static constexpr const char* kEn[6] = {"Classic White", "Cyber Cyan", "Crimson Red", "Royal Gold", "Violet", "Emerald"};
+                    static constexpr const char* kKo[6] = {"클래식 화이트", "사이버 시안", "크림슨 레드", "로얄 골드", "바이올렛", "에메랄드"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[8] Drift Tire Smoke Color");
+                    std::snprintf(titleKo, sizeof(titleKo), "[8] 드리프트 타이어 연기 컬러");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[smIdx]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[smIdx]);
+                    hasSwatch = true;
+                    swatchCol = toRayColor(getDriftSmokeColorRGBA(smIdx));
+                    break;
+                }
+            }
+        } else {
+            std::snprintf(badge, sizeof(badge), "%s", pickText("SET", "적용"));
+            badgeCol = themeCol;
+            switch (i) {
+                case 0: {
+                    static constexpr const char* kEn[4] = {"Dynamic Cross + Dot", "Pinpoint Dot", "Tactical Circle + Dot", "Spec-Ops Chevron"};
+                    static constexpr const char* kKo[4] = {"다이나믹 십자선 + 도트", "핀포인트 정밀 도트", "택티컬 서클 + 도트", "특수전 쉐브론 (^)"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[1] Crosshair Reticle Shape");
+                    std::snprintf(titleKo, sizeof(titleKo), "[1] 조준선 모양 스타일 (4종)");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[hc.crosshairStyle % 4]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[hc.crosshairStyle % 4]);
+                    break;
+                }
+                case 1: {
+                    static constexpr const char* kEn[6] = {"Pure White", "Neon Green", "Cyber Cyan", "Solar Gold", "Hot Magenta", "Crimson Red"};
+                    static constexpr const char* kKo[6] = {"퓨어 화이트", "네온 그린", "사이버 시안", "솔라 골드", "핫 마젠타", "크림슨 레드"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[2] Crosshair Color");
+                    std::snprintf(titleKo, sizeof(titleKo), "[2] 조준선 컬러 (6종)");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[hc.crosshairColorIdx % 6]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[hc.crosshairColorIdx % 6]);
+                    hasSwatch = true;
+                    swatchCol = toRayColor(getCrosshairColorRGBA(hc.crosshairColorIdx));
+                    break;
+                }
+                case 2: {
+                    static constexpr const char* kEn[3] = {"Compact (80%)", "Standard (100%)", "Large (130%)"};
+                    static constexpr const char* kKo[3] = {"소형 (80%)", "표준 (100%)", "대형 (130%)"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[3] Crosshair Size Scale");
+                    std::snprintf(titleKo, sizeof(titleKo), "[3] 조준선 크기 배율");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[hc.crosshairScaleIdx % 3]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[hc.crosshairScaleIdx % 3]);
+                    break;
+                }
+                case 3: {
+                    std::snprintf(titleEn, sizeof(titleEn), "[4] High-Contrast Shadow Outline");
+                    std::snprintf(titleKo, sizeof(titleKo), "[4] 조준선 명암 외곽 테두리");
+                    std::snprintf(valEn, sizeof(valEn), "%s", hc.crosshairOutline ? "Enabled" : "Disabled");
+                    std::snprintf(valKo, sizeof(valKo), "%s", hc.crosshairOutline ? "켜짐 (시인성 강화)" : "꺼짐 (미니멀)");
+                    std::snprintf(badge, sizeof(badge), "%s", hc.crosshairOutline ? "ON" : "OFF");
+                    break;
+                }
+                case 4: {
+                    std::snprintf(titleEn, sizeof(titleEn), "[5] Speedometer Unit");
+                    std::snprintf(titleKo, sizeof(titleKo), "[5] 디지털 속도계 단위");
+                    std::snprintf(valEn, sizeof(valEn), "%s", hc.useMph ? "MPH (Miles / Hour)" : "KM/H (Kilometers / Hour)");
+                    std::snprintf(valKo, sizeof(valKo), "%s", hc.useMph ? "MPH (마일 단위)" : "KM/H (킬로미터 단위)");
+                    std::snprintf(badge, sizeof(badge), "%s", hc.useMph ? "MPH" : "KM/H");
+                    break;
+                }
+                case 5: {
+                    static constexpr const char* kEn[4] = {"Cyber Cyan", "Vice Neon Pink", "VIP Royal Gold", "Emerald Matrix"};
+                    static constexpr const char* kKo[4] = {"사이버 시안", "바이스 네온 핑크", "VIP 로얄 골드", "에메랄드 그린"};
+                    std::snprintf(titleEn, sizeof(titleEn), "[6] HUD Interface Accent Theme");
+                    std::snprintf(titleKo, sizeof(titleKo), "[6] 인터페이스 HUD 테마 컬러");
+                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[hc.hudThemeIdx % 4]);
+                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[hc.hudThemeIdx % 4]);
+                    hasSwatch = true;
+                    swatchCol = themeCol;
+                    break;
+                }
+            }
+        }
+
+        const float tOffY = (rowCount == 8) ? 3.5f : 6.0f;
+        const float vOffY = (rowCount == 8) ? 20.5f : 25.0f;
+        const float fTitle = (rowCount == 8) ? 14.5f : 15.2f;
+        const float fVal = (rowCount == 8) ? 12.8f : 13.6f;
+
+        drawUiText(pickText(titleEn, titleKo), px + 26.0f, ry + tOffY, fTitle, Color{242, 246, 252, 255});
+        drawUiText(pickText(valEn, valKo), px + 28.0f, ry + vOffY, fVal, Color{166, 206, 238, 244});
+
+        const float bw = measureUiText(badge, 14.0f);
+        const float bx = px + pw - 26.0f - bw;
+        drawUiText(badge, bx, ry + (rowH - 15.0f) * 0.5f, 14.0f, badgeCol);
+
+        if (hasSwatch) {
+            const Vector2 sc{bx - 16.0f, ry + rowH * 0.5f};
+            DrawCircleV(sc, 7.2f, Color{8, 12, 18, 245});
+            DrawCircleV(sc, 5.6f, swatchCol);
+        }
+    }
+
+    const char* footTxt = (rowCount == 8)
+                              ? pickText("Keys [1-8] Customize  |  [V] 1st/3rd View  |  Mouse Orbit",
+                                         "숫자 [1~8] 즉시 적용  |  [V] 1·3인칭 전환  |  마우스 회전")
+                              : pickText("Keys [1-6] Customize  |  [V] 1st/3rd View  |  Mouse Orbit",
+                                         "숫자 [1~6] 즉시 적용  |  [V] 1·3인칭 전환  |  마우스 회전");
+    drawUiText(footTxt, px + 18.0f, py + ph - 23.0f, 14.0f, Color{190, 204, 222, 245});
+}
+
 void HudRenderer::drawBannerToast(const GameWorld& world, int screenW, int screenH) {
     const float midX = static_cast<float>(screenW) * 0.5f;
 
@@ -1435,53 +2038,58 @@ void HudRenderer::drawBannerToast(const GameWorld& world, int screenW, int scree
     }
 }
 
-void HudRenderer::drawHelpOverlay(int screenW, int screenH, bool cursorLocked) {
+void HudRenderer::drawHelpOverlay(const GameWorld& world, int screenW, int screenH, bool cursorLocked) {
     (void)screenW;
     (void)screenH;
+    const ColorRGBA themeRgba = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
     if (!showHelp_) {
-        drawUiText(pickText("[H] Controls", "[H] 조작키 도움말"), 20.0f, 18.0f, 17.0f, Color{200, 210, 225, 200});
+        drawUiText(pickText("[H] Controls  |  [K] Custom Studio", "[H] 조작키 도움말  |  [K] 커스텀 스튜디오"),
+                   20.0f, 18.0f, 17.0f, Color{200, 214, 232, 215});
         return;
     }
 
-    DrawRectangleRounded({18.0f, 16.0f, 456.0f, 268.0f}, 0.08f, 6, Color{10, 15, 24, 196});
-    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 456.0f, 268.0f}, 0.08f, 6, 1.2f, Color{72, 148, 205, 115});
-    drawUiText(pickText("OPEN CITY C++ v0.7 - CONTROLS", "OPEN CITY C++ v0.7 - 조작 안내"),
-               30.0f, 24.0f, 18.5f, Color{98, 220, 255, 255});
+    DrawRectangleRounded({18.0f, 16.0f, 462.0f, 290.0f}, 0.08f, 6, Color{10, 15, 24, 198});
+    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 462.0f, 290.0f}, 0.08f, 6, 1.2f, toRayColor(themeRgba, 125));
+    drawUiText(pickText("OPEN CITY C++ v0.8 - CONTROLS", "OPEN CITY C++ v0.8 - 조작 안내"),
+               30.0f, 24.0f, 18.5f, toRayColor(themeRgba, 255));
 
-    const char* linesEn[10] = {
+    const char* linesEn[11] = {
         "WASD : Walk / Drive & Steer (16 Vehicles)",
         "Mouse : 1:1 Aim (RMB Precision / Scope) & Shoot (LMB)",
         "V (or MMB) : Toggle 1st-Person / 3rd-Person View",
-        "[ / ] : Mouse Sensitivity   |   I : Invert Y",
-        "F or E : Enter / Carjack / Exit / Start Mission",
-        "Space : Jump (On-Foot) / Drift (Car) | Shift : Sprint",
+        "K : Custom Studio (Character / Gunsmith / Car / HUD)",
         "P : Smartphone (10 Cars / Realty / Style / Supply)",
         "B : Enter Shop (11 Weapons / Tune / Luxury Autos)",
+        "F or E : Enter / Carjack / Exit / Start Mission",
+        "Space : Jump (On-Foot) / Drift (Car) | Shift : Sprint",
         "1-0,- / Z·X / Wheel : 11 Weapons   |   R : Reload",
+        "[ / ] : Mouse Sensitivity   |   I : Invert Y",
         "C : Rear | G : Police/EMS/Fire Siren | T : Time | F3 : GFX"
     };
-    const char* linesKo[10] = {
+    const char* linesKo[11] = {
         "WASD : 이동 / 16종 차량 주행 및 조향",
         "마우스 : 1:1 정밀조준 · 저격스코프(우클릭) · 사격(좌클릭)",
         "V (또는 휠클릭) : 1인칭(FPS·운전석) / 3인칭 시점 전환",
-        "[ / ] : 마우스 감도 조절  |  I : 마우스 상하 반전",
-        "F / E : 차량 탑승·탈취·하차 / 미션 시작",
-        "Space : 점프(도보) · 드리프트(차량) | Shift : 질주·니트로",
+        "K : 커스텀 스튜디오 (캐릭터 · 총기 · 차량 · 조준선·HUD)",
         "P : 스마트폰 (10종 차량호출 · 부동산 · 중화기보급)",
         "B : 매장 이용 (11종 무기점 · 풀튜닝 공방 · 슈퍼카 전시장)",
+        "F / E : 차량 탑승·탈취·하차 / 미션 시작",
+        "Space : 점프(도보) · 드리프트(차량) | Shift : 질주·니트로",
         "1~0,- · Z/X · 휠 : 11종 무기교체  |  R : 재장전",
+        "[ / ] : 마우스 감도 조절  |  I : 마우스 상하 반전",
         "C : 후방 | G : 경찰·구급·소방 사이렌 | T : 시간 | F3 : 그래픽"
     };
 
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 11; ++i) {
+        const Color lineCol = (i == 3) ? toRayColor(themeRgba, 255) : Color{226, 232, 242, 242};
         drawUiText(pickText(linesEn[i], linesKo[i]),
-                   30.0f, 50.0f + static_cast<float>(i) * 21.8f, 15.2f, Color{226, 232, 242, 242});
+                   30.0f, 50.0f + static_cast<float>(i) * 21.6f, 15.0f, lineCol);
     }
 
     if (!cursorLocked) {
         drawUiText(pickText("Click window or press [Tab] to lock mouse camera",
                             "화면을 클릭하거나 [Tab]을 누르면 마우스 시점이 활성화됩니다"),
-                   30.0f, 290.0f, 16.5f, Color{255, 214, 88, 255});
+                   30.0f, 312.0f, 16.5f, Color{255, 214, 88, 255});
     }
 }
 

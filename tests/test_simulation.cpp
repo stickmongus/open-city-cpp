@@ -998,6 +998,203 @@ void testExpandedWeaponsVehiclesSniperAndEmergency() {
     ++gTestsPassed;
 }
 
+void testFullCustomizationStudioCharacterGunsmithVehicleHud() {
+    oc::GameWorld world(20261116ULL);
+    world.player().cash = 50000;
+
+    auto sendStudio = [&](int tab, int opt) {
+        oc::PlayerInput in{};
+        in.customStudioTab = tab;
+        in.customStudioOption = opt;
+        world.update(1.0f / 60.0f, in);
+    };
+
+    // 1. Tab 0: Character Customization + Aero Moto Helmet (-8% incoming damage perk)
+    for (int k = 0; k < 4; ++k) sendStudio(0, 1); // 0 -> 4 (Aero Moto Helmet)
+    ASSERT_TRUE(world.player().characterCustom.hairOrHatStyle == 4);
+    sendStudio(0, 2); // Hair color -> Chestnut
+    sendStudio(0, 3); // Glasses -> Gold Aviator
+    sendStudio(0, 4); // Skin tone -> Golden Tan (idx 2)
+    sendStudio(0, 5); // Jacket color -> Crimson Red (idx 1)
+    sendStudio(0, 6); // Pants color -> Jet Black (idx 1)
+    sendStudio(0, 7); // Back gear -> Tactical Backpack (idx 1)
+    ASSERT_TRUE(world.player().characterCustom.hairColorIdx == 1);
+    ASSERT_TRUE(world.player().characterCustom.glassesStyle == 2);
+    ASSERT_TRUE(world.player().characterCustom.skinToneIdx == 2);
+    ASSERT_TRUE(world.player().characterCustom.customTopColorIdx == 1);
+    ASSERT_TRUE(world.player().characterCustom.customBottomColorIdx == 1);
+    ASSERT_TRUE(world.player().characterCustom.backGearStyle == 1);
+    ASSERT_TRUE(oc::getPlayerTopColor(world.player().currentOutfit, 1).r > 200);
+
+    // Compare incoming collision damage without helmet (style 0) vs with Aero Moto Helmet (style 4)
+    auto measureHitLoss = [&](int helmetStyle) -> float {
+        oc::GameWorld w(20261117ULL);
+        w.player().pos = {0.0f, 0.0f};
+        w.player().posY = 0.0f;
+        w.player().armor = 0.0f;
+        w.player().health = 100.0f;
+        w.player().characterCustom.hairOrHatStyle = helmetStyle;
+        for (auto& v : w.vehicles()) {
+            v.pos = {120.0f, 120.0f};
+            v.velocity = {0.0f, 0.0f};
+        }
+        w.vehicles()[0].destroyed = false;
+        w.vehicles()[0].pos = {0.1f, 0.0f};
+        w.vehicles()[0].heading = 0.0f;
+        w.vehicles()[0].velocity = {15.0f, 0.0f};
+        oc::PlayerInput idle{};
+        w.update(1.0f / 60.0f, idle);
+        return 100.0f - w.player().health;
+    };
+    const float dmgNoHelmet = measureHitLoss(0);
+    const float dmgWithHelmet = measureHitLoss(4);
+    ASSERT_TRUE(dmgNoHelmet > 18.0f);
+    ASSERT_TRUE(dmgWithHelmet < dmgNoHelmet * 0.94f && dmgWithHelmet > dmgNoHelmet * 0.90f);
+
+    // 2. Tab 1: Gunsmith (Skin, Suppressor stealth/one-time buy, Extended Mag +50%, Laser Sight, Tracer, Optic)
+    auto& arSlot = world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)];
+    arSlot.owned = true;
+    arSlot.magAmmo = 30;
+    arSlot.reserveAmmo = 120;
+    world.player().currentWeapon = oc::WeaponId::AssaultRifle;
+    const int cashBeforeGunsmith = world.player().cash;
+
+    sendStudio(1, 1);
+    sendStudio(1, 1); // Skin -> 2 (24K Royal Gold), FREE
+    ASSERT_TRUE(arSlot.skinIndex == 2);
+    ASSERT_TRUE(world.player().cash == cashBeforeGunsmith);
+
+    sendStudio(1, 2); // Buy & attach Suppressor (-$250)
+    ASSERT_TRUE(arSlot.suppressorOwned && arSlot.suppressor);
+    const int cashAfterSup = world.player().cash;
+    ASSERT_TRUE(cashAfterSup == cashBeforeGunsmith - 250);
+    sendStudio(1, 2); // Detach for FREE
+    ASSERT_TRUE(!arSlot.suppressor);
+    sendStudio(1, 2); // Re-attach for FREE
+    ASSERT_TRUE(arSlot.suppressor);
+    ASSERT_TRUE(world.player().cash == cashAfterSup);
+
+    sendStudio(1, 3); // Buy & equip Extended Mag (-$200, 30 -> 45 rounds)
+    ASSERT_TRUE(arSlot.extendedMagOwned && arSlot.extendedMag);
+    ASSERT_TRUE(oc::effectiveMagazineSize(oc::WeaponId::AssaultRifle, true) == 45);
+    ASSERT_TRUE(arSlot.magAmmo == 45);
+    ASSERT_TRUE(world.player().cash == cashAfterSup - 200);
+
+    sendStudio(1, 4);
+    sendStudio(1, 4);
+    sendStudio(1, 4); // Laser Sight -> 3 (Cyber Cyan)
+    ASSERT_TRUE(arSlot.laserSightColor == 3);
+
+    sendStudio(1, 5);
+    sendStudio(1, 5); // Tracer -> 2 (Cyber Cyan)
+    ASSERT_TRUE(arSlot.tracerColorIdx == 2);
+
+    sendStudio(1, 6);
+    sendStudio(1, 6);
+    sendStudio(1, 6); // Optic -> 3 (Cyber Cyan)
+    ASSERT_TRUE(arSlot.opticColorIdx == 3);
+
+    // Fire 1 suppressed shot away from police -> verify SuppressedShot audio, Cyan tracer, and stealth low heat!
+    world.clearWantedLevel(false);
+    for (auto& n : world.npcs()) {
+        if (n.role == oc::NpcRole::Police) n.pos = {260.0f, 260.0f};
+    }
+    for (auto& v : world.vehicles()) {
+        if (v.isPolice) v.pos = {260.0f, 260.0f};
+    }
+    (void)world.consumeAudioEvents();
+    world.player().fireCooldown = 0.0f;
+
+    oc::PlayerInput supFire{};
+    supFire.firstPerson = true;
+    supFire.fireHeld = true;
+    supFire.hasAimRay3D = true;
+    supFire.aimRayOrigin = {world.player().pos.x, 1.62f, world.player().pos.z};
+    supFire.aimRayDir = {0.0f, 0.35f, 1.0f};
+    supFire.aimRayDir = supFire.aimRayDir.normalized();
+    world.update(1.0f / 60.0f, supFire);
+
+    ASSERT_TRUE(world.player().wantedHeat <= 0.12f);
+    ASSERT_TRUE(world.player().wantedLevel == 0);
+    const auto audioEvs = world.consumeAudioEvents();
+    bool heardSuppressed = false;
+    for (const auto& ev : audioEvs) {
+        if (ev.type == oc::AudioEventType::SuppressedShot) heardSuppressed = true;
+    }
+    ASSERT_TRUE(heardSuppressed);
+    ASSERT_TRUE(!world.tracers().empty());
+    ASSERT_TRUE(world.tracers().back().color.b > 240 && world.tracers().back().color.r < 80);
+
+    // 3. Tab 2: Vehicle Full Custom Studio + Personal Garage Persistence
+    world.player().cash = 80000;
+    ASSERT_TRUE(world.buyOrSummonVehicle(oc::VehicleKind::JdmTuner));
+    oc::Vehicle* tuner = world.findVehicleMutable(world.player().activePersonalVehicleId);
+    ASSERT_TRUE(tuner != nullptr);
+    world.player().pos = {tuner->pos.x + 2.0f, tuner->pos.z};
+    ASSERT_TRUE(world.customizationTargetVehicle() == tuner);
+
+    // Cycle Paint 9 times (0 -> 9 = 24K Gold Chrome, chromePaint == true; or 8 times for Mirror Chrome)
+    tuner->paintPresetIndex = 7;
+    sendStudio(2, 1); // -> index 8 (Mirror Chrome!)
+    ASSERT_TRUE(tuner->chromePaint);
+
+    sendStudio(2, 2);
+    sendStudio(2, 2); // Stripe -> 2 (Royal Gold)
+    tuner->rimStyle = 0;
+    sendStudio(2, 3);
+    sendStudio(2, 3);
+    sendStudio(2, 3); // Rim -> 3 (Cyber Cyan)
+    tuner->spoilerStyle = 0;
+    sendStudio(2, 4);
+    sendStudio(2, 4); // Spoiler -> 2 (Swan-Neck Time-Attack Wing)
+    sendStudio(2, 5);
+    sendStudio(2, 5); // Stance -> 2 (Slammed Negative Camber)
+    sendStudio(2, 6); // Headlights -> 1 (Cyber Cyan)
+    tuner->neonPreset = 0;
+    sendStudio(2, 7);
+    sendStudio(2, 7); // Neon -> 2 (UV Purple)
+    sendStudio(2, 8); // Drift Smoke -> 1 (Cyber Cyan)
+
+    ASSERT_TRUE(tuner->stripeStyle == 2);
+    ASSERT_TRUE(tuner->rimStyle == 3);
+    ASSERT_TRUE(tuner->spoilerStyle == 2 && tuner->customSpoiler);
+    ASSERT_TRUE(tuner->stanceStyle == 2);
+    ASSERT_TRUE(tuner->headlightColorIdx == 1);
+    ASSERT_TRUE(tuner->neonPreset == 2);
+    ASSERT_TRUE(tuner->driftSmokeColorIdx == 1);
+
+    // Summon another personal car, then re-summon JdmTuner and verify all custom fields persisted in garage!
+    ASSERT_TRUE(world.buyOrSummonVehicle(oc::VehicleKind::Compact));
+    ASSERT_TRUE(world.buyOrSummonVehicle(oc::VehicleKind::JdmTuner));
+    const oc::Vehicle* resummoned = world.findVehicle(world.player().activePersonalVehicleId);
+    ASSERT_TRUE(resummoned != nullptr && resummoned->kind == oc::VehicleKind::JdmTuner);
+    ASSERT_TRUE(resummoned->chromePaint);
+    ASSERT_TRUE(resummoned->stripeStyle == 2);
+    ASSERT_TRUE(resummoned->rimStyle == 3);
+    ASSERT_TRUE(resummoned->spoilerStyle == 2);
+    ASSERT_TRUE(resummoned->stanceStyle == 2);
+    ASSERT_TRUE(resummoned->headlightColorIdx == 1);
+    ASSERT_TRUE(resummoned->neonPreset == 2);
+    ASSERT_TRUE(resummoned->driftSmokeColorIdx == 1);
+
+    // 4. Tab 3: Crosshair & HUD Custom Studio
+    sendStudio(3, 1);
+    sendStudio(3, 1); // Crosshair Style -> 2 (Tactical Circle + Dot)
+    sendStudio(3, 2); // Crosshair Color -> 1 (Neon Green)
+    sendStudio(3, 3); // Crosshair Scale -> 2 (Large 130%)
+    sendStudio(3, 4); // Outline -> false
+    sendStudio(3, 5); // Speedometer -> MPH (true)
+    sendStudio(3, 6); // HUD Theme -> 1 (Vice Pink)
+    ASSERT_TRUE(world.player().hudCustom.crosshairStyle == 2);
+    ASSERT_TRUE(world.player().hudCustom.crosshairColorIdx == 1);
+    ASSERT_TRUE(world.player().hudCustom.crosshairScaleIdx == 2);
+    ASSERT_TRUE(!world.player().hudCustom.crosshairOutline);
+    ASSERT_TRUE(world.player().hudCustom.useMph);
+    ASSERT_TRUE(world.player().hudCustom.hudThemeIdx == 1);
+
+    ++gTestsPassed;
+}
+
 } // namespace
 
 int main() {
@@ -1015,6 +1212,7 @@ int main() {
     testPolicePursuitWantedEscalationBribeAndBusted();
     testFirstPersonAimAlignmentAndPrecisionSpread();
     testExpandedWeaponsVehiclesSniperAndEmergency();
+    testFullCustomizationStudioCharacterGunsmithVehicleHud();
 
     std::cout << "[PASS] All " << gTestsPassed << " Open City C++ simulation test suites succeeded!\n";
     return 0;

@@ -63,19 +63,24 @@ struct PaintPreset {
     ColorRGBA paint;
     ColorRGBA stripe;
     bool matte;
+    bool chrome;
     const char* nameEn;
     const char* nameKo;
 };
 
-constexpr std::array<PaintPreset, 8> kCustomPaints = {{
-    {{232,  36,  64, 255}, {248, 248, 252, 255}, false, "Candy Crimson",   "캔디 크림슨 메탈릭"},
-    {{ 32, 138, 248, 255}, {245, 248, 255, 255}, false, "Sapphire Blue",   "사파이어 블루"},
-    {{ 28,  30,  36, 255}, {242, 192,  52, 255}, true,  "Stealth Matte",   "스텔스 매트 블랙"},
-    {{244, 246, 250, 255}, { 34,  38,  46, 255}, false, "Pearl White",     "펄 화이트"},
-    {{248, 188,  38, 255}, { 28,  30,  36, 255}, false, "Solar Gold",      "솔라 골드 메탈릭"},
-    {{ 28, 206, 132, 255}, {242, 248, 246, 255}, false, "Emerald GT",      "에메랄드 그린"},
-    {{148,  52, 242, 255}, { 72, 232, 255, 255}, false, "Ultraviolet",     "울트라바이올렛"},
-    {{ 64,  70,  78, 255}, {238,  72,  48, 255}, true,  "Titanium Satin",  "티타늄 새틴 그레이"}
+constexpr std::array<PaintPreset, 12> kCustomPaints = {{
+    {{232,  36,  64, 255}, {248, 248, 252, 255}, false, false, "Candy Crimson",   "캔디 크림슨 메탈릭"},
+    {{ 32, 138, 248, 255}, {245, 248, 255, 255}, false, false, "Sapphire Blue",   "사파이어 블루"},
+    {{ 28,  30,  36, 255}, {242, 192,  52, 255}, true,  false, "Stealth Matte",   "스텔스 매트 블랙"},
+    {{244, 246, 250, 255}, { 34,  38,  46, 255}, false, false, "Pearl White",     "펄 화이트"},
+    {{248, 188,  38, 255}, { 28,  30,  36, 255}, false, false, "Solar Gold",      "솔라 골드 메탈릭"},
+    {{ 28, 206, 132, 255}, {242, 248, 246, 255}, false, false, "Emerald GT",      "에메랄드 그린"},
+    {{148,  52, 242, 255}, { 72, 232, 255, 255}, false, false, "Ultraviolet",     "울트라바이올렛"},
+    {{ 64,  70,  78, 255}, {238,  72,  48, 255}, true,  false, "Titanium Satin",  "티타늄 새틴 그레이"},
+    {{226, 234, 244, 255}, { 34,  42,  54, 255}, false, true,  "Mirror Chrome",   "미러 실버 크롬"},
+    {{252, 204,  64, 255}, { 26,  28,  34, 255}, false, true,  "24K Gold Chrome", "24K 로얄 골드 크롬"},
+    {{ 26, 214, 246, 255}, {248, 252, 255, 255}, false, false, "Cyber Cyan",      "사이버 네온 시안"},
+    {{246,  66, 158, 255}, {248, 248, 252, 255}, false, false, "Vice Rose",       "바이스 로즈 메탈릭"}
 }};
 
 ColorRGBA randomTrafficPaint(Rng& rng, VehicleKind kind) {
@@ -159,6 +164,155 @@ ColorRGBA getNeonPresetColor(int neonPreset) {
     }
 }
 
+ColorRGBA getPlayerSkinColor(int skinToneIdx) {
+    switch (std::clamp(skinToneIdx, 0, 4)) {
+        case 0: return {246, 214, 192, 255}; // Warm Ivory
+        case 1: return {238, 194, 162, 255}; // Natural Beige
+        case 2: return {212, 160, 120, 255}; // Golden Tan
+        case 3: return {174, 124,  88, 255}; // Olive Bronze
+        case 4: return {108,  72,  52, 255}; // Deep Espresso
+        default: return {238, 194, 162, 255};
+    }
+}
+
+ColorRGBA getPlayerTopColor(OutfitId outfit, int customTopColorIdx) {
+    switch (customTopColorIdx) {
+        case 1: return {218,  38,  52, 255}; // Crimson Red
+        case 2: return { 38, 122, 238, 255}; // Sapphire Blue
+        case 3: return { 26,  28,  36, 255}; // Stealth Black
+        case 4: return {242, 244, 248, 255}; // Arctic White
+        case 5: return { 34, 184, 118, 255}; // Emerald Green
+        case 6: return {238, 186,  46, 255}; // Royal Gold
+        case 7: return { 38, 206, 238, 255}; // Cyber Cyan
+        case 8: return {144,  58, 232, 255}; // Neon Violet
+        default: return getOutfitSpec(outfit).top;
+    }
+}
+
+ColorRGBA getPlayerBottomColor(OutfitId outfit, int customBottomColorIdx) {
+    switch (customBottomColorIdx) {
+        case 1: return { 22,  24,  30, 255}; // Jet Black
+        case 2: return { 42,  68, 112, 255}; // Indigo Denim
+        case 3: return {232, 236, 242, 255}; // Arctic White
+        case 4: return {126, 114,  86, 255}; // Tactical Khaki
+        case 5: return {168,  34,  44, 255}; // Crimson Track
+        case 6: return { 56,  62,  72, 255}; // Charcoal Grey
+        default: return getOutfitSpec(outfit).bottom;
+    }
+}
+
+ColorRGBA getPlayerHairColor(OutfitId outfit, int hairColorIdx) {
+    switch (hairColorIdx) {
+        case 1: return { 96,  56,  34, 255}; // Chestnut Brown
+        case 2: return {236, 224, 188, 255}; // Platinum Blonde
+        case 3: return {214,  38,  52, 255}; // Crimson Red
+        case 4: return { 44, 224, 252, 255}; // Cyber Cyan
+        case 5: return {248, 198,  54, 255}; // Royal Gold
+        default:
+            return (outfit == OutfitId::GoldBossCoat)
+                       ? ColorRGBA{242, 202, 78, 255}
+                       : ColorRGBA{28, 24, 22, 255};
+    }
+}
+
+WeaponFinishMaterial getWeaponFinishMaterial(WeaponId weapon, int skinIndex) {
+    (void)weapon;
+    switch (std::clamp(skinIndex, 0, 5)) {
+        case 1: return {{218, 226, 236, 255}, {154, 166, 182, 255}, 0.06f, 0.96f, 0.0f};  // Brushed Chrome
+        case 2: return {{248, 198,  56, 255}, { 38,  34,  26, 255}, 0.08f, 0.95f, 0.06f}; // 24K Royal Gold
+        case 3: return {{212,  34,  48, 255}, { 26,  28,  34, 255}, 0.20f, 0.74f, 0.04f}; // Crimson Carbon
+        case 4: return {{ 38, 222, 252, 255}, {172,  56, 248, 255}, 0.14f, 0.86f, 0.42f}; // Cyber Neon
+        case 5: return {{240, 244, 250, 255}, { 54,  62,  74, 255}, 0.22f, 0.56f, 0.0f};  // Arctic Whiteout
+        default: return {{ 34,  38,  46, 255}, { 66,  72,  84, 255}, 0.28f, 0.80f, 0.0f}; // Factory Black
+    }
+}
+
+ColorRGBA getLaserSightColorRGBA(int laserSightColor) {
+    switch (laserSightColor) {
+        case 1: return {255,  42,  52, 235}; // Tactical Red
+        case 2: return { 54, 255, 108, 235}; // Spec-Ops Green
+        case 3: return { 46, 232, 255, 235}; // Cyber Cyan
+        default: return {0, 0, 0, 0};
+    }
+}
+
+ColorRGBA getCustomTracerColorRGBA(WeaponId weapon, int tracerColorIdx) {
+    switch (tracerColorIdx) {
+        case 1: return {255, 214,  72, 255}; // Solar Gold
+        case 2: return { 58, 236, 255, 255}; // Cyber Cyan
+        case 3: return {255,  56,  68, 255}; // Crimson Laser
+        case 4: return {206,  84, 255, 255}; // Plasma Purple
+        case 5: return { 66, 252, 134, 255}; // Emerald Green
+        default:
+            if (weapon == WeaponId::SniperRifle) return {182, 242, 255, 255};
+            if (weapon == WeaponId::HeavyRevolver) return {255, 206, 88, 255};
+            if (weapon == WeaponId::Minigun) return {255, 174, 64, 255};
+            return {255, 232, 142, 255};
+    }
+}
+
+ColorRGBA getOpticReticleColorRGBA(int opticColorIdx, ColorRGBA defaultColor) {
+    switch (opticColorIdx) {
+        case 1: return {255,  58,  58, 255}; // Red
+        case 2: return { 68, 252, 128, 255}; // Green
+        case 3: return { 64, 236, 255, 255}; // Cyan
+        case 4: return {255, 212,  64, 255}; // Gold
+        default: return defaultColor;
+    }
+}
+
+ColorRGBA getVehicleStripeColorRGBA(int stripeStyle, ColorRGBA fallback) {
+    switch (stripeStyle) {
+        case 1: return {246, 248, 252, 255}; // White Dual GT
+        case 2: return {248, 198,  56, 255}; // Royal Gold
+        case 3: return { 48, 228, 255, 255}; // Cyber Cyan
+        case 4: return { 24,  26,  32, 255}; // Stealth Carbon Black
+        default: return fallback;
+    }
+}
+
+ColorRGBA getVehicleHeadlightColorRGBA(int headlightColorIdx, bool nightMode) {
+    switch (headlightColorIdx) {
+        case 1: return { 64, 236, 255, 255}; // Cyber Cyan
+        case 2: return {255, 214,  54, 255}; // GT Endurance Yellow
+        case 3: return {198,  86, 255, 255}; // UV Neon Purple
+        case 4: return {255,  52,  64, 255}; // Demon-Eye Red
+        default:
+            return nightMode ? ColorRGBA{255, 250, 228, 255} : ColorRGBA{236, 242, 252, 255};
+    }
+}
+
+ColorRGBA getDriftSmokeColorRGBA(int driftSmokeColorIdx) {
+    switch (driftSmokeColorIdx) {
+        case 1: return { 64, 232, 255, 215}; // Cyber Cyan
+        case 2: return {252,  68,  82, 215}; // Crimson Red
+        case 3: return {255, 206,  68, 215}; // Royal Gold
+        case 4: return {196,  84, 255, 215}; // Violet Purple
+        case 5: return { 68, 246, 138, 215}; // Emerald Green
+        default: return {225, 228, 232, 185};
+    }
+}
+
+ColorRGBA getCrosshairColorRGBA(int crosshairColorIdx) {
+    switch (crosshairColorIdx) {
+        case 1: return { 72, 255, 124, 240}; // Neon Green
+        case 2: return { 58, 236, 255, 240}; // Cyber Cyan
+        case 3: return {255, 214,  64, 240}; // Solar Gold
+        case 4: return {255,  78, 212, 240}; // Hot Magenta
+        case 5: return {255,  68,  72, 240}; // Crimson Red
+        default: return {245, 248, 255, 235}; // Pure White
+    }
+}
+
+ColorRGBA getHudThemeColorRGBA(int hudThemeIdx) {
+    switch (hudThemeIdx) {
+        case 1: return {255,  96, 204, 255}; // Vice Pink
+        case 2: return {255, 206,  72, 255}; // VIP Gold
+        case 3: return { 76, 242, 148, 255}; // Emerald Green
+        default: return { 82, 218, 255, 255}; // Cyber Cyan
+    }
+}
+
 GameWorld::GameWorld(std::uint64_t seed)
     : seed_(seed), rng_(seed), city_() {
     city_.generate(seed_);
@@ -188,10 +342,12 @@ void GameWorld::reset() {
     player_.currentWeapon = WeaponId::Pistol;
 
     for (auto& ws : player_.weapons) {
-        ws = {false, 0, 0};
+        ws = WeaponSlotState{};
     }
-    player_.weapons[static_cast<std::size_t>(WeaponId::Fists)]  = {true,  0,  0};
-    player_.weapons[static_cast<std::size_t>(WeaponId::Pistol)] = {true, 12, 84};
+    player_.weapons[static_cast<std::size_t>(WeaponId::Fists)].owned = true;
+    player_.weapons[static_cast<std::size_t>(WeaponId::Pistol)].owned = true;
+    player_.weapons[static_cast<std::size_t>(WeaponId::Pistol)].magAmmo = 12;
+    player_.weapons[static_cast<std::size_t>(WeaponId::Pistol)].reserveAmmo = 84;
 
     // Initialize default personal garage colors + starter owned hatchback
     player_.garage[static_cast<std::size_t>(VehicleKind::Compact)].owned = true;
@@ -199,11 +355,13 @@ void GameWorld::reset() {
     player_.garage[static_cast<std::size_t>(VehicleKind::MuscleCar)].paintColor = {242, 132, 34, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::SportsCoupe)].paintColor = {228, 42, 58, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::SportsCoupe)].customSpoiler = true;
+    player_.garage[static_cast<std::size_t>(VehicleKind::SportsCoupe)].spoilerStyle = 1;
     player_.garage[static_cast<std::size_t>(VehicleKind::LuxurySedan)].paintColor = {28, 32, 42, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::ArmoredSuv)].paintColor = {52, 58, 64, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::ArmoredSuv)].mattePaint = true;
     player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].paintColor = {248, 196, 38, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].customSpoiler = true;
+    player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].spoilerStyle = 1;
     player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].neonPreset = 1;
     player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].rimStyle = 1;
     player_.garage[static_cast<std::size_t>(VehicleKind::OffroadPickup)].paintColor = {232, 126, 36, 255};
@@ -212,11 +370,13 @@ void GameWorld::reset() {
     player_.garage[static_cast<std::size_t>(VehicleKind::ClassicRoadster)].stripeColor = {248, 248, 252, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].paintColor = {42, 116, 246, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].customSpoiler = true;
+    player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].spoilerStyle = 1;
     player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].neonPreset = 2;
     player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].rimStyle = 1;
     player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].paintColor = {32, 224, 172, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].stripeColor = {255, 72, 64, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].customSpoiler = true;
+    player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].spoilerStyle = 2;
     player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].neonPreset = 4;
     player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].rimStyle = 2;
 
@@ -237,8 +397,8 @@ void GameWorld::reset() {
 
     spawnInitialWorld();
     pushBanner("WELCOME TO SUNSET BAY", "선셋 베이 시티에 오신 것을 환영합니다",
-               "[V] 1st/3rd Person  |  16 Vehicles & 11 Weapons  |  [P] Smartphone",
-               "[V] 1인칭·3인칭 전환 · 신규 총기 11종 & 차량 16종 · [P] 스마트폰",
+               "[K] Custom Studio  |  [V] 1st/3rd Person  |  [P] Smartphone",
+               "[K] 풀 커스텀 스튜디오 · [V] 1인칭·3인칭 · [P] 스마트폰",
                {92, 224, 255, 255}, 4.8f);
 }
 
@@ -254,6 +414,7 @@ void GameWorld::spawnParkedShowroomCars() {
         v.maxHealth = spec.maxHealth;
         v.paintColor = paint;
         v.customSpoiler = spec.hasSpoiler;
+        v.spoilerStyle = (kind == VehicleKind::TrackPrototype) ? 2 : (spec.hasSpoiler ? 1 : 0);
         v.neonPreset = neon;
         v.rimStyle = rims;
         v.mattePaint = matte;
@@ -579,9 +740,15 @@ void GameWorld::syncPersonalTuningFromVehicle(const Vehicle& car) {
     slot.armorUpgradeLevel = car.armorUpgradeLevel;
     slot.neonPreset = car.neonPreset;
     slot.rimStyle = car.rimStyle;
-    slot.customSpoiler = car.customSpoiler;
+    slot.customSpoiler = car.customSpoiler || (car.spoilerStyle > 0);
     slot.mattePaint = car.mattePaint;
+    slot.chromePaint = car.chromePaint;
     slot.paintPresetIndex = car.paintPresetIndex;
+    slot.stripeStyle = car.stripeStyle;
+    slot.spoilerStyle = car.spoilerStyle;
+    slot.stanceStyle = car.stanceStyle;
+    slot.headlightColorIdx = car.headlightColorIdx;
+    slot.driftSmokeColorIdx = car.driftSmokeColorIdx;
 }
 
 void GameWorld::applyPersonalTuningToVehicle(Vehicle& car, const PersonalVehicleTuning& tune) {
@@ -594,9 +761,15 @@ void GameWorld::applyPersonalTuningToVehicle(Vehicle& car, const PersonalVehicle
     car.armorUpgradeLevel = tune.armorUpgradeLevel;
     car.neonPreset = tune.neonPreset;
     car.rimStyle = tune.rimStyle;
-    car.customSpoiler = tune.customSpoiler;
+    car.spoilerStyle = (tune.spoilerStyle > 0) ? tune.spoilerStyle : (tune.customSpoiler ? 1 : 0);
+    car.customSpoiler = (car.spoilerStyle > 0);
     car.mattePaint = tune.mattePaint;
+    car.chromePaint = tune.chromePaint;
     car.paintPresetIndex = tune.paintPresetIndex;
+    car.stripeStyle = tune.stripeStyle;
+    car.stanceStyle = tune.stanceStyle;
+    car.headlightColorIdx = tune.headlightColorIdx;
+    car.driftSmokeColorIdx = tune.driftSmokeColorIdx;
     car.maxHealth = spec.maxHealth * armorMult;
     car.health = car.maxHealth;
     car.nitroCharge = 1.0f;
@@ -649,6 +822,54 @@ const Vehicle* GameWorld::nearestEnterableVehicle(float maxRange) const {
     if (player_.drivingVehicleId >= 0) return nullptr;
     const Vehicle* best = nullptr;
     float bestDist = maxRange;
+    for (const auto& v : vehicles_) {
+        if (v.destroyed) continue;
+        const float d = (v.pos - player_.pos).length();
+        if (d < bestDist) {
+            bestDist = d;
+            best = &v;
+        }
+    }
+    return best;
+}
+
+Vehicle* GameWorld::customizationTargetVehicle() {
+    if (player_.drivingVehicleId >= 0) {
+        Vehicle* driven = findVehicleMutable(player_.drivingVehicleId);
+        if (driven && !driven->destroyed) return driven;
+    }
+    if (player_.activePersonalVehicleId >= 0) {
+        Vehicle* personal = findVehicleMutable(player_.activePersonalVehicleId);
+        if (personal && !personal->destroyed && (personal->pos - player_.pos).length() <= 14.0f) {
+            return personal;
+        }
+    }
+    Vehicle* best = nullptr;
+    float bestDist = 9.5f;
+    for (auto& v : vehicles_) {
+        if (v.destroyed) continue;
+        const float d = (v.pos - player_.pos).length();
+        if (d < bestDist) {
+            bestDist = d;
+            best = &v;
+        }
+    }
+    return best;
+}
+
+const Vehicle* GameWorld::customizationTargetVehicle() const {
+    if (player_.drivingVehicleId >= 0) {
+        const Vehicle* driven = findVehicle(player_.drivingVehicleId);
+        if (driven && !driven->destroyed) return driven;
+    }
+    if (player_.activePersonalVehicleId >= 0) {
+        const Vehicle* personal = findVehicle(player_.activePersonalVehicleId);
+        if (personal && !personal->destroyed && (personal->pos - player_.pos).length() <= 14.0f) {
+            return personal;
+        }
+    }
+    const Vehicle* best = nullptr;
+    float bestDist = 9.5f;
     for (const auto& v : vehicles_) {
         if (v.destroyed) continue;
         const float d = (v.pos - player_.pos).length();
@@ -738,6 +959,7 @@ void GameWorld::maintainTrafficPopulation() {
         v.maxHealth = spec.maxHealth;
         v.paintColor = randomTrafficPaint(rng_, kind);
         v.customSpoiler = spec.hasSpoiler;
+        v.spoilerStyle = spec.hasSpoiler ? 1 : 0;
         v.hasNpcDriver = true;
         v.aiHorizontalRoad = horiz;
         v.aiRoadIndex = roadIdx;
@@ -1208,7 +1430,10 @@ bool GameWorld::tryEnterOrExitVehicle() {
 }
 
 void GameWorld::applyDamageToPlayer(float rawDamage) {
-    const float scale = getOutfitSpec(player_.currentOutfit).damageTakenScale;
+    float scale = getOutfitSpec(player_.currentOutfit).damageTakenScale;
+    if (player_.characterCustom.hairOrHatStyle == 4) {
+        scale *= 0.92f; // Full-Face Aero Moto Helmet -8% damage reduction
+    }
     const float dmg = rawDamage * scale;
     const float absorbed = std::min(player_.armor, dmg * 0.65f);
     player_.armor -= absorbed;
@@ -1361,10 +1586,9 @@ bool GameWorld::executePhoneAction(int tabIndex, int optionOneBased) {
             if (player_.cash < price) return false;
             player_.cash -= price;
             auto& slot = player_.weapons[static_cast<std::size_t>(wid)];
-            const auto& spec = getWeaponSpec(wid);
             if (!slot.owned) {
                 slot.owned = true;
-                slot.magAmmo = spec.magazineSize;
+                slot.magAmmo = effectiveMagazineSize(wid, slot.extendedMag);
                 slot.reserveAmmo = addAmmo;
             } else {
                 slot.reserveAmmo += addAmmo;
@@ -1396,9 +1620,10 @@ bool GameWorld::executePhoneAction(int tabIndex, int optionOneBased) {
                 if (player_.cash < 200) return false;
                 player_.cash -= 200;
                 for (int i = 1; i < static_cast<int>(WeaponId::Count); ++i) {
+                    const WeaponId wid = static_cast<WeaponId>(i);
                     auto& s = player_.weapons[static_cast<std::size_t>(i)];
                     if (s.owned) {
-                        s.reserveAmmo += getWeaponSpec(static_cast<WeaponId>(i)).magazineSize * 4;
+                        s.reserveAmmo += effectiveMagazineSize(wid, s.extendedMag) * 4;
                     }
                 }
                 pushAudio(AudioEventType::ShopBuy, 1.0f);
@@ -1429,16 +1654,559 @@ bool GameWorld::executePhoneAction(int tabIndex, int optionOneBased) {
     return false;
 }
 
+bool GameWorld::executeCustomStudioAction(int tabIndex, int optionOneBased) {
+    if (tabIndex < 0 || tabIndex > 3 || optionOneBased < 1 || optionOneBased > 8) return false;
+
+    const float disc = tuningDiscountScale();
+    auto costOf = [&](int basePrice) {
+        return std::max(20, static_cast<int>(std::round(static_cast<float>(basePrice) * disc)));
+    };
+
+    // Tab 0: CHARACTER STUDIO (8 options)
+    if (tabIndex == 0) {
+        auto& cc = player_.characterCustom;
+        switch (optionOneBased) {
+            case 1: {
+                cc.hairOrHatStyle = (cc.hairOrHatStyle + 1) % 7;
+                static constexpr std::array<const char*, 7> kEn = {{
+                    "Classic Short", "Slick Pompadour", "Spiky Mohawk", "Street Snapback",
+                    "Aero Moto Helmet (-8% DMG)", "Cyber Neon Visor", "24K VIP Gold Crown"
+                }};
+                static constexpr std::array<const char*, 7> kKo = {{
+                    "클래식 숏컷", "슬릭 포마드", "스트리트 모호크", "스트리트 스냅백 캡",
+                    "풀페이스 헬멧 (피해 -8%)", "사이버 네온 바이저", "24K VIP 골드 크라운"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.78f);
+                pushBanner("HEADGEAR UPDATED", "헤어·헤드기어 스타일 변경",
+                           kEn[static_cast<std::size_t>(cc.hairOrHatStyle)],
+                           kKo[static_cast<std::size_t>(cc.hairOrHatStyle)],
+                           {96, 226, 255, 255}, 1.8f);
+                return true;
+            }
+            case 2: {
+                cc.hairColorIdx = (cc.hairColorIdx + 1) % 6;
+                static constexpr std::array<const char*, 6> kEn = {{
+                    "Jet Black", "Chestnut Brown", "Platinum Blonde", "Crimson Red", "Cyber Cyan", "Royal Gold"
+                }};
+                static constexpr std::array<const char*, 6> kKo = {{
+                    "제트 블랙", "체스트넛 브라운", "플래티넘 블론드", "크림슨 레드", "사이버 시안", "로얄 골드"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.75f);
+                pushBanner("HAIR / HAT COLOR", "헤어·모자 컬러 변경",
+                           kEn[static_cast<std::size_t>(cc.hairColorIdx)],
+                           kKo[static_cast<std::size_t>(cc.hairColorIdx)],
+                           getPlayerHairColor(player_.currentOutfit, cc.hairColorIdx), 1.8f);
+                return true;
+            }
+            case 3: {
+                cc.glassesStyle = (cc.glassesStyle + 1) % 4;
+                static constexpr std::array<const char*, 4> kEn = {{
+                    "None", "Dark Shades", "Gold Aviator", "Cyan Tactical Goggles"
+                }};
+                static constexpr std::array<const char*, 4> kKo = {{
+                    "착용 안 함", "다크 선글라스", "골드 에비에이터", "사이버 전술 고글"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.75f);
+                pushBanner("EYEWEAR UPDATED", "아이웨어 변경",
+                           kEn[static_cast<std::size_t>(cc.glassesStyle)],
+                           kKo[static_cast<std::size_t>(cc.glassesStyle)],
+                           {88, 224, 255, 255}, 1.8f);
+                return true;
+            }
+            case 4: {
+                cc.skinToneIdx = (cc.skinToneIdx + 1) % 5;
+                static constexpr std::array<const char*, 5> kEn = {{
+                    "Warm Ivory", "Natural Beige", "Golden Tan", "Olive Bronze", "Deep Espresso"
+                }};
+                static constexpr std::array<const char*, 5> kKo = {{
+                    "웜 아이보리", "내추럴 베이지", "골든 태닝", "올리브 브론즈", "딥 에스프레소"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.75f);
+                pushBanner("SKIN TONE UPDATED", "피부 톤 변경 (1인칭 손 반영)",
+                           kEn[static_cast<std::size_t>(cc.skinToneIdx)],
+                           kKo[static_cast<std::size_t>(cc.skinToneIdx)],
+                           getPlayerSkinColor(cc.skinToneIdx), 1.8f);
+                return true;
+            }
+            case 5: {
+                cc.customTopColorIdx = (cc.customTopColorIdx + 1) % 9;
+                static constexpr std::array<const char*, 9> kEn = {{
+                    "Outfit Default", "Crimson Red", "Sapphire Blue", "Stealth Black",
+                    "Arctic White", "Emerald Green", "Royal Gold", "Cyber Cyan", "Neon Violet"
+                }};
+                static constexpr std::array<const char*, 9> kKo = {{
+                    "의상 기본 컬러", "크림슨 레드", "사파이어 블루", "스텔스 블랙",
+                    "아틱 화이트", "에메랄드 그린", "로얄 골드", "사이버 시안", "네온 바이올렛"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.75f);
+                pushBanner("JACKET / TOP COLOR", "상의·소매 커스텀 컬러 변경",
+                           kEn[static_cast<std::size_t>(cc.customTopColorIdx)],
+                           kKo[static_cast<std::size_t>(cc.customTopColorIdx)],
+                           getPlayerTopColor(player_.currentOutfit, cc.customTopColorIdx), 1.8f);
+                return true;
+            }
+            case 6: {
+                cc.customBottomColorIdx = (cc.customBottomColorIdx + 1) % 7;
+                static constexpr std::array<const char*, 7> kEn = {{
+                    "Outfit Default", "Jet Black", "Indigo Denim", "Arctic White",
+                    "Tactical Khaki", "Crimson Track", "Charcoal Grey"
+                }};
+                static constexpr std::array<const char*, 7> kKo = {{
+                    "의상 기본 컬러", "제트 블랙", "인디고 데님", "아틱 화이트",
+                    "택티컬 카키", "크림슨 트랙", "차콜 그레이"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.75f);
+                pushBanner("PANTS COLOR", "하의 커스텀 컬러 변경",
+                           kEn[static_cast<std::size_t>(cc.customBottomColorIdx)],
+                           kKo[static_cast<std::size_t>(cc.customBottomColorIdx)],
+                           getPlayerBottomColor(player_.currentOutfit, cc.customBottomColorIdx), 1.8f);
+                return true;
+            }
+            case 7: {
+                cc.backGearStyle = (cc.backGearStyle + 1) % 4;
+                static constexpr std::array<const char*, 4> kEn = {{
+                    "None", "Tactical Backpack", "Heist Duffle Bag", "Cyber Neon Wing Pack"
+                }};
+                static constexpr std::array<const char*, 4> kKo = {{
+                    "착용 안 함", "전술 백팩", "하이스트 더플백", "사이버 네온 윙팩"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.78f);
+                pushBanner("BACK GEAR EQUIPPED", "등 액세서리 변경",
+                           kEn[static_cast<std::size_t>(cc.backGearStyle)],
+                           kKo[static_cast<std::size_t>(cc.backGearStyle)],
+                           {112, 232, 255, 255}, 1.8f);
+                return true;
+            }
+            case 8: {
+                const int count = static_cast<int>(OutfitId::Count);
+                const int cur = static_cast<int>(player_.currentOutfit);
+                for (int step = 1; step < count; ++step) {
+                    const int cand = (cur + step) % count;
+                    if (player_.ownedOutfits[static_cast<std::size_t>(cand)]) {
+                        return buyOrEquipOutfit(static_cast<OutfitId>(cand));
+                    }
+                }
+                const int nextIdx = (cur + 1) % count;
+                return buyOrEquipOutfit(static_cast<OutfitId>(nextIdx));
+            }
+            default:
+                return false;
+        }
+    }
+
+    // Tab 1: WEAPON GUNSMITH (6 options, per-weapon)
+    if (tabIndex == 1) {
+        if (optionOneBased > 6) return false;
+        if (player_.currentWeapon == WeaponId::Fists &&
+            player_.weapons[static_cast<std::size_t>(WeaponId::Pistol)].owned) {
+            player_.currentWeapon = WeaponId::Pistol;
+        }
+        const WeaponId wid = player_.currentWeapon;
+        if (wid == WeaponId::Fists) return false;
+        auto& slot = player_.weapons[static_cast<std::size_t>(wid)];
+        const auto& spec = getWeaponSpec(wid);
+
+        switch (optionOneBased) {
+            case 1: {
+                slot.skinIndex = (slot.skinIndex + 1) % 6;
+                static constexpr std::array<const char*, 6> kEn = {{
+                    "Factory Black", "Brushed Chrome", "24K Royal Gold",
+                    "Crimson Carbon", "Cyber Neon", "Arctic Whiteout"
+                }};
+                static constexpr std::array<const char*, 6> kKo = {{
+                    "팩토리 블랙", "브러시드 실버 크롬", "24K 로얄 골드",
+                    "크림슨 카본", "사이버 네온", "아틱 화이트아웃"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.80f);
+                pushBanner("WEAPON FINISH APPLIED", "총기 도색·피니시 스킨 장착",
+                           kEn[static_cast<std::size_t>(slot.skinIndex)],
+                           kKo[static_cast<std::size_t>(slot.skinIndex)],
+                           getWeaponFinishMaterial(wid, slot.skinIndex).primary, 1.9f);
+                return true;
+            }
+            case 2: {
+                if (!weaponSupportsSuppressor(wid)) {
+                    pushBanner("INCOMPATIBLE BARREL", "해당 중화기는 소음기 장착 불가",
+                               spec.nameEn, spec.nameKo, {235, 92, 82, 255}, 1.9f);
+                    return false;
+                }
+                if (!slot.suppressorOwned) {
+                    const int price = costOf(250);
+                    if (player_.cash < price) return false;
+                    player_.cash -= price;
+                    slot.suppressorOwned = true;
+                    slot.suppressor = true;
+                } else {
+                    slot.suppressor = !slot.suppressor;
+                }
+                pushAudio(AudioEventType::ShopBuy, 0.88f);
+                pushBanner(slot.suppressor ? "SUPPRESSOR ATTACHED" : "SUPPRESSOR REMOVED",
+                           slot.suppressor ? "전술 소음기 장착 (은밀 사격·반동 감소)" : "전술 소음기 탈거",
+                           spec.nameEn, spec.nameKo, {92, 238, 178, 255}, 2.0f);
+                return true;
+            }
+            case 3: {
+                if (spec.magazineSize <= 0) return false;
+                if (!slot.extendedMagOwned) {
+                    const int price = costOf(200);
+                    if (player_.cash < price) return false;
+                    player_.cash -= price;
+                    slot.extendedMagOwned = true;
+                    slot.extendedMag = true;
+                    slot.magAmmo = effectiveMagazineSize(wid, true);
+                } else {
+                    slot.extendedMag = !slot.extendedMag;
+                    const int newCap = effectiveMagazineSize(wid, slot.extendedMag);
+                    if (slot.magAmmo > newCap) {
+                        slot.reserveAmmo += (slot.magAmmo - newCap);
+                        slot.magAmmo = newCap;
+                    } else if (slot.extendedMag && slot.magAmmo < newCap && slot.reserveAmmo > 0) {
+                        const int add = std::min(newCap - slot.magAmmo, slot.reserveAmmo);
+                        slot.magAmmo += add;
+                        slot.reserveAmmo -= add;
+                    }
+                }
+                pushAudio(AudioEventType::ShopBuy, 0.88f);
+                char subKo[80];
+                std::snprintf(subKo, sizeof(subKo), "%s (%d발 탄창)", spec.nameKo,
+                              effectiveMagazineSize(wid, slot.extendedMag));
+                pushBanner(slot.extendedMag ? "EXTENDED MAG EQUIPPED" : "STANDARD MAG EQUIPPED",
+                           slot.extendedMag ? "대용량 확장 탄창 장착 (+50% 장탄수)" : "기본 탄창 장착",
+                           spec.nameEn, subKo, {255, 210, 76, 255}, 2.0f);
+                return true;
+            }
+            case 4: {
+                slot.laserSightColor = (slot.laserSightColor + 1) % 4;
+                static constexpr std::array<const char*, 4> kEn = {{
+                    "Laser OFF", "Tactical Red Laser (+30% Hip Accuracy)",
+                    "Spec-Ops Green Laser (+30% Hip Accuracy)", "Cyber Cyan Laser (+30% Hip Accuracy)"
+                }};
+                static constexpr std::array<const char*, 4> kKo = {{
+                    "레이저 해제", "전술 레드 레이저 (지향사격 집탄 +30%)",
+                    "특수작전 그린 레이저 (지향사격 집탄 +30%)", "사이버 시안 레이저 (지향사격 집탄 +30%)"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.78f);
+                const ColorRGBA lCol = (slot.laserSightColor > 0)
+                                           ? getLaserSightColorRGBA(slot.laserSightColor)
+                                           : ColorRGBA{176, 186, 202, 255};
+                pushBanner("TACTICAL LASER SIGHT", "3D 전술 레이저 사이트 설정",
+                           kEn[static_cast<std::size_t>(slot.laserSightColor)],
+                           kKo[static_cast<std::size_t>(slot.laserSightColor)],
+                           lCol, 1.9f);
+                return true;
+            }
+            case 5: {
+                slot.tracerColorIdx = (slot.tracerColorIdx + 1) % 6;
+                static constexpr std::array<const char*, 6> kEn = {{
+                    "Standard Brass", "Solar Gold Tracer", "Cyber Cyan Tracer",
+                    "Crimson Laser Tracer", "Plasma Purple Tracer", "Emerald Green Tracer"
+                }};
+                static constexpr std::array<const char*, 6> kKo = {{
+                    "기본 예광탄", "솔라 골드 예광탄", "사이버 시안 예광탄",
+                    "크림슨 레드 예광탄", "플라즈마 퍼플 예광탄", "에메랄드 그린 예광탄"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.75f);
+                pushBanner("BULLET TRACER COLOR", "예광탄 궤적 컬러 변경",
+                           kEn[static_cast<std::size_t>(slot.tracerColorIdx)],
+                           kKo[static_cast<std::size_t>(slot.tracerColorIdx)],
+                           getCustomTracerColorRGBA(wid, slot.tracerColorIdx), 1.8f);
+                return true;
+            }
+            case 6: {
+                slot.opticColorIdx = (slot.opticColorIdx + 1) % 5;
+                static constexpr std::array<const char*, 5> kEn = {{
+                    "Default Reticle", "Crimson Red Optic", "Emerald Green Optic",
+                    "Cyber Cyan Optic", "Solar Gold Optic"
+                }};
+                static constexpr std::array<const char*, 5> kKo = {{
+                    "기본 도트·스코프", "레드 도트·스코프", "그린 도트·스코프",
+                    "시안 도트·스코프", "골드 도트·스코프"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.75f);
+                pushBanner("OPTIC RETICLE TINT", "1인칭 도트·저격 스코프 색상 변경",
+                           kEn[static_cast<std::size_t>(slot.opticColorIdx)],
+                           kKo[static_cast<std::size_t>(slot.opticColorIdx)],
+                           getOpticReticleColorRGBA(slot.opticColorIdx, {92, 232, 255, 255}), 1.8f);
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    // Tab 2: VEHICLE FULL CUSTOM STUDIO (8 options)
+    if (tabIndex == 2) {
+        Vehicle* car = customizationTargetVehicle();
+        if (!car) {
+            pushBanner("NO VEHICLE IN RANGE", "커스텀할 차량이 근처에 없습니다",
+                       "Enter a car or summon via [P] Phone", "차량에 탑승하거나 [P] 스마트폰으로 호출하세요",
+                       {242, 96, 86, 255}, 2.2f);
+            return false;
+        }
+
+        switch (optionOneBased) {
+            case 1: {
+                car->paintPresetIndex = (car->paintPresetIndex + 1) % static_cast<int>(kCustomPaints.size());
+                const auto& preset = kCustomPaints[static_cast<std::size_t>(car->paintPresetIndex)];
+                car->paintColor = preset.paint;
+                if (car->stripeStyle == 0) {
+                    car->stripeColor = preset.stripe;
+                }
+                car->mattePaint = preset.matte;
+                car->chromePaint = preset.chrome;
+                syncPersonalTuningFromVehicle(*car);
+
+                bool clearedWanted = false;
+                if (player_.wantedLevel > 0 && player_.cash >= costOf(100)) {
+                    bool copClose = false;
+                    const Vec2 gPos = playerWorldPos();
+                    for (const auto& n : npcs_) {
+                        if (n.alive && n.role == NpcRole::Police && (n.pos - gPos).lengthSq() < 16.0f * 16.0f) {
+                            copClose = true;
+                            break;
+                        }
+                    }
+                    if (!copClose) {
+                        player_.cash -= costOf(100);
+                        clearWantedLevel(false);
+                        clearedWanted = true;
+                    }
+                }
+                pushAudio(AudioEventType::ShopBuy, 0.85f);
+                pushBanner(clearedWanted ? "RESPRAYED & WANTED CLEARED" : "STUDIO PAINT & WRAP",
+                           clearedWanted ? "도색 위장 성공! 경찰 수배 해제" : "차체 도색·크롬 랩핑 변경",
+                           preset.nameEn, preset.nameKo, car->paintColor, 2.0f);
+                return true;
+            }
+            case 2: {
+                car->stripeStyle = (car->stripeStyle + 1) % 5;
+                if (car->stripeStyle > 0) {
+                    car->stripeColor = getVehicleStripeColorRGBA(car->stripeStyle, car->stripeColor);
+                }
+                syncPersonalTuningFromVehicle(*car);
+                static constexpr std::array<const char*, 5> kEn = {{
+                    "No Stripes", "White Dual GT Stripes", "Royal Gold Stripes",
+                    "Cyber Cyan Stripes", "Stealth Carbon Stripes"
+                }};
+                static constexpr std::array<const char*, 5> kKo = {{
+                    "스트라이프 없음", "화이트 듀얼 GT 데칼", "로얄 골드 스트라이프",
+                    "사이버 시안 스트라이프", "스텔스 카본 블랙 데칼"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.78f);
+                pushBanner("RACING LIVERY", "레이싱 스트라이프 데칼 변경",
+                           kEn[static_cast<std::size_t>(car->stripeStyle)],
+                           kKo[static_cast<std::size_t>(car->stripeStyle)],
+                           (car->stripeStyle > 0) ? car->stripeColor : ColorRGBA{190, 198, 212, 255}, 1.9f);
+                return true;
+            }
+            case 3: {
+                car->rimStyle = (car->rimStyle + 1) % 5;
+                syncPersonalTuningFromVehicle(*car);
+                static constexpr std::array<const char*, 5> kEn = {{
+                    "Silver Alloy", "Champagne Gold", "Gloss Black", "Cyber Cyan Forged", "Crimson Track"
+                }};
+                static constexpr std::array<const char*, 5> kKo = {{
+                    "실버 알로이 휠", "샴페인 골드 단조 휠", "글로스 블랙 휠", "사이버 시안 단조 휠", "크림슨 트랙 휠"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.78f);
+                pushBanner("FORGED WHEELS", "커스텀 단조 휠 변경",
+                           kEn[static_cast<std::size_t>(car->rimStyle)],
+                           kKo[static_cast<std::size_t>(car->rimStyle)],
+                           {238, 212, 112, 255}, 1.9f);
+                return true;
+            }
+            case 4: {
+                car->spoilerStyle = (car->spoilerStyle + 1) % 3;
+                car->customSpoiler = (car->spoilerStyle > 0);
+                syncPersonalTuningFromVehicle(*car);
+                static constexpr std::array<const char*, 3> kEn = {{
+                    "Stock Deck (No Wing)", "Carbon GT Wing (+2% Grip)", "Swan-Neck Time-Attack Wing (+6% Grip)"
+                }};
+                static constexpr std::array<const char*, 3> kKo = {{
+                    "순정 (스포일러 탈거)", "카본 GT 스포일러 (그립 +2%)", "스완넥 타임어택 대형 윙 (그립 +6%)"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.80f);
+                pushBanner("REAR AERO WING", "리어 에어로 윙 튜닝",
+                           kEn[static_cast<std::size_t>(car->spoilerStyle)],
+                           kKo[static_cast<std::size_t>(car->spoilerStyle)],
+                           {255, 204, 72, 255}, 1.9f);
+                return true;
+            }
+            case 5: {
+                car->stanceStyle = (car->stanceStyle + 1) % 4;
+                syncPersonalTuningFromVehicle(*car);
+                static constexpr std::array<const char*, 4> kEn = {{
+                    "Stock Ride Height", "Street Lowered (-45mm)",
+                    "Slammed Negative Camber (-82mm)", "Off-Road Rally Lift (+95mm)"
+                }};
+                static constexpr std::array<const char*, 4> kKo = {{
+                    "순정 서스펜션 차고", "스트리트 로우다운 (-45mm)",
+                    "슬램드 마이너스 캠버 (-82mm)", "오프로드 리프트업 (+95mm)"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.80f);
+                pushBanner("SUSPENSION & CAMBER", "차고·캠버 서스펜션 세팅",
+                           kEn[static_cast<std::size_t>(car->stanceStyle)],
+                           kKo[static_cast<std::size_t>(car->stanceStyle)],
+                           {96, 228, 255, 255}, 1.9f);
+                return true;
+            }
+            case 6: {
+                car->headlightColorIdx = (car->headlightColorIdx + 1) % 5;
+                syncPersonalTuningFromVehicle(*car);
+                static constexpr std::array<const char*, 5> kEn = {{
+                    "Xenon Pure White", "Cyber Cyan LED", "GT Endurance Yellow",
+                    "UV Neon Purple", "Demon-Eye Crimson"
+                }};
+                static constexpr std::array<const char*, 5> kKo = {{
+                    "제논 화이트 라이트", "사이버 시안 헤드라이트", "GT 옐로우 레이싱 라이트",
+                    "UV 퍼플 네온 라이트", "데몬아이 레드 헤드라이트"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.78f);
+                pushBanner("HEADLIGHT BEAM TINT", "헤드라이트·야간 조사광 컬러 변경",
+                           kEn[static_cast<std::size_t>(car->headlightColorIdx)],
+                           kKo[static_cast<std::size_t>(car->headlightColorIdx)],
+                           getVehicleHeadlightColorRGBA(car->headlightColorIdx, true), 1.9f);
+                return true;
+            }
+            case 7: {
+                car->neonPreset = (car->neonPreset + 1) % 6;
+                syncPersonalTuningFromVehicle(*car);
+                static constexpr std::array<const char*, 6> kEn = {{
+                    "Underglow OFF", "Cyber Cyan Neon", "Ultraviolet Neon",
+                    "Crimson Red Neon", "Emerald Green Neon", "Solar Gold Neon"
+                }};
+                static constexpr std::array<const char*, 6> kKo = {{
+                    "네온 언더글로우 해제", "사이버 시안 네온", "울트라 퍼플 네온",
+                    "크림슨 레드 네온", "에메랄드 그린 네온", "솔라 골드 네온"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.78f);
+                const ColorRGBA nCol = (car->neonPreset > 0)
+                                           ? getNeonPresetColor(car->neonPreset)
+                                           : ColorRGBA{185, 195, 210, 255};
+                pushBanner("LED UNDERGLOW", "차량 하부 네온 언더글로우 설정",
+                           kEn[static_cast<std::size_t>(car->neonPreset)],
+                           kKo[static_cast<std::size_t>(car->neonPreset)],
+                           nCol, 1.9f);
+                return true;
+            }
+            case 8: {
+                car->driftSmokeColorIdx = (car->driftSmokeColorIdx + 1) % 6;
+                syncPersonalTuningFromVehicle(*car);
+                static constexpr std::array<const char*, 6> kEn = {{
+                    "Classic White Smoke", "Cyber Cyan Tire Smoke", "Crimson Red Tire Smoke",
+                    "Royal Gold Tire Smoke", "Violet Tire Smoke", "Emerald Tire Smoke"
+                }};
+                static constexpr std::array<const char*, 6> kKo = {{
+                    "클래식 화이트 타이어 연기", "사이버 시안 드리프트 연기", "크림슨 레드 드리프트 연기",
+                    "로얄 골드 드리프트 연기", "바이올렛 드리프트 연기", "에메랄드 드리프트 연기"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.78f);
+                pushBanner("DRIFT TIRE SMOKE", "드리프트 타이어 스모크 컬러 변경",
+                           kEn[static_cast<std::size_t>(car->driftSmokeColorIdx)],
+                           kKo[static_cast<std::size_t>(car->driftSmokeColorIdx)],
+                           getDriftSmokeColorRGBA(car->driftSmokeColorIdx), 1.9f);
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    // Tab 3: CROSSHAIR & HUD STUDIO (6 options)
+    if (tabIndex == 3) {
+        if (optionOneBased > 6) return false;
+        auto& hc = player_.hudCustom;
+        switch (optionOneBased) {
+            case 1: {
+                hc.crosshairStyle = (hc.crosshairStyle + 1) % 4;
+                static constexpr std::array<const char*, 4> kEn = {{
+                    "Dynamic Cross + Dot", "Pinpoint Center Dot", "Tactical Circle + Dot", "Spec-Ops Chevron"
+                }};
+                static constexpr std::array<const char*, 4> kKo = {{
+                    "다이나믹 십자선 + 도트", "핀포인트 정밀 도트", "택티컬 서클 + 도트", "특수전 쉐브론 조준선"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.72f);
+                pushBanner("CROSSHAIR STYLE", "조준선 모양 변경",
+                           kEn[static_cast<std::size_t>(hc.crosshairStyle)],
+                           kKo[static_cast<std::size_t>(hc.crosshairStyle)],
+                           getCrosshairColorRGBA(hc.crosshairColorIdx), 1.7f);
+                return true;
+            }
+            case 2: {
+                hc.crosshairColorIdx = (hc.crosshairColorIdx + 1) % 6;
+                static constexpr std::array<const char*, 6> kEn = {{
+                    "Pure White", "Neon Green", "Cyber Cyan", "Solar Gold", "Hot Magenta", "Crimson Red"
+                }};
+                static constexpr std::array<const char*, 6> kKo = {{
+                    "퓨어 화이트", "네온 그린", "사이버 시안", "솔라 골드", "핫 마젠타", "크림슨 레드"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.72f);
+                pushBanner("CROSSHAIR COLOR", "조준선 컬러 변경",
+                           kEn[static_cast<std::size_t>(hc.crosshairColorIdx)],
+                           kKo[static_cast<std::size_t>(hc.crosshairColorIdx)],
+                           getCrosshairColorRGBA(hc.crosshairColorIdx), 1.7f);
+                return true;
+            }
+            case 3: {
+                hc.crosshairScaleIdx = (hc.crosshairScaleIdx + 1) % 3;
+                static constexpr std::array<const char*, 3> kEn = {{"Compact (80%)", "Standard (100%)", "Large (130%)"}};
+                static constexpr std::array<const char*, 3> kKo = {{"소형 (80%)", "표준 (100%)", "대형 (130%)"}};
+                pushAudio(AudioEventType::ShopBuy, 0.72f);
+                pushBanner("CROSSHAIR SCALE", "조준선 크기 배율 변경",
+                           kEn[static_cast<std::size_t>(hc.crosshairScaleIdx)],
+                           kKo[static_cast<std::size_t>(hc.crosshairScaleIdx)],
+                           getCrosshairColorRGBA(hc.crosshairColorIdx), 1.7f);
+                return true;
+            }
+            case 4: {
+                hc.crosshairOutline = !hc.crosshairOutline;
+                pushAudio(AudioEventType::ShopBuy, 0.72f);
+                pushBanner("CROSSHAIR OUTLINE", "조준선 외곽 그림자 테두리",
+                           hc.crosshairOutline ? "Outline ON" : "Outline OFF",
+                           hc.crosshairOutline ? "외곽 테두리 켜짐" : "외곽 테두리 꺼짐",
+                           {192, 224, 255, 255}, 1.7f);
+                return true;
+            }
+            case 5: {
+                hc.useMph = !hc.useMph;
+                pushAudio(AudioEventType::ShopBuy, 0.72f);
+                pushBanner("SPEEDOMETER UNIT", "속도계 단위 변경",
+                           hc.useMph ? "MPH (Miles / Hour)" : "KM/H (Kilometers / Hour)",
+                           hc.useMph ? "MPH (마일 속도계)" : "KM/H (킬로미터 속도계)",
+                           getHudThemeColorRGBA(hc.hudThemeIdx), 1.7f);
+                return true;
+            }
+            case 6: {
+                hc.hudThemeIdx = (hc.hudThemeIdx + 1) % 4;
+                static constexpr std::array<const char*, 4> kEn = {{
+                    "Cyber Cyan", "Vice Neon Pink", "VIP Royal Gold", "Emerald Matrix"
+                }};
+                static constexpr std::array<const char*, 4> kKo = {{
+                    "사이버 시안 테마", "바이스 핑크 테마", "VIP 로얄 골드 테마", "에메랄드 그린 테마"
+                }};
+                pushAudio(AudioEventType::ShopBuy, 0.75f);
+                pushBanner("HUD ACCENT THEME", "인터페이스 HUD 테마 컬러 변경",
+                           kEn[static_cast<std::size_t>(hc.hudThemeIdx)],
+                           kKo[static_cast<std::size_t>(hc.hudThemeIdx)],
+                           getHudThemeColorRGBA(hc.hudThemeIdx), 1.8f);
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+    return false;
+}
+
 bool GameWorld::purchaseShopItem(int optionOneBased) {
     if (isPlayerInWeaponShopZone()) {
         auto buyWeapon = [&](WeaponId wid, int addAmmo, int price, const char* labelEn, const char* labelKo) {
             if (player_.cash < price) return false;
             player_.cash -= price;
             auto& slot = player_.weapons[static_cast<std::size_t>(wid)];
-            const auto& spec = getWeaponSpec(wid);
             if (!slot.owned) {
                 slot.owned = true;
-                slot.magAmmo = spec.magazineSize;
+                slot.magAmmo = effectiveMagazineSize(wid, slot.extendedMag);
                 slot.reserveAmmo = addAmmo;
             } else {
                 slot.reserveAmmo += addAmmo;
@@ -1457,9 +2225,10 @@ bool GameWorld::purchaseShopItem(int optionOneBased) {
                 if (player_.cash < 150) return false;
                 player_.cash -= 150;
                 for (int i = 1; i < static_cast<int>(WeaponId::Count); ++i) {
+                    const WeaponId wid = static_cast<WeaponId>(i);
                     auto& s = player_.weapons[static_cast<std::size_t>(i)];
                     if (s.owned) {
-                        s.reserveAmmo += getWeaponSpec(static_cast<WeaponId>(i)).magazineSize * 4;
+                        s.reserveAmmo += effectiveMagazineSize(wid, s.extendedMag) * 4;
                     }
                 }
                 pushAudio(AudioEventType::ShopBuy, 1.0f);
@@ -1583,11 +2352,13 @@ bool GameWorld::purchaseShopItem(int optionOneBased) {
                 const int price = costOf(300);
                 if (player_.cash < price) return false;
                 player_.cash -= price;
-                car->customSpoiler = !car->customSpoiler;
+                car->spoilerStyle = (car->spoilerStyle + 1) % 3;
+                car->customSpoiler = (car->spoilerStyle > 0);
                 syncPersonalTuningFromVehicle(*car);
                 pushAudio(AudioEventType::ShopBuy, 1.0f);
                 pushBanner("GT AERO SPOILER",
-                           car->customSpoiler ? "카본 GT 에어로 스포일러 장착!" : "리어 스포일러 탈거 완료",
+                           (car->spoilerStyle == 2) ? "스완넥 타임어택 대형 윙 장착!"
+                                                    : (car->customSpoiler ? "카본 GT 에어로 스포일러 장착!" : "리어 스포일러 탈거 완료"),
                            "Custom Rear Wing", "리어 에어로 파츠 튜닝 완료", {255, 202, 72, 255}, 2.0f);
                 return true;
             }
@@ -1595,12 +2366,15 @@ bool GameWorld::purchaseShopItem(int optionOneBased) {
                 const int price = costOf(250);
                 if (player_.cash < price) return false;
                 player_.cash -= price;
-                car->rimStyle = (car->rimStyle + 1) % 3;
+                car->rimStyle = (car->rimStyle + 1) % 5;
                 syncPersonalTuningFromVehicle(*car);
                 pushAudio(AudioEventType::ShopBuy, 1.0f);
-                const char* rimKo = (car->rimStyle == 0) ? "실버 알로이 휠 장착"
-                                  : ((car->rimStyle == 1) ? "샴페인 골드 단조 휠 장착" : "글로스 블랙 스포츠 휠 장착");
-                pushBanner("FORGED ALLOY RIMS", "커스텀 단조 휠 교체 완료", "Forged Wheel Set", rimKo, {235, 212, 118, 255}, 2.0f);
+                static constexpr std::array<const char*, 5> kRimKo = {{
+                    "실버 알로이 휠 장착", "샴페인 골드 단조 휠 장착",
+                    "글로스 블랙 스포츠 휠 장착", "사이버 시안 단조 휠 장착", "크림슨 트랙 단조 휠 장착"
+                }};
+                pushBanner("FORGED ALLOY RIMS", "커스텀 단조 휠 교체 완료", "Forged Wheel Set",
+                           kRimKo[static_cast<std::size_t>(car->rimStyle)], {235, 212, 118, 255}, 2.0f);
                 return true;
             }
             case 7: {
@@ -1610,8 +2384,11 @@ bool GameWorld::purchaseShopItem(int optionOneBased) {
                 car->paintPresetIndex = (car->paintPresetIndex + 1) % static_cast<int>(kCustomPaints.size());
                 const auto& preset = kCustomPaints[static_cast<std::size_t>(car->paintPresetIndex)];
                 car->paintColor = preset.paint;
-                car->stripeColor = preset.stripe;
+                if (car->stripeStyle == 0) {
+                    car->stripeColor = preset.stripe;
+                }
                 car->mattePaint = preset.matte;
+                car->chromePaint = preset.chrome;
                 car->health = car->maxHealth;
                 syncPersonalTuningFromVehicle(*car);
                 const bool clearedWanted = canDisguiseWanted();
@@ -1921,6 +2698,12 @@ void GameWorld::update(float dt, const PlayerInput& input) {
     // Smartphone purchase / summon / equip / bribe input (options 1..10)
     if (input.phoneTab >= 0 && input.phoneTab <= 3 && input.phoneOption >= 1 && input.phoneOption <= 10) {
         executePhoneAction(input.phoneTab, input.phoneOption);
+    }
+
+    // Custom Studio [K] character / gunsmith / vehicle / HUD input (options 1..8)
+    if (input.customStudioTab >= 0 && input.customStudioTab <= 3 &&
+        input.customStudioOption >= 1 && input.customStudioOption <= 8) {
+        executeCustomStudioAction(input.customStudioTab, input.customStudioOption);
     }
 
     // Weapon slot selection (slots 0..10)
@@ -2310,6 +3093,7 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
     const float previewRange = std::max(spec.range + 15.0f, 210.0f);
     const RayHit3D crosshairHit = traceWorldRay3D(traceOrigin, traceDir, previewRange);
     const Vec3 aimPoint3D = crosshairHit.point;
+    player_.crosshairPoint3D = aimPoint3D;
 
     const float distFromPlayer = (aimPoint3D - Vec3{player_.pos.x, player_.posY + 1.35f, player_.pos.z}).length();
     player_.crosshairHitDist = distFromPlayer;
@@ -2362,10 +3146,12 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
         player_.aimPitch = lerpf(player_.aimPitch, clampf(input.aimPitch * 0.35f, -0.45f, 0.45f), dt * 10.0f);
     }
 
+    const int magCap = effectiveMagazineSize(player_.currentWeapon, slot.extendedMag);
+
     if (player_.reloadTimer > 0.0f) {
         player_.reloadTimer -= dt;
-        if (player_.reloadTimer <= 0.0f && spec.magazineSize > 0) {
-            const int needed = spec.magazineSize - slot.magAmmo;
+        if (player_.reloadTimer <= 0.0f && magCap > 0) {
+            const int needed = std::max(0, magCap - slot.magAmmo);
             const int transfer = std::min(needed, slot.reserveAmmo);
             slot.magAmmo += transfer;
             slot.reserveAmmo -= transfer;
@@ -2373,8 +3159,8 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
         return;
     }
 
-    if (input.reloadPressed && spec.magazineSize > 0 &&
-        slot.magAmmo < spec.magazineSize && slot.reserveAmmo > 0) {
+    if (input.reloadPressed && magCap > 0 &&
+        slot.magAmmo < magCap && slot.reserveAmmo > 0) {
         player_.reloadTimer = spec.reloadDuration;
         return;
     }
@@ -2383,7 +3169,7 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
         return;
     }
 
-    if (spec.magazineSize > 0) {
+    if (magCap > 0) {
         if (slot.magAmmo <= 0) {
             if (slot.reserveAmmo > 0) {
                 player_.reloadTimer = spec.reloadDuration;
@@ -2396,8 +3182,9 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
         }
     }
 
+    const bool silenced = slot.suppressor && weaponSupportsSuppressor(player_.currentWeapon);
     player_.fireCooldown = spec.fireInterval;
-    player_.muzzleFlashTimer = (player_.currentWeapon == WeaponId::Fists) ? 0.0f : 0.055f;
+    player_.muzzleFlashTimer = (player_.currentWeapon == WeaponId::Fists || silenced) ? 0.0f : 0.055f;
 
     Vec3 muzzle3D{};
     if (input.firstPerson && input.hasAimRay3D) {
@@ -2496,24 +3283,33 @@ void GameWorld::triggerExplosiveBlast3D(const Vec3& center, float radius, float 
 
 void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& target3D, bool precisionAim) {
     const auto& spec = getWeaponSpec(weaponId);
+    const auto& slot = player_.weapons[static_cast<std::size_t>(weaponId)];
+    const bool silenced = slot.suppressor && weaponSupportsSuppressor(weaponId);
 
-    switch (weaponId) {
-        case WeaponId::Fists:         pushAudio(AudioEventType::MeleeSwing, 0.8f); break;
-        case WeaponId::Pistol:        pushAudio(AudioEventType::PistolShot, 0.9f); break;
-        case WeaponId::HeavyRevolver: pushAudio(AudioEventType::HeavyPistolShot, 1.0f); break;
-        case WeaponId::SMG:           pushAudio(AudioEventType::SmgShot, 0.8f); break;
-        case WeaponId::Shotgun:       pushAudio(AudioEventType::ShotgunShot, 1.0f); break;
-        case WeaponId::AutoShotgun:   pushAudio(AudioEventType::ShotgunShot, 0.92f); break;
-        case WeaponId::AssaultRifle:  pushAudio(AudioEventType::RifleShot, 0.95f); break;
-        case WeaponId::SniperRifle:   pushAudio(AudioEventType::SniperShot, 1.0f); break;
-        case WeaponId::CombatMG:      pushAudio(AudioEventType::RifleShot, 1.0f); break;
-        case WeaponId::Minigun:       pushAudio(AudioEventType::MinigunShot, 0.78f); break;
-        case WeaponId::HeavyLauncher: pushAudio(AudioEventType::ShotgunShot, 1.0f); break;
-        default: break;
+    if (silenced) {
+        pushAudio(AudioEventType::SuppressedShot, 0.72f);
+    } else {
+        switch (weaponId) {
+            case WeaponId::Fists:         pushAudio(AudioEventType::MeleeSwing, 0.8f); break;
+            case WeaponId::Pistol:        pushAudio(AudioEventType::PistolShot, 0.9f); break;
+            case WeaponId::HeavyRevolver: pushAudio(AudioEventType::HeavyPistolShot, 1.0f); break;
+            case WeaponId::SMG:           pushAudio(AudioEventType::SmgShot, 0.8f); break;
+            case WeaponId::Shotgun:       pushAudio(AudioEventType::ShotgunShot, 1.0f); break;
+            case WeaponId::AutoShotgun:   pushAudio(AudioEventType::ShotgunShot, 0.92f); break;
+            case WeaponId::AssaultRifle:  pushAudio(AudioEventType::RifleShot, 0.95f); break;
+            case WeaponId::SniperRifle:   pushAudio(AudioEventType::SniperShot, 1.0f); break;
+            case WeaponId::CombatMG:      pushAudio(AudioEventType::RifleShot, 1.0f); break;
+            case WeaponId::Minigun:       pushAudio(AudioEventType::MinigunShot, 0.78f); break;
+            case WeaponId::HeavyLauncher: pushAudio(AudioEventType::ShotgunShot, 1.0f); break;
+            default: break;
+        }
     }
 
     if (weaponId == WeaponId::Fists) {
         triggerCivilianPanicNear({muzzle3D.x, muzzle3D.z}, 8.5f);
+    } else if (silenced) {
+        triggerCivilianPanicNear({muzzle3D.x, muzzle3D.z}, 8.0f);
+        reportCrime(0.08f, 0, {muzzle3D.x, muzzle3D.z}, false);
     } else {
         triggerCivilianPanicNear({muzzle3D.x, muzzle3D.z}, 36.0f);
         reportCrime(0.52f, 0, {muzzle3D.x, muzzle3D.z}, false);
@@ -2532,9 +3328,15 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
     const Vec3 basisRight = baseDir.cross(worldUp).normalized();
     const Vec3 basisUp = basisRight.cross(baseDir).normalized();
 
-    const float spreadScale = (weaponId == WeaponId::SniperRifle && precisionAim)
-                                  ? 0.008f
-                                  : ((precisionAim && spec.pellets == 1) ? 0.045f : (precisionAim ? 0.68f : 1.0f));
+    float spreadScale = (weaponId == WeaponId::SniperRifle && precisionAim)
+                            ? 0.008f
+                            : ((precisionAim && spec.pellets == 1) ? 0.045f : (precisionAim ? 0.68f : 1.0f));
+    if (silenced) {
+        spreadScale *= 0.85f;
+    }
+    if (!precisionAim && slot.laserSightColor > 0) {
+        spreadScale *= 0.70f;
+    }
     const float maxSpread = spec.spreadRadians * spreadScale;
 
     for (int p = 0; p < spec.pellets; ++p) {
@@ -2547,10 +3349,13 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
         const Vec2 flatDir = Vec2{shotDir.x, shotDir.z}.normalized();
 
         if (spec.explosive) {
+            const ColorRGBA expTr = (slot.tracerColorIdx > 0)
+                                        ? getCustomTracerColorRGBA(weaponId, slot.tracerColorIdx)
+                                        : ColorRGBA{255, 148, 56, 255};
             tracers_.push_back(BulletTracer{
                 muzzle3D,
                 end3D,
-                {255, 148, 56, 255},
+                expTr,
                 0.16f,
                 0.16f
             });
@@ -2558,18 +3363,18 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
             continue;
         }
 
+        const ColorRGBA trCol = getCustomTracerColorRGBA(weaponId, slot.tracerColorIdx);
         if (weaponId != WeaponId::Fists) {
-            ColorRGBA trCol{255, 232, 142, 255};
             float trTtl = 0.065f;
             if (weaponId == WeaponId::SniperRifle) {
-                trCol = {182, 242, 255, 255};
                 trTtl = 0.14f;
             } else if (weaponId == WeaponId::HeavyRevolver) {
-                trCol = {255, 206, 88, 255};
                 trTtl = 0.09f;
             } else if (weaponId == WeaponId::Minigun) {
-                trCol = {255, 174, 64, 255};
                 trTtl = 0.055f;
+            }
+            if (slot.tracerColorIdx > 0) {
+                trTtl = std::max(trTtl, 0.095f);
             }
             tracers_.push_back(BulletTracer{
                 muzzle3D,
@@ -2578,16 +3383,16 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
                 trTtl,
                 trTtl
             });
-            triggerCivilianPanicNear({end3D.x, end3D.z}, 15.0f);
+            triggerCivilianPanicNear({end3D.x, end3D.z}, silenced ? 5.5f : 15.0f);
         }
 
         if (hit.kind == RayHit3D::Kind::Npc && hit.npc) {
             if (hit.npc->role == NpcRole::Police) {
                 reportCrime(3.8f, 3, hit.npc->pos, true);
             } else if (hit.npc->role == NpcRole::Civilian) {
-                reportCrime(1.55f, 1, hit.npc->pos, false);
+                reportCrime(silenced ? 0.85f : 1.55f, 1, hit.npc->pos, false);
             } else {
-                reportCrime(0.55f, 0, hit.npc->pos, false);
+                reportCrime(silenced ? 0.25f : 0.55f, 0, hit.npc->pos, false);
             }
             const float dmg = hit.headshot ? (spec.damage * 1.85f) : spec.damage;
             damageNpc(*hit.npc, dmg, flatDir);
@@ -2603,13 +3408,13 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
                 } else if (hit.vehicle->hasNpcDriver) {
                     hit.vehicle->driverPanicked = true;
                     hit.vehicle->driverPanicTimer = 11.0f;
-                    reportCrime(1.15f, 1, hit.vehicle->pos, false);
+                    reportCrime(silenced ? 0.55f : 1.15f, 1, hit.vehicle->pos, false);
                 }
                 const float armorScale = 1.0f / (1.0f + 0.28f * static_cast<float>(hit.vehicle->armorUpgradeLevel));
                 hit.vehicle->health -= spec.damage * armorScale;
                 player_.hitMarkerTimer = 0.12f;
                 player_.hitMarkerCritical = false;
-                emitParticles(end3D, 6, {255, 198, 72, 255}, 6.0f, 0.15f, 0.28f);
+                emitParticles(end3D, 6, (slot.tracerColorIdx > 0) ? trCol : ColorRGBA{255, 198, 72, 255}, 6.0f, 0.15f, 0.28f);
                 if (hit.vehicle->health <= 0.0f) {
                     explodeVehicle(*hit.vehicle);
                 }
@@ -2621,7 +3426,7 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
             emitParticles(end3D, 5, {215, 215, 220, 255}, 4.8f, 0.15f, 0.32f);
         } else if (hit.kind == RayHit3D::Kind::Building || hit.kind == RayHit3D::Kind::Ground) {
             if (weaponId != WeaponId::Fists) {
-                emitParticles(end3D, 4, {220, 212, 185, 255}, 4.2f, 0.11f, 0.24f);
+                emitParticles(end3D, 4, (slot.tracerColorIdx > 0) ? trCol : ColorRGBA{220, 212, 185, 255}, 4.2f, 0.11f, 0.24f);
             }
         }
     }
@@ -2708,7 +3513,8 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
         lateralSpd = mixed.dot(right);
     }
 
-    const float grip = handbrake ? spec.driftGrip : spec.normalGrip;
+    const float aeroGripBonus = (v.spoilerStyle == 2) ? 1.06f : ((v.customSpoiler || v.spoilerStyle == 1) ? 1.02f : 1.0f);
+    const float grip = (handbrake ? spec.driftGrip : spec.normalGrip) * aeroGripBonus;
     lateralSpd *= std::max(0.0f, 1.0f - grip * dt);
 
     v.velocity = fwd * forwardSpd + right * lateralSpd;
@@ -2733,11 +3539,13 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
         pushSkidMark(rearAxlePrev - wheelOff, rearAxleNow - wheelOff, 0.58f);
         pushSkidMark(rearAxlePrev + wheelOff, rearAxleNow + wheelOff, 0.58f);
 
-        if (rng_.chance(0.65f)) {
+        if (rng_.chance(v.driftSmokeColorIdx > 0 ? 0.82f : 0.65f)) {
+            const ColorRGBA smokeCol = getDriftSmokeColorRGBA(v.driftSmokeColorIdx);
+            const float smokeSize = (v.driftSmokeColorIdx > 0) ? 0.42f : 0.34f;
             emitParticles({rearAxleNow.x - wheelOff.x, 0.18f, rearAxleNow.z - wheelOff.z},
-                          1, {225, 228, 232, 180}, 1.8f, 0.34f, 0.42f);
+                          1, smokeCol, 1.85f, smokeSize, 0.48f);
             emitParticles({rearAxleNow.x + wheelOff.x, 0.18f, rearAxleNow.z + wheelOff.z},
-                          1, {225, 228, 232, 180}, 1.8f, 0.34f, 0.42f);
+                          1, smokeCol, 1.85f, smokeSize, 0.48f);
         }
     }
 

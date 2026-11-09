@@ -76,7 +76,9 @@ private:
                          bool alive, bool armed, WeaponId weapon, float muzzleFlash,
                          float aimPitch, bool hasSunglasses, OutfitId styleOutfit, bool shadowPass,
                          float shadowGroundY = -999.0f, bool jumping = false,
-                         bool panicking = false, bool isPolice = false, bool isSwat = false);
+                         bool panicking = false, bool isPolice = false, bool isSwat = false,
+                         const CharacterCustomState* customChar = nullptr,
+                         const WeaponSlotState* customWep = nullptr);
     void drawPoisAndPickups(const GameWorld& world);
     void drawSkidsTracersParticles(const GameWorld& world);
     void drawGpsOverheadArrow(const GameWorld& world);

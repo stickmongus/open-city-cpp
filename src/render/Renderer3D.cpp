@@ -2023,15 +2023,44 @@ void Renderer3D::drawSceneGeometry(const GameWorld& world, const Camera3D& camer
     // Player character when on foot (rendered in shadowPass even in FPS so player casts a real 3D ground shadow!)
     if (world.player().drivingVehicleId < 0 && !hidePlayerForFps) {
         const auto& pl = world.player();
-        const auto& outSpec = getOutfitSpec(pl.currentOutfit);
         const float surfY = world.surfaceHeightAt(pl.pos);
         const float baseY = std::max(surfY, pl.posY);
+        const auto& wSlot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
         drawCharacter3D(pl.pos, baseY, pl.facingYaw, pl.walkAnimPhase,
-                        outSpec.top, outSpec.bottom, {236, 196, 162, 255},
+                        getPlayerTopColor(pl.currentOutfit, pl.characterCustom.customTopColorIdx),
+                        getPlayerBottomColor(pl.currentOutfit, pl.characterCustom.customBottomColorIdx),
+                        getPlayerSkinColor(pl.characterCustom.skinToneIdx),
                         !pl.wasted, pl.currentWeapon != WeaponId::Fists,
                         pl.currentWeapon, pl.muzzleFlashTimer, pl.aimPitch,
-                        outSpec.sunglasses, pl.currentOutfit, shadowPass,
-                        surfY, !pl.onGround, false, false, false);
+                        pl.characterCustom.glassesStyle > 0, pl.currentOutfit, shadowPass,
+                        surfY, !pl.onGround, false, false, false,
+                        &pl.characterCustom, &wSlot);
+
+        // Live 3rd-person tactical laser sight beam + pinpoint world dot!
+        if (!shadowPass && !pl.wasted && pl.currentWeapon != WeaponId::Fists &&
+            wSlot.laserSightColor > 0 && pl.reloadTimer <= 0.0f) {
+            const float cy = std::cos(pl.facingYaw);
+            const float sy = std::sin(pl.facingYaw);
+            const float ca = std::cos(pl.aimPitch);
+            const float sa = std::sin(pl.aimPitch);
+            constexpr float kGunReach = 0.64f;
+            const Vector3 laserStart{
+                pl.pos.x - sy * 0.27f + cy * ca * kGunReach,
+                baseY + 1.32f + sa * kGunReach,
+                pl.pos.z + cy * 0.27f + sy * ca * kGunReach
+            };
+            const Vector3 laserEnd{
+                pl.crosshairPoint3D.x,
+                pl.crosshairPoint3D.y,
+                pl.crosshairPoint3D.z
+            };
+            Color beamCol = toRayColor(getLaserSightColorRGBA(wSlot.laserSightColor));
+            Color dotCol = beamCol;
+            dotCol.a = 255;
+            DrawLine3D(laserStart, laserEnd, beamCol);
+            drawModelStyled(sphereModel_, laserEnd, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.046f, 0.046f, 0.046f}, dotCol, 0.08f, 0.0f, 3.8f, MatKind::EmissiveGlow);
+        }
     }
 
     // Pedestrians, Gangsters & SBPD Police / SWAT Officers
@@ -2869,20 +2898,25 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
         rlPopMatrix();
     }
 
+    const float stanceOffsetY = v.destroyed ? 0.0f
+                              : ((v.stanceStyle == 1) ? -0.045f
+                              : ((v.stanceStyle == 2) ? -0.082f
+                              : ((v.stanceStyle == 3) ?  0.095f : 0.0f)));
+
     rlPushMatrix();
-    rlTranslatef(v.pos.x, 0.0f, v.pos.z);
+    rlTranslatef(v.pos.x, stanceOffsetY, v.pos.z);
     rlRotatef(-v.heading * kRadToDeg, 0.0f, 1.0f, 0.0f);
     rlRotatef(v.bodyPitch * kRadToDeg, 0.0f, 0.0f, 1.0f);
     rlRotatef(v.bodyRoll * kRadToDeg, 1.0f, 0.0f, 0.0f);
 
     const Color bodyCol = v.destroyed ? Color{44, 42, 40, 255} : toRayColor(v.paintColor);
-    const Color stripeCol = toRayColor(v.stripeColor);
+    const Color stripeCol = toRayColor(getVehicleStripeColorRGBA(v.stripeStyle, v.stripeColor));
     const Color darkTrim{24, 27, 34, 255};
     const Color chromeCol{222, 228, 238, 255};
     const Color smokedGlass{14, 24, 38, 255};
     const MatKind paintMat = v.destroyed ? MatKind::Standard : MatKind::CarClearcoat;
-    const float paintRough = v.destroyed ? 0.88f : (v.mattePaint ? 0.45f : 0.10f);
-    const float paintMetal = v.destroyed ? 0.15f : (v.mattePaint ? 0.25f : 0.48f);
+    const float paintRough = v.destroyed ? 0.88f : (v.chromePaint ? 0.03f : (v.mattePaint ? 0.45f : 0.10f));
+    const float paintMetal = v.destroyed ? 0.15f : (v.chromePaint ? 0.97f : (v.mattePaint ? 0.25f : 0.48f));
 
     // 1st-Person Driver View: draw sculpted clearcoat front hood + fenders + hood signature without cabin occlusion
     if (cockpitHoodOnly) {
@@ -2908,13 +2942,14 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                                 {0.0f, 1.0f, 0.0f}, 0.0f, {hoodLen * 0.92f, 0.055f, W * 0.16f},
                                 bodyCol, paintRough, paintMetal, 0.0f, paintMat);
             }
-            if (v.kind == VehicleKind::ClassicRoadster) {
+            if (v.stripeStyle > 0 || v.kind == VehicleKind::ClassicRoadster) {
                 drawModelStyled(cubeModel_, {0.02f, 0.044f, -0.18f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {hoodLen * 0.94f, 0.014f, 0.16f}, stripeCol, 0.12f, 0.35f, 0.0f, paintMat);
                 drawModelStyled(cubeModel_, {0.02f, 0.044f,  0.18f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {hoodLen * 0.94f, 0.014f, 0.16f}, stripeCol, 0.12f, 0.35f, 0.0f, paintMat);
-            } else if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype ||
-                       v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::JdmTuner) {
+            }
+            if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype ||
+                v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::JdmTuner) {
                 drawModelStyled(cubeModel_, {0.08f, 0.036f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {hoodLen * 0.52f, 0.025f, W * 0.26f}, darkTrim, 0.38f, 0.45f, 0.0f, MatKind::Standard);
             } else if (v.kind == VehicleKind::MuscleCar) {
@@ -2941,7 +2976,9 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                             bodyCol, paintRough, paintMetal, 0.0f, paintMat);
         }
         if (nightMode && !v.destroyed) {
-            DrawCube({halfL + 4.8f, 0.028f, 0.0f}, 8.8f, 0.015f, W * 1.85f, Color{235, 242, 255, 48});
+            Color beamCol = toRayColor(getVehicleHeadlightColorRGBA(v.headlightColorIdx, true));
+            beamCol.a = static_cast<unsigned char>((v.headlightColorIdx > 0) ? 58 : 48);
+            DrawCube({halfL + 4.8f, 0.028f - stanceOffsetY, 0.0f}, 8.8f, 0.015f, W * 1.85f, beamCol);
         }
         rlPopMatrix();
         return;
@@ -2987,6 +3024,42 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                         {0.058f, 0.058f, 0.16f}, chromeCol, 0.18f, 0.92f, 0.0f, MatKind::Standard);
         drawModelStyled(wheelModel_, {-halfL - 0.015f, exY,  exZ}, {0.0f, 1.0f, 0.0f}, 90.0f,
                         {0.058f, 0.058f, 0.16f}, chromeCol, 0.18f, 0.92f, 0.0f, MatKind::Standard);
+
+        // Custom Dual GT Racing Stripes on sculpted hood + roof across all non-roadster chassis!
+        if (!v.destroyed && v.stripeStyle > 0 && v.kind != VehicleKind::ClassicRoadster) {
+            const float stripeEmissive = (v.stripeStyle == 3) ? 0.85f : 0.0f;
+            const MatKind stripeMat = (v.stripeStyle == 3) ? MatKind::EmissiveGlow : paintMat;
+            float hoodY = 0.64f;
+            float roofY = 1.395f;
+            switch (v.kind) {
+                case VehicleKind::TrackPrototype: hoodY = 0.46f; roofY = 1.095f; break;
+                case VehicleKind::Hypercar:       hoodY = 0.50f; roofY = 1.145f; break;
+                case VehicleKind::SportsCoupe:    hoodY = 0.56f; roofY = 1.255f; break;
+                case VehicleKind::JdmTuner:       hoodY = 0.59f; roofY = 1.295f; break;
+                case VehicleKind::MuscleCar:      hoodY = 0.66f; roofY = 1.325f; break;
+                case VehicleKind::PoliceCruiser:  hoodY = 0.64f; roofY = 1.405f; break;
+                case VehicleKind::SUV:            hoodY = 0.80f; roofY = 1.675f; break;
+                case VehicleKind::OffroadPickup:
+                case VehicleKind::ArmoredSuv:     hoodY = 0.90f; roofY = 1.795f; break;
+                case VehicleKind::DeliveryVan:
+                case VehicleKind::Ambulance:
+                case VehicleKind::FireTruck:      hoodY = 0.88f; roofY = 1.995f; break;
+                default: break;
+            }
+            for (int side = -1; side <= 1; side += 2) {
+                const float stZ = static_cast<float>(side) * 0.16f;
+                if (v.kind != VehicleKind::DeliveryVan && v.kind != VehicleKind::Ambulance &&
+                    v.kind != VehicleKind::FireTruck) {
+                    drawModelStyled(cubeModel_, {halfL * 0.67f, hoodY, stZ}, {0.0f, 0.0f, 1.0f}, -11.0f,
+                                    {halfL * 0.47f, 0.036f, 0.135f}, stripeCol, 0.12f, 0.35f, stripeEmissive, stripeMat);
+                }
+                if (v.kind != VehicleKind::PoliceCruiser && v.kind != VehicleKind::Ambulance &&
+                    v.kind != VehicleKind::FireTruck) {
+                    drawModelStyled(cubeModel_, {-0.08f, roofY, stZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {halfL * 0.52f, 0.026f, 0.135f}, stripeCol, 0.12f, 0.35f, stripeEmissive, stripeMat);
+                }
+            }
+        }
     }
 
     // Bespoke 3D Signature Architecture for v0.7 Fleet!
@@ -3132,20 +3205,43 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
         }
     }
 
-    // 3) GT Aero Wing Spoiler, SBPD Black-and-White Police Livery & Roof Red/Blue LED Lightbar!
-    if (v.customSpoiler) {
+    // 3) GT Aero Wing / Time-Attack Swan-Neck Spoiler, SBPD Police Livery & Roof Red/Blue LED Lightbar!
+    const int effSpoiler = v.destroyed ? 0 : ((v.spoilerStyle > 0) ? v.spoilerStyle : (v.customSpoiler ? 1 : 0));
+    if (effSpoiler > 0) {
         const float deckY = (v.kind == VehicleKind::TrackPrototype) ? 0.78f
                           : ((v.kind == VehicleKind::Hypercar) ? 0.80f
                           : ((v.kind == VehicleKind::ClassicRoadster) ? 0.84f
                           : ((v.kind == VehicleKind::SportsCoupe) ? 0.86f
                           : ((v.kind == VehicleKind::JdmTuner) ? 0.88f : (0.22f + H * 0.62f)))));
         const float spX = -halfL * 0.86f;
-        drawModelStyled(cubeModel_, {spX, deckY + 0.12f, -halfW * 0.56f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.16f, 0.22f, 0.045f}, darkTrim, 0.32f, 0.55f, 0.0f, MatKind::Standard);
-        drawModelStyled(cubeModel_, {spX, deckY + 0.12f,  halfW * 0.56f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.16f, 0.22f, 0.045f}, darkTrim, 0.32f, 0.55f, 0.0f, MatKind::Standard);
-        drawModelStyled(cubeModel_, {spX - 0.03f, deckY + 0.23f, 0.0f}, {0.0f, 0.0f, 1.0f}, 5.0f,
-                        {0.30f, 0.042f, W * 0.94f}, bodyCol, paintRough, paintMetal, 0.0f, paintMat);
+        if (effSpoiler == 2) {
+            // High-downforce Time-Attack Swan-Neck Wing + Endplates!
+            for (int side = -1; side <= 1; side += 2) {
+                const float pz = static_cast<float>(side) * (halfW * 0.36f);
+                drawModelStyled(cubeModel_, {spX + 0.04f, deckY + 0.19f, pz}, {0.0f, 0.0f, 1.0f}, -14.0f,
+                                {0.14f, 0.38f, 0.038f}, darkTrim, 0.28f, 0.65f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {spX - 0.03f, deckY + 0.40f, pz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.22f, 0.055f, 0.042f}, darkTrim, 0.28f, 0.65f, 0.0f, MatKind::Standard);
+            }
+            drawModelStyled(cubeModel_, {spX - 0.06f, deckY + 0.38f, 0.0f}, {0.0f, 0.0f, 1.0f}, 7.5f,
+                            {0.36f, 0.044f, W * 1.06f}, darkTrim, 0.22f, 0.58f, 0.0f, MatKind::Standard);
+            if (!shadowPass) {
+                drawModelStyled(cubeModel_, {spX - 0.19f, deckY + 0.415f, 0.0f}, {0.0f, 0.0f, 1.0f}, 12.0f,
+                                {0.09f, 0.024f, W * 1.05f}, stripeCol, 0.14f, 0.45f, 0.0f, paintMat);
+                for (int side = -1; side <= 1; side += 2) {
+                    drawModelStyled(cubeModel_, {spX - 0.06f, deckY + 0.37f, static_cast<float>(side) * (W * 0.535f)},
+                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.40f, 0.24f, 0.026f},
+                                    bodyCol, paintRough, paintMetal, 0.0f, paintMat);
+                }
+            }
+        } else {
+            drawModelStyled(cubeModel_, {spX, deckY + 0.12f, -halfW * 0.56f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.16f, 0.22f, 0.045f}, darkTrim, 0.32f, 0.55f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {spX, deckY + 0.12f,  halfW * 0.56f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.16f, 0.22f, 0.045f}, darkTrim, 0.32f, 0.55f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {spX - 0.03f, deckY + 0.23f, 0.0f}, {0.0f, 0.0f, 1.0f}, 5.0f,
+                            {0.30f, 0.042f, W * 0.94f}, bodyCol, paintRough, paintMetal, 0.0f, paintMat);
+        }
     }
     if (v.kind == VehicleKind::Taxi && !v.destroyed && !shadowPass) {
         drawModelStyled(cubeModel_, {-0.12f, 1.46f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -3240,17 +3336,25 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
     }
 
     const Color rimCol = (v.rimStyle == 1) ? Color{236, 198, 92, 255}  // Champagne Gold
-                       : (v.rimStyle == 2) ? Color{34, 38, 46, 255}    // Gloss Obsidian Black / Police Steel
+                       : (v.rimStyle == 2) ? Color{34, 38, 46, 255}    // Gloss Obsidian Black
+                       : (v.rimStyle == 3) ? Color{44, 226, 255, 255}  // Anodized Cyber Cyan
+                       : (v.rimStyle == 4) ? Color{236, 42, 56, 255}   // Anodized Crimson Track
                                            : Color{218, 226, 236, 255}; // Brushed Silver Alloy
+    const float rimEmissive = (v.rimStyle == 3) ? 0.55f : 0.0f;
+    const MatKind rimMat = (v.rimStyle == 3) ? MatKind::EmissiveGlow : MatKind::Standard;
     const float axleX = halfL * axleFrac;
-    const float axleZ = halfW * 0.89f; // Recessed flush inside sculpted fender flares!
+    const float axleZ = halfW * ((v.stanceStyle == 2) ? 0.92f : 0.89f);
 
     for (int side = -1; side <= 1; side += 2) {
         for (int front = -1; front <= 1; front += 2) {
             rlPushMatrix();
-            rlTranslatef(static_cast<float>(front) * axleX, wheelR, static_cast<float>(side) * axleZ);
+            rlTranslatef(static_cast<float>(front) * axleX, wheelR - stanceOffsetY, static_cast<float>(side) * axleZ);
             if (front > 0) {
                 rlRotatef(-v.steerVisual * 28.0f, 0.0f, 1.0f, 0.0f);
+            }
+            if (v.stanceStyle == 2 && !v.destroyed) {
+                // Aggressive Slammed Stance: -8.5 deg inward negative camber!
+                rlRotatef(static_cast<float>(-side) * 8.5f, 1.0f, 0.0f, 0.0f);
             }
 
             // Non-spinning red sport brake caliper inside rim!
@@ -3274,7 +3378,7 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                                 0.35f, 0.80f, 0.0f, MatKind::Standard);
                 drawModelStyled(sportRimModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {wheelR, wheelR, tireW}, rimCol,
-                                (v.rimStyle == 2) ? 0.16f : 0.20f, 0.88f, 0.0f, MatKind::Standard);
+                                (v.rimStyle == 2) ? 0.16f : 0.20f, 0.88f, rimEmissive, rimMat);
                 if (v.kind == VehicleKind::PoliceCruiser) {
                     // Classic police interceptor chrome center dog-dish cap
                     drawModelStyled(wheelModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -3286,10 +3390,10 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
         }
     }
 
-    // 5) Sleek Contoured LED DRLs / Xenon Headlights, Blade Taillights & Nitrous Afterburners
+    // 5) Sleek Contoured LED DRLs / Custom Xenon Headlights, Blade Taillights & Nitrous Afterburners
     if (!shadowPass && !v.destroyed) {
-        const Color headCol = nightMode ? Color{242, 248, 255, 255} : Color{228, 240, 252, 255};
-        const float headGlow = nightMode ? 2.7f : 1.15f;
+        const Color headCol = toRayColor(getVehicleHeadlightColorRGBA(v.headlightColorIdx, nightMode));
+        const float headGlow = (v.headlightColorIdx > 0) ? (nightMode ? 3.2f : 1.9f) : (nightMode ? 2.7f : 1.15f);
         const float headY = (v.kind == VehicleKind::TrackPrototype) ? 0.38f
                           : ((v.kind == VehicleKind::Hypercar) ? 0.43f
                           : ((v.kind == VehicleKind::ClassicRoadster || v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::JdmTuner) ? 0.48f
@@ -3309,8 +3413,10 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
             rlPopMatrix();
         }
 
-        if (nightMode && (v.isPlayerDriving || v.hasNpcDriver)) {
-            DrawCube({halfL + 4.8f, 0.028f, 0.0f}, 8.8f, 0.015f, W * 1.85f, Color{235, 242, 255, 42});
+        if (nightMode && (v.isPlayerDriving || v.hasNpcDriver || v.headlightColorIdx > 0)) {
+            Color beamCol = headCol;
+            beamCol.a = static_cast<unsigned char>((v.headlightColorIdx > 0) ? 58 : 42);
+            DrawCube({halfL + 4.8f, 0.028f - stanceOffsetY, 0.0f}, 8.8f, 0.015f, W * 1.85f, beamCol);
         }
 
         const Color tailCol = v.brakingVisual ? Color{255, 38, 36, 255} : Color{228, 28, 38, 255};
@@ -3362,7 +3468,9 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                                  bool alive, bool armed, WeaponId weapon, float muzzleFlash,
                                  float aimPitch, bool hasSunglasses, OutfitId styleOutfit, bool shadowPass,
                                  float shadowGroundY, bool jumping,
-                                 bool panicking, bool isPolice, bool isSwat) {
+                                 bool panicking, bool isPolice, bool isSwat,
+                                 const CharacterCustomState* customChar,
+                                 const WeaponSlotState* customWep) {
     rlPushMatrix();
     rlTranslatef(pos.x, groundY, pos.z);
     rlRotatef(-yaw * kRadToDeg, 0.0f, 1.0f, 0.0f);
@@ -3459,9 +3567,49 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
             drawModelStyled(cubeModel_, {0.11f, 1.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.08f, 0.18f, 0.18f}, accC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
         }
+
+        // Custom 3D Back Gear (Tactical Backpack / Heist Duffle Bag / Cyber Neon Wing Pack)!
+        if (customChar != nullptr && customChar->backGearStyle > 0) {
+            if (customChar->backGearStyle == 1) {
+                // Tactical Olive/Charcoal Spec-Ops Backpack + Utility Pouch + Straps
+                drawModelStyled(cubeModel_, {-0.20f, 1.10f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.16f, 0.44f, 0.32f}, Color{44, 52, 46, 255}, 0.55f, 0.18f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {-0.29f, 1.00f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.06f, 0.20f, 0.24f}, Color{30, 34, 38, 255}, 0.48f, 0.25f, 0.0f, MatKind::Standard);
+                for (int s = -1; s <= 1; s += 2) {
+                    drawModelStyled(cubeModel_, {0.02f, 1.16f, static_cast<float>(s) * 0.12f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.32f, 0.36f, 0.045f}, Color{26, 28, 34, 255}, 0.52f, 0.20f, 0.0f, MatKind::Standard);
+                }
+            } else if (customChar->backGearStyle == 2) {
+                // Diagonal Heist Duffle Bag with Gold Zipper Trim!
+                rlPushMatrix();
+                rlTranslatef(-0.21f, 1.08f, 0.0f);
+                rlRotatef(32.0f, 1.0f, 0.0f, 0.0f);
+                drawModelStyled(cylModel_, {0.0f, -0.26f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.135f, 0.52f, 0.135f}, Color{24, 26, 32, 255}, 0.46f, 0.22f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {-0.125f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.024f, 0.46f, 0.036f}, Color{242, 198, 64, 255}, 0.22f, 0.88f, 0.0f, MatKind::Standard);
+                rlPopMatrix();
+            } else if (customChar->backGearStyle == 3) {
+                // Cyber Neon Thruster Wing Pack!
+                drawModelStyled(cubeModel_, {-0.19f, 1.12f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.12f, 0.36f, 0.22f}, Color{24, 28, 38, 255}, 0.26f, 0.78f, 0.0f, MatKind::Standard);
+                drawModelStyled(sphereModel_, {-0.255f, 1.12f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.028f, 0.09f, 0.06f}, Color{42, 238, 255, 255}, 0.08f, 0.0f, 3.2f, MatKind::EmissiveGlow);
+                for (int s = -1; s <= 1; s += 2) {
+                    rlPushMatrix();
+                    rlTranslatef(-0.20f, 1.16f, static_cast<float>(s) * 0.23f);
+                    rlRotatef(static_cast<float>(s) * 26.0f, 1.0f, 0.0f, 0.0f);
+                    rlRotatef(-14.0f, 0.0f, 1.0f, 0.0f * static_cast<float>(s));
+                    drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.032f, 0.42f, 0.22f}, Color{36, 228, 255, 255}, 0.08f, 0.2f, 2.6f, MatKind::EmissiveGlow);
+                    rlPopMatrix();
+                }
+            }
+        }
     }
 
-    // Neck + Rounded Head + Hair / SBPD Police Cap / SWAT Ballistic Helmet + Sunglasses
+    // Neck + Rounded Head + 7 Custom Hair/Headgear Styles + 4 Eyewear Styles!
     rlPushMatrix();
     rlTranslatef(0.0f, 1.42f, 0.0f);
     if (alive) {
@@ -3471,6 +3619,11 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                     {0.075f, 0.08f, 0.075f}, skinC, 0.65f, 0.0f, 0.0f, MatKind::Standard);
     drawModelStyled(cubeModel_, {0.0f, 0.16f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                     {0.25f, 0.26f, 0.25f}, skinC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
+
+    const int headStyle = (customChar != nullptr) ? customChar->hairOrHatStyle : 0;
+    const Color hairCol = (customChar != nullptr)
+                              ? toRayColor(getPlayerHairColor(styleOutfit, customChar->hairColorIdx))
+                              : ((styleOutfit == OutfitId::TacOpsArmor) ? Color{32, 38, 34, 255} : Color{36, 30, 26, 255});
 
     if (isPolice && isSwat) {
         // Ballistic SWAT tactical helmet + dark visor goggles
@@ -3490,21 +3643,89 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
             drawModelStyled(cubeModel_, {0.145f, 0.318f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.022f, 0.048f, 0.045f}, Color{246, 204, 62, 255}, 0.20f, 0.90f, 0.0f, MatKind::Standard);
         }
+    } else if (headStyle == 1) {
+        // Slick Pompadour (swept high front quiff + tapered sides)
+        drawModelStyled(cubeModel_, {-0.015f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.27f, 0.085f, 0.26f}, hairCol, 0.48f, 0.18f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.075f, 0.335f, 0.0f}, {0.0f, 0.0f, 1.0f}, 14.0f,
+                        {0.16f, 0.105f, 0.22f}, hairCol, 0.42f, 0.22f, 0.0f, MatKind::Standard);
+    } else if (headStyle == 2) {
+        // Spiky Street Mohawk (3 stepped crest spikes along center)
+        drawModelStyled(cubeModel_, {-0.01f, 0.272f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.26f, 0.04f, 0.25f}, Color{26, 24, 28, 255}, 0.72f, 0.05f, 0.0f, MatKind::Standard);
+        drawModelStyled(coneModel_, { 0.07f, 0.28f, 0.0f}, {0.0f, 0.0f, 1.0f}, -14.0f,
+                        {0.045f, 0.19f, 0.042f}, hairCol, 0.38f, 0.20f, 0.0f, MatKind::Standard);
+        drawModelStyled(coneModel_, {-0.01f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.048f, 0.22f, 0.044f}, hairCol, 0.38f, 0.20f, 0.0f, MatKind::Standard);
+        drawModelStyled(coneModel_, {-0.09f, 0.27f, 0.0f}, {0.0f, 0.0f, 1.0f}, 18.0f,
+                        {0.042f, 0.17f, 0.040f}, hairCol, 0.38f, 0.20f, 0.0f, MatKind::Standard);
+    } else if (headStyle == 3) {
+        // Street Snapback Cap (structured dome + flat forward bill!)
+        drawModelStyled(cylModel_, {-0.005f, 0.265f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.152f, 0.095f, 0.152f}, hairCol, 0.52f, 0.12f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.135f, 0.268f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.16f, 0.022f, 0.23f}, Color{20, 22, 28, 255}, 0.38f, 0.25f, 0.0f, MatKind::Standard);
+    } else if (headStyle == 4) {
+        // Full-Face Aero Moto Helmet (-8% incoming damage perk!)
+        drawModelStyled(sphereModel_, {0.005f, 0.185f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.188f, 0.182f, 0.176f}, hairCol, 0.10f, 0.62f, 0.0f, MatKind::CarClearcoat);
+        if (!shadowPass) {
+            drawModelStyled(cubeModel_, {0.145f, 0.185f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.065f, 0.092f, 0.255f}, Color{14, 24, 38, 255}, 0.05f, 0.85f, 0.0f, MatKind::CarGlass);
+            drawModelStyled(cubeModel_, {-0.11f, 0.265f, 0.0f}, {0.0f, 0.0f, 1.0f}, 16.0f,
+                            {0.12f, 0.045f, 0.16f}, Color{22, 26, 34, 255}, 0.25f, 0.65f, 0.0f, MatKind::Standard);
+        }
+    } else if (headStyle == 5) {
+        // Cyber Neon Visor + Sleek Hair Cap!
+        drawModelStyled(cubeModel_, {-0.015f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.27f, 0.085f, 0.27f}, hairCol, 0.55f, 0.20f, 0.0f, MatKind::Standard);
+        if (!shadowPass) {
+            drawModelStyled(cubeModel_, {0.065f, 0.188f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.165f, 0.064f, 0.272f}, Color{42, 238, 255, 255}, 0.08f, 0.2f, 3.1f, MatKind::EmissiveGlow);
+        }
+    } else if (headStyle == 6) {
+        // 24K VIP Gold Crown!
+        drawModelStyled(cubeModel_, {-0.015f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.27f, 0.080f, 0.27f}, hairCol, 0.58f, 0.15f, 0.0f, MatKind::Standard);
+        const Color crownGold{250, 206, 62, 255};
+        drawModelStyled(cylModel_, {0.0f, 0.305f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.145f, 0.065f, 0.145f}, crownGold, 0.12f, 0.96f, 0.0f, MatKind::Standard);
+        if (!shadowPass) {
+            for (int p = 0; p < 4; ++p) {
+                const float ang = static_cast<float>(p) * kHalfPi;
+                drawModelStyled(coneModel_, {std::cos(ang) * 0.115f, 0.365f, std::sin(ang) * 0.115f},
+                                {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.036f, 0.095f, 0.036f}, crownGold, 0.12f, 0.96f, 0.0f, MatKind::Standard);
+            }
+        }
     } else {
         drawModelStyled(cubeModel_, {-0.015f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.27f, 0.085f, 0.27f},
-                        (styleOutfit == OutfitId::TacOpsArmor) ? Color{32, 38, 34, 255} : Color{36, 30, 26, 255},
-                        0.65f, 0.15f, 0.0f, MatKind::Standard);
+                        {0.27f, 0.085f, 0.27f}, hairCol, 0.65f, 0.15f, 0.0f, MatKind::Standard);
     }
 
-    if (!shadowPass && hasSunglasses && !(isPolice && isSwat)) {
-        drawModelStyled(cubeModel_, {0.125f, 0.18f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.03f, 0.06f, 0.22f}, Color{16, 20, 28, 255},
-                        0.12f, 0.45f, 0.0f, MatKind::CarGlass);
+    const int glassesStyle = (customChar != nullptr) ? customChar->glassesStyle : (hasSunglasses ? 1 : 0);
+    if (!shadowPass && glassesStyle > 0 && !(isPolice && isSwat) && headStyle != 4 && headStyle != 5) {
+        if (glassesStyle == 2) {
+            // Gold Aviator Sunglasses (gold brow bar + twin tinted lenses)
+            drawModelStyled(cubeModel_, {0.128f, 0.208f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.024f, 0.012f, 0.225f}, Color{246, 202, 68, 255}, 0.16f, 0.92f, 0.0f, MatKind::Standard);
+            for (int s = -1; s <= 1; s += 2) {
+                drawModelStyled(cubeModel_, {0.126f, 0.176f, static_cast<float>(s) * 0.058f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.028f, 0.058f, 0.086f}, Color{36, 28, 18, 255}, 0.08f, 0.65f, 0.0f, MatKind::CarGlass);
+            }
+        } else if (glassesStyle == 3) {
+            // Cyan Tactical Goggles!
+            drawModelStyled(cubeModel_, {0.128f, 0.184f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.036f, 0.068f, 0.235f}, Color{44, 232, 255, 255}, 0.08f, 0.3f, 2.2f, MatKind::EmissiveGlow);
+        } else {
+            drawModelStyled(cubeModel_, {0.125f, 0.18f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.03f, 0.06f, 0.22f}, Color{16, 20, 28, 255},
+                            0.12f, 0.45f, 0.0f, MatKind::CarGlass);
+        }
     }
     rlPopMatrix();
 
-    // Arms, Hands & Multi-Part 3D Weapons (or Hands-Up Panic Waving / Athletic Jump Balance!)
+    // Arms, Hands & Multi-Part 3D Weapons (with Gunsmith Finishes, Suppressor & Extended Mag!)
     for (int side = -1; side <= 1; side += 2) {
         rlPushMatrix();
         rlTranslatef(0.0f, 1.32f, static_cast<float>(side) * 0.27f);
@@ -3515,19 +3736,28 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
             drawModelStyled(cubeModel_, {0.46f, -0.04f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.10f, 0.11f, 0.11f}, skinC, 0.65f, 0.0f, 0.0f, MatKind::Standard);
 
+            const int wSkin = (customWep != nullptr) ? customWep->skinIndex : 0;
+            const auto wFin = getWeaponFinishMaterial(weapon, wSkin);
+            const Color wPrimCol = toRayColor(wFin.primary);
+            const Color wSecCol  = toRayColor(wFin.secondary);
+            const MatKind wMat   = (wFin.emissive > 0.1f) ? MatKind::EmissiveGlow : MatKind::Standard;
+
             if (weapon == WeaponId::HeavyLauncher) {
-                // Olive-drab shoulder-mounted tactical explosive launcher tube!
+                // Olive-drab or custom-finished shoulder-mounted tactical explosive launcher tube!
                 drawModelStyled(cylModel_, {0.10f, 0.10f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
-                                {0.085f, 0.96f, 0.085f}, Color{62, 76, 56, 255},
-                                0.42f, 0.55f, 0.0f, MatKind::Standard);
+                                {0.085f, 0.96f, 0.085f},
+                                (wSkin > 0) ? wPrimCol : Color{62, 76, 56, 255},
+                                (wSkin > 0) ? wFin.roughness : 0.42f,
+                                (wSkin > 0) ? wFin.metallic : 0.55f, wFin.emissive, wMat);
                 drawModelStyled(cylModel_, {0.98f, 0.10f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
-                                {0.11f, 0.12f, 0.11f}, Color{36, 40, 46, 255},
+                                {0.11f, 0.12f, 0.11f}, (wSkin > 0) ? wSecCol : Color{36, 40, 46, 255},
                                 0.35f, 0.75f, 0.0f, MatKind::Standard);
             } else if (weapon == WeaponId::Minigun) {
                 // Underslung 6-Barrel Rotary Gatling Minigun!
                 drawModelStyled(cubeModel_, {0.42f, -0.06f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.34f, 0.18f, 0.16f}, Color{32, 36, 44, 255},
-                                0.32f, 0.78f, 0.0f, MatKind::Standard);
+                                {0.34f, 0.18f, 0.16f}, (wSkin > 0) ? wPrimCol : Color{32, 36, 44, 255},
+                                (wSkin > 0) ? wFin.roughness : 0.32f,
+                                (wSkin > 0) ? wFin.metallic : 0.78f, wFin.emissive, wMat);
                 drawModelStyled(cubeModel_, {0.46f, 0.08f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {0.16f, 0.08f, 0.14f}, Color{24, 28, 34, 255},
                                 0.38f, 0.65f, 0.0f, MatKind::Standard);
@@ -3540,7 +3770,7 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                     const float ang = static_cast<float>(b) * (kTwoPi / 6.0f);
                     drawModelStyled(cylModel_, {0.0f, std::cos(ang) * 0.048f, std::sin(ang) * 0.048f},
                                     {0.0f, 0.0f, 1.0f}, -90.0f,
-                                    {0.016f, 0.62f, 0.016f}, Color{156, 166, 182, 255},
+                                    {0.016f, 0.62f, 0.016f}, (wSkin > 0) ? wSecCol : Color{156, 166, 182, 255},
                                     0.20f, 0.92f, 0.0f, MatKind::Standard);
                 }
                 drawModelStyled(cylModel_, {0.50f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
@@ -3563,32 +3793,46 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                                    : (heavyMg ? 0.78f
                                    : (longGun ? 0.66f
                                    : (isRevolver ? 0.42f : (weapon == WeaponId::SMG ? 0.44f : 0.32f))));
-                const Color bodyTint = isRevolver ? Color{210, 218, 230, 255} : Color{34, 38, 46, 255};
-                drawModelStyled(cubeModel_, {0.55f + (isSniper ? 0.12f : 0.0f), 0.025f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                const float gunCenterX = 0.55f + (isSniper ? 0.12f : 0.0f);
+                const Color bodyTint = (wSkin > 0) ? wPrimCol : (isRevolver ? Color{210, 218, 230, 255} : Color{34, 38, 46, 255});
+                const float bodyRough = (wSkin > 0) ? wFin.roughness : (isRevolver ? 0.14f : 0.28f);
+                const float bodyMetal = (wSkin > 0) ? wFin.metallic  : (isRevolver ? 0.94f : 0.82f);
+                drawModelStyled(cubeModel_, {gunCenterX, 0.025f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {gunLen, heavyMg ? 0.12f : (isSniper ? 0.085f : 0.10f), 0.075f}, bodyTint,
-                                isRevolver ? 0.14f : 0.28f, isRevolver ? 0.94f : 0.82f, 0.0f, MatKind::Standard);
+                                bodyRough, bodyMetal, wFin.emissive, wMat);
+
+                const float extScale = (customWep != nullptr && customWep->extendedMag) ? 1.45f : 1.0f;
                 if (!shadowPass && isSniper) {
                     // Telescopic optic tube atop Sniper Rifle
                     drawModelStyled(cylModel_, {0.46f, 0.105f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
                                     {0.030f, 0.32f, 0.030f}, Color{24, 28, 36, 255},
                                     0.25f, 0.85f, 0.0f, MatKind::Standard);
                 } else if (!shadowPass && isAutoShot) {
-                    // Round 16-shell drum magazine under Assault Shotgun
+                    // Round drum magazine under Assault Shotgun
                     drawModelStyled(cylModel_, {0.56f, -0.09f, -0.06f}, {1.0f, 0.0f, 0.0f}, 90.0f,
-                                    {0.095f, 0.12f, 0.095f}, Color{28, 32, 38, 255},
+                                    {0.095f * extScale, 0.12f * extScale, 0.095f * extScale}, Color{28, 32, 38, 255},
                                     0.38f, 0.65f, 0.0f, MatKind::Standard);
                 } else if (!shadowPass && heavyMg) {
                     // Box drum magazine under Combat MG
                     drawModelStyled(cubeModel_, {0.54f, -0.10f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.16f, 0.16f, 0.14f}, Color{54, 66, 52, 255},
+                                    {0.16f * extScale, 0.16f * extScale, 0.14f}, Color{54, 66, 52, 255},
                                     0.45f, 0.45f, 0.0f, MatKind::Standard);
-                } else if (!shadowPass && (weapon == WeaponId::SMG || weapon == WeaponId::AssaultRifle)) {
-                    drawModelStyled(cubeModel_, {0.56f, -0.09f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.07f, 0.16f, 0.055f}, Color{24, 26, 32, 255},
+                } else if (!shadowPass && (weapon == WeaponId::SMG || weapon == WeaponId::AssaultRifle ||
+                                           (weapon == WeaponId::Pistol && extScale > 1.1f))) {
+                    drawModelStyled(cubeModel_, {0.56f, -0.09f - (extScale - 1.0f) * 0.06f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.07f, 0.16f * extScale, 0.055f}, Color{24, 26, 32, 255},
                                     0.35f, 0.70f, 0.0f, MatKind::Standard);
                 }
+
+                // 3D Tactical Barrel Suppressor!
+                const float gunFrontX = gunCenterX + gunLen * 0.5f;
+                if (!shadowPass && customWep != nullptr && customWep->suppressor && weaponSupportsSuppressor(weapon)) {
+                    drawModelStyled(cylModel_, {gunFrontX - 0.015f, 0.028f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                                    {0.032f, 0.22f, 0.032f}, Color{26, 30, 38, 255},
+                                    0.34f, 0.72f, 0.0f, MatKind::Standard);
+                }
                 if (!shadowPass && muzzleFlash > 0.0f) {
-                    drawModelStyled(sphereModel_, {0.58f + gunLen * 0.5f, 0.03f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                    drawModelStyled(sphereModel_, {gunFrontX + 0.03f, 0.03f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {0.19f, 0.14f, 0.14f}, Color{255, 224, 92, 255},
                                     0.1f, 0.0f, 3.4f, MatKind::EmissiveGlow);
                 }
@@ -3742,13 +3986,22 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
 
     const auto& pl = world.player();
     const auto& outSpec = getOutfitSpec(pl.currentOutfit);
-    const Color sleeveCol = toRayColor(outSpec.top);
+    const Color sleeveCol = toRayColor(getPlayerTopColor(pl.currentOutfit, pl.characterCustom.customTopColorIdx));
     const Color cuffCol   = toRayColor(outSpec.accent);
-    const Color skinCol{236, 196, 162, 255};
-    const Color gunMetal{34, 38, 46, 255};
-    const Color gunSteel{66, 72, 84, 255};
-    const Color chromeBright{214, 222, 234, 255};
+    const Color skinCol   = toRayColor(getPlayerSkinColor(pl.characterCustom.skinToneIdx));
+
+    const auto& wSlot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
+    const int wSkin = wSlot.skinIndex;
+    const auto wFin = getWeaponFinishMaterial(pl.currentWeapon, wSkin);
+    const Color gunMetal     = (wSkin > 0) ? toRayColor(wFin.primary)   : Color{34, 38, 46, 255};
+    const Color gunSteel     = (wSkin > 0) ? toRayColor(wFin.secondary) : Color{66, 72, 84, 255};
+    const Color chromeBright = (wSkin > 0) ? toRayColor(wFin.primary)   : Color{214, 222, 234, 255};
     const Color polyDark{20, 23, 28, 255};
+    const float wRough = wFin.roughness;
+    const float wMetal = wFin.metallic;
+    const float wEmis  = wFin.emissive;
+    const MatKind wMat = (wEmis > 0.1f) ? MatKind::EmissiveGlow : MatKind::Standard;
+    const float extScale = wSlot.extendedMag ? 1.42f : 1.0f;
 
     // -----------------------------------------------------------------------
     // A) FIRST-PERSON VEHICLE COCKPIT (Dashboard, Digital Gauges, Steering Wheel & Hands)
@@ -3981,19 +4234,23 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
     rlPopMatrix();
 
     float muzzleTipX = 0.19f;
+    float barrelY = 0.058f;
 
     switch (pl.currentWeapon) {
         case WeaponId::Pistol: {
             muzzleTipX = 0.145f;
-            // Grip & polymer lower frame
-            drawModelStyled(cubeModel_, {-0.025f, -0.038f, 0.0f}, {0.0f, 0.0f, 1.0f}, -14.0f,
-                            {0.038f, 0.085f, 0.030f}, polyDark, 0.55f, 0.15f, 0.0f, MatKind::Standard);
+            barrelY = 0.068f;
+            // Grip & polymer lower frame (+ extended basepad when extendedMag is equipped!)
+            drawModelStyled(cubeModel_, {-0.025f, -0.038f - (extScale - 1.0f) * 0.028f, 0.0f}, {0.0f, 0.0f, 1.0f}, -14.0f,
+                            {0.038f, 0.085f * extScale, 0.030f}, polyDark, 0.55f, 0.15f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.045f, 0.042f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.175f, 0.028f, 0.032f}, polyDark, 0.48f, 0.25f, 0.0f, MatKind::Standard);
+                            {0.175f, 0.028f, 0.032f}, (wSkin > 0) ? gunSteel : polyDark,
+                            (wSkin > 0) ? wRough : 0.48f, (wSkin > 0) ? wMetal : 0.25f, 0.0f, MatKind::Standard);
             // Reciprocating metallic slide (kicks back on shot!)
             const float slideKick = recoilFrac * 0.032f;
             drawModelStyled(cubeModel_, {0.042f - slideKick, 0.072f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.182f, 0.034f, 0.034f}, gunSteel, 0.24f, 0.82f, 0.0f, MatKind::Standard);
+                            {0.182f, 0.034f, 0.034f}, (wSkin > 0) ? gunMetal : gunSteel,
+                            (wSkin > 0) ? wRough : 0.24f, (wSkin > 0) ? wMetal : 0.82f, wEmis, wMat);
             // Left support hand
             drawModelStyled(cubeModel_, {-0.015f, -0.042f, -0.022f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.048f, 0.052f, 0.036f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
@@ -4004,44 +4261,52 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                             {0.012f, 0.016f, 0.006f}, polyDark, 0.35f, 0.4f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.122f, 0.100f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.010f, 0.018f, 0.005f}, polyDark, 0.35f, 0.4f, 0.0f, MatKind::Standard);
+            const Color dotCol = toRayColor(getOpticReticleColorRGBA(wSlot.opticColorIdx, {82, 255, 168, 255}));
             drawModelStyled(sphereModel_, {0.118f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.004f, 0.004f, 0.004f}, Color{82, 255, 168, 255}, 0.1f, 0.0f, 2.8f, MatKind::EmissiveGlow);
+                            {0.004f, 0.004f, 0.004f}, dotCol, 0.1f, 0.0f, 2.8f, MatKind::EmissiveGlow);
             break;
         }
         case WeaponId::HeavyRevolver: {
             muzzleTipX = 0.215f;
-            // Walnut wood grip + brushed chrome frame + 6-chamber revolving cylinder + ventilated rib barrel!
+            barrelY = 0.070f;
+            // Walnut wood grip + brushed chrome/custom frame + revolving cylinder + ventilated rib barrel!
             drawModelStyled(cubeModel_, {-0.028f, -0.042f, 0.0f}, {0.0f, 0.0f, 1.0f}, -18.0f,
                             {0.042f, 0.094f, 0.032f}, Color{112, 62, 34, 255}, 0.52f, 0.10f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.025f, 0.048f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.11f, 0.056f, 0.032f}, chromeBright, 0.14f, 0.94f, 0.0f, MatKind::Standard);
+                            {0.11f, 0.056f, 0.032f}, chromeBright,
+                            (wSkin > 0) ? wRough : 0.14f, (wSkin > 0) ? wMetal : 0.94f, wEmis, wMat);
             drawModelStyled(cylModel_, {0.005f, 0.054f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
-                            {0.026f, 0.052f, 0.026f}, Color{186, 194, 208, 255}, 0.18f, 0.92f, 0.0f, MatKind::Standard);
+                            {0.026f * (wSlot.extendedMag ? 1.15f : 1.0f), 0.052f, 0.026f * (wSlot.extendedMag ? 1.15f : 1.0f)},
+                            (wSkin > 0) ? gunSteel : Color{186, 194, 208, 255}, 0.18f, 0.92f, 0.0f, MatKind::Standard);
             // Long heavy ventilated-rib .44 barrel + full underlug
             drawModelStyled(cubeModel_, {0.140f, 0.072f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.155f, 0.032f, 0.024f}, chromeBright, 0.12f, 0.95f, 0.0f, MatKind::Standard);
+                            {0.155f, 0.032f, 0.024f}, chromeBright,
+                            (wSkin > 0) ? wRough : 0.12f, (wSkin > 0) ? wMetal : 0.95f, wEmis, wMat);
             drawModelStyled(cubeModel_, {0.135f, 0.048f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.140f, 0.018f, 0.020f}, gunSteel, 0.22f, 0.88f, 0.0f, MatKind::Standard);
             // Left support hand
             drawModelStyled(cubeModel_, {-0.015f, -0.045f, -0.022f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.048f, 0.052f, 0.036f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
-            // Rear notch + glowing gold target bead aligned at y = +0.105f!
+            // Rear notch + glowing target bead aligned at y = +0.105f!
             drawModelStyled(cubeModel_, {-0.022f, 0.098f, -0.009f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.014f, 0.016f, 0.005f}, polyDark, 0.35f, 0.5f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {-0.022f, 0.098f,  0.009f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.014f, 0.016f, 0.005f}, polyDark, 0.35f, 0.5f, 0.0f, MatKind::Standard);
+            const Color dotCol = toRayColor(getOpticReticleColorRGBA(wSlot.opticColorIdx, {255, 214, 68, 255}));
             drawModelStyled(sphereModel_, {0.205f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.0042f, 0.0042f, 0.0042f}, Color{255, 214, 68, 255}, 0.1f, 0.0f, 3.0f, MatKind::EmissiveGlow);
+                            {0.0042f, 0.0042f, 0.0042f}, dotCol, 0.1f, 0.0f, 3.0f, MatKind::EmissiveGlow);
             break;
         }
         case WeaponId::SMG: {
             muzzleTipX = 0.215f;
+            barrelY = 0.052f;
             drawModelStyled(cubeModel_, {0.045f, 0.048f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.24f, 0.056f, 0.040f}, gunMetal, 0.34f, 0.65f, 0.0f, MatKind::Standard);
+                            {0.24f, 0.056f, 0.040f}, gunMetal,
+                            (wSkin > 0) ? wRough : 0.34f, (wSkin > 0) ? wMetal : 0.65f, wEmis, wMat);
             drawModelStyled(cubeModel_, {0.185f, 0.052f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.075f, 0.022f, 0.022f}, gunSteel, 0.22f, 0.85f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {0.065f, -0.032f, 0.0f}, {0.0f, 0.0f, 1.0f}, 8.0f,
-                            {0.028f, 0.125f, 0.024f}, polyDark, 0.45f, 0.35f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.065f, -0.032f - (extScale - 1.0f) * 0.045f, 0.0f}, {0.0f, 0.0f, 1.0f}, 8.0f,
+                            {0.028f, 0.125f * extScale, 0.024f}, polyDark, 0.45f, 0.35f, 0.0f, MatKind::Standard);
             // Left support hand & sleeve under shroud
             drawModelStyled(cubeModel_, {0.115f, 0.018f, -0.014f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.052f, 0.044f, 0.042f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
@@ -4052,7 +4317,7 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
             drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.18f, 0.050f, 0.050f}, sleeveCol, 0.58f, 0.08f, 0.0f, MatKind::Standard);
             rlPopMatrix();
-            // Open panoramic Cyan Reflex Sight centered at y = +0.105f!
+            // Open panoramic Reflex Sight centered at y = +0.105f!
             drawModelStyled(cubeModel_, {0.025f, 0.082f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.052f, 0.012f, 0.036f}, polyDark, 0.35f, 0.5f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.025f, 0.105f, -0.017f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -4061,18 +4326,21 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                             {0.034f, 0.036f, 0.004f}, polyDark, 0.30f, 0.6f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.025f, 0.124f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.034f, 0.004f, 0.038f}, polyDark, 0.30f, 0.6f, 0.0f, MatKind::Standard);
+            const Color dotCol = toRayColor(getOpticReticleColorRGBA(wSlot.opticColorIdx, {72, 238, 255, 255}));
             drawModelStyled(sphereModel_, {0.025f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.0032f, 0.0032f, 0.0032f}, Color{72, 238, 255, 255}, 0.1f, 0.0f, 3.2f, MatKind::EmissiveGlow);
+                            {0.0032f, 0.0032f, 0.0032f}, dotCol, 0.1f, 0.0f, 3.2f, MatKind::EmissiveGlow);
             break;
         }
         case WeaponId::Shotgun: {
             muzzleTipX = 0.255f;
+            barrelY = 0.072f;
             drawModelStyled(cubeModel_, {0.035f, 0.056f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.16f, 0.052f, 0.040f}, gunMetal, 0.32f, 0.72f, 0.0f, MatKind::Standard);
+                            {0.16f, 0.052f, 0.040f}, gunMetal,
+                            (wSkin > 0) ? wRough : 0.32f, (wSkin > 0) ? wMetal : 0.72f, wEmis, wMat);
             drawModelStyled(cubeModel_, {0.175f, 0.072f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.17f, 0.022f, 0.022f}, gunSteel, 0.22f, 0.88f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {0.165f, 0.048f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.15f, 0.020f, 0.020f}, gunMetal, 0.35f, 0.70f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.165f + (extScale - 1.0f) * 0.03f, 0.048f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.15f * extScale, 0.020f, 0.020f}, gunMetal, 0.35f, 0.70f, 0.0f, MatKind::Standard);
             // Tactical ribbed pump forend + left support hand
             const float pumpSlide = (recoilFrac > 0.25f) ? (-0.035f * std::sin(recoilFrac * kPi)) : 0.0f;
             drawModelStyled(cubeModel_, {0.145f + pumpSlide, 0.042f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -4091,22 +4359,25 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                             {0.012f, 0.018f, 0.005f}, polyDark, 0.35f, 0.5f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {-0.015f, 0.098f,  0.011f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.012f, 0.018f, 0.005f}, polyDark, 0.35f, 0.5f, 0.0f, MatKind::Standard);
+            const Color dotCol = toRayColor(getOpticReticleColorRGBA(wSlot.opticColorIdx, {255, 72, 54, 255}));
             drawModelStyled(sphereModel_, {0.242f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.0045f, 0.0045f, 0.0045f}, Color{255, 72, 54, 255}, 0.1f, 0.0f, 3.0f, MatKind::EmissiveGlow);
+                            {0.0045f, 0.0045f, 0.0045f}, dotCol, 0.1f, 0.0f, 3.0f, MatKind::EmissiveGlow);
             break;
         }
         case WeaponId::AutoShotgun: {
             muzzleTipX = 0.258f;
-            // Heavy tactical automatic shotgun receiver + ventilated shroud + 16-shell drum magazine!
+            barrelY = 0.062f;
+            // Heavy tactical automatic shotgun receiver + ventilated shroud + drum magazine!
             drawModelStyled(cubeModel_, {0.055f, 0.054f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.22f, 0.064f, 0.048f}, gunMetal, 0.34f, 0.72f, 0.0f, MatKind::Standard);
+                            {0.22f, 0.064f, 0.048f}, gunMetal,
+                            (wSkin > 0) ? wRough : 0.34f, (wSkin > 0) ? wMetal : 0.72f, wEmis, wMat);
             drawModelStyled(cubeModel_, {0.185f, 0.056f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.11f, 0.048f, 0.042f}, polyDark, 0.45f, 0.45f, 0.0f, MatKind::Standard);
+                            {0.11f, 0.048f, 0.042f}, (wSkin > 0) ? gunSteel : polyDark, 0.45f, 0.45f, 0.0f, MatKind::Standard);
             drawModelStyled(cylModel_, {0.235f, 0.062f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
                             {0.015f, 0.052f, 0.015f}, gunSteel, 0.22f, 0.88f, 0.0f, MatKind::Standard);
-            // Round 16-shell drum magazine underneath receiver
+            // Round drum magazine underneath receiver
             drawModelStyled(cylModel_, {0.068f, -0.028f, -0.036f}, {1.0f, 0.0f, 0.0f}, 90.0f,
-                            {0.062f, 0.072f, 0.062f}, Color{28, 32, 40, 255}, 0.42f, 0.55f, 0.0f, MatKind::Standard);
+                            {0.062f * extScale, 0.072f * extScale, 0.062f * extScale}, Color{28, 32, 40, 255}, 0.42f, 0.55f, 0.0f, MatKind::Standard);
             // Left foregrip hand + sleeve
             drawModelStyled(cubeModel_, {0.155f, 0.020f, -0.012f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.054f, 0.044f, 0.044f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
@@ -4117,35 +4388,39 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
             drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.19f, 0.052f, 0.052f}, sleeveCol, 0.58f, 0.08f, 0.0f, MatKind::Standard);
             rlPopMatrix();
-            // Wide CQB Green Reflex Hood centered at y = +0.105f!
+            // Wide CQB Reflex Hood centered at y = +0.105f!
             drawModelStyled(cubeModel_, {0.035f, 0.105f, -0.020f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.042f, 0.036f, 0.0045f}, polyDark, 0.32f, 0.6f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.035f, 0.105f,  0.020f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.042f, 0.036f, 0.0045f}, polyDark, 0.32f, 0.6f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.035f, 0.124f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.042f, 0.0045f, 0.044f}, polyDark, 0.32f, 0.6f, 0.0f, MatKind::Standard);
+            const Color dotCol = toRayColor(getOpticReticleColorRGBA(wSlot.opticColorIdx, {112, 255, 96, 255}));
             drawModelStyled(sphereModel_, {0.035f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.0036f, 0.0036f, 0.0036f}, Color{112, 255, 96, 255}, 0.1f, 0.0f, 3.2f, MatKind::EmissiveGlow);
+                            {0.0036f, 0.0036f, 0.0036f}, dotCol, 0.1f, 0.0f, 3.2f, MatKind::EmissiveGlow);
             break;
         }
         case WeaponId::SniperRifle: {
             muzzleTipX = 0.325f;
-            // Precision Marksman Rifle chassis + fluted long barrel + folded bipod + telescopic scope!
+            barrelY = 0.058f;
+            // Precision Marksman Rifle chassis + fluted long barrel + telescopic scope!
             drawModelStyled(cubeModel_, {0.065f, 0.050f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.26f, 0.052f, 0.038f}, Color{44, 52, 46, 255}, 0.42f, 0.48f, 0.0f, MatKind::Standard);
+                            {0.26f, 0.052f, 0.038f}, (wSkin > 0) ? gunMetal : Color{44, 52, 46, 255},
+                            (wSkin > 0) ? wRough : 0.42f, (wSkin > 0) ? wMetal : 0.48f, wEmis, wMat);
             drawModelStyled(cylModel_, {0.185f, 0.058f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
                             {0.011f, 0.155f, 0.011f}, gunSteel, 0.20f, 0.90f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.330f, 0.058f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.032f, 0.022f, 0.028f}, polyDark, 0.35f, 0.75f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {0.055f, -0.018f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.054f, 0.075f, 0.028f}, polyDark, 0.45f, 0.40f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.055f, -0.018f - (extScale - 1.0f) * 0.028f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.054f, 0.075f * extScale, 0.028f}, polyDark, 0.45f, 0.40f, 0.0f, MatKind::Standard);
             // Dual-ring telescopic sniper scope centered at y = +0.105f
             drawModelStyled(cylModel_, {-0.035f, 0.105f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
                             {0.019f, 0.175f, 0.019f}, polyDark, 0.28f, 0.72f, 0.0f, MatKind::Standard);
             drawModelStyled(cylModel_, {0.125f, 0.105f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
                             {0.024f, 0.038f, 0.024f}, polyDark, 0.28f, 0.72f, 0.0f, MatKind::Standard);
+            const Color lensCol = toRayColor(getOpticReticleColorRGBA(wSlot.opticColorIdx, {48, 178, 232, 255}));
             drawModelStyled(sphereModel_, {-0.035f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.006f, 0.017f, 0.017f}, Color{48, 178, 232, 255}, 0.06f, 0.85f, 0.6f, MatKind::CarGlass);
+                            {0.006f, 0.017f, 0.017f}, lensCol, 0.06f, 0.85f, 0.6f, MatKind::CarGlass);
             // Left support hand
             drawModelStyled(cubeModel_, {0.148f, 0.024f, -0.012f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.054f, 0.044f, 0.042f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
@@ -4153,11 +4428,13 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
         }
         case WeaponId::Minigun: {
             muzzleTipX = 0.315f;
+            barrelY = 0.035f;
             // Heavy Rotary Electric Gatling Motor Housing + Top Spade Handle + Live Spinning 6-Barrel Cluster!
             drawModelStyled(cylModel_, {-0.035f, 0.035f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
-                            {0.052f, 0.14f, 0.052f}, gunMetal, 0.32f, 0.78f, 0.0f, MatKind::Standard);
+                            {0.052f, 0.14f, 0.052f}, gunMetal,
+                            (wSkin > 0) ? wRough : 0.32f, (wSkin > 0) ? wMetal : 0.78f, wEmis, wMat);
             drawModelStyled(cubeModel_, {0.025f, -0.028f, 0.032f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.095f, 0.088f, 0.065f}, Color{46, 56, 44, 255}, 0.48f, 0.35f, 0.0f, MatKind::Standard);
+                            {0.095f * extScale, 0.088f * extScale, 0.065f}, Color{46, 56, 44, 255}, 0.48f, 0.35f, 0.0f, MatKind::Standard);
             // Top chainsaw-style crossbar support handle + left hand gripping from above
             drawModelStyled(cubeModel_, {0.075f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.022f, 0.022f, 0.105f}, polyDark, 0.38f, 0.6f, 0.0f, MatKind::Standard);
@@ -4176,7 +4453,8 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                 const float ang = static_cast<float>(b) * (kTwoPi / 6.0f);
                 drawModelStyled(cylModel_, {0.0f, std::cos(ang) * 0.026f, std::sin(ang) * 0.026f},
                                 {0.0f, 0.0f, 1.0f}, -90.0f,
-                                {0.0075f, 0.215f, 0.0075f}, chromeBright, 0.18f, 0.92f, 0.0f, MatKind::Standard);
+                                {0.0075f, 0.215f, 0.0075f}, (wSkin > 0) ? gunSteel : chromeBright,
+                                (wSkin > 0) ? wRough : 0.18f, (wSkin > 0) ? wMetal : 0.92f, 0.0f, MatKind::Standard);
             }
             drawModelStyled(cylModel_, {0.095f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
                             {0.038f, 0.016f, 0.038f}, polyDark, 0.32f, 0.80f, 0.0f, MatKind::Standard);
@@ -4187,10 +4465,13 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
         }
         case WeaponId::HeavyLauncher: {
             muzzleTipX = 0.255f;
+            barrelY = 0.056f;
             drawModelStyled(cubeModel_, {0.085f, 0.056f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.31f, 0.068f, 0.068f}, Color{52, 60, 50, 255}, 0.48f, 0.45f, 0.0f, MatKind::Standard);
+                            {0.31f, 0.068f, 0.068f}, (wSkin > 0) ? gunMetal : Color{52, 60, 50, 255},
+                            (wSkin > 0) ? wRough : 0.48f, (wSkin > 0) ? wMetal : 0.45f, wEmis, wMat);
             drawModelStyled(sphereModel_, {0.045f, 0.036f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.105f, 0.105f, 0.105f}, gunMetal, 0.38f, 0.62f, 0.0f, MatKind::Standard);
+                            {0.105f * (wSlot.extendedMag ? 1.18f : 1.0f), 0.105f, 0.105f * (wSlot.extendedMag ? 1.18f : 1.0f)},
+                            (wSkin > 0) ? gunSteel : gunMetal, 0.38f, 0.62f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.165f, -0.005f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.032f, 0.065f, 0.030f}, polyDark, 0.5f, 0.25f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.160f, -0.015f, -0.012f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -4200,8 +4481,9 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                             {0.020f, 0.036f, 0.004f}, polyDark, 0.35f, 0.5f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.095f, 0.105f,  0.022f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.020f, 0.036f, 0.004f}, polyDark, 0.35f, 0.5f, 0.0f, MatKind::Standard);
+            const Color dotCol = toRayColor(getOpticReticleColorRGBA(wSlot.opticColorIdx, {255, 176, 52, 255}));
             drawModelStyled(sphereModel_, {0.095f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.0038f, 0.0038f, 0.0038f}, Color{255, 176, 52, 255}, 0.1f, 0.0f, 3.0f, MatKind::EmissiveGlow);
+                            {0.0038f, 0.0038f, 0.0038f}, dotCol, 0.1f, 0.0f, 3.0f, MatKind::EmissiveGlow);
             break;
         }
         case WeaponId::CombatMG:
@@ -4209,21 +4491,23 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
         default: {
             const bool isMg = (pl.currentWeapon == WeaponId::CombatMG);
             muzzleTipX = 0.258f;
+            barrelY = 0.056f;
             // Upper & lower receiver + rail handguard + barrel
             drawModelStyled(cubeModel_, {0.055f, 0.050f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.25f, isMg ? 0.064f : 0.054f, isMg ? 0.048f : 0.040f},
-                            gunMetal, 0.34f, 0.68f, 0.0f, MatKind::Standard);
+                            gunMetal, (wSkin > 0) ? wRough : 0.34f, (wSkin > 0) ? wMetal : 0.68f, wEmis, wMat);
             drawModelStyled(cubeModel_, {0.165f, 0.052f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.12f, 0.044f, 0.038f}, polyDark, 0.45f, 0.45f, 0.0f, MatKind::Standard);
+                            {0.12f, 0.044f, 0.038f}, (wSkin > 0) ? gunSteel : polyDark,
+                            (wSkin > 0) ? wRough : 0.45f, (wSkin > 0) ? wMetal : 0.45f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.228f, 0.056f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.075f, 0.020f, 0.020f}, gunSteel, 0.22f, 0.88f, 0.0f, MatKind::Standard);
             // Magazine (box mag on CombatMG, curved STANAG mag on Carbine)
             if (isMg) {
-                drawModelStyled(cubeModel_, {0.065f, -0.028f, 0.008f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.078f, 0.095f, 0.068f}, Color{46, 66, 48, 255}, 0.52f, 0.25f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {0.065f, -0.028f - (extScale - 1.0f) * 0.032f, 0.008f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.078f * extScale, 0.095f * extScale, 0.068f}, Color{46, 66, 48, 255}, 0.52f, 0.25f, 0.0f, MatKind::Standard);
             } else {
-                drawModelStyled(cubeModel_, {0.068f, -0.028f, 0.0f}, {0.0f, 0.0f, 1.0f}, 14.0f,
-                                {0.042f, 0.115f, 0.026f}, polyDark, 0.46f, 0.35f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {0.068f, -0.028f - (extScale - 1.0f) * 0.038f, 0.0f}, {0.0f, 0.0f, 1.0f}, 14.0f,
+                                {0.042f, 0.115f * extScale, 0.026f}, polyDark, 0.46f, 0.35f, 0.0f, MatKind::Standard);
             }
             // Left handguard support hand + sleeve
             drawModelStyled(cubeModel_, {0.148f, 0.024f, -0.012f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -4245,24 +4529,67 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                             {0.046f, 0.038f, 0.0045f}, polyDark, 0.32f, 0.6f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.032f, 0.125f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.046f, 0.0045f, 0.042f}, polyDark, 0.32f, 0.6f, 0.0f, MatKind::Standard);
-            const Color dotCol = isMg ? Color{92, 255, 138, 255} : Color{255, 62, 68, 255};
+            const ColorRGBA defaultDot = isMg ? ColorRGBA{92, 255, 138, 255} : ColorRGBA{255, 62, 68, 255};
+            const Color dotCol = toRayColor(getOpticReticleColorRGBA(wSlot.opticColorIdx, defaultDot));
             drawModelStyled(sphereModel_, {0.032f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.0032f, 0.0032f, 0.0032f}, dotCol, 0.1f, 0.0f, 3.4f, MatKind::EmissiveGlow);
             break;
         }
     }
 
+    // 1st-Person 3D Tactical Barrel Suppressor!
+    if (wSlot.suppressor && weaponSupportsSuppressor(pl.currentWeapon)) {
+        drawModelStyled(cylModel_, {muzzleTipX - 0.008f, barrelY, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                        {0.016f, 0.094f, 0.016f}, Color{26, 30, 38, 255}, 0.32f, 0.76f, 0.0f, MatKind::Standard);
+        drawModelStyled(cylModel_, {muzzleTipX + 0.068f, barrelY, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                        {0.0175f, 0.016f, 0.0175f}, gunSteel, 0.24f, 0.88f, 0.0f, MatKind::Standard);
+    }
+
+    // 1st-Person Tactical Side/Underbarrel Laser Module!
+    if (wSlot.laserSightColor > 0) {
+        Color diodeCol = toRayColor(getLaserSightColorRGBA(wSlot.laserSightColor));
+        diodeCol.a = 255;
+        drawModelStyled(cubeModel_, {muzzleTipX - 0.062f, barrelY - 0.016f, 0.022f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.048f, 0.018f, 0.016f}, polyDark, 0.36f, 0.55f, 0.0f, MatKind::Standard);
+        drawModelStyled(sphereModel_, {muzzleTipX - 0.036f, barrelY - 0.016f, 0.022f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.0045f, 0.0045f, 0.0045f}, diodeCol, 0.08f, 0.0f, 3.6f, MatKind::EmissiveGlow);
+    }
+
     // 3D Emissive Muzzle Flash Star at the barrel tip!
     if (pl.muzzleFlashTimer > 0.0f) {
-        const float flashY = isMinigun ? 0.035f : 0.062f;
-        drawModelStyled(cubeModel_, {muzzleTipX + 0.02f, flashY, 0.0f}, {1.0f, 0.0f, 0.0f}, 45.0f,
+        const float flashY = isMinigun ? 0.035f : barrelY;
+        const float flashX = muzzleTipX + ((wSlot.suppressor && weaponSupportsSuppressor(pl.currentWeapon)) ? 0.095f : 0.02f);
+        drawModelStyled(cubeModel_, {flashX, flashY, 0.0f}, {1.0f, 0.0f, 0.0f}, 45.0f,
                         {0.038f, 0.078f, 0.014f}, Color{255, 224, 112, 255}, 0.1f, 0.0f, 3.8f, MatKind::EmissiveGlow);
-        drawModelStyled(cubeModel_, {muzzleTipX + 0.02f, flashY, 0.0f}, {1.0f, 0.0f, 0.0f}, -45.0f,
+        drawModelStyled(cubeModel_, {flashX, flashY, 0.0f}, {1.0f, 0.0f, 0.0f}, -45.0f,
                         {0.038f, 0.014f, 0.078f}, Color{255, 182, 72, 255}, 0.1f, 0.0f, 3.6f, MatKind::EmissiveGlow);
     }
 
     rlPopMatrix();
     rlPopMatrix();
+
+    // World-space 1st-Person Laser Sight Beam + Pinpoint Impact Dot (perspective-aligned to viewmodel diode!)
+    if (wSlot.laserSightColor > 0 && pl.reloadTimer <= 0.0f) {
+        const Vec3 camRight{-std::sin(viewYaw), 0.0f, std::cos(viewYaw)};
+        const Vec3 camUp{
+            -std::cos(viewYaw) * std::sin(viewPitch),
+             std::cos(viewPitch),
+            -std::sin(viewYaw) * std::sin(viewPitch)
+        };
+        const float lx = (gunX + muzzleTipX - 0.036f) * kVmScale;
+        const float ly = (gunY + barrelY - 0.016f) * kVmScale;
+        const float lz = (gunZ + 0.022f) * kVmScale;
+        const Vec3 origin = camPos + camFwd * lx + camUp * ly + camRight * lz;
+        Color beamCol = toRayColor(getLaserSightColorRGBA(wSlot.laserSightColor));
+        Color dotCol = beamCol;
+        dotCol.a = 255;
+        DrawLine3D({origin.x, origin.y, origin.z},
+                   {pl.crosshairPoint3D.x, pl.crosshairPoint3D.y, pl.crosshairPoint3D.z},
+                   beamCol);
+        drawModelStyled(sphereModel_, {pl.crosshairPoint3D.x, pl.crosshairPoint3D.y, pl.crosshairPoint3D.z},
+                        {0.0f, 1.0f, 0.0f}, 0.0f, {0.040f, 0.040f, 0.040f},
+                        dotCol, 0.08f, 0.0f, 3.8f, MatKind::EmissiveGlow);
+    }
 }
 
 } // namespace oc

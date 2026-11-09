@@ -56,10 +56,16 @@ struct PersonalVehicleTuning {
     int engineUpgradeLevel = 0; // 0..3
     int armorUpgradeLevel = 0;  // 0..3
     int neonPreset = 0;         // 0=Off, 1=Cyan, 2=Purple, 3=Crimson, 4=Emerald, 5=Gold
-    int rimStyle = 0;           // 0=Silver Alloy, 1=Champagne Gold, 2=Gloss Black
+    int rimStyle = 0;           // 0=Silver Alloy, 1=Champagne Gold, 2=Gloss Black, 3=Cyber Cyan, 4=Crimson Track
     bool customSpoiler = false;
     bool mattePaint = false;
+    bool chromePaint = false;
     int paintPresetIndex = 0;
+    int stripeStyle = 0;        // 0=Off, 1=White GT, 2=Royal Gold, 3=Cyber Cyan, 4=Stealth Black
+    int spoilerStyle = 0;       // 0=Off, 1=Carbon GT Wing, 2=Swan-Neck Time-Attack Wing (+6% Grip)
+    int stanceStyle = 0;        // 0=Stock, 1=Street Lowered, 2=Slammed Camber, 3=Off-Road Lift
+    int headlightColorIdx = 0;  // 0=Xenon White, 1=Cyber Cyan, 2=GT Yellow, 3=UV Purple, 4=Demon Red
+    int driftSmokeColorIdx = 0; // 0=White, 1=Cyan, 2=Crimson, 3=Gold, 4=Purple, 5=Emerald
 };
 
 struct Vehicle {
@@ -89,11 +95,17 @@ struct Vehicle {
     int engineUpgradeLevel = 0;  // 0..3 from Tune Garage
     int armorUpgradeLevel = 0;   // 0..3 reinforced armor & bulletproof tires
     int neonPreset = 0;          // 0..5 LED underglow color
-    int rimStyle = 0;            // 0=Alloy, 1=Gold, 2=Black
+    int rimStyle = 0;            // 0..4 custom wheel finish
     bool customSpoiler = false;
     bool mattePaint = false;
+    bool chromePaint = false;
     bool isPersonalCar = false;
     int paintPresetIndex = 0;
+    int stripeStyle = 0;         // 0..4 racing stripe livery
+    int spoilerStyle = 0;        // 0..2 rear aero wing style
+    int stanceStyle = 0;         // 0..3 suspension ride height & camber
+    int headlightColorIdx = 0;   // 0..4 Xenon / LED headlamp tint
+    int driftSmokeColorIdx = 0;  // 0..5 colored tire drift smoke
     float nitroCharge = 1.0f;    // [0, 1]
 
     // Traffic AI lane-following state
@@ -246,10 +258,69 @@ inline constexpr std::array<VehicleKind, 10> kDealershipCatalog = {{
 
 ColorRGBA getNeonPresetColor(int neonPreset);
 
+struct WeaponFinishMaterial {
+    ColorRGBA primary{34, 38, 46, 255};
+    ColorRGBA secondary{66, 72, 84, 255};
+    float roughness = 0.28f;
+    float metallic = 0.80f;
+    float emissive = 0.0f;
+};
+
+ColorRGBA getPlayerSkinColor(int skinToneIdx);
+ColorRGBA getPlayerTopColor(OutfitId outfit, int customTopColorIdx);
+ColorRGBA getPlayerBottomColor(OutfitId outfit, int customBottomColorIdx);
+ColorRGBA getPlayerHairColor(OutfitId outfit, int hairColorIdx);
+WeaponFinishMaterial getWeaponFinishMaterial(WeaponId weapon, int skinIndex);
+ColorRGBA getLaserSightColorRGBA(int laserSightColor);
+ColorRGBA getCustomTracerColorRGBA(WeaponId weapon, int tracerColorIdx);
+ColorRGBA getOpticReticleColorRGBA(int opticColorIdx, ColorRGBA defaultColor);
+ColorRGBA getVehicleStripeColorRGBA(int stripeStyle, ColorRGBA fallback);
+ColorRGBA getVehicleHeadlightColorRGBA(int headlightColorIdx, bool nightMode);
+ColorRGBA getDriftSmokeColorRGBA(int driftSmokeColorIdx);
+ColorRGBA getCrosshairColorRGBA(int crosshairColorIdx);
+ColorRGBA getHudThemeColorRGBA(int hudThemeIdx);
+
+inline bool weaponSupportsSuppressor(WeaponId id) {
+    return id != WeaponId::Fists && id != WeaponId::Minigun && id != WeaponId::HeavyLauncher;
+}
+
+inline int effectiveMagazineSize(WeaponId id, bool extendedMag) {
+    const int base = getWeaponSpec(id).magazineSize;
+    if (base <= 0 || !extendedMag) return base;
+    return std::max(base + 2, (base * 3 + 1) / 2);
+}
+
 struct WeaponSlotState {
     bool owned = false;
     int magAmmo = 0;
     int reserveAmmo = 0;
+    int skinIndex = 0;          // 0=Factory, 1=Chrome, 2=24K Gold, 3=Crimson Carbon, 4=Cyber Neon, 5=Arctic White
+    bool suppressor = false;
+    bool suppressorOwned = false;
+    bool extendedMag = false;
+    bool extendedMagOwned = false;
+    int laserSightColor = 0;    // 0=OFF, 1=Red, 2=Green, 3=Cyan
+    int tracerColorIdx = 0;     // 0=Default, 1=Gold, 2=Cyan, 3=Crimson, 4=Purple, 5=Emerald
+    int opticColorIdx = 0;      // 0=Default, 1=Red, 2=Green, 3=Cyan, 4=Gold
+};
+
+struct CharacterCustomState {
+    int hairOrHatStyle = 0;      // 0=Short, 1=Pompadour, 2=Mohawk, 3=Snapback, 4=Aero Helmet (-8% Dmg), 5=Cyber Visor, 6=VIP Crown
+    int hairColorIdx = 0;        // 0=Jet Black, 1=Chestnut, 2=Platinum Blonde, 3=Crimson, 4=Cyber Cyan, 5=Royal Gold
+    int glassesStyle = 1;        // 0=None, 1=Dark Shades, 2=Gold Aviator, 3=Cyan Tactical Goggles
+    int skinToneIdx = 1;         // 0=Ivory, 1=Natural Beige, 2=Golden Tan, 3=Olive Bronze, 4=Deep Espresso
+    int customTopColorIdx = 0;   // 0=Outfit Default, 1..8=Custom Jacket/Suit Colors
+    int customBottomColorIdx = 0;// 0=Outfit Default, 1..6=Custom Pants Colors
+    int backGearStyle = 0;       // 0=None, 1=Tactical Backpack, 2=Heist Duffle Bag, 3=Cyber Wing Pack
+};
+
+struct HudCustomState {
+    int crosshairStyle = 0;      // 0=Cross+Dot, 1=Pinpoint Dot, 2=Tactical Circle+Dot, 3=Chevron ^
+    int crosshairColorIdx = 0;   // 0=White, 1=Neon Green, 2=Cyber Cyan, 3=Solar Gold, 4=Hot Magenta, 5=Crimson
+    int crosshairScaleIdx = 1;   // 0=Compact 80%, 1=Standard 100%, 2=Large 130%
+    bool crosshairOutline = true;
+    bool useMph = false;         // false=KM/H, true=MPH
+    int hudThemeIdx = 0;         // 0=Cyber Cyan, 1=Vice Pink, 2=VIP Gold, 3=Emerald Green
 };
 
 struct PlayerState {
@@ -283,6 +354,8 @@ struct PlayerState {
     std::array<bool, static_cast<std::size_t>(PropertyId::Count)> ownedProperties{};
     std::array<bool, static_cast<std::size_t>(OutfitId::Count)> ownedOutfits{};
     OutfitId currentOutfit = OutfitId::StreetCasual;
+    CharacterCustomState characterCustom{};
+    HudCustomState hudCustom{};
 
     float fireCooldown = 0.0f;
     float reloadTimer = 0.0f;
@@ -294,6 +367,7 @@ struct PlayerState {
     bool hitMarkerCritical = false;
     bool crosshairOnTarget = false;
     float crosshairHitDist = 50.0f; // Live rangefinder distance for Sniper Scope HUD
+    Vec3 crosshairPoint3D{15.5f, 1.4f, 0.0f}; // Live 3D laser-sight / crosshair world endpoint
 
     bool wasted = false;
     float wastedTimer = 0.0f;
@@ -423,6 +497,7 @@ struct BannerNotification {
 
 enum class AudioEventType {
     PistolShot,
+    SuppressedShot,
     HeavyPistolShot,
     SmgShot,
     ShotgunShot,
@@ -472,6 +547,8 @@ struct PlayerInput {
     int shopBuyOption = -1;     // 1..12 when inside shop menu
     int phoneTab = -1;          // 0..3 when Smartphone action triggered
     int phoneOption = -1;       // 1..10 when Smartphone action triggered
+    int customStudioTab = -1;   // 0..3 when Custom Studio [K] action triggered
+    int customStudioOption = -1;// 1..8 when Custom Studio [K] action triggered
 };
 
 } // namespace oc

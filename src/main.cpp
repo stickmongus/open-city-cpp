@@ -33,6 +33,10 @@ int main(int argc, char** argv) {
     bool forceAdsDemo = false;
     int weaponOverride = -1;
     bool fleetShowcaseDemo = false;
+    int openCustomTabOverride = -1;
+    bool charPresetDemo = false;
+    bool gunPresetDemo = false;
+    bool carPresetDemo = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--smoke-test") == 0) {
@@ -52,6 +56,14 @@ int main(int argc, char** argv) {
             posOverrideZ = std::strtof(argv[++i], nullptr);
         } else if (std::strcmp(argv[i], "--open-phone") == 0 && i + 1 < argc) {
             openPhoneTabOverride = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--open-custom") == 0 && i + 1 < argc) {
+            openCustomTabOverride = std::clamp(std::atoi(argv[++i]), 0, 3);
+        } else if (std::strcmp(argv[i], "--char-preset") == 0) {
+            charPresetDemo = true;
+        } else if (std::strcmp(argv[i], "--gun-preset") == 0) {
+            gunPresetDemo = true;
+        } else if (std::strcmp(argv[i], "--car-preset") == 0) {
+            carPresetDemo = true;
         } else if (std::strcmp(argv[i], "--open-shop") == 0) {
             openShopOverride = true;
         } else if (std::strcmp(argv[i], "--cash") == 0 && i + 1 < argc) {
@@ -84,7 +96,7 @@ int main(int argc, char** argv) {
     }
 
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1440, 860, "Open City C++ v0.7.0 - 3D Open-World Sandbox");
+    InitWindow(1440, 860, "Open City C++ v0.8.0 - 3D Open-World Sandbox");
     SetExitKey(KEY_NULL); // Keep ESC free for menu/cursor release instead of instant quit
     SetTargetFPS(60);
 
@@ -326,6 +338,107 @@ int main(int argc, char** argv) {
             jumpIn.jumpPressed = false;
         }
     }
+    if (charPresetDemo) {
+        auto& pl = world.player();
+        pl.cash = std::max(pl.cash, 48500);
+        pl.ownedOutfits[static_cast<std::size_t>(oc::OutfitId::GoldBossCoat)] = true;
+        pl.currentOutfit = oc::OutfitId::GoldBossCoat;
+        pl.characterCustom.hairOrHatStyle = 6;      // 24K VIP Gold Crown
+        pl.characterCustom.hairColorIdx = 5;        // Royal Gold
+        pl.characterCustom.glassesStyle = 3;        // Cyan Tactical Goggles
+        pl.characterCustom.skinToneIdx = 2;         // Golden Tan
+        pl.characterCustom.customTopColorIdx = 1;   // Crimson Red Coat
+        pl.characterCustom.customBottomColorIdx = 1;// Jet Black Pants
+        pl.characterCustom.backGearStyle = 3;       // Cyber Neon Wing Pack
+        if (initialYawOverride > -100.0f) {
+            pl.facingYaw = initialYawOverride;
+        }
+        auto& ar = pl.weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)];
+        ar.owned = true;
+        ar.skinIndex = 2; // 24K Royal Gold
+        ar.suppressorOwned = true;
+        ar.suppressor = true;
+        ar.extendedMagOwned = true;
+        ar.extendedMag = true;
+        ar.magAmmo = oc::effectiveMagazineSize(oc::WeaponId::AssaultRifle, true);
+        ar.reserveAmmo = 180;
+        ar.laserSightColor = 3; // Cyber Cyan Laser
+        pl.currentWeapon = oc::WeaponId::AssaultRifle;
+        pl.hudCustom.hudThemeIdx = 2; // VIP Royal Gold
+    }
+    if (gunPresetDemo) {
+        auto& pl = world.player();
+        pl.cash = std::max(pl.cash, 36000);
+        const oc::WeaponId wid = (weaponOverride >= 0)
+                                     ? static_cast<oc::WeaponId>(weaponOverride)
+                                     : oc::WeaponId::AssaultRifle;
+        auto& slot = pl.weapons[static_cast<std::size_t>(wid)];
+        slot.owned = true;
+        slot.skinIndex = 2; // 24K Royal Gold
+        if (oc::weaponSupportsSuppressor(wid)) {
+            slot.suppressorOwned = true;
+            slot.suppressor = true;
+        }
+        slot.extendedMagOwned = true;
+        slot.extendedMag = true;
+        slot.magAmmo = oc::effectiveMagazineSize(wid, true);
+        slot.reserveAmmo = slot.magAmmo * 5;
+        slot.laserSightColor = 3; // Cyber Cyan 3D Laser Beam
+        slot.tracerColorIdx = 2;  // Cyber Cyan Tracer
+        slot.opticColorIdx = 3;   // Cyber Cyan Optic
+        pl.currentWeapon = wid;
+        pl.characterCustom.skinToneIdx = 2;
+        pl.characterCustom.customTopColorIdx = 1;
+        pl.hudCustom.crosshairStyle = 2;    // Tactical Circle + Dot
+        pl.hudCustom.crosshairColorIdx = 2; // Cyber Cyan
+        pl.hudCustom.hudThemeIdx = 0;       // Cyber Cyan
+    }
+    if (carPresetDemo) {
+        auto& pl = world.player();
+        pl.cash = std::max(pl.cash, 92000);
+        const auto targetKind = (driveKindOverride >= 0)
+                                    ? static_cast<oc::VehicleKind>(driveKindOverride)
+                                    : oc::VehicleKind::JdmTuner;
+        auto& gslot = pl.garage[static_cast<std::size_t>(targetKind)];
+        gslot.owned = true;
+        gslot.paintPresetIndex = 8; // Mirror Chrome
+        gslot.paintColor = {226, 234, 244, 255};
+        gslot.stripeStyle = 2;      // Royal Gold Dual GT Stripes
+        gslot.stripeColor = {248, 198, 56, 255};
+        gslot.mattePaint = false;
+        gslot.chromePaint = true;
+        gslot.rimStyle = 3;         // Cyber Cyan Forged Rims
+        gslot.spoilerStyle = 2;     // Swan-Neck Time-Attack Wing (+6% Grip)
+        gslot.customSpoiler = true;
+        gslot.stanceStyle = 2;      // Slammed Negative Camber (-82mm)
+        gslot.headlightColorIdx = 1;// Cyber Cyan Xenon Beams
+        gslot.neonPreset = 2;       // UV Neon Purple Underglow
+        gslot.driftSmokeColorIdx = 1;
+        gslot.engineUpgradeLevel = 2;
+        gslot.armorUpgradeLevel = 2;
+        world.buyOrSummonVehicle(targetKind);
+        if (oc::Vehicle* pv = world.findVehicleMutable(pl.activePersonalVehicleId)) {
+            const float showYaw = (initialYawOverride > -100.0f) ? initialYawOverride : 0.0f;
+            if (hasPosOverride) {
+                pv->pos = {posOverrideX, posOverrideZ};
+            }
+            pv->heading = showYaw;
+            pv->velocity = {0.0f, 0.0f};
+            pv->steerVisual = hasSteerOverride ? demoSteerOverride : 0.34f;
+            pv->isParked = true;
+            const oc::Vec2 rDir = oc::rightFromHeading(showYaw);
+            pl.pos = pv->pos - rDir * 2.8f;
+            pl.posY = world.surfaceHeightAt(pl.pos);
+            // Clear nearby street cars so the showroom shot is unobstructed
+            for (auto& other : world.vehicles()) {
+                if (other.id != pv->id && (other.pos - pv->pos).length() < 26.0f) {
+                    other.pos = pv->pos - oc::forwardFromHeading(showYaw) * 58.0f;
+                    other.velocity = {0.0f, 0.0f};
+                }
+            }
+        }
+        world.clearWantedLevel(false);
+    }
     if (initialTimeOverride >= 0.0f) {
         const float deltaH = initialTimeOverride - world.timeOfDayHours();
         world.advanceTimeOfDayHours(deltaH >= 0.0f ? deltaH : (deltaH + 24.0f));
@@ -333,6 +446,10 @@ int main(int argc, char** argv) {
     if (openPhoneTabOverride >= 0) {
         hud.setPhoneOpen(true);
         hud.setPhoneTab(openPhoneTabOverride);
+    }
+    if (openCustomTabOverride >= 0) {
+        hud.setCustomStudioOpen(true);
+        hud.setCustomTab(openCustomTabOverride);
     }
     if (openShopOverride && world.isPlayerInAnyShopZone()) {
         hud.setShopMenuOpen(true);
@@ -384,6 +501,8 @@ int main(int argc, char** argv) {
                 hud.setShopMenuOpen(false);
             } else if (hud.isPhoneOpen()) {
                 hud.setPhoneOpen(false);
+            } else if (hud.isCustomStudioOpen()) {
+                hud.setCustomStudioOpen(false);
             } else {
                 cursorLocked = !cursorLocked;
                 if (cursorLocked) {
@@ -445,7 +564,7 @@ int main(int argc, char** argv) {
         if (IsKeyPressed(KEY_LEFT_BRACKET) || IsKeyPressed(KEY_RIGHT_BRACKET)) {
             const float delta = IsKeyPressed(KEY_RIGHT_BRACKET) ? 0.10f : -0.10f;
             mouseSensScale = oc::clampf(std::round((mouseSensScale + delta) * 10.0f) / 10.0f, 0.30f, 2.50f);
-            const int pct = static_cast<int>(std::round(mouseSensScale * 100.0f));
+            const int pct = static_cast<int>(std::round(mouseSensScale * 10.0f) * 10);
             char sensEn[64];
             char sensKo[80];
             std::snprintf(sensEn, sizeof(sensEn), "MOUSE SENSITIVITY: %d%%  ([ / ])", pct);
@@ -457,6 +576,18 @@ int main(int argc, char** argv) {
         }
         if (IsKeyPressed(KEY_P)) {
             hud.setPhoneOpen(!hud.isPhoneOpen());
+        }
+        if (IsKeyPressed(KEY_K)) {
+            const bool opening = !hud.isCustomStudioOpen();
+            hud.setCustomStudioOpen(opening);
+            if (opening) {
+                if (world.playerVehicle() != nullptr) {
+                    hud.setCustomTab(2);
+                    camYaw = world.playerVehicle()->heading;
+                } else {
+                    camYaw = world.player().facingYaw;
+                }
+            }
         }
         if (IsKeyPressed(KEY_B)) {
             if (world.isPlayerInAnyShopZone()) {
@@ -519,26 +650,15 @@ int main(int argc, char** argv) {
             input.sprintOrNitro = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
             input.handbrake = IsKeyDown(KEY_SPACE);
             input.jumpPressed = IsKeyPressed(KEY_SPACE);
-            input.interactPressed = IsKeyPressed(KEY_F) || (!hud.isPhoneOpen() && IsKeyPressed(KEY_E));
+            input.interactPressed =
+                IsKeyPressed(KEY_F) || (!hud.isPhoneOpen() && !hud.isCustomStudioOpen() && IsKeyPressed(KEY_E));
             input.aimHeld = wantPrecisionAim;
             input.fireHeld = cursorLocked && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
             input.reloadPressed = IsKeyPressed(KEY_R);
             input.hornPressed = IsKeyPressed(KEY_G);
             input.abortMissionPressed = IsKeyPressed(KEY_BACKSPACE);
 
-            if (hud.isPhoneOpen()) {
-                if (IsKeyPressed(KEY_Q)) hud.cyclePhoneTab(-1);
-                if (IsKeyPressed(KEY_E)) hud.cyclePhoneTab(1);
-                const int maxOpt = (hud.phoneTab() == 0 || hud.phoneTab() == 3) ? 10 : 6;
-                if (menuKey >= 1 && menuKey <= maxOpt) {
-                    input.phoneTab = hud.phoneTab();
-                    input.phoneOption = menuKey;
-                }
-            } else {
-                if (menuKey >= 1 && menuKey <= kWeaponSlotCount) {
-                    input.weaponSelectSlot = menuKey - 1;
-                }
-
+            auto handleWeaponCycleKeys = [&]() {
                 const float wheel = GetMouseWheelMove();
                 int cycleStep = 0;
                 if (std::abs(wheel) > 0.1f) {
@@ -558,6 +678,30 @@ int main(int argc, char** argv) {
                         }
                     }
                 }
+            };
+
+            if (hud.isPhoneOpen()) {
+                if (IsKeyPressed(KEY_Q)) hud.cyclePhoneTab(-1);
+                if (IsKeyPressed(KEY_E)) hud.cyclePhoneTab(1);
+                const int maxOpt = (hud.phoneTab() == 0 || hud.phoneTab() == 3) ? 10 : 6;
+                if (menuKey >= 1 && menuKey <= maxOpt) {
+                    input.phoneTab = hud.phoneTab();
+                    input.phoneOption = menuKey;
+                }
+            } else if (hud.isCustomStudioOpen()) {
+                if (IsKeyPressed(KEY_Q)) hud.cycleCustomTab(-1);
+                if (IsKeyPressed(KEY_E)) hud.cycleCustomTab(1);
+                const int maxOpt = (hud.customTab() == 0 || hud.customTab() == 2) ? 8 : 6;
+                if (menuKey >= 1 && menuKey <= maxOpt) {
+                    input.customStudioTab = hud.customTab();
+                    input.customStudioOption = menuKey;
+                }
+                handleWeaponCycleKeys();
+            } else {
+                if (menuKey >= 1 && menuKey <= kWeaponSlotCount) {
+                    input.weaponSelectSlot = menuKey - 1;
+                }
+                handleWeaponCycleKeys();
             }
         } else {
             if (menuKey >= 1 && menuKey <= 12) {
@@ -569,16 +713,26 @@ int main(int argc, char** argv) {
         const bool sniperScoped = !lookBack && sniperEquipped && adsBlend > 0.72f;
         const bool activeFirstPerson = (firstPersonMode || sniperScoped) && !lookBack;
 
+        const bool studioAvatarShowcasePre =
+            hud.isCustomStudioOpen() && !activeFirstPerson && !lookBack &&
+            world.player().drivingVehicleId < 0 && (hud.customTab() == 0 || hud.customTab() == 1) &&
+            !input.fireHeld && !input.aimHeld &&
+            std::abs(input.moveForward) < 0.01f && std::abs(input.moveRight) < 0.01f;
+
         // Pre-step aim ray for exact 1:1 hitscan alignment inside world.update()
         const float preAimYaw =
-            (activeFirstPerson && world.playerVehicle() != nullptr)
-                ? oc::wrapAngle(world.playerVehicle()->heading + cockpitRelYaw)
-                : (lookBack ? oc::wrapAngle(camYaw + oc::kPi) : camYaw);
-        const float preAimPitch = lookBack ? -0.12f : camPitch;
+            studioAvatarShowcasePre
+                ? world.player().facingYaw
+                : ((activeFirstPerson && world.playerVehicle() != nullptr)
+                       ? oc::wrapAngle(world.playerVehicle()->heading + cockpitRelYaw)
+                       : (lookBack ? oc::wrapAngle(camYaw + oc::kPi) : camYaw));
+        const float preAimPitch = studioAvatarShowcasePre ? -0.03f : (lookBack ? -0.12f : camPitch);
         const oc::Vec3 preViewDir = oc::directionFromYawPitch(preAimYaw, preAimPitch).normalized();
 
         oc::Vec3 preRayOrigin{};
-        if (activeFirstPerson) {
+        if (studioAvatarShowcasePre) {
+            preRayOrigin = {world.player().pos.x, world.player().posY + 1.38f, world.player().pos.z};
+        } else if (activeFirstPerson) {
             preRayOrigin = {world.player().pos.x, world.player().posY + 1.62f, world.player().pos.z};
         } else {
             const oc::Vec2 rOff = oc::rightFromHeading(preAimYaw) * 0.40f;
@@ -634,12 +788,22 @@ int main(int argc, char** argv) {
         const bool postSniperScoped = !lookBack && postSniperEquipped && adsBlend > 0.72f;
         const bool postFirstPerson = (firstPersonMode || postSniperScoped) && !lookBack;
 
-        // Evaluate post-step Camera3D (1st-Person Cockpit / 1st-Person FPS & Sniper Scope / Stabilized 3rd-Person Orbit)
+        // Evaluate post-step Camera3D (1st-Person Cockpit / 1st-Person FPS & Sniper Scope / Studio Showcase / 3rd-Person)
         float renderYaw = camYaw;
         float renderPitch = camPitch;
         oc::Vec3 viewDir{};
         oc::Vec3 finalCamPos{};
         float targetFov = 60.0f;
+
+        const oc::Vehicle* studioTargetCar =
+            (hud.isCustomStudioOpen() && !postFirstPerson && !lookBack && hud.customTab() == 2)
+                ? world.customizationTargetVehicle()
+                : nullptr;
+        const bool useStudioCarShowcase = (studioTargetCar != nullptr && studioTargetCar->speed() < 1.5f);
+        const bool useStudioCharShowcase =
+            hud.isCustomStudioOpen() && !postFirstPerson && !lookBack &&
+            world.playerVehicle() == nullptr && (hud.customTab() == 0 || hud.customTab() == 1) &&
+            world.player().velocity.lengthSq() < 0.4f && !input.fireHeld && !input.aimHeld;
 
         if (postFirstPerson && world.playerVehicle() != nullptr) {
             // 1st-Person Vehicle Cockpit: locked to left-hand driver seat, chassis turns head naturally
@@ -689,6 +853,43 @@ int main(int argc, char** argv) {
                 smoothedEyeY = oc::lerpf(smoothedEyeY, desiredEyeY, std::min(1.0f, frameDt * 20.0f));
             }
             finalCamPos = {pl.pos.x, smoothedEyeY, pl.pos.z};
+        } else if (useStudioCharShowcase) {
+            // Front-3/4 Character & Gunsmith Studio Showcase (framed on right half, clear of left Studio panel!)
+            const auto& pl = world.player();
+            const float orbitAng = oc::wrapAngle(camYaw + 0.44f);
+            const oc::Vec2 oDir = oc::forwardFromHeading(orbitAng);
+            const oc::Vec3 subj{pl.pos.x, pl.posY + 1.02f, pl.pos.z};
+            finalCamPos = {subj.x + oDir.x * 2.92f, pl.posY + 1.32f, subj.z + oDir.z * 2.92f};
+
+            const oc::Vec2 d2 = (oc::Vec2{subj.x - finalCamPos.x, subj.z - finalCamPos.z}).normalized();
+            const oc::Vec2 scrRight{-d2.z, d2.x};
+            const oc::Vec3 lookPt{subj.x - scrRight.x * 0.62f, subj.y, subj.z - scrRight.z * 0.62f};
+            viewDir = (lookPt - finalCamPos).normalized();
+            renderYaw = std::atan2(viewDir.z, viewDir.x);
+            renderPitch = std::asin(oc::clampf(viewDir.y, -0.95f, 0.95f));
+            targetFov = 46.0f;
+            if (!camInitialized) {
+                smoothedFov = targetFov;
+                camInitialized = true;
+            }
+        } else if (useStudioCarShowcase) {
+            // Showroom 3/4 Vehicle Custom Studio Camera (framed on right half, clear of left Studio panel!)
+            const float orbitAng = oc::wrapAngle(camYaw + 0.64f);
+            const oc::Vec2 oDir = oc::forwardFromHeading(orbitAng);
+            const oc::Vec3 subj{studioTargetCar->pos.x, 0.70f, studioTargetCar->pos.z};
+            finalCamPos = {subj.x + oDir.x * 5.65f, 1.52f, subj.z + oDir.z * 5.65f};
+
+            const oc::Vec2 d2 = (oc::Vec2{subj.x - finalCamPos.x, subj.z - finalCamPos.z}).normalized();
+            const oc::Vec2 scrRight{-d2.z, d2.x};
+            const oc::Vec3 lookPt{subj.x - scrRight.x * 1.24f, subj.y, subj.z - scrRight.z * 1.24f};
+            viewDir = (lookPt - finalCamPos).normalized();
+            renderYaw = std::atan2(viewDir.z, viewDir.x);
+            renderPitch = std::asin(oc::clampf(viewDir.y, -0.95f, 0.95f));
+            targetFov = 48.0f;
+            if (!camInitialized) {
+                smoothedFov = targetFov;
+                camInitialized = true;
+            }
         } else {
             // Stabilized 3rd-Person Camera: 1:1 zero-lag viewDir + smoothed anchor ONLY + constant shoulder offset
             if (const oc::Vehicle* car = world.playerVehicle()) {

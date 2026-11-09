@@ -19,6 +19,7 @@ public:
     bool tryEnterOrExitVehicle();
     bool purchaseShopItem(int optionOneBased);
     bool executePhoneAction(int tabIndex, int optionOneBased);
+    bool executeCustomStudioAction(int tabIndex, int optionOneBased);
     bool buyOrSummonVehicle(VehicleKind kind);
     bool buyProperty(PropertyId id);
     bool buyOrEquipOutfit(OutfitId id);
@@ -47,6 +48,8 @@ public:
     const Vehicle* findVehicle(int id) const;
     Vehicle* findVehicleMutable(int id);
     const Vehicle* playerVehicle() const;
+    Vehicle* customizationTargetVehicle();
+    const Vehicle* customizationTargetVehicle() const;
 
     const std::vector<NpcCharacter>& npcs() const { return npcs_; }
     std::vector<NpcCharacter>& npcs() { return npcs_; }

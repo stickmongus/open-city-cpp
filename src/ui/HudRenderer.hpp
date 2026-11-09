@@ -22,17 +22,35 @@ public:
     bool isShopMenuOpen() const { return shopMenuOpen_; }
     void setShopMenuOpen(bool open) {
         shopMenuOpen_ = open;
-        if (open) phoneOpen_ = false;
+        if (open) {
+            phoneOpen_ = false;
+            customStudioOpen_ = false;
+        }
     }
 
     bool isPhoneOpen() const { return phoneOpen_; }
     void setPhoneOpen(bool open) {
         phoneOpen_ = open;
-        if (open) shopMenuOpen_ = false;
+        if (open) {
+            shopMenuOpen_ = false;
+            customStudioOpen_ = false;
+        }
     }
     int phoneTab() const { return phoneTab_; }
     void setPhoneTab(int tab) { phoneTab_ = ((tab % 4) + 4) % 4; }
     void cyclePhoneTab(int delta) { phoneTab_ = ((phoneTab_ + delta) % 4 + 4) % 4; }
+
+    bool isCustomStudioOpen() const { return customStudioOpen_; }
+    void setCustomStudioOpen(bool open) {
+        customStudioOpen_ = open;
+        if (open) {
+            shopMenuOpen_ = false;
+            phoneOpen_ = false;
+        }
+    }
+    int customTab() const { return customTab_; }
+    void setCustomTab(int tab) { customTab_ = ((tab % 4) + 4) % 4; }
+    void cycleCustomTab(int delta) { customTab_ = ((customTab_ + delta) % 4 + 4) % 4; }
 
     void showSystemToast(const char* textEn, const char* textKo);
     void showGraphicsToast(const char* labelEn, const char* labelKo);
@@ -56,8 +74,9 @@ private:
     void drawContextPromptsAndMission(const GameWorld& world, int screenW, int screenH);
     void drawShopModal(const GameWorld& world, int screenW, int screenH);
     void drawSmartphoneModal(const GameWorld& world, int screenW, int screenH);
+    void drawCustomStudioModal(const GameWorld& world, int screenW, int screenH);
     void drawBannerToast(const GameWorld& world, int screenW, int screenH);
-    void drawHelpOverlay(int screenW, int screenH, bool cursorLocked);
+    void drawHelpOverlay(const GameWorld& world, int screenW, int screenH, bool cursorLocked);
 
     Font uiFont_{};
     bool customFontLoaded_ = false;
@@ -67,6 +86,8 @@ private:
     bool shopMenuOpen_ = false;
     bool phoneOpen_ = false;
     int phoneTab_ = 0;
+    bool customStudioOpen_ = false;
+    int customTab_ = 0;
     std::string gfxToastEn_;
     std::string gfxToastKo_;
     float gfxToastTimer_ = 0.0f;
