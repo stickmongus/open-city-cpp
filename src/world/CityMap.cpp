@@ -579,6 +579,10 @@ void CityMap::generate(std::uint64_t seed) {
         "미션: 항구 라이벌 갱단 소탕",
         {255, 128, 48, 255}
     });
+
+    for (auto& sp : streetProps_) {
+        sp.homePos = sp.pos;
+    }
 }
 
 const PointOfInterest* CityMap::findPoi(PoiKind kind) const {

@@ -37,6 +37,8 @@ int main(int argc, char** argv) {
     bool charPresetDemo = false;
     bool gunPresetDemo = false;
     bool carPresetDemo = false;
+    bool wetRoadDemo = false;
+    bool stuntShotDemo = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--smoke-test") == 0) {
@@ -64,6 +66,10 @@ int main(int argc, char** argv) {
             gunPresetDemo = true;
         } else if (std::strcmp(argv[i], "--car-preset") == 0) {
             carPresetDemo = true;
+        } else if (std::strcmp(argv[i], "--wet-road") == 0) {
+            wetRoadDemo = true;
+        } else if (std::strcmp(argv[i], "--stunt-shot") == 0) {
+            stuntShotDemo = true;
         } else if (std::strcmp(argv[i], "--open-shop") == 0) {
             openShopOverride = true;
         } else if (std::strcmp(argv[i], "--cash") == 0 && i + 1 < argc) {
@@ -96,7 +102,7 @@ int main(int argc, char** argv) {
     }
 
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1440, 860, "Open City C++ v0.8.0 - 3D Open-World Sandbox");
+    InitWindow(1440, 860, "Open City C++ + Rust v0.9.0 - 3D Open-World Sandbox");
     SetExitKey(KEY_NULL); // Keep ESC free for menu/cursor release instead of instant quit
     SetTargetFPS(60);
 
@@ -109,6 +115,9 @@ int main(int argc, char** argv) {
     hud.init();
     audio.init();
 
+    if (wetRoadDemo) {
+        world.setRainWeather(true);
+    }
     if (cashOverride >= 0) {
         world.player().cash = cashOverride;
     }
@@ -183,6 +192,17 @@ int main(int argc, char** argv) {
             }
             const oc::Vec2 cfwd = oc::forwardFromHeading(chosenCar->heading);
             chosenCar->velocity = cfwd * (smokeTestMode ? 18.5f : 0.0f);
+            if (stuntShotDemo) {
+                chosenCar->posY = 3.25f;
+                chosenCar->velY = 4.6f;
+                chosenCar->airborne = true;
+                chosenCar->bodyPitch = 0.24f;
+                chosenCar->nitroActive = true;
+                chosenCar->currentGear = 5;
+                chosenCar->engineRpm = 7450.0f;
+                chosenCar->velocity = cfwd * 32.0f;
+            }
+
             world.player().drivingVehicleId = chosenCar->id;
             world.player().pos = chosenCar->pos;
         }
@@ -574,6 +594,12 @@ int main(int argc, char** argv) {
         if (IsKeyPressed(KEY_T)) {
             world.advanceTimeOfDayHours(3.0f);
         }
+        if (IsKeyPressed(KEY_U)) {
+            world.toggleRainWeather();
+            hud.showSystemToast(
+                world.isRainWeather() ? "WEATHER: RAIN & WET ROAD REFLECTIONS" : "WEATHER: CLEAR SKY",
+                world.isRainWeather() ? "날씨 전환: 우천 및 젖은 아스팔트 거울 반사" : "날씨 전환: 맑음");
+        }
         if (IsKeyPressed(KEY_P)) {
             hud.setPhoneOpen(!hud.isPhoneOpen());
         }
@@ -754,9 +780,9 @@ int main(int argc, char** argv) {
         input.aimRayDir = preViewDir;
 
         // Step simulation BEFORE evaluating final camera pose so 1st-person cockpit/eye has ZERO 1-frame position lag!
-        if (!(smokeTestMode && (jumpPanicDemo || fleetShowcaseDemo))) {
+        if (!(smokeTestMode && (jumpPanicDemo || fleetShowcaseDemo || stuntShotDemo))) {
             world.update(frameDt, input);
-        } else if (smokeTestMode && fleetShowcaseDemo) {
+        } else if (smokeTestMode && (fleetShowcaseDemo || stuntShotDemo)) {
             // Still update siren strobe phases for emergency showcase vehicles
             for (auto& v : world.vehicles()) {
                 if (v.sirenActive) {
@@ -820,7 +846,7 @@ int main(int argc, char** argv) {
             const oc::Vec3 eyeLocal = oc::driverSeatEyeLocal(car->kind);
             const oc::Vec2 carFwd = oc::forwardFromHeading(car->heading);
             const oc::Vec2 carRight = oc::rightFromHeading(car->heading);
-            const float seatY = eyeLocal.y + eyeLocal.x * std::sin(car->bodyPitch) - eyeLocal.z * std::sin(car->bodyRoll);
+            const float seatY = car->posY + eyeLocal.y + eyeLocal.x * std::sin(car->bodyPitch) - eyeLocal.z * std::sin(car->bodyRoll);
             finalCamPos = {
                 car->pos.x + carFwd.x * eyeLocal.x + carRight.x * eyeLocal.z,
                 seatY,
@@ -912,7 +938,7 @@ int main(int argc, char** argv) {
             oc::Vec2 shoulderOff{0.0f, 0.0f};
 
             if (const oc::Vehicle* car = world.playerVehicle()) {
-                rawAnchor = {car->pos.x, 1.48f, car->pos.z};
+                rawAnchor = {car->pos.x, 1.48f + car->posY, car->pos.z};
                 desiredDist = 7.8f + oc::clampf(car->speed() * 0.065f, 0.0f, 2.6f);
                 targetFov = 58.0f + oc::clampf(car->speed() * 0.28f, 0.0f, 12.0f) + (car->nitroActive ? 4.0f : 0.0f);
             } else {

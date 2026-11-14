@@ -1,4 +1,6 @@
 #include "gameplay/GameWorld.hpp"
+#include "physics/PhysicsBridge.hpp"
+#include "render/GeneratedRealisticAssets.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -391,14 +393,33 @@ void GameWorld::reset() {
     trafficSignalTimer_ = 0.0f;
     policeSpawnCooldown_ = 0.0f;
     panicScreamCooldown_ = 0.0f;
+    rainWeather_ = false;
+    stuntJumpsCompleted_ = 0;
+
+    for (auto& sp : city_.streetProps()) {
+        if (sp.homePos.lengthSq() > 0.001f) {
+            sp.pos = sp.homePos;
+        } else {
+            sp.homePos = sp.pos;
+        }
+        sp.broken = false;
+        sp.velocity = {0.0f, 0.0f};
+        sp.brokenTimer = 0.0f;
+        sp.posY = 0.0f;
+        sp.velY = 0.0f;
+        sp.pitch = 0.0f;
+        sp.roll = 0.0f;
+        sp.angVelPitch = 0.0f;
+        sp.angVelRoll = 0.0f;
+    }
 
     player_.posY = surfaceHeightAt(player_.pos);
     player_.onGround = true;
 
     spawnInitialWorld();
     pushBanner("WELCOME TO SUNSET BAY", "선셋 베이 시티에 오신 것을 환영합니다",
-               "[K] Custom Studio  |  [V] 1st/3rd Person  |  [P] Smartphone",
-               "[K] 풀 커스텀 스튜디오 · [V] 1인칭·3인칭 · [P] 스마트폰",
+               "[K] Custom Studio  |  [U] Rain Reflection  |  [V] 1st/3rd Person",
+               "[K] 커스텀 스튜디오 · [U] 우천 반사 날씨 · [V] 1·3인칭 · [P] 스마트폰",
                {92, 224, 255, 255}, 4.8f);
 }
 
@@ -570,11 +591,63 @@ float GameWorld::tuningDiscountScale() const {
     return player_.ownedProperties[static_cast<std::size_t>(PropertyId::PayNTuneFranchise)] ? 0.5f : 1.0f;
 }
 
-float GameWorld::surfaceHeightAt(const Vec2& pos) const {
-    if (pos.x < -345.0f) {
-        return (std::abs(pos.z) < 7.6f) ? 0.24f : 0.02f;
+void GameWorld::toggleRainWeather() {
+    rainWeather_ = !rainWeather_;
+    pushAudio(AudioEventType::ShopBuy, 0.78f);
+    pushBanner(rainWeather_ ? "COASTAL RAIN & WET ASPHALT" : "CLEAR SUNSET BAY SKY",
+               rainWeather_ ? "우천 날씨 & 젖은 아스팔트 거울 반사 ON" : "맑은 날씨 모드 (건조 노면)",
+               rainWeather_ ? "Real-time road puddle reflections & reduced tire grip"
+                            : "Full dry-tarmac tire grip restored",
+               rainWeather_ ? "네온·빌딩 노면 거울 반사 활성화 및 빗길 제동거리 증가"
+                            : "건조 아스팔트 노면 최대 타이어 그립 복구",
+               rainWeather_ ? ColorRGBA{84, 212, 255, 255} : ColorRGBA{255, 210, 82, 255}, 2.4f);
+}
+
+float GameWorld::evaluateStuntRampHeight(const Vec2& pos, float* outSlopePitch, const Vec2* travelDir) const {
+    if (outSlopePitch) *outSlopePitch = 0.0f;
+    float bestH = 0.0f;
+    float bestSlope = 0.0f;
+    for (const auto& r : generated::kCityStuntRamps) {
+        const float dx = pos.x - r.centerX;
+        const float dz = pos.z - r.centerZ;
+        const float maxR = r.length + r.width;
+        if (dx * dx + dz * dz > maxR * maxR) continue;
+
+        const float c = r.dirX;
+        const float s = r.dirZ;
+        const float localFwd = dx * c + dz * s;
+        const float localSide = -dx * s + dz * c;
+        const float halfL = r.length * 0.5f;
+        const float halfW = r.width * 0.5f;
+        if (localFwd >= -halfL && localFwd <= halfL && std::abs(localSide) <= halfW) {
+            const float u = clampf((localFwd + halfL) / r.length, 0.0f, 1.0f);
+            const float h = r.height * (0.35f * u + 0.65f * u * u);
+            if (h > bestH) {
+                bestH = h;
+                const float dhdu = r.height * (0.35f + 1.30f * u) / r.length;
+                float alignSign = 1.0f;
+                if (travelDir) {
+                    const float dotFwd = travelDir->x * c + travelDir->z * s;
+                    alignSign = (dotFwd >= 0.0f) ? 1.0f : -0.35f;
+                }
+                bestSlope = std::atan(dhdu) * alignSign;
+            }
+        }
     }
-    return city_.isOnRoad(pos, 0.1f) ? 0.0f : 0.08f;
+    if (outSlopePitch) *outSlopePitch = bestSlope;
+    return bestH;
+}
+
+
+float GameWorld::surfaceHeightAt(const Vec2& pos) const {
+    float baseH = 0.0f;
+    if (pos.x < -345.0f) {
+        baseH = (std::abs(pos.z) < 7.6f) ? 0.24f : 0.02f;
+    } else {
+        baseH = city_.isOnRoad(pos, 0.1f) ? 0.0f : 0.08f;
+    }
+    const float rampH = evaluateStuntRampHeight(pos);
+    return (rampH > 0.001f) ? (baseH + rampH) : baseH;
 }
 
 float GameWorld::computePlayerSupportHeight(const Vec2& pos, float currentY, Vec2* platformCarryVel) const {
@@ -2293,15 +2366,20 @@ bool GameWorld::purchaseShopItem(int optionOneBased) {
         switch (optionOneBased) {
             case 1: {
                 const int price = costOf(120);
-                if (player_.cash < price || (car->health >= car->maxHealth - 0.5f && player_.wantedLevel <= 0)) return false;
+                const bool hasDent = (car->frontDamage + car->rearDamage + car->leftDamage + car->rightDamage) > 0.02f;
+                if (player_.cash < price || (car->health >= car->maxHealth - 0.5f && !hasDent && player_.wantedLevel <= 0)) return false;
                 player_.cash -= price;
                 car->health = car->maxHealth;
+                car->frontDamage = 0.0f;
+                car->rearDamage = 0.0f;
+                car->leftDamage = 0.0f;
+                car->rightDamage = 0.0f;
                 const bool clearedWanted = canDisguiseWanted();
                 if (clearedWanted) clearWantedLevel(false);
                 pushAudio(AudioEventType::ShopBuy, 1.0f);
                 pushBanner(clearedWanted ? "REPAIRED & WANTED CLEARED" : "VEHICLE REPAIRED",
-                           clearedWanted ? "차량 완벽 수리 및 경찰 수배 위장 해제!" : "차량 완벽 수리 완료",
-                           "Chassis 100%", "내구도 100% 복구", {72, 232, 255, 255}, 2.4f);
+                           clearedWanted ? "차량 판금·수리 및 경찰 수배 위장 해제!" : "차량 차체 판금 & 완벽 수리 완료",
+                           "Chassis & Bodywork 100%", "내구도 및 차체 외형 100% 복구", {72, 232, 255, 255}, 2.4f);
                 return true;
             }
             case 2: {
@@ -2437,9 +2515,13 @@ bool GameWorld::purchaseShopItem(int optionOneBased) {
             player_.cash -= 60;
             car->health = car->maxHealth;
             car->nitroCharge = 1.0f;
+            car->frontDamage = 0.0f;
+            car->rearDamage = 0.0f;
+            car->leftDamage = 0.0f;
+            car->rightDamage = 0.0f;
             pushAudio(AudioEventType::ShopBuy, 1.0f);
-            pushBanner("FULL TANK & PIT SERVICE", "고급유 주유·니트로 충전 및 급속정비 완료!",
-                       "Vehicle 100% Ready", "차량 내구도 및 니트로 100% 충전", {255, 118, 72, 255}, 2.2f);
+            pushBanner("FULL TANK & PIT SERVICE", "고급유 주유·니트로 충전 및 급속 판금정비 완료!",
+                       "Vehicle 100% Ready", "차량 내구도·차체 및 니트로 100% 복구", {255, 118, 72, 255}, 2.2f);
             return true;
         }
         if (optionOneBased == 2) {
@@ -2921,12 +3003,6 @@ void GameWorld::updatePlayerOnFoot(float dt, const PlayerInput& input) {
 }
 
 void GameWorld::updatePlayerDriving(float dt, const PlayerInput& input, Vehicle& car) {
-    player_.pos = car.pos;
-    player_.posY = surfaceHeightAt(car.pos);
-    player_.onGround = true;
-    player_.verticalVel = 0.0f;
-    player_.facingYaw = car.heading;
-
     if (input.hornPressed && car.hornCooldown <= 0.0f) {
         car.hornCooldown = 0.35f;
         if (isEmergencySirenVehicle(car)) {
@@ -2946,6 +3022,12 @@ void GameWorld::updatePlayerDriving(float dt, const PlayerInput& input, Vehicle&
     }
 
     stepVehiclePhysics(dt, car, input.moveForward, input.moveRight, input.handbrake, input.sprintOrNitro);
+
+    player_.pos = car.pos;
+    player_.posY = car.posY;
+    player_.onGround = !car.airborne;
+    player_.verticalVel = car.velY;
+    player_.facingYaw = car.heading;
 
     // Reckless sidewalk driving, speeding near-misses, or active siren scatters nearby pedestrians!
     if (car.speed() > 13.0f) {
@@ -3252,7 +3334,6 @@ void GameWorld::triggerExplosiveBlast3D(const Vec3& center, float radius, float 
 
     for (auto& prop : city_.streetProps()) {
         if (prop.broken ||
-            prop.kind == StreetPropKind::StreetLight ||
             prop.kind == StreetPropKind::BusShelter ||
             prop.kind == StreetPropKind::Billboard ||
             prop.kind == StreetPropKind::FuelPump) {
@@ -3264,6 +3345,9 @@ void GameWorld::triggerExplosiveBlast3D(const Vec3& center, float radius, float 
             prop.broken = true;
             prop.brokenTimer = 0.0f;
             prop.velocity = ((len > 1e-3f) ? (d / len) : Vec2{1.0f, 0.0f}) * 7.5f;
+            prop.velY = 4.5f;
+            prop.angVelPitch = 8.2f;
+            prop.angVelRoll = 6.4f;
         }
     }
 
@@ -3423,6 +3507,9 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
             hit.prop->broken = true;
             hit.prop->brokenTimer = 0.0f;
             hit.prop->velocity = flatDir * 5.2f;
+            hit.prop->velY = 3.4f;
+            hit.prop->angVelPitch = 7.5f;
+            hit.prop->angVelRoll = 5.4f;
             emitParticles(end3D, 5, {215, 215, 220, 255}, 4.8f, 0.15f, 0.32f);
         } else if (hit.kind == RayHit3D::Kind::Building || hit.kind == RayHit3D::Kind::Ground) {
             if (weaponId != WeaponId::Fists) {
@@ -3436,102 +3523,130 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
                                    bool handbrake, bool nitro) {
     const auto& spec = getVehicleSpec(v.kind);
     const float upgradeMult = 1.0f + 0.09f * static_cast<float>(v.engineUpgradeLevel);
-
-    Vec2 fwd = forwardFromHeading(v.heading);
-    Vec2 right = rightFromHeading(v.heading);
-
-    float forwardSpd = v.velocity.dot(fwd);
-    float lateralSpd = v.velocity.dot(right);
-
-    v.brakingVisual = false;
-    v.nitroActive = false;
-
-    const float maxFwd = spec.maxForwardSpeed * upgradeMult * (nitro && v.nitroCharge > 0.04f ? 1.28f : 1.0f);
-
-    if (throttleInput > 0.05f) {
-        if (forwardSpd < -0.5f) {
-            forwardSpd = std::min(0.0f, forwardSpd + spec.braking * dt);
-            v.brakingVisual = true;
-        } else {
-            float accel = spec.acceleration * upgradeMult * throttleInput;
-            if (nitro && v.nitroCharge > 0.03f) {
-                accel *= 1.65f;
-                v.nitroCharge = std::max(0.0f, v.nitroCharge - dt * 0.38f);
-                v.nitroActive = true;
-            }
-            forwardSpd = std::min(maxFwd, forwardSpd + accel * dt);
-        }
-    } else if (throttleInput < -0.05f) {
-        if (forwardSpd > 1.2f) {
-            forwardSpd = std::max(0.0f, forwardSpd - spec.braking * (-throttleInput) * dt);
-            v.brakingVisual = true;
-        } else {
-            forwardSpd = std::max(-spec.maxReverseSpeed, forwardSpd + spec.acceleration * 0.68f * throttleInput * dt);
-        }
-    } else {
-        // Natural rolling resistance
-        const float drag = 4.2f * dt;
-        if (std::abs(forwardSpd) <= drag) forwardSpd = 0.0f;
-        else forwardSpd -= (forwardSpd > 0.0f ? drag : -drag);
-    }
-
-    if (!v.nitroActive) {
-        const float nitroRate = (v.isPlayerDriving && player_.ownedProperties[static_cast<std::size_t>(PropertyId::GlobeOilGas)])
-                                    ? 0.11f
-                                    : 0.055f;
-        v.nitroCharge = std::min(1.0f, v.nitroCharge + dt * nitroRate);
-    }
-
-    if (handbrake) {
-        v.brakingVisual = true;
-        const float hbDecel = 11.5f * dt;
-        if (std::abs(forwardSpd) <= hbDecel) forwardSpd = 0.0f;
-        else forwardSpd -= (forwardSpd > 0.0f ? hbDecel : -hbDecel);
-    }
-
-    // Speed-sensitive steering + reverse steering inversion + handbrake drift yaw boost
-    v.steerVisual = lerpf(v.steerVisual, steerInput, dt * 10.0f);
-    const float absFwd = std::abs(forwardSpd);
-    if (absFwd > 0.45f) {
-        const float lowSpeedFactor = clampf(absFwd / 6.5f, 0.0f, 1.0f);
-        const float highSpeedDamp = 1.0f / (1.0f + absFwd * 0.018f);
-        const float dirSign = (forwardSpd >= 0.0f) ? 1.0f : -1.0f;
-        const float driftBoost = handbrake ? 1.38f : 1.0f;
-        v.heading = wrapAngle(v.heading + steerInput * spec.turnRate * lowSpeedFactor * highSpeedDamp * driftBoost * dirSign * dt);
-    }
-
-    // Reproject onto updated heading so turning transfers momentum into lateral slip!
-    fwd = forwardFromHeading(v.heading);
-    right = rightFromHeading(v.heading);
-    const Vec2 prevWorldVel = v.velocity;
-    if (prevWorldVel.lengthSq() > 0.2f && std::abs(steerInput) > 0.05f) {
-        // Blend rotated velocity with inertial velocity to induce realistic cornering/drift slip
-        const Vec2 rotatedVel = fwd * forwardSpd + right * lateralSpd;
-        const float slipBlend = handbrake ? 0.68f : 0.24f;
-        const Vec2 mixed = rotatedVel * (1.0f - slipBlend) + prevWorldVel * slipBlend;
-        forwardSpd = mixed.dot(fwd);
-        lateralSpd = mixed.dot(right);
-    }
-
     const float aeroGripBonus = (v.spoilerStyle == 2) ? 1.06f : ((v.customSpoiler || v.spoilerStyle == 1) ? 1.02f : 1.0f);
-    const float grip = (handbrake ? spec.driftGrip : spec.normalGrip) * aeroGripBonus;
-    lateralSpd *= std::max(0.0f, 1.0f - grip * dt);
-
-    v.velocity = fwd * forwardSpd + right * lateralSpd;
+    const float nitroRechargeRate =
+        (v.isPlayerDriving && player_.ownedProperties[static_cast<std::size_t>(PropertyId::GlobeOilGas)])
+            ? 0.11f
+            : 0.055f;
 
     const Vec2 prevPos = v.pos;
-    v.pos += v.velocity * dt;
-    v.wheelSpin = std::fmod(v.wheelSpin + forwardSpd * dt * 2.4f, kTwoPi);
+    const Vec2 fwdBefore = forwardFromHeading(v.heading);
+    const Vec2 lookPos = v.pos + v.velocity * dt;
 
-    // Visual body pitch & roll
-    const float targetPitch = clampf(-throttleInput * 0.035f + (v.brakingVisual ? 0.045f : 0.0f), -0.07f, 0.07f);
-    const float targetRoll = clampf(-lateralSpd * 0.014f, -0.11f, 0.11f);
-    v.bodyPitch = lerpf(v.bodyPitch, targetPitch, dt * 8.0f);
-    v.bodyRoll = lerpf(v.bodyRoll, targetRoll, dt * 8.0f);
+    float rampSlopePitch = 0.0f;
+    const float rampH = evaluateStuntRampHeight(lookPos, &rampSlopePitch, &fwdBefore);
+    float baseGroundH = 0.0f;
+    if (lookPos.x < -345.0f) {
+        baseGroundH = (std::abs(lookPos.z) < 7.6f) ? 0.24f : 0.02f;
+    } else {
+        baseGroundH = city_.isOnRoad(lookPos, 0.1f) ? 0.0f : 0.08f;
+    }
+    const float groundH = (rampH > 0.001f) ? (baseGroundH + rampH) : baseGroundH;
 
-    // Drift detection, skid marks & tire smoke
-    const float speed = v.velocity.length();
-    v.isDrifting = (speed > 7.5f) && (std::abs(lateralSpd) > 3.1f || (handbrake && std::abs(steerInput) > 0.35f && speed > 9.0f));
+    RsVehicleSpecParams rsSpec{};
+    rsSpec.mass = spec.mass;
+    rsSpec.max_forward_speed = spec.maxForwardSpeed;
+    rsSpec.max_reverse_speed = spec.maxReverseSpeed;
+    rsSpec.acceleration = spec.acceleration;
+    rsSpec.braking = spec.braking;
+    rsSpec.turn_rate = spec.turnRate;
+    rsSpec.normal_grip = spec.normalGrip;
+    rsSpec.drift_grip = spec.driftGrip;
+    rsSpec.half_length = spec.halfLength;
+    rsSpec.half_width = spec.halfWidth;
+    rsSpec.chassis_height = spec.chassisHeight;
+
+    RsVehicleControlInput rsInput{};
+    rsInput.throttle = throttleInput;
+    rsInput.steer = steerInput;
+    rsInput.handbrake = handbrake ? 1 : 0;
+    rsInput.nitro = nitro ? 1 : 0;
+    rsInput.upgrade_mult = upgradeMult;
+    rsInput.aero_grip_bonus = aeroGripBonus;
+    rsInput.nitro_recharge_rate = nitroRechargeRate;
+    rsInput.ground_height = groundH;
+    rsInput.ramp_slope_pitch = rampSlopePitch;
+    rsInput.wet_road_factor = rainWeather_ ? 1.0f : 0.0f;
+
+    RsVehiclePhysicsState rsState{};
+    rsState.pos_x = v.pos.x;
+    rsState.pos_y = v.posY;
+    rsState.pos_z = v.pos.z;
+    rsState.vel_x = v.velocity.x;
+    rsState.vel_y = v.velY;
+    rsState.vel_z = v.velocity.z;
+    rsState.heading = v.heading;
+    rsState.angular_velocity = v.angularVelocity;
+    rsState.steer_visual = v.steerVisual;
+    rsState.wheel_spin = v.wheelSpin;
+    rsState.body_pitch = v.bodyPitch;
+    rsState.body_roll = v.bodyRoll;
+    rsState.pitch_vel = v.pitchVel;
+    rsState.roll_vel = v.rollVel;
+    for (int i = 0; i < 4; ++i) {
+        rsState.wheel_comp[i] = v.wheelCompression[static_cast<std::size_t>(i)];
+    }
+    rsState.nitro_charge = v.nitroCharge;
+    rsState.engine_rpm = v.engineRpm;
+    rsState.current_gear = v.currentGear;
+    rsState.braking_visual = v.brakingVisual ? 1 : 0;
+    rsState.nitro_active = v.nitroActive ? 1 : 0;
+    rsState.is_drifting = v.isDrifting ? 1 : 0;
+    rsState.airborne = v.airborne ? 1 : 0;
+    rsState.air_time = v.airTime;
+    rsState.landed_air_time = 0.0f;
+    rsState.landed_impact_speed = 0.0f;
+
+    // Call into the native Rust physics kernel!
+    oc_rs_step_vehicle_dynamics(dt, &rsState, &rsSpec, &rsInput);
+
+    v.pos = {rsState.pos_x, rsState.pos_z};
+    v.posY = rsState.pos_y;
+    v.velocity = {rsState.vel_x, rsState.vel_z};
+    v.velY = rsState.vel_y;
+    v.heading = rsState.heading;
+    v.angularVelocity = rsState.angular_velocity;
+    v.steerVisual = rsState.steer_visual;
+    v.wheelSpin = rsState.wheel_spin;
+    v.bodyPitch = rsState.body_pitch;
+    v.bodyRoll = rsState.body_roll;
+    v.pitchVel = rsState.pitch_vel;
+    v.rollVel = rsState.roll_vel;
+    for (int i = 0; i < 4; ++i) {
+        v.wheelCompression[static_cast<std::size_t>(i)] = rsState.wheel_comp[i];
+    }
+    v.nitroCharge = rsState.nitro_charge;
+    v.engineRpm = rsState.engine_rpm;
+    v.currentGear = rsState.current_gear;
+    v.brakingVisual = (rsState.braking_visual != 0);
+    v.nitroActive = (rsState.nitro_active != 0);
+    v.isDrifting = (rsState.is_drifting != 0);
+    v.airborne = (rsState.airborne != 0);
+    v.airTime = rsState.air_time;
+
+    const Vec2 fwd = forwardFromHeading(v.heading);
+    const Vec2 right = rightFromHeading(v.heading);
+
+    // 3D Stunt Jump Touchdown Sparks & Cash Bonus!
+    if (rsState.landed_air_time >= 0.36f) {
+        emitParticles({v.pos.x, v.posY + 0.22f, v.pos.z}, 12, {255, 206, 82, 255}, 6.2f, 0.16f, 0.34f);
+        if (v.isPlayerDriving) {
+            pushAudio(AudioEventType::CarCrash, clampf(rsState.landed_impact_speed / 16.0f, 0.35f, 0.85f));
+            if (rsState.landed_air_time >= 0.42f) {
+                ++stuntJumpsCompleted_;
+                const int jumpBonus = std::clamp(static_cast<int>(rsState.landed_air_time * 420.0f), 200, 1500);
+                player_.cash += jumpBonus;
+                v.nitroCharge = std::min(1.0f, v.nitroCharge + 0.35f);
+                pushAudio(AudioEventType::CashPickup, 0.95f);
+                char subEn[80];
+                char subKo[96];
+                std::snprintf(subEn, sizeof(subEn), "Air Time %.2fs  |  +$%d Stunt Bonus!", rsState.landed_air_time, jumpBonus);
+                std::snprintf(subKo, sizeof(subKo), "체공 시간 %.2f초 · 스턴트 보너스 +$%d 획득!", rsState.landed_air_time, jumpBonus);
+                pushBanner("STUNT JUMP COMPLETED!", "3D 스턴트 점프 성공!", subEn, subKo, {255, 214, 58, 255}, 2.8f);
+            }
+        }
+    }
+
     if (v.isDrifting) {
         const Vec2 rearAxlePrev = prevPos - fwd * (spec.halfLength * 0.72f);
         const Vec2 rearAxleNow = v.pos - fwd * (spec.halfLength * 0.72f);
@@ -3542,9 +3657,9 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
         if (rng_.chance(v.driftSmokeColorIdx > 0 ? 0.82f : 0.65f)) {
             const ColorRGBA smokeCol = getDriftSmokeColorRGBA(v.driftSmokeColorIdx);
             const float smokeSize = (v.driftSmokeColorIdx > 0) ? 0.42f : 0.34f;
-            emitParticles({rearAxleNow.x - wheelOff.x, 0.18f, rearAxleNow.z - wheelOff.z},
+            emitParticles({rearAxleNow.x - wheelOff.x, v.posY + 0.18f, rearAxleNow.z - wheelOff.z},
                           1, smokeCol, 1.85f, smokeSize, 0.48f);
-            emitParticles({rearAxleNow.x + wheelOff.x, 0.18f, rearAxleNow.z + wheelOff.z},
+            emitParticles({rearAxleNow.x + wheelOff.x, v.posY + 0.18f, rearAxleNow.z + wheelOff.z},
                           1, smokeCol, 1.85f, smokeSize, 0.48f);
         }
     }
@@ -3553,7 +3668,7 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
     if (!v.destroyed && v.health < v.maxHealth * 0.42f && rng_.chance(0.45f)) {
         const Vec2 hood = v.pos + fwd * (spec.halfLength * 0.68f);
         const std::uint8_t shade = (v.health < v.maxHealth * 0.2f) ? 45 : 125;
-        emitParticles({hood.x, 0.85f, hood.z}, 1, {shade, shade, shade, 200}, 1.6f, 0.38f, 0.55f);
+        emitParticles({hood.x, v.posY + 0.85f, hood.z}, 1, {shade, shade, shade, 200}, 1.6f, 0.38f, 0.55f);
     }
 }
 
@@ -3848,7 +3963,7 @@ void GameWorld::updateVehicles(float dt) {
 
 void GameWorld::resolveVehicleCollisions(float dt) {
     (void)dt;
-    // 1. Vehicle vs Building static OBB collisions
+    // 1. Vehicle vs Building static OBB collisions (with 4-quadrant crumple & off-center yaw torque)
     for (auto& v : vehicles_) {
         Vec2 push{};
         if (city_.resolveOBBBuildings(v.obb(), push)) {
@@ -3856,13 +3971,29 @@ void GameWorld::resolveVehicleCollisions(float dt) {
             const Vec2 n = push.normalized();
             const float intoWall = -v.velocity.dot(n);
             if (intoWall > 0.0f) {
+                const Vec2 fwd = forwardFromHeading(v.heading);
+                const Vec2 right = rightFromHeading(v.heading);
+                const float wallFwdAlign = -n.dot(fwd);
+                const float wallSideAlign = -n.dot(right);
                 v.velocity += n * (intoWall * 1.32f);
                 v.velocity *= 0.82f;
+                // Glancing corner impact induces realistic yaw spin
+                v.angularVelocity = clampf(v.angularVelocity + wallFwdAlign * wallSideAlign * intoWall * 0.085f, -3.5f, 3.5f);
+                v.pitchVel += clampf(wallFwdAlign * intoWall * 0.03f, -0.45f, 0.45f);
+
+                if (intoWall > 6.0f) {
+                    const float deform = clampf((intoWall - 5.5f) * 0.032f, 0.0f, 0.55f);
+                    if (wallFwdAlign > 0.30f) v.frontDamage = clampf(v.frontDamage + deform, 0.0f, 1.0f);
+                    else if (wallFwdAlign < -0.30f) v.rearDamage = clampf(v.rearDamage + deform, 0.0f, 1.0f);
+                    if (wallSideAlign < -0.30f) v.leftDamage = clampf(v.leftDamage + deform, 0.0f, 1.0f);
+                    else if (wallSideAlign > 0.30f) v.rightDamage = clampf(v.rightDamage + deform, 0.0f, 1.0f);
+                }
+
                 if (intoWall > 8.5f) {
                     const float armorScale = 1.0f / (1.0f + 0.28f * static_cast<float>(v.armorUpgradeLevel));
                     const float crashDmg = (intoWall - 7.0f) * 1.65f * armorScale;
                     v.health -= crashDmg;
-                    emitParticles({v.pos.x - n.x * 1.5f, 0.65f, v.pos.z - n.z * 1.5f},
+                    emitParticles({v.pos.x - n.x * 1.5f, v.posY + 0.65f, v.pos.z - n.z * 1.5f},
                                   7, {255, 198, 72, 255}, 5.5f, 0.16f, 0.30f);
                     if (v.isPlayerDriving) {
                         player_.activeDriftScore = 0.0f; // Crash breaks drift combo
@@ -3876,41 +4007,72 @@ void GameWorld::resolveVehicleCollisions(float dt) {
         }
     }
 
-    // 2. Vehicle vs Vehicle OBB collisions
+    auto closestPointOnVehicleOBB = [](const Vehicle& v, const Vec2& target) -> Vec2 {
+        const auto& sp = getVehicleSpec(v.kind);
+        const Vec2 fwd = forwardFromHeading(v.heading);
+        const Vec2 right = rightFromHeading(v.heading);
+        const Vec2 d = target - v.pos;
+        const float lx = clampf(d.dot(fwd), -sp.halfLength, sp.halfLength);
+        const float lz = clampf(d.dot(right), -sp.halfWidth, sp.halfWidth);
+        return v.pos + fwd * lx + right * lz;
+    };
+
+    // 2. Vehicle vs Vehicle OBB collisions via Native Rust Rotational Impulse Solver
     for (std::size_t i = 0; i < vehicles_.size(); ++i) {
         for (std::size_t j = i + 1; j < vehicles_.size(); ++j) {
             Vehicle& a = vehicles_[i];
             Vehicle& b = vehicles_[j];
             if ((a.pos - b.pos).lengthSq() > 42.0f) continue;
+            if (std::abs(a.posY - b.posY) > 1.85f) continue;
 
             Vec2 mtv{};
             if (!intersectOBB(a.obb(), b.obb(), mtv)) continue;
 
-            const float mA = getVehicleSpec(a.kind).mass;
-            const float mB = getVehicleSpec(b.kind).mass;
-            const float invTotal = 1.0f / (mA + mB);
+            const auto& specA = getVehicleSpec(a.kind);
+            const auto& specB = getVehicleSpec(b.kind);
+            const float pen = mtv.length();
+            const Vec2 n = (pen > 1e-5f) ? (mtv / pen) : Vec2{1.0f, 0.0f};
+            const Vec2 contactPt = (closestPointOnVehicleOBB(a, b.pos) + closestPointOnVehicleOBB(b, a.pos)) * 0.5f;
 
-            a.pos += mtv * (mB * invTotal);
-            b.pos -= mtv * (mA * invTotal);
+            RsRigidBody2D rbA{
+                a.pos.x, a.pos.z, a.velocity.x, a.velocity.z,
+                a.heading, a.angularVelocity, specA.mass, specA.halfLength, specA.halfWidth,
+                a.frontDamage, a.rearDamage, a.leftDamage, a.rightDamage
+            };
+            RsRigidBody2D rbB{
+                b.pos.x, b.pos.z, b.velocity.x, b.velocity.z,
+                b.heading, b.angularVelocity, specB.mass, specB.halfLength, specB.halfWidth,
+                b.frontDamage, b.rearDamage, b.leftDamage, b.rightDamage
+            };
 
-            const Vec2 n = mtv.normalized();
-            const Vec2 relVel = a.velocity - b.velocity;
-            const float sepVel = relVel.dot(n);
-            if (sepVel < 0.0f) {
-                const float restitution = 0.35f;
-                const float jImpulse = -(1.0f + restitution) * sepVel / (1.0f / mA + 1.0f / mB);
-                a.velocity += n * (jImpulse / mA);
-                b.velocity -= n * (jImpulse / mB);
+            const float impactSpeed = oc_rs_resolve_rigid_collision_2d(
+                &rbA, &rbB, n.x, n.z, pen, contactPt.x, contactPt.z, 0.35f);
+
+            a.pos = {rbA.pos_x, rbA.pos_z};
+            b.pos = {rbB.pos_x, rbB.pos_z};
+            a.velocity = {rbA.vel_x, rbA.vel_z};
+            b.velocity = {rbB.vel_x, rbB.vel_z};
+            a.angularVelocity = rbA.angular_velocity;
+            b.angularVelocity = rbB.angular_velocity;
+            a.frontDamage = rbA.front_damage;
+            a.rearDamage = rbA.rear_damage;
+            a.leftDamage = rbA.left_damage;
+            a.rightDamage = rbA.right_damage;
+            b.frontDamage = rbB.front_damage;
+            b.rearDamage = rbB.rear_damage;
+            b.leftDamage = rbB.left_damage;
+            b.rightDamage = rbB.right_damage;
+
+            if (impactSpeed > 0.01f) {
                 a.isParked = false;
                 b.isParked = false;
 
-                const float impactSpeed = -sepVel;
                 if (impactSpeed > 7.5f) {
                     const float dmg = (impactSpeed - 6.0f) * 1.15f;
                     a.health -= dmg / (1.0f + 0.28f * static_cast<float>(a.armorUpgradeLevel));
                     b.health -= dmg / (1.0f + 0.28f * static_cast<float>(b.armorUpgradeLevel));
-                    const Vec2 mid = (a.pos + b.pos) * 0.5f;
-                    emitParticles({mid.x, 0.7f, mid.z}, 8, {255, 206, 84, 255}, 6.0f, 0.16f, 0.32f);
+                    emitParticles({contactPt.x, std::max(a.posY, b.posY) + 0.7f, contactPt.z},
+                                  8, {255, 206, 84, 255}, 6.0f, 0.16f, 0.32f);
                     if (a.isPlayerDriving || b.isPlayerDriving) {
                         pushAudio(AudioEventType::CarCrash, clampf(impactSpeed / 22.0f, 0.3f, 1.0f));
                         Vehicle& other = a.isPlayerDriving ? b : a;
@@ -4621,31 +4783,91 @@ void GameWorld::updatePickupsAndProps(float dt) {
         std::remove_if(pickups_.begin(), pickups_.end(), [](const WorldPickup& p) { return p.collected; }),
         pickups_.end());
 
-    // Destructible street props (hydrants spray water geysers when knocked over!)
+    // Destructible 3D tumbling street props & pressurized fire hydrant water geysers!
     for (auto& prop : city_.streetProps()) {
-        if (prop.kind == StreetPropKind::StreetLight ||
-            prop.kind == StreetPropKind::BusShelter ||
+        if (prop.kind == StreetPropKind::BusShelter ||
             prop.kind == StreetPropKind::Billboard ||
             prop.kind == StreetPropKind::FuelPump) {
             continue;
         }
         if (prop.broken) {
             prop.brokenTimer += dt;
+            if (prop.brokenTimer >= 14.0f && (prop.homePos - pPos).lengthSq() > 14.0f * 14.0f) {
+                prop.broken = false;
+                prop.brokenTimer = 0.0f;
+                prop.pos = prop.homePos;
+                prop.posY = 0.0f;
+                prop.velocity = {0.0f, 0.0f};
+                prop.velY = 0.0f;
+                prop.pitch = 0.0f;
+                prop.roll = 0.0f;
+                prop.angVelPitch = 0.0f;
+                prop.angVelRoll = 0.0f;
+                continue;
+            }
             prop.pos += prop.velocity * dt;
-            prop.velocity *= std::max(0.0f, 1.0f - 4.0f * dt);
-            if (prop.kind == StreetPropKind::Hydrant && prop.brokenTimer < 4.5f && rng_.chance(0.55f)) {
-                emitParticles({prop.pos.x, 0.5f, prop.pos.z}, 1, {120, 215, 255, 220}, 6.5f, 0.22f, 0.45f);
+            prop.velocity *= std::max(0.0f, 1.0f - 3.4f * dt);
+
+            // 3D ballistic arc, pitch/roll tumbling & asphalt bounce
+            if (prop.posY > 0.0f || prop.velY != 0.0f) {
+                prop.velY -= 16.5f * dt;
+                prop.posY += prop.velY * dt;
+                prop.pitch = wrapAngle(prop.pitch + prop.angVelPitch * dt);
+                prop.roll = wrapAngle(prop.roll + prop.angVelRoll * dt);
+                if (prop.posY <= 0.0f) {
+                    prop.posY = 0.0f;
+                    if (std::abs(prop.velY) > 1.35f) {
+                        prop.velY = -prop.velY * 0.36f;
+                        prop.angVelPitch *= 0.55f;
+                        prop.angVelRoll *= 0.55f;
+                    } else {
+                        prop.velY = 0.0f;
+                        prop.angVelPitch = 0.0f;
+                        prop.angVelRoll = 0.0f;
+                        prop.pitch = lerpf(prop.pitch, kHalfPi * 0.92f, dt * 8.0f);
+                    }
+                }
+            }
+
+            // Broken Fire Hydrant erupts a 4.5m tall pressurized water geyser at its base pipe (homePos)!
+            if (prop.kind == StreetPropKind::Hydrant && prop.brokenTimer < 14.0f) {
+                const Vec2 geyserPos = (prop.homePos.lengthSq() > 0.001f) ? prop.homePos : prop.pos;
+                if (rng_.chance(0.75f)) {
+                    emitParticles({geyserPos.x, 1.2f + rng_.range(0.0f, 2.6f), geyserPos.z},
+                                  2, {138, 224, 255, 225}, 6.8f, 0.24f, 0.48f);
+                }
+                // Upward hydro-jet lift on any vehicle or player passing over the gushing hydrant pipe!
+                for (auto& v : vehicles_) {
+                    if (!v.destroyed && (v.pos - geyserPos).lengthSq() < 2.1f * 2.1f) {
+                        v.velY = std::max(v.velY, 6.2f);
+                        v.airborne = true;
+                        v.pitchVel += 0.18f;
+                    }
+                }
+                if (player_.drivingVehicleId < 0 && (player_.pos - geyserPos).lengthSq() < 1.35f * 1.35f) {
+                    player_.verticalVel = std::max(player_.verticalVel, 8.2f);
+                    player_.onGround = false;
+                }
             }
             continue;
         }
 
-        for (const auto& v : vehicles_) {
-            if (v.speed() < 4.5f) continue;
+        const float minBreakSpeed = (prop.kind == StreetPropKind::StreetLight) ? 11.0f : 4.5f;
+        for (auto& v : vehicles_) {
+            if (v.speed() < minBreakSpeed) continue;
             if ((v.pos - prop.pos).lengthSq() < 6.2f) {
                 prop.broken = true;
                 prop.brokenTimer = 0.0f;
-                prop.velocity = v.velocity * 0.7f;
-                emitParticles({prop.pos.x, 0.7f, prop.pos.z}, 5, {215, 215, 220, 255}, 4.5f, 0.16f, 0.35f);
+                prop.velocity = v.velocity * ((prop.kind == StreetPropKind::StreetLight) ? 0.45f : 0.78f);
+                prop.velY = std::clamp(v.speed() * 0.24f, 2.8f, 6.4f);
+                prop.angVelPitch = rng_.range(5.5f, 10.5f);
+                prop.angVelRoll = rng_.range(-8.0f, 8.0f);
+                if (prop.kind == StreetPropKind::StreetLight) {
+                    v.frontDamage = clampf(v.frontDamage + 0.08f, 0.0f, 1.0f);
+                }
+                emitParticles({prop.pos.x, 0.7f, prop.pos.z}, 6,
+                              (prop.kind == StreetPropKind::Hydrant) ? ColorRGBA{135, 224, 255, 240} : ColorRGBA{255, 210, 92, 255},
+                              5.2f, 0.18f, 0.38f);
                 break;
             }
         }

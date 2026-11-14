@@ -95,16 +95,17 @@ void testVehicleDrivingAndDriftingCashBonus() {
         }
     }
     ASSERT_TRUE(muscle != nullptr);
+    const int muscleId = muscle->id;
     muscle->pos = {-220.0f, oc::CityMap::kLaneOffset};
     muscle->heading = 0.0f;
     muscle->velocity = {0.0f, 0.0f};
     muscle->isPlayerDriving = true;
     muscle->isParked = false;
-    world.player().drivingVehicleId = muscle->id;
+    world.player().drivingVehicleId = muscleId;
 
     // Clear traffic obstacles in test lane so we get an unobstructed drift run
     for (auto& v : world.vehicles()) {
-        if (v.id != muscle->id) {
+        if (v.id != muscleId) {
             v.pos = {200.0f, 200.0f};
             v.velocity = {0.0f, 0.0f};
         }
@@ -139,8 +140,9 @@ void testVehicleDrivingAndDriftingCashBonus() {
     const int cashBefore = world.player().cash;
     oc::PlayerInput coast{};
     for (int i = 0; i < 75; ++i) {
-        if (auto* car = world.findVehicleMutable(muscle->id)) {
+        if (auto* car = world.findVehicleMutable(muscleId)) {
             car->pos = {-120.0f, 0.0f};
+            car->heading = 0.0f;
             car->velocity = {4.0f, 0.0f};
             car->isDrifting = false;
         }
@@ -1195,6 +1197,182 @@ void testFullCustomizationStudioCharacterGunsmithVehicleHud() {
     ++gTestsPassed;
 }
 
+void testRustPhysicsEngineStuntJumpsAndRealisticWorld() {
+    oc::GameWorld world(20261118ULL);
+    world.player().cash = 100000;
+
+    // Clear traffic away from our test arenas
+    for (auto& v : world.vehicles()) {
+        v.pos = {-280.0f, -280.0f};
+        v.velocity = {0.0f, 0.0f};
+        v.hasNpcDriver = false;
+        v.isParked = true;
+    }
+
+    // 1. Verify Rust 6-Speed Automatic Transmission, RPM Tachometer & 4-Wheel Independent Suspension
+    ASSERT_TRUE(world.buyOrSummonVehicle(oc::VehicleKind::Hypercar));
+    const int carId = world.player().activePersonalVehicleId;
+    oc::Vehicle* car = world.findVehicleMutable(carId);
+    ASSERT_TRUE(car != nullptr);
+    car->pos = {-150.0f, 0.0f};
+    car->heading = 0.0f;
+    car->velocity = {0.0f, 0.0f};
+    car->isPlayerDriving = true;
+    car->isParked = false;
+    world.player().drivingVehicleId = carId;
+    world.player().pos = car->pos;
+
+    oc::PlayerInput accelIn{};
+    accelIn.moveForward = 1.0f;
+    accelIn.sprintOrNitro = true;
+    for (int i = 0; i < 70; ++i) {
+        if (i > 48) accelIn.moveRight = 1.0f; // Hard right turn to test lateral suspension roll transfer
+        world.update(1.0f / 60.0f, accelIn);
+    }
+    car = world.findVehicleMutable(carId);
+    ASSERT_TRUE(car != nullptr);
+    ASSERT_TRUE(car->speed() > 16.0f);
+    ASSERT_TRUE(car->currentGear >= 2);
+    ASSERT_TRUE(car->engineRpm > 2200.0f && car->engineRpm <= 8200.0f);
+    // Turning right rolls chassis left, compressing left wheels (0, 2) vs right wheels (1, 3)
+    ASSERT_TRUE(std::abs(car->wheelCompression[0] - car->wheelCompression[1]) > 0.012f);
+
+    // 2. Verify Rust 3D Stunt Ramp Launch, Airborne Flight & Stunt Jump Cash Bonus
+    // North Bridge Approach Ramp (#3): center = (0.0, 46.0), dir = (0, +1), length = 12.0, height = 2.65
+    const int cashBeforeStunt = world.player().cash;
+    car = world.findVehicleMutable(carId);
+    ASSERT_TRUE(car != nullptr);
+    car->pos = {0.0f, 40.5f};
+    car->posY = 0.0f;
+    car->velY = 0.0f;
+    car->airborne = false;
+    car->heading = oc::kHalfPi; // Facing +Z up the ramp
+    car->velocity = {0.0f, 30.0f};
+    car->angularVelocity = 0.0f;
+
+    bool sawRampElevation = false;
+    bool sawAirborne = false;
+    oc::PlayerInput stuntIn{};
+    stuntIn.moveForward = 1.0f;
+    stuntIn.sprintOrNitro = true;
+    for (int i = 0; i < 140; ++i) {
+        world.update(1.0f / 60.0f, stuntIn);
+        car = world.findVehicleMutable(carId);
+        ASSERT_TRUE(car != nullptr);
+        if (car->posY > 1.2f) sawRampElevation = true;
+        if (car->airborne) sawAirborne = true;
+    }
+    ASSERT_TRUE(sawRampElevation);
+    ASSERT_TRUE(sawAirborne);
+    ASSERT_TRUE(world.player().cash > cashBeforeStunt);
+    ASSERT_TRUE(world.stuntJumpsCompleted() >= 1);
+
+    // 3. Verify Rust Rotational Collision Impulse (PIT Maneuver Spin-Out) & 4-Quadrant Crash Deformation
+    int targetCarId = -1;
+    for (auto& v : world.vehicles()) {
+        if (v.id != carId && !v.destroyed) {
+            targetCarId = v.id;
+            break;
+        }
+    }
+    ASSERT_TRUE(targetCarId >= 0);
+    car = world.findVehicleMutable(carId);
+    oc::Vehicle* targetCar = world.findVehicleMutable(targetCarId);
+    ASSERT_TRUE(car != nullptr && targetCar != nullptr);
+
+    car->pos = {0.0f, 0.0f};
+    car->posY = 0.0f;
+    car->velY = 0.0f;
+    car->airborne = false;
+    car->heading = 0.0f;
+    car->velocity = {26.0f, 0.0f};
+    car->angularVelocity = 0.0f;
+    car->frontDamage = 0.0f;
+    car->health = car->maxHealth;
+
+    // Position targetCar slightly ahead and offset laterally so impact hits off-center (r x J != 0)
+    targetCar->pos = {3.6f, 0.85f};
+    targetCar->posY = 0.0f;
+    targetCar->velY = 0.0f;
+    targetCar->airborne = false;
+    targetCar->heading = 0.45f;
+    targetCar->velocity = {0.0f, 0.0f};
+    targetCar->angularVelocity = 0.0f;
+    targetCar->rearDamage = 0.0f;
+    targetCar->leftDamage = 0.0f;
+    targetCar->rightDamage = 0.0f;
+    targetCar->health = targetCar->maxHealth;
+    targetCar->hasNpcDriver = false;
+    targetCar->isParked = true;
+
+    oc::PlayerInput ramIn{};
+    ramIn.moveForward = 1.0f;
+    bool sawTargetSpin = false;
+    for (int i = 0; i < 8; ++i) {
+        world.update(1.0f / 60.0f, ramIn);
+        targetCar = world.findVehicleMutable(targetCarId);
+        if (targetCar && std::abs(targetCar->angularVelocity) > 0.15f) {
+            sawTargetSpin = true;
+        }
+    }
+    car = world.findVehicleMutable(carId);
+    targetCar = world.findVehicleMutable(targetCarId);
+    ASSERT_TRUE(car != nullptr && targetCar != nullptr);
+    ASSERT_TRUE(sawTargetSpin);
+    ASSERT_TRUE(car->frontDamage > 0.03f);
+    ASSERT_TRUE((targetCar->rearDamage + targetCar->leftDamage + targetCar->rightDamage) > 0.03f);
+
+    // 4. Verify Rust 3D Destructible Street Prop Impulse & Automatic Upright Respawn
+    std::size_t propIdx = 0;
+    for (std::size_t i = 0; i < world.city().streetProps().size(); ++i) {
+        const auto k = world.city().streetProps()[i].kind;
+        if (k == oc::StreetPropKind::Hydrant || k == oc::StreetPropKind::TrafficCone || k == oc::StreetPropKind::TrashBin) {
+            propIdx = i;
+            break;
+        }
+    }
+    auto& prop = world.city().streetProps()[propIdx];
+    prop.broken = false;
+    prop.pos = prop.homePos;
+    prop.posY = 0.0f;
+    prop.brokenTimer = 0.0f;
+
+    car = world.findVehicleMutable(carId);
+    ASSERT_TRUE(car != nullptr);
+    car->pos = prop.homePos - oc::Vec2{1.0f, 0.0f};
+    car->posY = 0.0f;
+    car->airborne = false;
+    car->heading = 0.0f;
+    car->velocity = {18.0f, 0.0f};
+    world.update(1.0f / 60.0f, ramIn);
+    ASSERT_TRUE(prop.broken);
+    ASSERT_TRUE(prop.posY > 0.02f || prop.velY > 0.5f);
+
+    // Move car away and advance simulation past 14s respawn timer
+    for (int i = 0; i < 340; ++i) {
+        car = world.findVehicleMutable(carId);
+        if (car) {
+            car->pos = {prop.homePos.x - 100.0f, prop.homePos.z - 100.0f};
+            car->velocity = {0.0f, 0.0f};
+        }
+        oc::PlayerInput waitIn{};
+        world.update(0.05f, waitIn);
+    }
+    ASSERT_TRUE(!prop.broken);
+    ASSERT_TRUE(std::abs(prop.pos.x - prop.homePos.x) < 0.01f);
+    ASSERT_TRUE(std::abs(prop.posY) < 0.01f);
+
+    // 5. Verify Dynamic Rain / Wet Road Mirror Reflection Toggle ([U])
+    ASSERT_TRUE(!world.isRainWeather());
+    world.toggleRainWeather();
+    ASSERT_TRUE(world.isRainWeather());
+    world.toggleRainWeather();
+    ASSERT_TRUE(!world.isRainWeather());
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -1213,7 +1391,9 @@ int main() {
     testFirstPersonAimAlignmentAndPrecisionSpread();
     testExpandedWeaponsVehiclesSniperAndEmergency();
     testFullCustomizationStudioCharacterGunsmithVehicleHud();
+    testRustPhysicsEngineStuntJumpsAndRealisticWorld();
 
     std::cout << "[PASS] All " << gTestsPassed << " Open City C++ simulation test suites succeeded!\n";
     return 0;
 }
+

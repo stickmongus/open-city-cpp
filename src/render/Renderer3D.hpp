@@ -68,6 +68,7 @@ private:
     void drawOceanAndGround(const GameWorld& world);
     void drawRoadNetwork(const GameWorld& world, const Vec2& focus);
     void drawBuildingsAndParks(const GameWorld& world, const Vec2& focus, bool shadowPass);
+    void drawLandmarkStructures(const GameWorld& world, const Vec2& focus, bool shadowPass);
     void drawTreesAndProps(const GameWorld& world, const Vec2& focus, bool shadowPass);
     void drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass, bool cockpitHoodOnly = false);
     void drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D& camera, float adsBlend);
@@ -92,7 +93,7 @@ private:
     bool initialized_ = false;
     GraphicsQuality quality_ = GraphicsQuality::Ultra;
 
-    // 1) World PBR-lite + PCF shadow + procedural architecture/water shader
+    // 1) World PBR + 16-Tap Poisson Soft Shadow + Interior Mapping + Wet-Road Shader
     Shader worldShader_{};
     int locLightDir_ = -1;
     int locSunColor_ = -1;
@@ -103,6 +104,7 @@ private:
     int locViewPos_ = -1;
     int locAnimTime_ = -1;
     int locNightFactor_ = -1;
+    int locWetRoad_ = -1;
     int locEnableShadows_ = -1;
     int locLightVP_ = -1;
     int locShadowMap_ = -1;
@@ -120,6 +122,7 @@ private:
     int locSkyTimeHours_ = -1;
     int locSkyDayFactor_ = -1;
     int locSkyAnimTime_ = -1;
+    int locSkyWet_ = -1;
 
     // 4) Full-screen multi-ring Kawase/tent HDR Bloom + ACES Filmic Tonemapping shader
     Shader postShader_{};

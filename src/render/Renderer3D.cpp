@@ -1,4 +1,5 @@
 #include "render/Renderer3D.hpp"
+#include "render/GeneratedRealisticAssets.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -66,6 +67,7 @@ uniform vec3 sunDir;      // Unit vector pointing TOWARD the sun/moon light sour
 uniform float timeHours;  // [0, 24)
 uniform float dayFactor;  // [0, 1]
 uniform float animTime;
+uniform float wetWeather; // [0, 1] Rain / Wet-Road atmospheric overcast factor
 
 out vec4 finalColor;
 
@@ -133,6 +135,13 @@ void main() {
     vec3 horizCol = mix(nightHoriz, dayHorizon, dayFactor);
     horizCol = mix(horizCol, goldHorizon, golden * 0.88);
 
+    if (wetWeather > 0.01) {
+        vec3 stormZenith = mix(vec3(0.008, 0.014, 0.032), vec3(0.075, 0.110, 0.175), dayFactor);
+        vec3 stormHoriz  = mix(vec3(0.024, 0.038, 0.072), vec3(0.180, 0.235, 0.310), dayFactor);
+        zenithCol = mix(zenithCol, stormZenith, wetWeather * 0.65);
+        horizCol  = mix(horizCol, stormHoriz, wetWeather * 0.55);
+    }
+
     float skyGrad = pow(1.0 - upPos, 2.35);
     vec3 sky = mix(zenithCol, horizCol, skyGrad);
 
@@ -142,14 +151,14 @@ void main() {
     if (night > 0.55) {
         mieTint = vec3(0.25, 0.40, 0.68);
     }
-    sky += mieTint * pow(sunCos, 6.0) * (0.28 + 0.45 * golden) * (1.0 - night * 0.65);
-    sky += mieTint * pow(sunCos, 42.0) * (0.45 + 0.35 * golden) * (1.0 - night * 0.55);
+    sky += mieTint * pow(sunCos, 6.0) * (0.28 + 0.45 * golden) * (1.0 - night * 0.65) * (1.0 - wetWeather * 0.45);
+    sky += mieTint * pow(sunCos, 42.0) * (0.45 + 0.35 * golden) * (1.0 - night * 0.55) * (1.0 - wetWeather * 0.55);
 
     // Crisp Solar / Lunar Disc
     if (dir.y > -0.02) {
         float sunDisc = smoothstep(0.99915, 0.99972, dot(dir, S));
         vec3 discCol = (night > 0.6) ? vec3(1.8, 2.1, 2.6) : mix(vec3(6.5, 5.6, 4.2), vec3(7.0, 2.8, 0.9), golden);
-        sky += discCol * sunDisc;
+        sky += discCol * sunDisc * (1.0 - wetWeather * 0.65);
     }
 
     // Twinkling stars on clear upper sky at night
@@ -162,7 +171,7 @@ void main() {
             float d = length(f);
             float twinkle = 0.65 + 0.35 * sin(animTime * 2.7 + rnd * 91.0);
             float star = smoothstep(0.22, 0.02, d) * twinkle * night * smoothstep(0.04, 0.28, dir.y);
-            sky += vec3(0.75, 0.86, 1.0) * star * 1.4;
+            sky += vec3(0.75, 0.86, 1.0) * star * 1.4 * (1.0 - wetWeather * 0.75);
         }
     }
 
@@ -172,7 +181,8 @@ void main() {
         vec2 wind = vec2(animTime * 0.014, animTime * 0.007);
         float n1 = fbmClouds(cloudUv + wind);
         float n2 = fbmClouds(cloudUv * 2.15 - wind * 1.4 + vec2(4.2, -2.8));
-        float density = smoothstep(0.49, 0.80, n1 * 0.72 + n2 * 0.28);
+        float lowThresh = mix(0.49, 0.32, wetWeather);
+        float density = smoothstep(lowThresh, 0.80, n1 * 0.72 + n2 * 0.28);
         float horizonFade = smoothstep(0.015, 0.20, dir.y);
         density *= horizonFade;
 
@@ -185,7 +195,7 @@ void main() {
             cloudShade = mix(cloudShade, vec3(0.02, 0.03, 0.06), night);
         }
         vec3 cloudCol = mix(cloudShade, cloudLit, clamp(detailLight, 0.0, 1.0));
-        sky = mix(sky, cloudCol, density * 0.82);
+        sky = mix(sky, cloudCol, density * (0.82 + 0.12 * wetWeather));
     }
 
     // Distant coastal mountain range silhouette along the bay horizon
@@ -210,7 +220,8 @@ void main() {
 )GLSL";
 
 // ---------------------------------------------------------------------------
-// 3) Unified PBR-Lite + PCF Soft Shadow + Procedural City Material Shader
+// 3) Unified Cook-Torrance GGX PBR + 16-Tap Poisson Soft Shadow +
+//    3D Raycasted Interior Mapping + Wet-Road Mirror Puddle Shader
 // ---------------------------------------------------------------------------
 const char* kWorldVertShader = R"GLSL(
 #version 330
@@ -258,6 +269,7 @@ uniform vec3 horizonColor;
 uniform vec3 viewPos;
 uniform float animTime;
 uniform float nightFactor;
+uniform float wetRoadFactor;
 uniform int enableShadows;
 
 uniform mat4 lightVP;
@@ -265,6 +277,28 @@ uniform sampler2D shadowMap;
 uniform float shadowTexelSize;
 
 out vec4 finalColor;
+
+const float kPi = 3.14159265359;
+
+// 16-Tap Poisson Disk Soft Shadow Kernel (matched with GeneratedRealisticAssets.hpp)
+const vec2 kPoisson16[16] = vec2[16](
+    vec2(-0.94201624, -0.39906216),
+    vec2( 0.94558609, -0.76890725),
+    vec2(-0.09418410, -0.92938870),
+    vec2( 0.34495938,  0.29387760),
+    vec2(-0.91588581,  0.45771432),
+    vec2(-0.81544232, -0.87912464),
+    vec2(-0.38277543,  0.27676845),
+    vec2( 0.97484398,  0.75648379),
+    vec2( 0.44323325, -0.97511554),
+    vec2( 0.53742981, -0.47373420),
+    vec2(-0.26496911, -0.41893023),
+    vec2( 0.79197514,  0.19090188),
+    vec2(-0.24188840,  0.99706507),
+    vec2(-0.81409955,  0.91437590),
+    vec2( 0.19984126,  0.78641367),
+    vec2( 0.14383161, -0.14100790)
+);
 
 float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -292,7 +326,7 @@ vec3 acesTonemap(vec3 x) {
 float computeSoftShadow(vec3 worldPos, vec3 N, vec3 L) {
     if (enableShadows == 0) return 0.0;
 
-    vec4 lightClip = lightVP * vec4(worldPos + N * 0.09, 1.0);
+    vec4 lightClip = lightVP * vec4(worldPos + N * 0.085, 1.0);
     vec3 proj = lightClip.xyz / max(lightClip.w, 0.0001);
     proj = proj * 0.5 + 0.5;
 
@@ -300,23 +334,26 @@ float computeSoftShadow(vec3 worldPos, vec3 N, vec3 L) {
         return 0.0;
     }
 
-    // Smooth fade near the boundary of the moving directional shadow box
     vec2 edgeDist = min(proj.xy, 1.0 - proj.xy);
     float edgeFade = smoothstep(0.01, 0.09, min(edgeDist.x, edgeDist.y));
 
     float ndotl = max(dot(N, L), 0.0);
-    float bias = max(0.0011 * (1.0 - ndotl), 0.00032);
+    float bias = max(0.00105 * (1.0 - ndotl), 0.00030);
 
-    // 9-tap 3x3 PCF soft shadow filter
+    // Rotated 16-tap Poisson Disk soft shadow filter
+    float rotAng = hash12(floor(worldPos.xz * 19.0)) * 6.2831853;
+    float cs = cos(rotAng);
+    float sn = sin(rotAng);
+    mat2 rot = mat2(cs, -sn, sn, cs);
+    float filterRadius = shadowTexelSize * 1.75;
+
     float occ = 0.0;
-    for (int ox = -1; ox <= 1; ++ox) {
-        for (int oy = -1; oy <= 1; ++oy) {
-            vec2 uv = proj.xy + vec2(float(ox), float(oy)) * shadowTexelSize * 1.15;
-            float closestDepth = texture(shadowMap, uv).r;
-            occ += (proj.z - bias > closestDepth) ? 1.0 : 0.0;
-        }
+    for (int i = 0; i < 16; ++i) {
+        vec2 uv = proj.xy + (rot * kPoisson16[i]) * filterRadius;
+        float closestDepth = texture(shadowMap, uv).r;
+        occ += (proj.z - bias > closestDepth) ? 1.0 : 0.0;
     }
-    return (occ / 9.0) * edgeFade;
+    return (occ / 16.0) * edgeFade;
 }
 
 float aaBand(float distFromCenter, float halfWidth) {
@@ -324,12 +361,103 @@ float aaBand(float distFromCenter, float halfWidth) {
     return 1.0 - smoothstep(halfWidth - fw, halfWidth + fw, distFromCenter);
 }
 
+// Procedural 360-degree 3D City Skyline, Neon Sign & Sky Environment Map for reflections
+vec3 sampleCityEnvMap(vec3 R, float rough, float nightF) {
+    float up = clamp(R.y * 0.5 + 0.5, 0.0, 1.0);
+    vec3 skyEnv = mix(pow(horizonColor, vec3(2.2)) * 0.96, skyAmbient * 2.25, pow(up, 1.30));
+
+    // Synthetic city skyline silhouette + illuminated office windows & neon reflections near the horizon
+    float az = atan(R.z, R.x);
+    float bldColIdx = floor((az + kPi) / (2.0 * kPi) * 64.0);
+    float bldRnd = hash12(vec2(bldColIdx, 3.7));
+    float skylineH = (0.04 + 0.24 * pow(bldRnd, 1.5)) * (1.0 - rough * 0.55);
+
+    if (R.y > -0.06 && R.y < skylineH) {
+        vec3 bldSil = mix(groundAmbient * 0.45, skyAmbient * 0.32, 0.4);
+        float winU = fract((az + kPi) * 32.0);
+        float winV = fract(R.y * 44.0);
+        bool inPane = (winU > 0.18 && winU < 0.82) && (winV > 0.20 && winV < 0.80);
+        float winHash = hash12(vec2(bldColIdx * 3.1 + floor(winU * 4.0), floor(R.y * 44.0)));
+        if (inPane && winHash > (0.48 - nightF * 0.22)) {
+            vec3 neonPalette = (winHash > 0.86)
+                                   ? vec3(0.18, 0.85, 1.35)
+                                   : ((winHash > 0.72) ? vec3(1.25, 0.28, 0.92) : vec3(1.30, 0.88, 0.36));
+            bldSil += neonPalette * (0.22 + nightF * 1.25) * (1.0 - rough * 0.65);
+        }
+        float mask = smoothstep(skylineH, skylineH - 0.015, R.y) * smoothstep(-0.06, 0.0, R.y);
+        skyEnv = mix(skyEnv, bldSil, mask * 0.82);
+    }
+    return skyEnv;
+}
+
+// True 3D Raycasted Interior Mapping inside building windows (virtual 3D rooms with ceiling lights, walls & blinds)
+vec3 sampleInteriorRoom3D(vec2 paneUv, vec3 V, vec3 N, float roomSeed, bool isLobby, float nightF) {
+    vec3 T = (abs(N.x) > 0.5) ? vec3(0.0, 0.0, sign(N.x)) : vec3(-sign(N.z), 0.0, 0.0);
+    vec3 B = vec3(0.0, 1.0, 0.0);
+
+    // View ray entering the room in local room coordinates: x in [0,1], y in [0,1], z in [0, roomDepth]
+    vec3 I = normalize(-V);
+    float rx = dot(I, T);
+    float ry = dot(I, B);
+    float rz = max(dot(I, -N), 0.06); // Depth into the building interior
+
+    float roomDepth = isLobby ? 1.15 : 0.78;
+    float tx = (rx > 0.0) ? ((1.0 - paneUv.x) / max(rx, 0.001)) : ((-paneUv.x) / min(rx, -0.001));
+    float ty = (ry > 0.0) ? ((1.0 - paneUv.y) / max(ry, 0.001)) : ((-paneUv.y) / min(ry, -0.001));
+    float tz = roomDepth / rz;
+    float tHit = min(min(tx, ty), tz);
+
+    vec3 hitPos = vec3(paneUv, 0.0) + vec3(rx, ry, rz) * tHit;
+    float depthFade = 1.0 - clamp(hitPos.z / (roomDepth * 1.15), 0.0, 0.75);
+
+    vec3 warmTone = pow(vec3(1.00, 0.78, 0.44), vec3(2.2));
+    vec3 coolTone = pow(vec3(0.52, 0.84, 1.00), vec3(2.2));
+    vec3 corpTone = pow(vec3(0.95, 0.92, 0.82), vec3(2.2));
+    vec3 suiteTint = (roomSeed > 0.78) ? coolTone : ((roomSeed > 0.44) ? corpTone : warmTone);
+
+    vec3 surfaceCol = suiteTint * 0.42;
+    if (abs(tHit - ty) < 0.002) {
+        if (ry > 0.0) {
+            // Ceiling with glowing recessed LED office light panels!
+            float stripX = smoothstep(0.18, 0.24, abs(fract(hitPos.x * 2.0) - 0.5));
+            float stripZ = smoothstep(0.15, 0.28, abs(fract(hitPos.z * 2.2) - 0.5));
+            float lightPanel = (1.0 - stripX) * (1.0 - stripZ);
+            surfaceCol = mix(suiteTint * 0.55, suiteTint * 2.35, lightPanel);
+        } else {
+            // Hardwood / carpeted floor with desk silhouette
+            float tile = 0.85 + 0.15 * sin(hitPos.x * 18.0) * sin(hitPos.z * 18.0);
+            surfaceCol = suiteTint * 0.24 * tile;
+        }
+    } else if (abs(tHit - tz) < 0.002) {
+        // Back wall with framed artwork / monitor screen / bookshelves
+        float shelf = smoothstep(0.35, 0.45, abs(sin(hitPos.y * 12.0)));
+        bool monitorGlow = (hitPos.x > 0.34 && hitPos.x < 0.66 && hitPos.y > 0.30 && hitPos.y < 0.58);
+        surfaceCol = suiteTint * (0.48 + 0.18 * shelf);
+        if (monitorGlow && fract(roomSeed * 13.7) > 0.35) {
+            surfaceCol = mix(surfaceCol, coolTone * 1.45, 0.75);
+        }
+    } else {
+        // Side partition walls
+        surfaceCol = suiteTint * 0.38;
+    }
+
+    // Venetian blinds partially drawn in upper portion of random offices
+    float blindCoverage = fract(roomSeed * 7.9) * 0.52;
+    if (!isLobby && paneUv.y > (1.0 - blindCoverage)) {
+        float slat = 0.58 + 0.42 * sin(paneUv.y * 52.0);
+        surfaceCol *= slat * 0.78;
+    }
+
+    float baseBrightness = mix(0.45, 1.32, nightF);
+    return surfaceCol * depthFade * baseBrightness;
+}
+
 void main() {
     vec4 texel = texture(texture0, fragTexCoord);
     vec4 srgbBase = texel * colDiffuse * fragColor;
     vec3 albedo = pow(clamp(srgbBase.rgb, 0.0, 1.0), vec3(2.2));
 
-    float roughness = clamp(colSpecular.x, 0.05, 0.98);
+    float roughness = clamp(colSpecular.x, 0.03, 0.98);
     float metallic  = clamp(colSpecular.y, 0.0, 1.0);
     float emissive  = colSpecular.z * 3.5;
     int matId       = int(colSpecular.w * 255.0 + 0.5);
@@ -338,15 +466,23 @@ void main() {
     vec3 V = normalize(viewPos - fragPosition);
     vec3 L = normalize(-lightDir);
     vec3 emissiveColor = albedo;
+    float puddleMask = 0.0;
 
     // -----------------------------------------------------------------------
-    // Procedural World-Space Material Detail
+    // Procedural World-Space Material Detail & Normal Perturbation
     // -----------------------------------------------------------------------
     if (matId == 1) {
-        // MAT 1: Asphalt Road Network + Analytic Anti-Aliased Lane Markings & Crosswalks
-        float grain = valueNoise(fragPosition.xz * 3.5) * 0.14 + valueNoise(fragPosition.xz * 16.0) * 0.08;
-        albedo = vec3(0.030 + grain * 0.06, 0.033 + grain * 0.06, 0.040 + grain * 0.07);
-        roughness = 0.46 - grain * 0.18;
+        // MAT 1: Normal-Mapped Asphalt Road Network + Wet-Road Mirror Puddles + Lane Markings
+        float g1 = valueNoise(fragPosition.xz * 3.5);
+        float g2 = valueNoise(fragPosition.xz * 18.0);
+        float grain = g1 * 0.14 + g2 * 0.08;
+        albedo = vec3(0.028 + grain * 0.055, 0.031 + grain * 0.055, 0.038 + grain * 0.065);
+        roughness = 0.44 - grain * 0.16;
+
+        // Micro-aggregate asphalt normal perturbation
+        float nx = valueNoise(fragPosition.xz * 22.0 + vec2(0.15, 0.0)) - g2;
+        float nz = valueNoise(fragPosition.xz * 22.0 + vec2(0.0, 0.15)) - g2;
+        N = normalize(vec3(N.x + nx * 0.16, N.y, N.z + nz * 0.16));
 
         vec2 p = fragPosition.xz;
         float rx = clamp(round(p.x / 84.0), -4.0, 4.0) * 84.0;
@@ -360,11 +496,11 @@ void main() {
         if (onVert && !onHoriz) {
             float wear = exp(-pow((abs(dx - 4.2) - 0.85) / 0.55, 2.0));
             albedo *= (1.0 - 0.16 * wear);
-            roughness = mix(roughness, 0.28, wear * 0.55);
+            roughness = mix(roughness, 0.24, wear * 0.60);
         } else if (onHoriz && !onVert) {
             float wear = exp(-pow((abs(dz - 4.2) - 0.85) / 0.55, 2.0));
             albedo *= (1.0 - 0.16 * wear);
-            roughness = mix(roughness, 0.28, wear * 0.55);
+            roughness = mix(roughness, 0.24, wear * 0.60);
         }
 
         vec3 yellowPaint = pow(vec3(0.93, 0.72, 0.16), vec3(2.2));
@@ -373,19 +509,16 @@ void main() {
         float whiteMask  = 0.0;
 
         if (onVert && !onHoriz) {
-            // Zebra crosswalk right along sidewalk crossing corridor (9.35..12.05m from intersection)
             if (dz >= 9.35 && dz <= 12.05 && dx < 7.9) {
                 float stripe = abs(fract((p.x - rx + 8.0) / 1.85) - 0.5) * 1.85;
                 whiteMask = max(whiteMask, aaBand(stripe, 0.42));
             }
-            // Stop bar before crosswalk
             if (dz >= 12.45 && dz <= 12.90 && dx < 8.4) {
                 whiteMask = max(whiteMask, 0.95);
             }
-            // Double yellow divider + dashed lane lines + outer shoulder lines
             if (dz > 13.15) {
                 yellowMask = max(yellowMask, aaBand(abs(dx - 0.18), 0.075));
-                if ( fract(p.y / 9.0) < 0.38 ) {
+                if (fract(p.y / 9.0) < 0.38) {
                     whiteMask = max(whiteMask, aaBand(abs(dx - 4.35), 0.075));
                 }
                 whiteMask = max(whiteMask, aaBand(abs(dx - 8.55), 0.07) * 0.65);
@@ -400,26 +533,44 @@ void main() {
             }
             if (dx > 13.15) {
                 yellowMask = max(yellowMask, aaBand(abs(dz - 0.18), 0.075));
-                if ( fract(p.x / 9.0) < 0.38 ) {
+                if (fract(p.x / 9.0) < 0.38) {
                     whiteMask = max(whiteMask, aaBand(abs(dz - 4.35), 0.075));
                 }
                 whiteMask = max(whiteMask, aaBand(abs(dz - 8.55), 0.07) * 0.65);
             }
         } else if (onVert && onHoriz) {
-            // Cast-iron utility manhole cover at intersection center
             float mh = length(vec2(dx, dz));
             if (mh < 0.68) {
                 albedo = vec3(0.055, 0.052, 0.050);
-                roughness = 0.35;
-                metallic = 0.55;
+                roughness = 0.32;
+                metallic = 0.62;
             }
         }
 
         albedo = mix(albedo, whitePaint, clamp(whiteMask, 0.0, 1.0) * 0.90);
         albedo = mix(albedo, yellowPaint, clamp(yellowMask, 0.0, 1.0) * 0.94);
+
+        // Dynamic Rain / Wet-Road Mirror Puddles ([U] toggle or twilight dampness)
+        float wetAmt = clamp(wetRoadFactor + nightFactor * 0.22, 0.0, 1.0);
+        if (wetAmt > 0.02) {
+            float pNoise = valueNoise(p * 0.16) * 0.65 + valueNoise(p * 0.52) * 0.35;
+            puddleMask = smoothstep(0.56 - wetAmt * 0.20, 0.72 - wetAmt * 0.14, pNoise) * wetAmt;
+            albedo *= (1.0 - wetAmt * 0.28 - puddleMask * 0.25);
+            roughness = mix(roughness, 0.045, clamp(wetAmt * 0.45 + puddleMask * 0.85, 0.0, 0.96));
+            if (wetRoadFactor > 0.1 && puddleMask > 0.25) {
+                // Expanding raindrop ring ripples on puddles
+                vec2 ripCell = floor(p * 1.8);
+                vec2 ripUv = fract(p * 1.8) - 0.5;
+                float ripPhase = fract(animTime * 1.9 + hash12(ripCell));
+                float ring = sin((length(ripUv) - ripPhase * 0.45) * 48.0) * exp(-length(ripUv) * 6.0) * (1.0 - ripPhase);
+                N = normalize(vec3(ripUv.x * ring * 0.12, 1.0, ripUv.y * ring * 0.12));
+            } else {
+                N = normalize(mix(N, vec3(0.0, 1.0, 0.0), puddleMask * 0.85));
+            }
+        }
     }
     else if (matId == 2) {
-        // MAT 2: Concrete Sidewalk Pavers & Plazas
+        // MAT 2: Bevelled Concrete Sidewalk Pavers & Plazas
         vec2 tileUv = fragPosition.xz / 1.75;
         vec2 cell = floor(tileUv);
         vec2 g = abs(fract(tileUv) - 0.5);
@@ -427,16 +578,16 @@ void main() {
         float seam = 1.0 - smoothstep(0.0, max(fwidth(seamDist), 0.015) * 1.4, seamDist - 0.018);
         float slabTint = 0.93 + 0.12 * hash12(cell) + 0.05 * valueNoise(fragPosition.xz * 6.0);
         albedo *= slabTint;
-        albedo = mix(albedo, albedo * 0.56, seam * 0.68);
-        roughness = 0.76;
+        albedo = mix(albedo, albedo * 0.54, seam * 0.72);
+        roughness = mix(0.74, 0.18, wetRoadFactor * 0.75);
+        puddleMask = wetRoadFactor * 0.42 * (1.0 - seam);
     }
     else if (matId == 3) {
-        // MAT 3: Architectural Glass Curtain-Wall Skyscraper
+        // MAT 3: Architectural Glass Curtain-Wall Skyscraper with 3D Raycasted Interior Mapping!
         if (abs(N.y) > 0.55) {
-            // Flat roof gravel & perimeter parapet shade
             float roofNoise = valueNoise(fragPosition.xz * 2.5);
             albedo = mix(vec3(0.09, 0.10, 0.12), vec3(0.16, 0.17, 0.19), roofNoise);
-            roughness = 0.85;
+            roughness = 0.82;
         } else {
             float uCoord = (abs(N.x) > 0.5) ? fragPosition.z : fragPosition.x;
             float vCoord = fragPosition.y;
@@ -449,44 +600,42 @@ void main() {
             float vFrac = fract(vCoord / floorH);
 
             bool isGroundLobby = (vCoord < 4.1);
-            bool isMullion = (uFrac < 0.065 || uFrac > 0.935);
-            bool isSpandrel = isGroundLobby ? (vCoord > 3.75) : (vFrac < 0.13 || vFrac > 0.90);
+            bool isMullion = (uFrac < 0.070 || uFrac > 0.930);
+            bool isSpandrel = isGroundLobby ? (vCoord > 3.72) : (vFrac < 0.13 || vFrac > 0.89);
 
             if (isMullion || isSpandrel) {
-                albedo *= 0.34;
-                roughness = 0.42;
-                metallic = 0.65;
+                // Anodized aluminum / brushed steel structural mullion & spandrel frame with 3D bevel normal
+                albedo *= 0.30;
+                roughness = 0.34;
+                metallic = 0.78;
+                float bevelX = (uFrac < 0.070) ? -0.22 : ((uFrac > 0.930) ? 0.22 : 0.0);
+                float bevelY = (vFrac < 0.13) ? -0.22 : ((vFrac > 0.89) ? 0.22 : 0.0);
+                N = normalize(N + vec3(bevelX * N.z, bevelY, -bevelX * N.x));
             } else {
-                // Architectural reflective glass pane + interior room depth
+                // 3D Raycasted Interior Mapping inside each skyscraper window bay!
+                vec2 paneUv = vec2((uFrac - 0.070) / 0.860,
+                                   isGroundLobby ? clamp(vCoord / 3.72, 0.0, 1.0) : ((vFrac - 0.13) / 0.76));
                 vec2 bldSeed = floor(fragPosition.xz / 14.0);
                 float roomRnd = hash12(vec2(uCell * 1.37 + bldSeed.x * 7.1, vCell * 2.19 + bldSeed.y * 11.3));
-                float blindStripe = 0.88 + 0.12 * sin(vCoord * 18.0);
+                vec3 room3D = sampleInteriorRoom3D(paneUv, V, N, roomRnd, isGroundLobby, nightFactor);
 
-                // Daytime deep tinted architectural glass with interior variation
-                vec3 glassDay = albedo * (0.45 + 0.48 * roomRnd) * blindStripe;
-                albedo = glassDay;
-                roughness = 0.11;
-                metallic = 0.18;
+                albedo = mix(albedo * 0.32, room3D, 0.74);
+                roughness = 0.06;
+                metallic = 0.22;
 
-                // Nighttime illuminated office suites & lobbies
-                float litThreshold = isGroundLobby ? 0.22 : 0.52;
-                if (nightFactor > 0.08 && roomRnd > litThreshold) {
-                    vec3 warmSuite = pow(vec3(1.00, 0.76, 0.38), vec3(2.2));
-                    vec3 coolSuite = pow(vec3(0.46, 0.80, 1.00), vec3(2.2));
-                    vec3 softWhite = pow(vec3(0.96, 0.91, 0.78), vec3(2.2));
-                    vec3 roomCol = (roomRnd > 0.84) ? coolSuite : ((roomRnd > 0.68) ? softWhite : warmSuite);
-                    float ceilingGrad = mix(0.55, 1.18, vFrac);
-                    emissiveColor = roomCol * ceilingGrad * blindStripe;
-                    emissive = nightFactor * (isGroundLobby ? 1.15 : 0.92);
+                float litThreshold = isGroundLobby ? 0.18 : 0.44;
+                if (roomRnd > litThreshold) {
+                    emissiveColor = room3D;
+                    emissive = mix(0.26, isGroundLobby ? 1.28 : 1.02, nightFactor);
                 }
             }
         }
     }
     else if (matId == 4) {
-        // MAT 4: Modern Office / Brick & Stone Apartment Facade
+        // MAT 4: Modern Office / Precast Stone & Masonry Facade with Recessed 3D Interior Windows
         if (abs(N.y) > 0.55) {
             albedo = vec3(0.14, 0.14, 0.15) * (0.85 + 0.25 * valueNoise(fragPosition.xz * 2.2));
-            roughness = 0.86;
+            roughness = 0.84;
         } else {
             float uCoord = (abs(N.x) > 0.5) ? fragPosition.z : fragPosition.x;
             float vCoord = fragPosition.y;
@@ -495,47 +644,59 @@ void main() {
             float uCell = floor(uCoord / 2.85);
             float vCell = floor(vCoord / 3.30);
 
-            bool inWindow = (vCoord > 3.4) && (uFrac > 0.22 && uFrac < 0.78) && (vFrac > 0.24 && vFrac < 0.78);
-            bool inSill   = (vCoord > 3.4) && (uFrac > 0.18 && uFrac < 0.82) && (vFrac >= 0.18 && vFrac <= 0.24);
+            bool inWindow = (vCoord > 3.4) && (uFrac > 0.20 && uFrac < 0.80) && (vFrac > 0.22 && vFrac < 0.80);
+            bool inSill   = (vCoord > 3.4) && (uFrac > 0.16 && uFrac < 0.84) && (vFrac >= 0.16 && vFrac <= 0.22);
             bool groundShop = (vCoord > 0.35 && vCoord < 2.95) && (uFrac > 0.12 && uFrac < 0.88);
 
             if (inSill) {
-                albedo *= 1.35;
-                roughness = 0.70;
+                albedo *= 1.38;
+                roughness = 0.64;
+                N = normalize(N + vec3(0.0, 0.32, 0.0));
             } else if (inWindow || groundShop) {
+                vec2 paneUv = groundShop
+                                  ? vec2((uFrac - 0.12) / 0.76, (vCoord - 0.35) / 2.60)
+                                  : vec2((uFrac - 0.20) / 0.60, (vFrac - 0.22) / 0.58);
                 vec2 seed = floor(fragPosition.xz / 12.0);
                 float rnd = hash12(vec2(uCell + seed.x * 5.7, vCell + seed.y * 9.3));
-                albedo = vec3(0.05, 0.08, 0.12) * (0.7 + 0.6 * rnd);
-                roughness = 0.15;
-                if (nightFactor > 0.08 && rnd > (groundShop ? 0.28 : 0.56)) {
-                    emissiveColor = pow(mix(vec3(1.0, 0.68, 0.30), vec3(1.0, 0.86, 0.58), fract(rnd * 7.3)), vec3(2.2));
-                    emissive = nightFactor * 0.90;
+                vec3 room3D = sampleInteriorRoom3D(paneUv, V, N, rnd, groundShop, nightFactor);
+
+                albedo = room3D * 0.68;
+                roughness = 0.08;
+                metallic = 0.16;
+                if (rnd > (groundShop ? 0.24 : 0.48)) {
+                    emissiveColor = room3D;
+                    emissive = mix(0.22, 0.96, nightFactor);
                 }
             } else {
-                // Subtle horizontal masonry / precast panel joints
-                float joint = smoothstep(0.92, 0.98, abs(sin(vCoord * 9.5)));
-                albedo *= (0.94 - 0.14 * joint + 0.08 * valueNoise(vec2(uCoord, vCoord) * 2.0));
-                roughness = 0.80;
+                // Architectural rusticated masonry joints + subtle vertical pilaster fluting
+                float hJoint = smoothstep(0.91, 0.98, abs(sin(vCoord * 9.5)));
+                float vJoint = smoothstep(0.94, 0.99, abs(sin(uCoord * 4.4)));
+                float joint = max(hJoint, vJoint * 0.75);
+                albedo *= (0.95 - 0.16 * joint + 0.08 * valueNoise(vec2(uCoord, vCoord) * 2.2));
+                roughness = 0.76;
             }
         }
     }
     else if (matId == 5) {
-        // MAT 5: Corrugated Industrial Steel / Shipping Containers
+        // MAT 5: Corrugated Industrial Steel / Shipping Containers with Normal-Perturbed Ribs
         float uCoord = (abs(N.x) > 0.5) ? fragPosition.z : fragPosition.x;
         if (abs(N.y) < 0.5) {
             float rib = sin(uCoord * 16.0);
+            float ribGrad = cos(uCoord * 16.0);
             albedo *= (0.90 + 0.14 * rib);
+            N = normalize(N + vec3(N.z * ribGrad * 0.18, 0.0, -N.x * ribGrad * 0.18));
         }
-        roughness = 0.44;
-        metallic = 0.45;
+        roughness = 0.38;
+        metallic = 0.55;
     }
     else if (matId == 6) {
-        // MAT 6: Animated Coastal Ocean Water with Fresnel Reflection, Sun Glitter & Shore Foam
+        // MAT 6: Animated Multi-Wave Coastal Ocean Water with Fresnel Reflection, Sun Glitter & Surf Foam
         vec2 wp = fragPosition.xz;
         float w1 = sin(wp.x * 0.22 + animTime * 1.55 + cos(wp.y * 0.14) * 1.2);
         float w2 = cos(wp.y * 0.29 - animTime * 1.25 + sin(wp.x * 0.19));
         float w3 = sin((wp.x + wp.y) * 0.55 + animTime * 2.35) * 0.5;
-        vec2 grad = vec2(w1 * 0.055 + w3 * 0.04, w2 * 0.055 + w3 * 0.04);
+        float w4 = cos((wp.x * 0.9 - wp.y * 0.7) + animTime * 3.1) * 0.28;
+        vec2 grad = vec2(w1 * 0.055 + w3 * 0.04 + w4 * 0.025, w2 * 0.055 + w3 * 0.04 - w4 * 0.025);
         N = normalize(vec3(-grad.x, 1.0, -grad.y));
 
         vec3 deepWater = mix(vec3(0.008, 0.065, 0.145), vec3(0.003, 0.012, 0.032), nightFactor);
@@ -547,21 +708,20 @@ void main() {
         float shoreProx = 1.0 - clamp(islandDist / 46.0, 0.0, 1.0);
         albedo = mix(deepWater, shallowTurquoise, shoreProx * 0.80);
 
-        // Animated shoreline surf foam (including gentle waves lapping Sunset Beach!)
         if (islandDist > -7.0 && islandDist < 18.0) {
             float surfWave = sin(islandDist * 0.82 - animTime * 2.7 + valueNoise(wp * 0.25) * 3.0);
             float foam = smoothstep(0.52, 0.92, surfWave) * (1.0 - clamp(islandDist / 18.0, 0.0, 1.0));
-            albedo = mix(albedo, vec3(0.80, 0.86, 0.90), foam * 0.78);
+            albedo = mix(albedo, vec3(0.82, 0.88, 0.92), foam * 0.80);
         }
-        roughness = 0.09;
-        metallic = 0.05;
+        roughness = 0.07;
+        metallic = 0.06;
     }
     else if (matId == 10) {
         // MAT 10: Lush Multi-Tone Park Lawn & Subsurface-Lit Foliage
         float patchNoise = valueNoise(fragPosition.xz * 0.45);
         float bladeNoise = valueNoise(fragPosition.xz * 7.5 + vec2(fragPosition.y * 3.0));
         albedo *= mix(0.80, 1.22, patchNoise * 0.65 + bladeNoise * 0.35);
-        roughness = 0.68;
+        roughness = 0.66;
     }
 
     // -----------------------------------------------------------------------
@@ -573,60 +733,72 @@ void main() {
         float fogF = clamp(1.0 - exp(-max(0.0, dist - 110.0) * 0.0028), 0.0, 0.85);
         vec3 hdrOut = mix(glow, pow(fogColor, vec3(2.2)), fogF * 0.55);
         vec3 mapped = pow(acesTonemap(hdrOut), vec3(1.0 / 2.2));
-        // Keep bright emissive peak close to 1.0 so post-process bloom catches it crisply
         mapped = max(mapped, clamp(srgbBase.rgb * (0.92 + colSpecular.z * 0.25), 0.0, 1.0));
         finalColor = vec4(mapped, srgbBase.a);
         return;
     }
 
     // -----------------------------------------------------------------------
-    // Physically-Inspired Direct + Hemisphere + Clearcoat Reflection Shading
+    // Cook-Torrance GGX Microfacet BRDF + Dual-Layer Clearcoat + City Env Reflections
     // -----------------------------------------------------------------------
     float ndotl = max(dot(N, L), 0.0);
     if (matId == 10) {
-        // Soft foliage wrap lighting so tree crowns look lush and volumetric
         ndotl = max(dot(N, L) * 0.68 + 0.32, 0.0);
     }
 
     float shadow = computeSoftShadow(fragPosition, N, L);
-    float sunVis = 1.0 - shadow * 0.84;
+    float sunVis = 1.0 - shadow * 0.85;
 
-    // Sky-to-ground hemisphere ambient + subtle ground-contact ambient occlusion
     float hemi = 0.5 + 0.5 * N.y;
     vec3 ambient = mix(groundAmbient, skyAmbient, hemi);
-    float contactAo = mix(0.74, 1.0, clamp(fragPosition.y / 1.6, 0.0, 1.0));
-    if (N.y > 0.75) contactAo = 1.0; // Don't darken horizontal road/sidewalk tops
+    float contactAo = mix(0.72, 1.0, clamp(fragPosition.y / 1.7, 0.0, 1.0));
+    if (N.y > 0.75) contactAo = 1.0;
 
-    // Blinn-Phong / GGX-approximated Specular
     vec3 H = normalize(L + V);
     float ndoth = max(dot(N, H), 0.0);
-    float shininess = mix(220.0, 10.0, roughness * roughness);
-    float specNorm = (shininess + 2.0) * 0.045;
-    float specFactor = pow(ndoth, shininess) * specNorm * (1.0 - roughness * 0.65);
+    float ndotv = max(dot(N, V), 0.001);
+    float vdoth = max(dot(V, H), 0.0);
+
+    // Trowbridge-Reitz GGX Normal Distribution + Schlick-GGX Geometry + Schlick Fresnel
+    float alpha = max(0.002, roughness * roughness);
+    float alpha2 = alpha * alpha;
+    float denomD = (ndoth * ndoth * (alpha2 - 1.0) + 1.0);
+    float D_ggx = alpha2 / max(kPi * denomD * denomD, 0.0001);
+
+    float kG = ((roughness + 1.0) * (roughness + 1.0)) * 0.125;
+    float G_v = ndotv / (ndotv * (1.0 - kG) + kG);
+    float G_l = ndotl / (ndotl * (1.0 - kG) + kG);
+    float G_smith = G_v * G_l;
 
     vec3 f0 = mix(vec3(0.04), albedo, metallic);
-    float ndotv = max(dot(N, V), 0.001);
-    vec3 fresnel = f0 + (1.0 - f0) * pow(1.0 - ndotv, 5.0);
+    vec3 F_schlick = f0 + (vec3(1.0) - f0) * pow(1.0 - vdoth, 5.0);
 
-    vec3 kD = (vec3(1.0) - fresnel) * (1.0 - metallic * 0.82);
-    vec3 directLit = (kD * albedo + fresnel * specFactor) * sunColor * ndotl * sunVis;
+    vec3 specBrdf = (D_ggx * G_smith * F_schlick) / max(4.0 * ndotv * ndotl, 0.001);
+    vec3 kD = (vec3(1.0) - F_schlick) * (1.0 - metallic * 0.86);
+
+    vec3 directLit = (kD * albedo / kPi + specBrdf * 0.42) * sunColor * ndotl * sunVis * 2.55;
     vec3 envLit    = albedo * ambient * contactAo;
 
-    // Environment Sky/Horizon Reflection on Glass Towers (3), Ocean (6), Car Clearcoat (7), Car Glass (8)
-    if (matId == 3 || matId == 6 || matId == 7 || matId == 8) {
+    // 360-Degree City Skyline & Neon Reflections on Glass (3,4), Ocean (6), Car Clearcoat (7), Car Glass (8), and Wet Puddles!
+    bool reflectiveMat = (matId == 3 || matId == 4 || matId == 6 || matId == 7 || matId == 8 || puddleMask > 0.05);
+    if (reflectiveMat) {
         vec3 R = reflect(-V, N);
-        float reflUp = clamp(R.y * 0.5 + 0.5, 0.0, 1.0);
-        vec3 envRefl = mix(pow(horizonColor, vec3(2.2)) * 0.95, skyAmbient * 2.15, pow(reflUp, 1.35));
+        vec3 envRefl = sampleCityEnvMap(R, roughness, nightFactor);
 
-        // Crisp solar reflection highlight on ocean waves, sculpted car hoods, and glass windshields
-        float specExp = (matId == 6) ? 180.0 : ((matId == 7) ? mix(128.0, 22.0, clamp(roughness * 1.6, 0.0, 1.0)) : 96.0);
+        float specExp = (matId == 6) ? 210.0 : ((matId == 7) ? mix(160.0, 24.0, clamp(roughness * 1.5, 0.0, 1.0)) : 110.0);
         float sunRefl = pow(max(dot(R, L), 0.0), specExp);
-        envRefl += sunColor * sunRefl * sunVis * ((matId == 6) ? 2.6 : 1.42);
+        envRefl += sunColor * sunRefl * sunVis * ((matId == 6) ? 2.8 : 1.55);
 
-        float coatStrength = (matId == 6) ? 0.88 : ((matId == 8) ? 0.82 : ((matId == 7) ? 0.68 : 0.44));
+        float coatStrength = (matId == 6) ? 0.90
+                           : ((matId == 8) ? 0.85
+                           : ((matId == 7) ? 0.78
+                           : ((matId == 3) ? 0.56
+                           : ((matId == 4) ? (0.35 * (1.0 - step(0.3, roughness))) : (puddleMask * 0.82)))));
         if (matId == 7) {
-            // Gloss metallic clearcoat vs Matte satin custom finish!
-            coatStrength *= (1.0 - smoothstep(0.18, 0.52, roughness) * 0.78);
+            // Dual-layer automotive polyurethane clearcoat + metallic flake sparkle!
+            float flake = valueNoise(fragPosition.xz * 85.0 + vec2(fragPosition.y * 65.0));
+            envLit += albedo * pow(ndoth, 28.0) * (0.25 + 0.45 * flake) * (1.0 - roughness) * sunVis;
+            coatStrength *= (1.0 - smoothstep(0.18, 0.52, roughness) * 0.76);
         }
         float coatFresnel = 0.08 + 0.92 * pow(1.0 - ndotv, 4.0);
         envLit += envRefl * coatFresnel * coatStrength;
@@ -974,16 +1146,16 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
 
     switch (kind) {
         case VehicleKind::TrackPrototype:
-            groundClear = 0.13f; wheelR = 0.35f; axleFrac = 0.62f;
-            noseTipY = 0.24f; hoodBaseY = 0.60f; beltMidY = 0.68f; tailDeckY = 0.76f;
+            groundClear = 0.13f; wheelR = 0.34f; axleFrac = 0.62f;
+            noseTipY = 0.48f; hoodBaseY = 0.74f; beltMidY = 0.76f; tailDeckY = 0.78f;
             roofPeakY = 1.08f;
             sRearBase = -0.68f; sRearTop = -0.16f; sFrontTop = 0.24f; sFrontBase = 0.60f;
             tumblehome = 0.62f; fenderFlare = 0.094f; waistPinch = 0.055f; noseRound = 0.25f;
             isCoupeGlass = true; hasPanoRoof = true;
             break;
         case VehicleKind::Hypercar:
-            groundClear = 0.15f; wheelR = 0.35f; axleFrac = 0.62f;
-            noseTipY = 0.27f; hoodBaseY = 0.64f; beltMidY = 0.72f; tailDeckY = 0.80f;
+            groundClear = 0.15f; wheelR = 0.34f; axleFrac = 0.62f;
+            noseTipY = 0.50f; hoodBaseY = 0.76f; beltMidY = 0.78f; tailDeckY = 0.82f;
             roofPeakY = 1.13f;
             sRearBase = -0.74f; sRearTop = -0.18f; sFrontTop = 0.22f; sFrontBase = 0.58f;
             tumblehome = 0.70f; fenderFlare = 0.082f; waistPinch = 0.048f; noseRound = 0.22f;
@@ -991,7 +1163,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             break;
         case VehicleKind::ClassicRoadster:
             groundClear = 0.16f; wheelR = 0.34f; axleFrac = 0.63f;
-            noseTipY = 0.32f; hoodBaseY = 0.72f; beltMidY = 0.74f; tailDeckY = 0.84f;
+            noseTipY = 0.54f; hoodBaseY = 0.78f; beltMidY = 0.78f; tailDeckY = 0.84f;
             roofPeakY = 1.18f;
             sRearBase = 0.08f; sRearTop = 0.15f; sFrontTop = 0.22f; sFrontBase = 0.48f;
             tumblehome = 0.74f; fenderFlare = 0.068f; waistPinch = 0.038f; noseRound = 0.20f;
@@ -999,7 +1171,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             break;
         case VehicleKind::SportsCoupe:
             groundClear = 0.17f; wheelR = 0.35f; axleFrac = 0.63f;
-            noseTipY = 0.32f; hoodBaseY = 0.72f; beltMidY = 0.78f; tailDeckY = 0.86f;
+            noseTipY = 0.54f; hoodBaseY = 0.80f; beltMidY = 0.82f; tailDeckY = 0.86f;
             roofPeakY = 1.24f;
             sRearBase = -0.72f; sRearTop = -0.24f; sFrontTop = 0.14f; sFrontBase = 0.46f;
             tumblehome = 0.73f; fenderFlare = 0.068f; waistPinch = 0.036f; noseRound = 0.18f;
@@ -1007,7 +1179,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             break;
         case VehicleKind::JdmTuner:
             groundClear = 0.16f; wheelR = 0.35f; axleFrac = 0.63f;
-            noseTipY = 0.34f; hoodBaseY = 0.76f; beltMidY = 0.82f; tailDeckY = 0.88f;
+            noseTipY = 0.56f; hoodBaseY = 0.82f; beltMidY = 0.84f; tailDeckY = 0.88f;
             roofPeakY = 1.28f;
             sRearBase = -0.68f; sRearTop = -0.28f; sFrontTop = 0.14f; sFrontBase = 0.44f;
             tumblehome = 0.75f; fenderFlare = 0.078f; waistPinch = 0.026f; noseRound = 0.14f;
@@ -1015,7 +1187,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             break;
         case VehicleKind::MuscleCar:
             groundClear = 0.20f; wheelR = 0.36f; axleFrac = 0.64f;
-            noseTipY = 0.42f; hoodBaseY = 0.82f; beltMidY = 0.85f; tailDeckY = 0.88f;
+            noseTipY = 0.62f; hoodBaseY = 0.85f; beltMidY = 0.86f; tailDeckY = 0.88f;
             roofPeakY = 1.31f;
             sRearBase = -0.66f; sRearTop = -0.30f; sFrontTop = 0.08f; sFrontBase = 0.36f;
             tumblehome = 0.76f; fenderFlare = 0.064f; waistPinch = 0.028f; noseRound = 0.09f;
@@ -1023,7 +1195,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             break;
         case VehicleKind::LuxurySedan:
             groundClear = 0.19f; wheelR = 0.36f; axleFrac = 0.64f;
-            noseTipY = 0.40f; hoodBaseY = 0.82f; beltMidY = 0.86f; tailDeckY = 0.90f;
+            noseTipY = 0.60f; hoodBaseY = 0.85f; beltMidY = 0.87f; tailDeckY = 0.90f;
             roofPeakY = 1.38f;
             sRearBase = -0.68f; sRearTop = -0.34f; sFrontTop = 0.16f; sFrontBase = 0.46f;
             tumblehome = 0.78f; fenderFlare = 0.048f; waistPinch = 0.020f; noseRound = 0.14f;
@@ -1031,56 +1203,56 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             break;
         case VehicleKind::PoliceCruiser:
             groundClear = 0.20f; wheelR = 0.35f; axleFrac = 0.64f;
-            noseTipY = 0.40f; hoodBaseY = 0.82f; beltMidY = 0.86f; tailDeckY = 0.90f;
+            noseTipY = 0.60f; hoodBaseY = 0.85f; beltMidY = 0.87f; tailDeckY = 0.90f;
             roofPeakY = 1.39f;
             sRearBase = -0.68f; sRearTop = -0.32f; sFrontTop = 0.16f; sFrontBase = 0.46f;
             tumblehome = 0.78f; fenderFlare = 0.056f; waistPinch = 0.020f; noseRound = 0.13f;
             break;
         case VehicleKind::Taxi:
             groundClear = 0.20f; wheelR = 0.34f; axleFrac = 0.62f;
-            noseTipY = 0.40f; hoodBaseY = 0.80f; beltMidY = 0.84f; tailDeckY = 0.88f;
+            noseTipY = 0.58f; hoodBaseY = 0.83f; beltMidY = 0.85f; tailDeckY = 0.88f;
             roofPeakY = 1.38f;
             sRearBase = -0.66f; sRearTop = -0.34f; sFrontTop = 0.16f; sFrontBase = 0.46f;
             tumblehome = 0.79f; fenderFlare = 0.040f; waistPinch = 0.015f; noseRound = 0.14f;
             break;
         case VehicleKind::Compact:
             groundClear = 0.19f; wheelR = 0.32f; axleFrac = 0.64f;
-            noseTipY = 0.38f; hoodBaseY = 0.78f; beltMidY = 0.84f; tailDeckY = 0.92f;
+            noseTipY = 0.56f; hoodBaseY = 0.81f; beltMidY = 0.84f; tailDeckY = 0.92f;
             roofPeakY = 1.38f;
             sRearBase = -0.88f; sRearTop = -0.62f; sFrontTop = 0.16f; sFrontBase = 0.50f;
             tumblehome = 0.80f; fenderFlare = 0.042f; waistPinch = 0.014f; noseRound = 0.16f;
             break;
         case VehicleKind::SUV:
             groundClear = 0.26f; wheelR = 0.40f; axleFrac = 0.63f;
-            noseTipY = 0.54f; hoodBaseY = 0.98f; beltMidY = 1.02f; tailDeckY = 1.05f;
+            noseTipY = 0.78f; hoodBaseY = 1.00f; beltMidY = 1.02f; tailDeckY = 1.05f;
             roofPeakY = 1.66f;
             sRearBase = -0.90f; sRearTop = -0.74f; sFrontTop = 0.14f; sFrontBase = 0.44f;
             tumblehome = 0.84f; fenderFlare = 0.062f; waistPinch = 0.012f; noseRound = 0.12f;
             break;
         case VehicleKind::OffroadPickup:
             groundClear = 0.30f; wheelR = 0.45f; axleFrac = 0.64f;
-            noseTipY = 0.64f; hoodBaseY = 1.10f; beltMidY = 1.12f; tailDeckY = 1.04f;
+            noseTipY = 0.88f; hoodBaseY = 1.12f; beltMidY = 1.12f; tailDeckY = 1.04f;
             roofPeakY = 1.78f;
             sRearBase = -0.10f; sRearTop = -0.02f; sFrontTop = 0.24f; sFrontBase = 0.50f;
             tumblehome = 0.84f; fenderFlare = 0.088f; waistPinch = 0.008f; noseRound = 0.09f;
             break;
         case VehicleKind::ArmoredSuv:
             groundClear = 0.29f; wheelR = 0.43f; axleFrac = 0.63f;
-            noseTipY = 0.62f; hoodBaseY = 1.08f; beltMidY = 1.12f; tailDeckY = 1.14f;
+            noseTipY = 0.86f; hoodBaseY = 1.10f; beltMidY = 1.12f; tailDeckY = 1.14f;
             roofPeakY = 1.78f;
             sRearBase = -0.92f; sRearTop = -0.78f; sFrontTop = 0.14f; sFrontBase = 0.42f;
             tumblehome = 0.86f; fenderFlare = 0.085f; waistPinch = 0.008f; noseRound = 0.08f;
             break;
         case VehicleKind::Ambulance:
             groundClear = 0.24f; wheelR = 0.39f; axleFrac = 0.63f;
-            noseTipY = 0.54f; hoodBaseY = 1.04f; beltMidY = 1.08f; tailDeckY = 1.10f;
+            noseTipY = 0.78f; hoodBaseY = 1.04f; beltMidY = 1.08f; tailDeckY = 1.10f;
             roofPeakY = 2.02f;
             sRearBase = -0.97f; sRearTop = -0.92f; sFrontTop = 0.38f; sFrontBase = 0.72f;
             tumblehome = 0.92f; fenderFlare = 0.046f; waistPinch = 0.0f; noseRound = 0.09f;
             break;
         case VehicleKind::FireTruck:
             groundClear = 0.26f; wheelR = 0.43f; axleFrac = 0.64f;
-            noseTipY = 0.62f; hoodBaseY = 1.14f; beltMidY = 1.16f; tailDeckY = 1.16f;
+            noseTipY = 0.88f; hoodBaseY = 1.14f; beltMidY = 1.16f; tailDeckY = 1.16f;
             roofPeakY = 2.08f;
             sRearBase = -0.97f; sRearTop = -0.93f; sFrontTop = 0.52f; sFrontBase = 0.80f;
             tumblehome = 0.93f; fenderFlare = 0.052f; waistPinch = 0.0f; noseRound = 0.06f;
@@ -1088,7 +1260,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         case VehicleKind::DeliveryVan:
         default:
             groundClear = 0.24f; wheelR = 0.38f; axleFrac = 0.62f;
-            noseTipY = 0.52f; hoodBaseY = 1.02f; beltMidY = 1.06f; tailDeckY = 1.08f;
+            noseTipY = 0.76f; hoodBaseY = 1.02f; beltMidY = 1.06f; tailDeckY = 1.08f;
             roofPeakY = 1.98f;
             sRearBase = -0.96f; sRearTop = -0.90f; sFrontTop = 0.38f; sFrontBase = 0.72f;
             tumblehome = 0.90f; fenderFlare = 0.042f; waistPinch = 0.0f; noseRound = 0.10f;
@@ -1096,7 +1268,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
     }
 
     const float axleX = halfL * axleFrac;
-    const float archR = wheelR * 1.14f;
+    const float archR = wheelR * 1.08f;
 
     auto smooth01 = [](float t) -> float {
         t = clampf(t, 0.0f, 1.0f);
@@ -1153,7 +1325,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         for (float ax : {-axleX, axleX}) {
             const float dx = std::abs(st.x - ax);
             if (dx < archR) {
-                const float cutY = wheelR + std::sqrt(std::max(0.0f, archR * archR - dx * dx));
+                const float cutY = wheelR * 0.84f + std::sqrt(std::max(0.0f, archR * archR - dx * dx)) * 0.68f;
                 archLift = std::max(archLift, cutY - yBot);
             }
         }
@@ -1163,7 +1335,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         if (s >= sFrontBase) {
             const float u = (s - sFrontBase) / std::max(0.05f, 1.0f - sFrontBase);
             // Smooth curved aerodynamic hood sloping into front grille
-            beltY = lerpf(hoodBaseY, noseTipY, std::pow(clampf(u, 0.0f, 1.0f), 1.48f));
+            beltY = lerpf(hoodBaseY, noseTipY, std::pow(clampf(u, 0.0f, 1.0f), 1.35f));
         } else if (s >= 0.0f) {
             const float u = s / std::max(0.05f, sFrontBase);
             beltY = lerpf(beltMidY, hoodBaseY, smooth01(u));
@@ -1176,7 +1348,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             }
         }
         // Subtle muscular fender haunch crest over front & rear wheels
-        beltY += flare * 0.52f;
+        beltY += flare * 0.12f;
 
         // 4) Greenhouse cabin elevation (smooth windshield & fastback curves)
         float cabinFrac = 0.0f;
@@ -1194,18 +1366,17 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         }
 
         const float ySillVal = yBot + archLift;
-        // Guarantee lower body points stay cleanly above wheel arch crest even on low-slung hypercars!
-        const float minAboveArch = ySillVal + 0.035f;
-        const float finalBeltY = std::max(beltY, minAboveArch + 0.06f);
+        const float minAboveArch = ySillVal + 0.018f;
+        const float finalBeltY = std::max(beltY, minAboveArch + 0.028f);
         const float finalBellyY = std::max(lerpf(yBot, finalBeltY, 0.52f), minAboveArch);
 
         const float hoodCenterCrown =
             (kind == VehicleKind::MuscleCar && s > sFrontBase + 0.06f && s < 0.84f)
-                ? 0.085f
+                ? 0.065f
                 : (((kind == VehicleKind::Hypercar || kind == VehicleKind::TrackPrototype) && s < sRearTop && s > -0.82f)
-                       ? 0.055f
-                       : 0.036f);
-        const float deckOrRoofSideY = lerpf(finalBeltY + 0.022f, roofPeakY - 0.038f, clampf(cabinFrac, 0.0f, 1.05f));
+                       ? 0.045f
+                       : 0.032f);
+        const float deckOrRoofSideY = lerpf(finalBeltY + 0.018f, roofPeakY - 0.038f, clampf(cabinFrac, 0.0f, 1.05f));
         const float deckOrRoofTopY  = lerpf(finalBeltY + hoodCenterCrown, roofPeakY, clampf(cabinFrac, 0.0f, 1.05f));
 
         st.yUnder     = yBot;
@@ -1214,7 +1385,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         st.yBelt      = finalBeltY;
         st.yUpper     = lerpf(finalBeltY, deckOrRoofSideY, 0.52f);
         st.yCrownSide = deckOrRoofSideY;
-        st.yTopCenter = std::max(deckOrRoofSideY + 0.015f, deckOrRoofTopY);
+        st.yTopCenter = std::max(deckOrRoofSideY + 0.014f, deckOrRoofTopY);
 
         // Open-top convertible cockpit tub (ClassicRoadster) & recessed 4x4 cargo pickup bed (OffroadPickup)
         if (kind == VehicleKind::ClassicRoadster && s > -0.36f && s < 0.07f) {
@@ -1447,16 +1618,16 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
     constexpr int kArchSegs = 12;
     for (int side = -1; side <= 1; side += 2) {
         const float sgn = static_cast<float>(side);
-        const float zOuter = halfW * 0.95f;
-        const float zInner = halfW * 0.56f;
+        const float zOuter = halfW * 0.72f;
+        const float zInner = halfW * 0.52f;
         for (float ax : {-axleX, axleX}) {
             for (int a = 0; a < kArchSegs; ++a) {
                 const float th0 = (static_cast<float>(a) / kArchSegs) * kPi;
                 const float th1 = (static_cast<float>(a + 1) / kArchSegs) * kPi;
-                const float x0 = ax + std::cos(th0) * (archR * 0.98f);
-                const float y0 = wheelR + std::sin(th0) * (archR * 0.98f);
-                const float x1 = ax + std::cos(th1) * (archR * 0.98f);
-                const float y1 = wheelR + std::sin(th1) * (archR * 0.98f);
+                const float x0 = ax + std::cos(th0) * (archR * 0.90f);
+                const float y0 = wheelR * 0.80f + std::sin(th0) * (archR * 0.62f);
+                const float x1 = ax + std::cos(th1) * (archR * 0.90f);
+                const float y1 = wheelR * 0.80f + std::sin(th1) * (archR * 0.62f);
 
                 // Cylindrical wheel-well arch liner (faces radially inward toward the tire)
                 trimB.addQuadOutward({x0, y0, sgn * zInner}, {x1, y1, sgn * zInner},
@@ -1572,6 +1743,7 @@ void Renderer3D::init() {
     locViewPos_       = GetShaderLocation(worldShader_, "viewPos");
     locAnimTime_      = GetShaderLocation(worldShader_, "animTime");
     locNightFactor_   = GetShaderLocation(worldShader_, "nightFactor");
+    locWetRoad_       = GetShaderLocation(worldShader_, "wetRoadFactor");
     locEnableShadows_ = GetShaderLocation(worldShader_, "enableShadows");
     locLightVP_       = GetShaderLocation(worldShader_, "lightVP");
     locShadowMap_     = GetShaderLocation(worldShader_, "shadowMap");
@@ -1594,6 +1766,7 @@ void Renderer3D::init() {
     locSkyTimeHours_ = GetShaderLocation(skyShader_, "timeHours");
     locSkyDayFactor_ = GetShaderLocation(skyShader_, "dayFactor");
     locSkyAnimTime_  = GetShaderLocation(skyShader_, "animTime");
+    locSkyWet_       = GetShaderLocation(skyShader_, "wetWeather");
 
     // 4) Full-screen HDR Bloom + ACES post-process shader
     postShader_ = LoadShaderFromMemory(nullptr, kPostFragShader);
@@ -1848,6 +2021,7 @@ void Renderer3D::updateShaderUniforms(const GameWorld& world, const Camera3D& ca
     const float ldir[3] = {lightDir.x, lightDir.y, lightDir.z};
     const float viewPos[3] = {camera.position.x, camera.position.y, camera.position.z};
     const float animT = static_cast<float>(GetTime());
+    const float wetF  = world.isRainWeather() ? 1.0f : 0.0f;
     const int shadowsInt = shadowsActive ? 1 : 0;
 
     SetShaderValue(worldShader_, locLightDir_, ldir, SHADER_UNIFORM_VEC3);
@@ -1859,6 +2033,7 @@ void Renderer3D::updateShaderUniforms(const GameWorld& world, const Camera3D& ca
     SetShaderValue(worldShader_, locViewPos_, viewPos, SHADER_UNIFORM_VEC3);
     SetShaderValue(worldShader_, locAnimTime_, &animT, SHADER_UNIFORM_FLOAT);
     SetShaderValue(worldShader_, locNightFactor_, &nightFactor, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(worldShader_, locWetRoad_, &wetF, SHADER_UNIFORM_FLOAT);
     SetShaderValue(worldShader_, locEnableShadows_, &shadowsInt, SHADER_UNIFORM_INT);
     SetShaderValueMatrix(worldShader_, locLightVP_, lightVP);
 }
@@ -1869,11 +2044,14 @@ void Renderer3D::drawSkyDome(const GameWorld& world, const Camera3D& camera, con
     const float hours = world.timeOfDayHours();
     const float dayF  = world.daylightFactor();
     const float animT = static_cast<float>(GetTime());
+    const float wetF  = world.isRainWeather() ? 1.0f : 0.0f;
+
 
     SetShaderValue(skyShader_, locSkySunDir_, sdir, SHADER_UNIFORM_VEC3);
     SetShaderValue(skyShader_, locSkyTimeHours_, &hours, SHADER_UNIFORM_FLOAT);
     SetShaderValue(skyShader_, locSkyDayFactor_, &dayF, SHADER_UNIFORM_FLOAT);
     SetShaderValue(skyShader_, locSkyAnimTime_, &animT, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(skyShader_, locSkyWet_, &wetF, SHADER_UNIFORM_FLOAT);
 
     rlDisableBackfaceCulling();
     rlDisableDepthMask();
@@ -2549,6 +2727,304 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
                     rlPopMatrix();
                 }
             }
+
+            // 3D Vertical Corner Pilasters & Structural Facade Mullion Columns for Realistic Depth
+            if (b.height > 12.0f) {
+                const bool isGlass = (b.style == BuildingStyle::GlassTower);
+                const Color pilasterCol = toRayColor(b.accentColor);
+                const float pilRough = isGlass ? 0.24f : 0.68f;
+                const float pilMetal = isGlass ? 0.72f : 0.18f;
+                for (int sx = -1; sx <= 1; sx += 2) {
+                    for (int sz = -1; sz <= 1; sz += 2) {
+                        drawModelStyled(cubeModel_,
+                                        {c.x + static_cast<float>(sx) * (he.x - 0.14f),
+                                         b.height * 0.5f,
+                                         c.z + static_cast<float>(sz) * (he.z - 0.14f)},
+                                        {0.0f, 1.0f, 0.0f}, 0.0f,
+                                        {0.44f, b.height, 0.44f}, pilasterCol, pilRough, pilMetal, 0.0f, MatKind::Standard);
+                    }
+                }
+            }
+        }
+    }
+
+    drawLandmarkStructures(world, focus, shadowPass);
+}
+
+
+void Renderer3D::drawLandmarkStructures(const GameWorld& world, const Vec2& focus, bool shadowPass) {
+    const bool night = world.isNightTime();
+    const float animT = static_cast<float>(GetTime());
+    const float cullDistSq = shadowPass ? (190.0f * 190.0f) : (380.0f * 380.0f);
+
+    // 1. 6 City Stunt Jump Ramps (Generated via Python CAD pipeline -> generated::kCityStuntRamps)
+    const Color steelGray{62, 68, 78, 255};
+    const Color deckAsphalt{44, 48, 56, 255};
+    const Color hazardYellow{255, 204, 32, 255};
+    for (const auto& r : generated::kCityStuntRamps) {
+        const Vec2 rPos{r.centerX, r.centerZ};
+        if ((rPos - focus).lengthSq() > cullDistSq) continue;
+
+        const float len = r.length;
+        const float wid = r.width;
+        const float halfLen = len * 0.5f;
+        const float halfWid = wid * 0.5f;
+        const float slopeRad = std::atan2(r.height, len);
+        const float slopeDeg = slopeRad * kRadToDeg;
+        const float deckLen = std::sqrt(len * len + r.height * r.height);
+        const float yawDeg = -std::atan2(r.dirZ, r.dirX) * kRadToDeg;
+
+        rlPushMatrix();
+        rlTranslatef(r.centerX, 0.02f, r.centerZ);
+        rlRotatef(yawDeg, 0.0f, 1.0f, 0.0f);
+
+        // Vertical steel support trusses under the elevated half of the ramp
+        for (int side = -1; side <= 1; side += 2) {
+            const float sz = static_cast<float>(side) * (halfWid - 0.22f);
+            drawModelStyled(cubeModel_, {halfLen * 0.88f, r.height * 0.48f, sz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.32f, r.height * 0.96f, 0.28f}, steelGray, 0.42f, 0.75f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {halfLen * 0.20f, r.height * 0.30f, sz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.28f, r.height * 0.60f, 0.24f}, steelGray, 0.42f, 0.75f, 0.0f, MatKind::Standard);
+        }
+        drawModelStyled(cubeModel_, {halfLen * 0.88f, r.height * 0.52f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.24f, 0.22f, wid - 0.20f}, steelGray, 0.42f, 0.75f, 0.0f, MatKind::Standard);
+
+        // Inclined structural steel deck + high-visibility chevron hazard rails
+        rlPushMatrix();
+        rlTranslatef(0.0f, r.height * 0.5f, 0.0f);
+        rlRotatef(slopeDeg, 0.0f, 0.0f, 1.0f);
+        drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {deckLen, 0.22f, wid}, deckAsphalt, 0.68f, 0.22f, 0.0f, MatKind::Standard);
+        for (int side = -1; side <= 1; side += 2) {
+            drawModelStyled(cubeModel_, {0.0f, 0.20f, static_cast<float>(side) * (halfWid - 0.12f)},
+                            {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {deckLen, 0.24f, 0.18f}, hazardYellow, 0.25f, 0.20f,
+                            night ? 1.4f : 0.35f, MatKind::EmissiveGlow);
+        }
+        if (!shadowPass) {
+            for (int st = -2; st <= 2; ++st) {
+                drawModelStyled(cubeModel_, {static_cast<float>(st) * (deckLen * 0.18f), 0.125f, 0.0f},
+                                {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.32f, 0.03f, wid * 0.76f}, Color{56, 232, 255, 255},
+                                0.15f, 0.0f, night ? 2.2f : 0.8f, MatKind::EmissiveGlow);
+            }
+        }
+        rlPopMatrix();
+        rlPopMatrix();
+    }
+
+    // 2. Golden Bay Suspension Bridge (North Bay Waterfront: x = 0, z = 342..396)
+    const Vec2 bridgeCenter{0.0f, 369.0f};
+    if ((bridgeCenter - focus).lengthSq() <= cullDistSq * 1.35f) {
+        const Color bridgeRed{194, 52, 42, 255};
+        const Color cableSteel{202, 210, 222, 255};
+        const float towerZ[2] = {352.0f, 386.0f};
+        const float towerHalfW = 10.6f;
+        const float towerH = 42.0f;
+
+        // Bridge deck truss under-structure
+        drawModelStyled(cubeModel_, {0.0f, 0.45f, 369.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {22.4f, 0.75f, 62.0f}, steelGray, 0.52f, 0.65f, 0.0f, MatKind::Standard);
+
+        // Twin 42m H-Frame Suspension Towers + 3 Horizontal Portal Struts each
+        for (int tz = 0; tz < 2; ++tz) {
+            const float z = towerZ[tz];
+            for (int side = -1; side <= 1; side += 2) {
+                const float x = static_cast<float>(side) * towerHalfW;
+                drawModelStyled(cubeModel_, {x, towerH * 0.5f, z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {1.65f, towerH, 1.85f}, bridgeRed, 0.42f, 0.52f, 0.0f, MatKind::Standard);
+            }
+            for (int strut = 0; strut < 3; ++strut) {
+                const float sy = 15.0f + static_cast<float>(strut) * 12.0f;
+                drawModelStyled(cubeModel_, {0.0f, sy, z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {towerHalfW * 2.0f + 1.4f, 1.35f, 1.45f}, bridgeRed, 0.42f, 0.52f, 0.0f, MatKind::Standard);
+            }
+            if (!shadowPass) {
+                // FAA red aviation warning beacons atop each tower leg
+                for (int side = -1; side <= 1; side += 2) {
+                    drawModelStyled(sphereModel_, {static_cast<float>(side) * towerHalfW, towerH + 0.6f, z},
+                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.42f, 0.42f, 0.42f},
+                                    Color{255, 42, 42, 255}, 0.1f, 0.0f, 3.2f, MatKind::EmissiveGlow);
+                }
+            }
+        }
+
+        // Main Catenary Suspension Cables & Vertical Suspender Ropes (from generated::kSuspensionBridgeCatenary)
+        const float spanMidZ = 0.5f * (towerZ[0] + towerZ[1]);
+        const float spanHalfZ = 0.5f * (towerZ[1] - towerZ[0]);
+        for (int side = -1; side <= 1; side += 2) {
+            const float x = static_cast<float>(side) * towerHalfW;
+            for (std::size_t s = 0; s + 1 < generated::kSuspensionBridgeCatenary.size(); ++s) {
+                const float z0 = spanMidZ + generated::kSuspensionBridgeCatenary[s].x * spanHalfZ;
+                const float z1 = spanMidZ + generated::kSuspensionBridgeCatenary[s + 1].x * spanHalfZ;
+                const float y0 = 14.5f + generated::kSuspensionBridgeCatenary[s].y * (towerH - 15.0f);
+                const float y1 = 14.5f + generated::kSuspensionBridgeCatenary[s + 1].y * (towerH - 15.0f);
+                const float midZ = 0.5f * (z0 + z1);
+                const float midY = 0.5f * (y0 + y1);
+                const float dz = z1 - z0;
+                const float dy = y1 - y0;
+                const float segLen = std::sqrt(dz * dz + dy * dy);
+                const float pitchDeg = -std::atan2(dy, dz) * kRadToDeg;
+
+                rlPushMatrix();
+                rlTranslatef(x, midY, midZ);
+                rlRotatef(pitchDeg, 1.0f, 0.0f, 0.0f);
+                drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.32f, 0.32f, segLen + 0.08f}, bridgeRed, 0.35f, 0.68f, 0.0f, MatKind::Standard);
+                rlPopMatrix();
+
+                if (!shadowPass && (s % 2 == 1)) {
+                    drawModelStyled(cylModel_, {x, 1.2f, z0}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.07f, y0 - 1.2f, 0.07f}, cableSteel, 0.30f, 0.82f, 0.0f, MatKind::Standard);
+                }
+            }
+        }
+    }
+
+
+    // 3. Sunset Pier Illuminated Ferris Wheel (x = -366.0f, z = -14.0f)
+    const Vec2 ferrisPos{-366.0f, -14.0f};
+    if ((ferrisPos - focus).lengthSq() <= cullDistSq) {
+        const float hubY = 14.8f;
+        const float wheelR = 11.2f;
+        const float wheelAngle = animT * 14.0f;
+
+        // Boarding platform & twin A-frame support legs
+        drawModelStyled(cubeModel_, {ferrisPos.x, 1.1f, ferrisPos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {10.5f, 2.2f, 24.0f}, Color{132, 96, 66, 255}, 0.78f, 0.08f, 0.0f, MatKind::Standard);
+        for (int side = -1; side <= 1; side += 2) {
+            const float lx = ferrisPos.x + static_cast<float>(side) * 2.2f;
+            drawModelStyled(cubeModel_, {lx, hubY * 0.52f, ferrisPos.z - 3.6f}, {1.0f, 0.0f, 0.0f}, -15.0f,
+                            {0.42f, hubY * 1.04f, 0.42f}, Color{230, 236, 245, 255}, 0.32f, 0.78f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {lx, hubY * 0.52f, ferrisPos.z + 3.6f}, {1.0f, 0.0f, 0.0f},  15.0f,
+                            {0.42f, hubY * 1.04f, 0.42f}, Color{230, 236, 245, 255}, 0.32f, 0.78f, 0.0f, MatKind::Standard);
+        }
+
+        // Central axle hub
+        drawModelStyled(cubeModel_, {ferrisPos.x, hubY, ferrisPos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {5.2f, 1.1f, 1.1f}, Color{56, 228, 255, 255}, 0.15f, 0.0f,
+                        night ? 2.6f : 0.8f, MatKind::EmissiveGlow);
+
+        // 12-Spoke Rotating Wheel + Self-Leveling Hanging Passenger Gondolas (using kFerrisWheelRing12)
+        for (int i = 0; i < 12; ++i) {
+            const int next = (i + 1) % 12;
+            const float rad = (static_cast<float>(i) * 30.0f + wheelAngle) * (3.14159265f / 180.0f);
+            const float nextRad = (static_cast<float>(next) * 30.0f + wheelAngle) * (3.14159265f / 180.0f);
+            const float cz = std::cos(rad) * wheelR;
+            const float cy = std::sin(rad) * wheelR;
+            const float nz = std::cos(nextRad) * wheelR;
+            const float ny = std::sin(nextRad) * wheelR;
+
+            const Color neonCol = (i % 2 == 0) ? Color{56, 234, 255, 255} : Color{255, 72, 212, 255};
+            for (int side = -1; side <= 1; side += 2) {
+                const float rx = ferrisPos.x + static_cast<float>(side) * 1.65f;
+                // Spoke
+                rlPushMatrix();
+                rlTranslatef(rx, hubY + cy * 0.5f, ferrisPos.z + cz * 0.5f);
+                rlRotatef(-(static_cast<float>(i) * 30.0f + wheelAngle), 1.0f, 0.0f, 0.0f);
+                drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.14f, 0.14f, wheelR}, neonCol, 0.15f, 0.0f,
+                                night ? 2.2f : 0.65f, MatKind::EmissiveGlow);
+                rlPopMatrix();
+
+                // Rim chord segment
+                const float dz = nz - cz;
+                const float dy = ny - cy;
+                const float chordLen = std::sqrt(dz * dz + dy * dy);
+                const float chordDeg = -std::atan2(dy, dz) * kRadToDeg;
+                rlPushMatrix();
+                rlTranslatef(rx, hubY + 0.5f * (cy + ny), ferrisPos.z + 0.5f * (cz + nz));
+                rlRotatef(chordDeg, 1.0f, 0.0f, 0.0f);
+                drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.22f, 0.22f, chordLen + 0.1f}, neonCol, 0.12f, 0.0f,
+                                night ? 2.8f : 0.85f, MatKind::EmissiveGlow);
+                rlPopMatrix();
+            }
+
+            // Self-leveling hanging passenger gondola cabin
+            if (!shadowPass) {
+                const Color cabCol = (i % 3 == 0) ? Color{255, 92, 118, 255}
+                                   : ((i % 3 == 1) ? Color{64, 212, 255, 255} : Color{255, 214, 68, 255});
+                drawModelStyled(cubeModel_, {ferrisPos.x, hubY + cy - 0.85f, ferrisPos.z + cz},
+                                {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {2.6f, 1.35f, 1.45f}, cabCol, 0.25f, 0.35f,
+                                night ? 0.8f : 0.1f, MatKind::CarClearcoat);
+            }
+        }
+    }
+
+    // 4. Harbor Industrial Container Gantry Cranes (Harbor District: x = 248 & 278, z = 248)
+    const float craneXs[2] = {248.0f, 278.0f};
+    const Color craneYellow{234, 178, 38, 255};
+    for (int cIdx = 0; cIdx < 2; ++cIdx) {
+        const Vec2 cranePos{craneXs[cIdx], 248.0f};
+        if ((cranePos - focus).lengthSq() > cullDistSq) continue;
+
+        const float craneH = 19.5f;
+        for (int lx = -1; lx <= 1; lx += 2) {
+            for (int lz = -1; lz <= 1; lz += 2) {
+                drawModelStyled(cubeModel_,
+                                {cranePos.x + static_cast<float>(lx) * 4.2f,
+                                 craneH * 0.5f,
+                                 cranePos.z + static_cast<float>(lz) * 4.2f},
+                                {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.72f, craneH, 0.72f}, craneYellow, 0.46f, 0.62f, 0.0f, MatKind::Standard);
+            }
+        }
+        // Horizontal portal tie beams + cantilevered 26m container boom truss
+        drawModelStyled(cubeModel_, {cranePos.x, craneH, cranePos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {9.6f, 1.25f, 26.5f}, craneYellow, 0.44f, 0.65f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {cranePos.x, craneH + 3.8f, cranePos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {9.2f, 6.8f, 1.2f}, craneYellow, 0.44f, 0.65f, 0.0f, MatKind::Standard);
+        // Operator cab & suspended intermodal shipping container
+        drawModelStyled(cubeModel_, {cranePos.x, craneH - 1.4f, cranePos.z + 5.8f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {2.8f, 1.8f, 2.6f}, Color{236, 240, 246, 255}, 0.35f, 0.30f, 0.0f, MatKind::Standard);
+        const Color containerCol = (cIdx == 0) ? Color{192, 54, 46, 255} : Color{38, 108, 186, 255};
+        drawModelStyled(cubeModel_, {cranePos.x, 8.2f, cranePos.z + 6.5f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {2.6f, 2.7f, 6.4f}, containerCol, 0.62f, 0.45f, 0.0f, MatKind::Standard);
+    }
+
+    // 5. Overhead Highway Directional Sign Gantries across Major Avenues
+    struct GantryDef {
+        float x;
+        float z;
+        bool alongX;
+    };
+    constexpr GantryDef kGantries[3] = {
+        {  0.0f, 42.0f, true },
+        { 84.0f, 42.0f, true },
+        {-84.0f, 42.0f, true },
+    };
+    const Color gantrySteel{148, 156, 168, 255};
+    const Color highwayGreen{18, 108, 72, 255};
+    for (const auto& g : kGantries) {
+        const Vec2 gPos{g.x, g.z};
+        if ((gPos - focus).lengthSq() > cullDistSq) continue;
+
+        const float span = 18.8f;
+        const float h = 6.8f;
+        for (int side = -1; side <= 1; side += 2) {
+            const float px = g.alongX ? (g.x + static_cast<float>(side) * (span * 0.5f)) : g.x;
+            const float pz = g.alongX ? g.z : (g.z + static_cast<float>(side) * (span * 0.5f));
+            drawModelStyled(cylModel_, {px, 0.05f, pz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.22f, h, 0.22f}, gantrySteel, 0.38f, 0.78f, 0.0f, MatKind::Standard);
+        }
+        drawModelStyled(cubeModel_, {g.x, h - 0.35f, g.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {span + 0.5f, 0.42f, 0.42f}, gantrySteel, 0.38f, 0.78f, 0.0f, MatKind::Standard);
+        // Reflective green highway directional sign boards
+        for (int side = -1; side <= 1; side += 2) {
+            const float sx = g.x + static_cast<float>(side) * 3.8f;
+            drawModelStyled(cubeModel_, {sx, h - 0.35f, g.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {5.2f, 1.65f, 0.16f}, highwayGreen, 0.30f, 0.25f,
+                            night ? 0.65f : 0.12f, MatKind::EmissiveGlow);
+            if (!shadowPass) {
+                drawModelStyled(cubeModel_, {sx, h - 0.12f, g.z + 0.10f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {4.2f, 0.24f, 0.04f}, WHITE, 0.15f, 0.0f,
+                                night ? 1.8f : 0.4f, MatKind::EmissiveGlow);
+                drawModelStyled(cubeModel_, {sx, h - 0.58f, g.z + 0.10f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {3.1f, 0.18f, 0.04f}, Color{255, 214, 64, 255}, 0.15f, 0.0f,
+                                night ? 1.8f : 0.4f, MatKind::EmissiveGlow);
+            }
         }
     }
 }
@@ -2619,6 +3095,7 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, bo
     }
 
     const bool night = world.isNightTime();
+    const float animT = static_cast<float>(GetTime());
     const float propCull = shadowPass ? (105.0f * 105.0f) : (195.0f * 195.0f);
 
     for (const auto& prop : world.city().streetProps()) {
@@ -2631,13 +3108,24 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, bo
             continue;
         }
 
-        const float tilt = prop.broken ? 78.0f : 0.0f;
+        // Gushing 3D Pressurized Fire Hydrant Water Geyser when a Hydrant is sheared off!
+        if (!shadowPass && prop.broken && prop.kind == StreetPropKind::Hydrant) {
+            const float geyserPulse = 4.2f + 0.45f * std::sin(animT * 14.0f + prop.homePos.x);
+            DrawCylinder({prop.homePos.x, 0.08f, prop.homePos.z},
+                         0.36f, 0.14f, geyserPulse, 12, Color{168, 228, 255, 165});
+            DrawSphere({prop.homePos.x, 0.12f + geyserPulse, prop.homePos.z},
+                       0.52f, Color{220, 246, 255, 145});
+            DrawCylinder({prop.homePos.x, 0.03f, prop.homePos.z},
+                         1.45f, 1.45f, 0.02f, 16, Color{82, 168, 232, 110});
+        }
+
         rlPushMatrix();
-        const float baseGroundY = (prop.kind == StreetPropKind::BeachUmbrella) ? 0.02f : 0.08f;
+        const float baseGroundY = ((prop.kind == StreetPropKind::BeachUmbrella) ? 0.02f : 0.08f) + prop.posY;
         rlTranslatef(prop.pos.x, baseGroundY, prop.pos.z);
         rlRotatef(-prop.yaw * kRadToDeg, 0.0f, 1.0f, 0.0f);
         if (prop.broken) {
-            rlRotatef(tilt, 1.0f, 0.0f, 0.3f);
+            rlRotatef(prop.pitch * kRadToDeg, 1.0f, 0.0f, 0.0f);
+            rlRotatef(prop.roll * kRadToDeg, 0.0f, 0.0f, 1.0f);
         }
 
         switch (prop.kind) {
@@ -2649,6 +3137,7 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, bo
                 drawModelStyled(cubeModel_, {0.72f, 6.18f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {1.56f, 0.14f, 0.18f}, Color{86, 92, 104, 255},
                                 0.38f, 0.72f, 0.0f, MatKind::Standard);
+
 
                 if (!shadowPass && !prop.broken) {
                     const bool ewGreen = world.isTrafficGreenForHorizontal();
@@ -2830,6 +3319,18 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, bo
         }
         rlPopMatrix();
     }
+
+    // 3D Falling Rain Streaks when Dynamic Rain / Wet Road mode ([U]) is active
+    if (!shadowPass && world.isRainWeather()) {
+        for (int i = 0; i < 64; ++i) {
+            const float seed = static_cast<float>(i) * 19.37f;
+            const float rx = focus.x + std::fmod( std::sin(seed * 1.71f) * 43758.5f, 28.0f);
+            const float rz = focus.z + std::fmod( std::cos(seed * 2.39f) * 31415.9f, 28.0f);
+            const float fallCycle = std::fmod(animT * 18.0f + seed * 3.1f, 11.0f);
+            const float ry = 11.2f - fallCycle;
+            DrawLine3D({rx, ry + 0.85f, rz}, {rx - 0.08f, ry, rz - 0.05f}, Color{186, 218, 248, 120});
+        }
+    }
 }
 
 void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass, bool cockpitHoodOnly) {
@@ -2845,11 +3346,13 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
         rlPushMatrix();
         rlTranslatef(v.pos.x, 0.016f, v.pos.z);
         rlRotatef(-v.heading * kRadToDeg, 0.0f, 1.0f, 0.0f);
-        DrawCube({0.0f, 0.0f, 0.0f}, L * 0.98f, 0.008f, W * 1.02f, Color{8, 10, 14, 145});
+        const float shadowScale = std::clamp(1.0f - v.posY * 0.055f, 0.45f, 1.0f);
+        const unsigned char shadowA = static_cast<unsigned char>(145.0f * shadowScale);
+        DrawCube({0.0f, 0.0f, 0.0f}, L * 0.98f * shadowScale, 0.008f, W * 1.02f * shadowScale, Color{8, 10, 14, shadowA});
 
-        if (!v.destroyed && v.neonPreset > 0) {
+        if (!v.destroyed && v.neonPreset > 0 && v.posY < 1.2f) {
             const Color nc = toRayColor(getNeonPresetColor(v.neonPreset));
-            const float alphaMul = nightMode ? 1.0f : 0.58f;
+            const float alphaMul = (nightMode ? 1.0f : 0.58f) * shadowScale;
             // 3 concentric soft oval glow rings on the asphalt (no harsh rectangular corners!)
             const float rings[3][3] = {
                 {L * 0.49f, W * 0.68f, 34.0f},
@@ -2865,14 +3368,14 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                 rlPopMatrix();
             }
             // Bright emissive neon side tubes tucked cleanly under the rocker sills
-            drawModelStyled(cubeModel_, {0.0f, 0.14f, -halfW * 0.86f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+            drawModelStyled(cubeModel_, {0.0f, 0.14f + v.posY, -halfW * 0.86f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {L * 0.52f, 0.03f, 0.05f}, nc, 0.1f, 0.0f, 2.8f, MatKind::EmissiveGlow);
-            drawModelStyled(cubeModel_, {0.0f, 0.14f,  halfW * 0.86f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+            drawModelStyled(cubeModel_, {0.0f, 0.14f + v.posY,  halfW * 0.86f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {L * 0.52f, 0.03f, 0.05f}, nc, 0.1f, 0.0f, 2.8f, MatKind::EmissiveGlow);
         }
 
         // Alternating Police (Red/Blue) or EMS/Fire (Red/Amber-White) Emergency Siren Ground Light Pools!
-        if (!v.destroyed && v.sirenActive) {
+        if (!v.destroyed && v.sirenActive && v.posY < 1.5f) {
             const bool redFlash = (v.sirenPhase < 0.5f);
             const bool isEmsOrFire = (v.kind == VehicleKind::Ambulance || v.kind == VehicleKind::FireTruck);
             const unsigned char mainA = static_cast<unsigned char>(nightMode ? 96 : 62);
@@ -2904,7 +3407,7 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                               : ((v.stanceStyle == 3) ?  0.095f : 0.0f)));
 
     rlPushMatrix();
-    rlTranslatef(v.pos.x, stanceOffsetY, v.pos.z);
+    rlTranslatef(v.pos.x, stanceOffsetY + v.posY, v.pos.z);
     rlRotatef(-v.heading * kRadToDeg, 0.0f, 1.0f, 0.0f);
     rlRotatef(v.bodyPitch * kRadToDeg, 0.0f, 0.0f, 1.0f);
     rlRotatef(v.bodyRoll * kRadToDeg, 1.0f, 0.0f, 0.0f);
@@ -2917,6 +3420,7 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
     const MatKind paintMat = v.destroyed ? MatKind::Standard : MatKind::CarClearcoat;
     const float paintRough = v.destroyed ? 0.88f : (v.chromePaint ? 0.03f : (v.mattePaint ? 0.45f : 0.10f));
     const float paintMetal = v.destroyed ? 0.15f : (v.chromePaint ? 0.97f : (v.mattePaint ? 0.25f : 0.48f));
+
 
     // 1st-Person Driver View: draw sculpted clearcoat front hood + fenders + hood signature without cabin occlusion
     if (cockpitHoodOnly) {
@@ -3025,32 +3529,110 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
         drawModelStyled(wheelModel_, {-halfL - 0.015f, exY,  exZ}, {0.0f, 1.0f, 0.0f}, 90.0f,
                         {0.058f, 0.058f, 0.16f}, chromeCol, 0.18f, 0.92f, 0.0f, MatKind::Standard);
 
+        // Realistic Recessed Front Honeycomb Radiator Grille, Chrome/Carbon Surround & Corner Brake-Cooling Intakes!
+        const float grilleY = (v.kind == VehicleKind::TrackPrototype || v.kind == VehicleKind::Hypercar) ? 0.28f
+                            : ((v.kind == VehicleKind::SUV || v.kind == VehicleKind::OffroadPickup ||
+                                v.kind == VehicleKind::ArmoredSuv || v.kind == VehicleKind::FireTruck ||
+                                v.kind == VehicleKind::Ambulance) ? 0.56f : 0.38f);
+        const float grilleH = (v.kind == VehicleKind::SUV || v.kind == VehicleKind::OffroadPickup ||
+                               v.kind == VehicleKind::ArmoredSuv || v.kind == VehicleKind::FireTruck) ? 0.26f : 0.16f;
+        const float frontCrumpleTilt = v.frontDamage * 14.0f;
+        rlPushMatrix();
+        rlTranslatef(halfL * 0.992f - v.frontDamage * 0.08f, grilleY, 0.0f);
+        rlRotatef(frontCrumpleTilt, 0.0f, 0.0f, 1.0f);
+        drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.045f, grilleH + 0.04f, W * 0.50f}, chromeCol, 0.18f, 0.90f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.008f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.042f, grilleH, W * 0.46f}, Color{14, 16, 20, 255}, 0.65f, 0.35f, 0.0f, MatKind::Standard);
+        // Horizontal chrome/anodized grille slats + front registration plate
+        drawModelStyled(cubeModel_, {0.014f, 0.02f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.038f, 0.022f, W * 0.45f}, chromeCol, 0.16f, 0.92f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.018f, -grilleH * 0.42f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.032f, 0.10f, 0.34f}, Color{242, 245, 250, 255}, 0.40f, 0.10f, 0.0f, MatKind::Standard);
+        for (int side = -1; side <= 1; side += 2) {
+            drawModelStyled(cubeModel_, {-0.015f, -0.02f, static_cast<float>(side) * (halfW * 0.68f)},
+                            {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.05f, grilleH * 0.78f, W * 0.18f}, Color{12, 14, 18, 255}, 0.60f, 0.30f, 0.0f, MatKind::Standard);
+        }
+        rlPopMatrix();
+
+        // Flush Color-Matched / Chrome Door Handles, Gloss Black B-Pillar Trim & Dual Windshield Wipers!
+        const float handleY = 0.24f + H * 0.36f;
+        for (int side = -1; side <= 1; side += 2) {
+            const float hz = static_cast<float>(side) * (halfW * 0.968f - ((side < 0) ? v.rightDamage : v.leftDamage) * 0.04f);
+            drawModelStyled(cubeModel_, {-0.06f, handleY, hz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.18f, 0.034f, 0.028f}, chromeCol, 0.16f, 0.90f, 0.0f, MatKind::Standard);
+            if (v.kind == VehicleKind::Compact || v.kind == VehicleKind::LuxurySedan ||
+                v.kind == VehicleKind::PoliceCruiser || v.kind == VehicleKind::Taxi ||
+                v.kind == VehicleKind::SUV || v.kind == VehicleKind::ArmoredSuv) {
+                drawModelStyled(cubeModel_, {-0.72f, handleY, hz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.18f, 0.034f, 0.028f}, chromeCol, 0.16f, 0.90f, 0.0f, MatKind::Standard);
+            }
+            if (v.kind != VehicleKind::ClassicRoadster) {
+                drawModelStyled(cubeModel_, {-0.18f, 0.26f + H * 0.66f, static_cast<float>(side) * (halfW * 0.835f)},
+                                {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.09f, H * 0.34f, 0.026f}, Color{14, 16, 22, 255}, 0.12f, 0.65f, 0.0f, MatKind::Standard);
+            }
+        }
+        // Dual aerodynamic windshield wiper blades at the base of the front windshield cowl
+        const float cowlX = (v.kind == VehicleKind::DeliveryVan || v.kind == VehicleKind::Ambulance || v.kind == VehicleKind::FireTruck)
+                                ? (halfL * 0.62f)
+                                : (halfL * 0.30f);
+        const float cowlY = 0.24f + H * 0.50f;
+        drawModelStyled(cubeModel_, {cowlX, cowlY, -0.18f}, {0.0f, 1.0f, 0.0f}, 8.0f,
+                        {0.035f, 0.025f, 0.44f}, darkTrim, 0.35f, 0.55f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {cowlX, cowlY,  0.22f}, {0.0f, 1.0f, 0.0f}, 8.0f,
+                        {0.035f, 0.025f, 0.44f}, darkTrim, 0.35f, 0.55f, 0.0f, MatKind::Standard);
+
+        // 4-Quadrant Crash Crumple Deformation: Popped/tilted front hood & tilted rear bumper when damaged!
+        if (!v.destroyed && v.frontDamage > 0.12f &&
+            v.kind != VehicleKind::DeliveryVan && v.kind != VehicleKind::Ambulance && v.kind != VehicleKind::FireTruck) {
+            const float popDeg = v.frontDamage * 18.0f;
+            rlPushMatrix();
+            rlTranslatef(halfL * 0.52f, 0.24f + H * 0.46f + v.frontDamage * 0.06f, 0.0f);
+            rlRotatef(-10.0f + popDeg, 0.0f, 0.0f, 1.0f);
+            rlRotatef((v.leftDamage - v.rightDamage) * 9.0f, 1.0f, 0.0f, 0.0f);
+            drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {halfL * 0.62f, 0.045f, W * 0.78f}, bodyCol,
+                            std::min(0.85f, paintRough + v.frontDamage * 0.35f), paintMetal, 0.0f, paintMat);
+            rlPopMatrix();
+        }
+        if (!v.destroyed && v.rearDamage > 0.12f) {
+            rlPushMatrix();
+            rlTranslatef(-halfL * 0.98f + v.rearDamage * 0.05f, 0.28f, 0.0f);
+            rlRotatef(-v.rearDamage * 12.0f, 0.0f, 0.0f, 1.0f);
+            rlRotatef((v.leftDamage - v.rightDamage) * 11.0f, 1.0f, 0.0f, 0.0f);
+            drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.14f, 0.16f, W * 0.92f}, darkTrim, 0.55f, 0.35f, 0.0f, MatKind::Standard);
+            rlPopMatrix();
+        }
+
         // Custom Dual GT Racing Stripes on sculpted hood + roof across all non-roadster chassis!
         if (!v.destroyed && v.stripeStyle > 0 && v.kind != VehicleKind::ClassicRoadster) {
             const float stripeEmissive = (v.stripeStyle == 3) ? 0.85f : 0.0f;
             const MatKind stripeMat = (v.stripeStyle == 3) ? MatKind::EmissiveGlow : paintMat;
-            float hoodY = 0.64f;
+            float hoodY = 0.75f;
             float roofY = 1.395f;
             switch (v.kind) {
-                case VehicleKind::TrackPrototype: hoodY = 0.46f; roofY = 1.095f; break;
-                case VehicleKind::Hypercar:       hoodY = 0.50f; roofY = 1.145f; break;
-                case VehicleKind::SportsCoupe:    hoodY = 0.56f; roofY = 1.255f; break;
-                case VehicleKind::JdmTuner:       hoodY = 0.59f; roofY = 1.295f; break;
-                case VehicleKind::MuscleCar:      hoodY = 0.66f; roofY = 1.325f; break;
-                case VehicleKind::PoliceCruiser:  hoodY = 0.64f; roofY = 1.405f; break;
-                case VehicleKind::SUV:            hoodY = 0.80f; roofY = 1.675f; break;
+                case VehicleKind::TrackPrototype: hoodY = 0.66f; roofY = 1.095f; break;
+                case VehicleKind::Hypercar:       hoodY = 0.68f; roofY = 1.145f; break;
+                case VehicleKind::SportsCoupe:    hoodY = 0.72f; roofY = 1.255f; break;
+                case VehicleKind::JdmTuner:       hoodY = 0.74f; roofY = 1.295f; break;
+                case VehicleKind::MuscleCar:      hoodY = 0.78f; roofY = 1.325f; break;
+                case VehicleKind::PoliceCruiser:  hoodY = 0.77f; roofY = 1.405f; break;
+                case VehicleKind::SUV:            hoodY = 0.92f; roofY = 1.675f; break;
                 case VehicleKind::OffroadPickup:
-                case VehicleKind::ArmoredSuv:     hoodY = 0.90f; roofY = 1.795f; break;
+                case VehicleKind::ArmoredSuv:     hoodY = 1.02f; roofY = 1.795f; break;
                 case VehicleKind::DeliveryVan:
                 case VehicleKind::Ambulance:
-                case VehicleKind::FireTruck:      hoodY = 0.88f; roofY = 1.995f; break;
+                case VehicleKind::FireTruck:      hoodY = 0.96f; roofY = 1.995f; break;
                 default: break;
             }
             for (int side = -1; side <= 1; side += 2) {
                 const float stZ = static_cast<float>(side) * 0.16f;
                 if (v.kind != VehicleKind::DeliveryVan && v.kind != VehicleKind::Ambulance &&
                     v.kind != VehicleKind::FireTruck) {
-                    drawModelStyled(cubeModel_, {halfL * 0.67f, hoodY, stZ}, {0.0f, 0.0f, 1.0f}, -11.0f,
+                    drawModelStyled(cubeModel_, {halfL * 0.67f, hoodY + 0.028f, stZ}, {0.0f, 0.0f, 1.0f}, -10.5f,
                                     {halfL * 0.47f, 0.036f, 0.135f}, stripeCol, 0.12f, 0.35f, stripeEmissive, stripeMat);
                 }
                 if (v.kind != VehicleKind::PoliceCruiser && v.kind != VehicleKind::Ambulance &&
@@ -3347,8 +3929,13 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
 
     for (int side = -1; side <= 1; side += 2) {
         for (int front = -1; front <= 1; front += 2) {
+            // Wheel index: 0 = FL, 1 = FR, 2 = RL, 3 = RR
+            const int wheelIdx = (front > 0 ? 0 : 2) + (side > 0 ? 1 : 0);
+            const float suspDeflect = v.destroyed ? 0.0f : (v.wheelCompression[wheelIdx] * 0.85f);
             rlPushMatrix();
-            rlTranslatef(static_cast<float>(front) * axleX, wheelR - stanceOffsetY, static_cast<float>(side) * axleZ);
+            rlTranslatef(static_cast<float>(front) * axleX,
+                         wheelR - stanceOffsetY + suspDeflect,
+                         static_cast<float>(side) * axleZ);
             if (front > 0) {
                 rlRotatef(-v.steerVisual * 28.0f, 0.0f, 1.0f, 0.0f);
             }
@@ -3407,11 +3994,19 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
             rlPushMatrix();
             rlTranslatef(headX, headY, static_cast<float>(side) * headZ);
             rlRotatef(static_cast<float>(-side) * 18.0f, 0.0f, 1.0f, 0.0f);
-            drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.10f, ((v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype) ? 0.068f : 0.105f), 0.32f},
+            const float hHeight = (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype) ? 0.068f : 0.105f;
+            // Smoked dark chrome projector bezel housing + glowing projector lens + top LED DRL eyebrow bar!
+            drawModelStyled(cubeModel_, {-0.012f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.11f, hHeight + 0.028f, 0.35f}, Color{16, 18, 24, 255}, 0.18f, 0.75f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.0f, -0.008f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.10f, hHeight * 0.78f, 0.28f},
                             headCol, 0.1f, 0.0f, headGlow, MatKind::EmissiveGlow);
+            drawModelStyled(cubeModel_, {0.01f, hHeight * 0.50f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.09f, 0.022f, 0.33f},
+                            headCol, 0.1f, 0.0f, headGlow * 1.25f, MatKind::EmissiveGlow);
             rlPopMatrix();
         }
+
 
         if (nightMode && (v.isPlayerDriving || v.hasNpcDriver || v.headlightColorIdx > 0)) {
             Color beamCol = headCol;

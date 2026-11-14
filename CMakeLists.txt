@@ -9,7 +9,7 @@ endif()
 # without requiring a separate VC++ Redistributable install.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(open_city VERSION 0.8.0 LANGUAGES C CXX)
+project(open_city VERSION 0.9.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,12 +18,41 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(OPEN_CITY_BUILD_APP "Build the 3D OpenGL game executable" ON)
 option(OPEN_CITY_BUILD_TESTS "Build the simulation unit & integration tests" ON)
 
-# Pure C++20 simulation core (city generation, OBB vehicle physics, drifting,
-# traffic/pedestrian/gang AI, weapons, shops, missions, day/night state)
+find_program(RUSTC_EXECUTABLE rustc)
+set(OPEN_CITY_RUST_OBJECTS "")
+if(UNIX AND RUSTC_EXECUTABLE)
+    set(RUST_PHYSICS_OBJ "${CMAKE_CURRENT_BINARY_DIR}/physics_kernel.o")
+    add_custom_command(
+        OUTPUT "${RUST_PHYSICS_OBJ}"
+        COMMAND "${RUSTC_EXECUTABLE}"
+            --crate-type=lib
+            --emit=obj
+            -C opt-level=3
+            -C panic=abort
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/physics/physics_kernel.rs"
+            -o "${RUST_PHYSICS_OBJ}"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/physics/physics_kernel.rs"
+        COMMENT "Compiling native Rust physics kernel (src/physics/physics_kernel.rs)"
+        VERBATIM
+    )
+    set_source_files_properties("${RUST_PHYSICS_OBJ}" PROPERTIES
+        EXTERNAL_OBJECT TRUE
+        GENERATED TRUE
+    )
+    list(APPEND OPEN_CITY_RUST_OBJECTS "${RUST_PHYSICS_OBJ}")
+endif()
+
+# Pure C++20 + Rust simulation core (city generation, 6-speed gearbox, 4-wheel suspension,
+# rotational rigid-body collisions, stunt ramps, traffic/pedestrian/gang AI, weapons, shops)
 add_library(open_city_core STATIC
     src/world/CityMap.cpp
     src/gameplay/GameWorld.cpp
+    ${OPEN_CITY_RUST_OBJECTS}
 )
+
+if(UNIX AND RUSTC_EXECUTABLE)
+    target_compile_definitions(open_city_core PUBLIC OC_USE_RUST_PHYSICS=1)
+endif()
 
 target_include_directories(open_city_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src

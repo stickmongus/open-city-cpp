@@ -79,6 +79,13 @@ struct StreetProp {
     bool broken = false;
     Vec2 velocity{0.0f, 0.0f};
     float brokenTimer = 0.0f;
+    Vec2 homePos{0.0f, 0.0f};
+    float posY = 0.0f;
+    float velY = 0.0f;
+    float pitch = 0.0f;
+    float roll = 0.0f;
+    float angVelPitch = 0.0f;
+    float angVelRoll = 0.0f;
 };
 
 enum class PoiKind {

@@ -108,6 +108,22 @@ struct Vehicle {
     int driftSmokeColorIdx = 0;  // 0..5 colored tire drift smoke
     float nitroCharge = 1.0f;    // [0, 1]
 
+    // v0.9.0 Rust 3D suspension, 6-speed gearbox, airborne ramp flight & 4-quadrant crash deformation
+    float posY = 0.0f;           // 3D vertical elevation above sea/road datum (ramps & airborne flight)
+    float velY = 0.0f;           // Vertical velocity (m/s)
+    float angularVelocity = 0.0f;// Yaw angular velocity (rad/s) from off-center PIT/crash impulses
+    float pitchVel = 0.0f;       // Chassis pitch spring velocity
+    float rollVel = 0.0f;        // Chassis roll spring velocity
+    std::array<float, 4> wheelCompression{{0.0f, 0.0f, 0.0f, 0.0f}}; // FL, FR, RL, RR strut deflection
+    float engineRpm = 900.0f;    // Live engine RPM [880..8150]
+    int currentGear = 1;         // 0=Reverse('R'), 1..6=Forward gears
+    bool airborne = false;       // True while flying off stunt ramps / crests
+    float airTime = 0.0f;        // Accumulated current jump air time (s)
+    float frontDamage = 0.0f;    // [0..1] Front bumper/hood crumple deformation
+    float rearDamage = 0.0f;     // [0..1] Rear trunk/diffuser crumple deformation
+    float leftDamage = 0.0f;     // [0..1] Left side door/fender dent deformation
+    float rightDamage = 0.0f;    // [0..1] Right side door/fender dent deformation
+
     // Traffic AI lane-following state
     bool aiHorizontalRoad = true;
     int aiRoadIndex = 4;

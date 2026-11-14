@@ -614,8 +614,12 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
     const char* viewBadge = firstPerson
                                 ? pickText("[V] 1ST PERSON", "[V] 1인칭 시점")
                                 : pickText("[V] 3RD PERSON", "[V] 3인칭 시점");
-    char clockBuf[144];
-    std::snprintf(clockBuf, sizeof(clockBuf), "%s  |  %02d:%02d  |  %s", viewBadge, hour, minute, distName);
+    const char* weatherBadge = world.isRainWeather()
+                                   ? pickText("  |  [U] RAIN", "  |  [U] 우천")
+                                   : "";
+    char clockBuf[160];
+    std::snprintf(clockBuf, sizeof(clockBuf), "%s  |  %02d:%02d  |  %s%s",
+                  viewBadge, hour, minute, distName, weatherBadge);
     const float clockW = measureUiText(clockBuf, 17.5f);
     drawUiText(clockBuf, rightEdge - clockW, 18.0f, 17.5f,
                firstPerson ? Color{128, 228, 255, 250} : Color{225, 232, 242, 245});
@@ -640,8 +644,8 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
                       world.passiveIncomePerCycle(), propCount);
     } else {
         std::snprintf(assetBuf, sizeof(assetBuf), "%s",
-                      pickText("[P] Smartphone  |  [K] Custom Studio (Char · Gun · Car · HUD)",
-                               "[P] 스마트폰  |  [K] 커스텀 스튜디오 (캐릭터 · 총기 · 차량 · HUD)"));
+                      pickText("[P] Smartphone  |  [K] Custom Studio  |  [U] Wet Road",
+                               "[P] 스마트폰  |  [K] 커스텀 스튜디오  |  [U] 우천·노면반사"));
     }
     const Color assetCol = (propCount > 0) ? Color{255, 218, 92, 250} : toRayColor(themeRgba, 232);
     const float assetW = measureUiText(assetBuf, 16.0f);
@@ -751,40 +755,61 @@ void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, i
     const auto& hc = world.player().hudCustom;
     const ColorRGBA themeRgba = getHudThemeColorRGBA(hc.hudThemeIdx);
     const float phoneShift = phoneOpen_ ? 342.0f : 0.0f;
-    const float rx = static_cast<float>(screenW) - 252.0f - phoneShift;
-    const float ry = static_cast<float>(screenH) - 138.0f;
+    const float rx = static_cast<float>(screenW) - 256.0f - phoneShift;
+    const float ry = static_cast<float>(screenH) - 150.0f;
 
-    DrawRectangleRounded({rx, ry, 228.0f, 112.0f}, 0.20f, 8, Color{14, 18, 26, 224});
-    DrawRectangleRoundedLinesEx({rx, ry, 228.0f, 112.0f}, 0.20f, 8, 1.2f, toRayColor(themeRgba, 128));
+    DrawRectangleRounded({rx, ry, 234.0f, 124.0f}, 0.20f, 8, Color{14, 18, 26, 224});
+    DrawRectangleRoundedLinesEx({rx, ry, 234.0f, 124.0f}, 0.20f, 8, 1.2f, toRayColor(themeRgba, 128));
 
     const char* vName = pickText(spec.nameEn, spec.nameKo);
-    drawUiText(vName, rx + 14.0f, ry + 9.0f, 17.0f,
+    drawUiText(vName, rx + 14.0f, ry + 8.0f, 17.0f,
                car->isPersonalCar ? toRayColor(themeRgba, 255) : Color{182, 216, 250, 255});
 
     const int dispSpd = static_cast<int>(std::round(car->speed() * (hc.useMph ? 2.23694f : 3.6f)));
     char spdBuf[32];
     std::snprintf(spdBuf, sizeof(spdBuf), "%3d", dispSpd);
-    drawUiText(spdBuf, rx + 14.0f, ry + 30.0f, 36.0f,
+    drawUiText(spdBuf, rx + 14.0f, ry + 28.0f, 36.0f,
                car->nitroActive ? Color{92, 224, 255, 255} : Color{255, 255, 255, 255});
-    drawUiText(hc.useMph ? "MPH" : "KM/H", rx + 92.0f, ry + 34.0f, 16.0f, Color{175, 185, 198, 255});
+    drawUiText(hc.useMph ? "MPH" : "KM/H", rx + 92.0f, ry + 32.0f, 15.5f, Color{175, 185, 198, 255});
+
+    // Rust 6-Speed Automatic Transmission Gear + Airborne Badge
+    char gearBuf[32];
+    if (car->airborne) {
+        std::snprintf(gearBuf, sizeof(gearBuf), "AIR");
+    } else if (car->currentGear <= 0) {
+        std::snprintf(gearBuf, sizeof(gearBuf), "R");
+    } else {
+        std::snprintf(gearBuf, sizeof(gearBuf), "D%d", car->currentGear);
+    }
+    DrawRectangleRounded({rx + 148.0f, ry + 30.0f, 36.0f, 22.0f}, 0.30f, 4, Color{26, 34, 48, 240});
+    drawUiText(gearBuf, rx + 155.0f, ry + 33.0f, 15.5f,
+               car->airborne ? Color{255, 214, 68, 255} : toRayColor(themeRgba, 255));
 
     if (car->engineUpgradeLevel > 0 || car->armorUpgradeLevel > 0) {
         char tuneBuf[48];
-        std::snprintf(tuneBuf, sizeof(tuneBuf), "T%d · A%d", car->engineUpgradeLevel, car->armorUpgradeLevel);
-        drawUiText(tuneBuf, rx + 92.0f, ry + 52.0f, 15.0f, Color{255, 212, 88, 255});
+        std::snprintf(tuneBuf, sizeof(tuneBuf), "T%d·A%d", car->engineUpgradeLevel, car->armorUpgradeLevel);
+        drawUiText(tuneBuf, rx + 188.0f, ry + 34.0f, 13.5f, Color{255, 212, 88, 255});
     }
 
+    // RPM Tachometer Bar (driven by Rust powertrain simulation, 880..8150 RPM)
+    drawUiText("RPM", rx + 14.0f, ry + 68.0f, 13.5f, Color{255, 168, 92, 255});
+    DrawRectangleRounded({rx + 70.0f, ry + 71.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
+    const float rpmFrac = clampf((car->engineRpm - 850.0f) / 7300.0f, 0.08f, 1.0f);
+    const Color rpmCol = (rpmFrac > 0.86f) ? Color{255, 68, 72, 255} : Color{255, 184, 68, 255};
+    DrawRectangleRounded({rx + 70.0f, ry + 71.0f, 148.0f * rpmFrac, 7.5f}, 0.4f, 4, rpmCol);
+
+
     // Nitro & Vehicle Integrity bars
-    drawUiText("NITRO", rx + 14.0f, ry + 76.0f, 14.0f, Color{118, 212, 255, 255});
-    DrawRectangleRounded({rx + 70.0f, ry + 79.0f, 142.0f, 8.0f}, 0.4f, 4, Color{32, 40, 52, 255});
-    DrawRectangleRounded({rx + 70.0f, ry + 79.0f, 142.0f * clampf(car->nitroCharge, 0.0f, 1.0f), 8.0f},
+    drawUiText("NITRO", rx + 14.0f, ry + 84.0f, 13.5f, Color{118, 212, 255, 255});
+    DrawRectangleRounded({rx + 70.0f, ry + 87.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
+    DrawRectangleRounded({rx + 70.0f, ry + 87.0f, 148.0f * clampf(car->nitroCharge, 0.0f, 1.0f), 7.5f},
                          0.4f, 4, Color{68, 205, 255, 255});
 
-    drawUiText("BODY", rx + 14.0f, ry + 92.0f, 14.0f, Color{235, 196, 98, 255});
-    DrawRectangleRounded({rx + 70.0f, ry + 95.0f, 142.0f, 8.0f}, 0.4f, 4, Color{32, 40, 52, 255});
+    drawUiText("BODY", rx + 14.0f, ry + 100.0f, 13.5f, Color{235, 196, 98, 255});
+    DrawRectangleRounded({rx + 70.0f, ry + 103.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
     const float hpFrac = clampf(car->health / car->maxHealth, 0.0f, 1.0f);
     const Color hpCol = (hpFrac < 0.35f) ? Color{245, 76, 68, 255} : Color{98, 232, 132, 255};
-    DrawRectangleRounded({rx + 70.0f, ry + 95.0f, 142.0f * hpFrac, 8.0f}, 0.4f, 4, hpCol);
+    DrawRectangleRounded({rx + 70.0f, ry + 103.0f, 148.0f * hpFrac, 7.5f}, 0.4f, 4, hpCol);
 
     // Live Drift Combo Meter
     if (world.player().activeDriftScore > 8.0f) {
@@ -792,7 +817,7 @@ void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, i
         std::snprintf(driftBuf, sizeof(driftBuf), "DRIFT  %d PTS",
                       static_cast<int>(world.player().activeDriftScore));
         const float dw = measureUiText(driftBuf, 24.0f);
-        drawUiText(driftBuf, rx + 114.0f - dw * 0.5f, ry - 34.0f, 24.0f, Color{255, 208, 56, 255});
+        drawUiText(driftBuf, rx + 117.0f - dw * 0.5f, ry - 34.0f, 24.0f, Color{255, 208, 56, 255});
     }
 }
 
@@ -2043,18 +2068,19 @@ void HudRenderer::drawHelpOverlay(const GameWorld& world, int screenW, int scree
     (void)screenH;
     const ColorRGBA themeRgba = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
     if (!showHelp_) {
-        drawUiText(pickText("[H] Controls  |  [K] Custom Studio", "[H] 조작키 도움말  |  [K] 커스텀 스튜디오"),
+        drawUiText(pickText("[H] Controls  |  [K] Custom Studio  |  [U] Wet Road",
+                            "[H] 조작키 도움말  |  [K] 커스텀 스튜디오  |  [U] 우천·노면반사"),
                    20.0f, 18.0f, 17.0f, Color{200, 214, 232, 215});
         return;
     }
 
-    DrawRectangleRounded({18.0f, 16.0f, 462.0f, 290.0f}, 0.08f, 6, Color{10, 15, 24, 198});
-    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 462.0f, 290.0f}, 0.08f, 6, 1.2f, toRayColor(themeRgba, 125));
-    drawUiText(pickText("OPEN CITY C++ v0.8 - CONTROLS", "OPEN CITY C++ v0.8 - 조작 안내"),
+    DrawRectangleRounded({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, Color{10, 15, 24, 198});
+    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, 1.2f, toRayColor(themeRgba, 125));
+    drawUiText(pickText("OPEN CITY C++ + RUST v0.9 - CONTROLS", "OPEN CITY C++ + RUST v0.9 - 조작 안내"),
                30.0f, 24.0f, 18.5f, toRayColor(themeRgba, 255));
 
     const char* linesEn[11] = {
-        "WASD : Walk / Drive & Steer (16 Vehicles)",
+        "WASD : Walk / Drive & Steer (16 Cars · 6-Speed · Stunt Jumps)",
         "Mouse : 1:1 Aim (RMB Precision / Scope) & Shoot (LMB)",
         "V (or MMB) : Toggle 1st-Person / 3rd-Person View",
         "K : Custom Studio (Character / Gunsmith / Car / HUD)",
@@ -2064,10 +2090,10 @@ void HudRenderer::drawHelpOverlay(const GameWorld& world, int screenW, int scree
         "Space : Jump (On-Foot) / Drift (Car) | Shift : Sprint",
         "1-0,- / Z·X / Wheel : 11 Weapons   |   R : Reload",
         "[ / ] : Mouse Sensitivity   |   I : Invert Y",
-        "C : Rear | G : Police/EMS/Fire Siren | T : Time | F3 : GFX"
+        "U : Rain/Wet Road | G : Siren | T : Time | F3 : GFX"
     };
     const char* linesKo[11] = {
-        "WASD : 이동 / 16종 차량 주행 및 조향",
+        "WASD : 이동 / 16종 차량 6단변속·스턴트점프 주행",
         "마우스 : 1:1 정밀조준 · 저격스코프(우클릭) · 사격(좌클릭)",
         "V (또는 휠클릭) : 1인칭(FPS·운전석) / 3인칭 시점 전환",
         "K : 커스텀 스튜디오 (캐릭터 · 총기 · 차량 · 조준선·HUD)",
@@ -2077,8 +2103,9 @@ void HudRenderer::drawHelpOverlay(const GameWorld& world, int screenW, int scree
         "Space : 점프(도보) · 드리프트(차량) | Shift : 질주·니트로",
         "1~0,- · Z/X · 휠 : 11종 무기교체  |  R : 재장전",
         "[ / ] : 마우스 감도 조절  |  I : 마우스 상하 반전",
-        "C : 후방 | G : 경찰·구급·소방 사이렌 | T : 시간 | F3 : 그래픽"
+        "U : 우천·노면반사 | G : 사이렌 | T : 시간 | F3 : 그래픽"
     };
+
 
     for (int i = 0; i < 11; ++i) {
         const Color lineCol = (i == 3) ? toRayColor(themeRgba, 255) : Color{226, 232, 242, 242};
