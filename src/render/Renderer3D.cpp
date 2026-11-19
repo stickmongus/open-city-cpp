@@ -326,7 +326,11 @@ vec3 acesTonemap(vec3 x) {
 float computeSoftShadow(vec3 worldPos, vec3 N, vec3 L) {
     if (enableShadows == 0) return 0.0;
 
-    vec4 lightClip = lightVP * vec4(worldPos + N * 0.085, 1.0);
+    float ndotl = max(dot(N, L), 0.0);
+    if (ndotl <= 0.03) return 0.0; // Grazing/back-facing surfaces are already self-shadowed by N·L
+
+    float normalOffset = mix(0.085, 0.28, 1.0 - ndotl);
+    vec4 lightClip = lightVP * vec4(worldPos + N * normalOffset, 1.0);
     vec3 proj = lightClip.xyz / max(lightClip.w, 0.0001);
     proj = proj * 0.5 + 0.5;
 
@@ -337,8 +341,7 @@ float computeSoftShadow(vec3 worldPos, vec3 N, vec3 L) {
     vec2 edgeDist = min(proj.xy, 1.0 - proj.xy);
     float edgeFade = smoothstep(0.01, 0.09, min(edgeDist.x, edgeDist.y));
 
-    float ndotl = max(dot(N, L), 0.0);
-    float bias = max(0.00105 * (1.0 - ndotl), 0.00030);
+    float bias = max(0.0034 * (1.0 - ndotl), 0.00080);
 
     // Rotated 16-tap Poisson Disk soft shadow filter
     float rotAng = hash12(floor(worldPos.xz * 19.0)) * 6.2831853;
@@ -362,9 +365,17 @@ float aaBand(float distFromCenter, float halfWidth) {
 }
 
 // Procedural 360-degree 3D City Skyline, Neon Sign & Sky Environment Map for reflections
-vec3 sampleCityEnvMap(vec3 R, float rough, float nightF) {
+vec3 sampleCityEnvMap(vec3 R, vec3 worldPos, float rough, float nightF) {
     float up = clamp(R.y * 0.5 + 0.5, 0.0, 1.0);
     vec3 skyEnv = mix(pow(horizonColor, vec3(2.2)) * 0.96, skyAmbient * 2.25, pow(up, 1.30));
+
+    // Attenuate synthetic downtown skyline whenever the reflection ray points out toward open ocean!
+    vec2 horizDir = normalize(R.xz + vec2(0.0001));
+    vec2 farPos = worldPos.xz + horizDir * 120.0;
+    float cityMask = smoothstep(425.0, 310.0, max(abs(farPos.x), abs(farPos.y)));
+    if (cityMask <= 0.01) {
+        return skyEnv;
+    }
 
     // Synthetic city skyline silhouette + illuminated office windows & neon reflections near the horizon
     float az = atan(R.z, R.x);
@@ -373,19 +384,26 @@ vec3 sampleCityEnvMap(vec3 R, float rough, float nightF) {
     float skylineH = (0.04 + 0.24 * pow(bldRnd, 1.5)) * (1.0 - rough * 0.55);
 
     if (R.y > -0.06 && R.y < skylineH) {
-        vec3 bldSil = mix(groundAmbient * 0.45, skyAmbient * 0.32, 0.4);
-        float winU = fract((az + kPi) * 32.0);
-        float winV = fract(R.y * 44.0);
-        bool inPane = (winU > 0.18 && winU < 0.82) && (winV > 0.20 && winV < 0.80);
-        float winHash = hash12(vec2(bldColIdx * 3.1 + floor(winU * 4.0), floor(R.y * 44.0)));
-        if (inPane && winHash > (0.48 - nightF * 0.22)) {
-            vec3 neonPalette = (winHash > 0.86)
-                                   ? vec3(0.18, 0.85, 1.35)
-                                   : ((winHash > 0.72) ? vec3(1.25, 0.28, 0.92) : vec3(1.30, 0.88, 0.36));
-            bldSil += neonPalette * (0.22 + nightF * 1.25) * (1.0 - rough * 0.65);
+        vec3 bldSil = mix(groundAmbient * 0.45, skyAmbient * 0.34, 0.45);
+        float uFreq = (az + kPi) * 32.0;
+        float vFreq = R.y * 44.0;
+        float detailFade = 1.0 - smoothstep(0.18, 0.72, max(fwidth(uFreq), fwidth(vFreq)) + rough * 1.35);
+        if (detailFade > 0.02) {
+            float winU = fract(uFreq);
+            float winV = fract(vFreq);
+            float softEdge = clamp(0.12 + rough * 0.55, 0.12, 0.34);
+            float paneMask = smoothstep(0.16, 0.16 + softEdge, winU) * smoothstep(0.84, 0.84 - softEdge, winU) *
+                             smoothstep(0.18, 0.18 + softEdge, winV) * smoothstep(0.82, 0.82 - softEdge, winV);
+            float winHash = hash12(vec2(bldColIdx * 3.1 + floor(winU * 4.0), floor(vFreq)));
+            if (winHash > (0.62 - nightF * 0.30)) {
+                vec3 neonPalette = (winHash > 0.88)
+                                       ? vec3(0.22, 0.82, 1.25)
+                                       : ((winHash > 0.76) ? vec3(1.15, 0.34, 0.88) : vec3(1.22, 0.88, 0.42));
+                bldSil += neonPalette * (0.045 + nightF * 1.15) * paneMask * detailFade;
+            }
         }
-        float mask = smoothstep(skylineH, skylineH - 0.015, R.y) * smoothstep(-0.06, 0.0, R.y);
-        skyEnv = mix(skyEnv, bldSil, mask * 0.82);
+        float mask = smoothstep(skylineH, skylineH - 0.020, R.y) * smoothstep(-0.06, 0.0, R.y);
+        skyEnv = mix(skyEnv, bldSil, mask * 0.76 * cityMask);
     }
     return skyEnv;
 }
@@ -783,7 +801,7 @@ void main() {
     bool reflectiveMat = (matId == 3 || matId == 4 || matId == 6 || matId == 7 || matId == 8 || puddleMask > 0.05);
     if (reflectiveMat) {
         vec3 R = reflect(-V, N);
-        vec3 envRefl = sampleCityEnvMap(R, roughness, nightFactor);
+        vec3 envRefl = sampleCityEnvMap(R, fragPosition, roughness, nightFactor);
 
         float specExp = (matId == 6) ? 210.0 : ((matId == 7) ? mix(160.0, 24.0, clamp(roughness * 1.5, 0.0, 1.0)) : 110.0);
         float sunRefl = pow(max(dot(R, L), 0.0), specExp);
@@ -1111,11 +1129,13 @@ Mesh buildSportRimMesh() {
     return b.uploadSmooth(38.0f);
 }
 
-// Builds a complete sculpted smooth-normal automotive body, framed curved glass, and wheel-well/aero trim
+// Builds a complete sculpted smooth-normal automotive body, framed curved glass, wheel-well/aero trim, and curved stripes
 struct BuiltCarMeshes {
     Mesh body{};
     Mesh glass{};
     Mesh trim{};
+    Mesh stripes{};
+    bool hasStripes = false;
 };
 
 BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
@@ -1268,7 +1288,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
     }
 
     const float axleX = halfL * axleFrac;
-    const float archR = wheelR * 1.08f;
+    const float archR = wheelR * 1.18f;
 
     auto smooth01 = [](float t) -> float {
         t = clampf(t, 0.0f, 1.0f);
@@ -1311,7 +1331,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         const float waist  = waistPinch * std::exp(-std::pow(s / 0.34f, 2.0f));
         const float wMax   = std::max(0.32f, halfW * taper + flare - waist);
 
-        // 2) Underbody diffuser/splitter curve + circular 3D wheel-arch cutout along outer sill!
+        // 2) Underbody diffuser/splitter curve + full-clearance semicircular 3D wheel-arch cutout!
         float yBot = groundClear;
         if (s < -0.74f) {
             const float u = (-0.74f - s) / 0.26f;
@@ -1325,7 +1345,10 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         for (float ax : {-axleX, axleX}) {
             const float dx = std::abs(st.x - ax);
             if (dx < archR) {
-                const float cutY = wheelR * 0.84f + std::sqrt(std::max(0.0f, archR * archR - dx * dx)) * 0.68f;
+                const float u = dx / archR;
+                const float circleH = std::sqrt(std::max(0.0f, 1.0f - u * u));
+                const float archTopY = wheelR * 2.12f;
+                const float cutY = yBot + (archTopY - yBot) * std::pow(circleH, 0.72f);
                 archLift = std::max(archLift, cutY - yBot);
             }
         }
@@ -1397,7 +1420,9 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         }
 
         const float roofNarrow = lerpf(0.86f, tumblehome, clampf(cabinFrac, 0.0f, 1.0f));
-        st.wUnder     = wMax * 0.76f;
+        // Pull inner underbody floor rail cleanly behind inner tire sidewall inside every wheel arch!
+        const float archFrac = clampf(archLift / std::max(0.08f, wheelR * 0.95f), 0.0f, 1.0f);
+        st.wUnder     = lerpf(wMax * 0.76f, wMax * 0.50f, smooth01(archFrac));
         st.wSill      = wMax * 0.93f;
         st.wBelly     = wMax;
         st.wBelt      = wMax * 0.94f;
@@ -1406,15 +1431,17 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         return st;
     };
 
-    // Build dense station list capturing bumpers, wheel arches, windshield base, roof rails, and decklid
+    // Build dense station list capturing bumpers, semicircular wheel arches, windshield base, roof rails, and decklid
     std::vector<float> sList;
     for (int i = 0; i <= 32; ++i) {
         sList.push_back(-1.0f + 2.0f * (static_cast<float>(i) / 32.0f));
     }
     const float keyS[] = {
         sRearBase, sRearTop, sFrontTop, sFrontBase,
-        (-axleX - archR) / halfL, (-axleX) / halfL, (-axleX + archR) / halfL,
-        ( axleX - archR) / halfL, ( axleX) / halfL, ( axleX + archR) / halfL,
+        (-axleX - archR) / halfL, (-axleX - archR * 0.70f) / halfL, (-axleX) / halfL,
+        (-axleX + archR * 0.70f) / halfL, (-axleX + archR) / halfL,
+        ( axleX - archR) / halfL, ( axleX - archR * 0.70f) / halfL, ( axleX) / halfL,
+        ( axleX + archR * 0.70f) / halfL, ( axleX + archR) / halfL,
         -0.96f, -0.88f, 0.88f, 0.96f
     };
     for (float ks : keyS) {
@@ -1423,7 +1450,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
     std::sort(sList.begin(), sList.end());
     std::vector<float> stations;
     for (float sv : sList) {
-        if (stations.empty() || (sv - stations.back()) > 0.016f) {
+        if (stations.empty() || (sv - stations.back()) > 0.014f) {
             stations.push_back(sv);
         }
     }
@@ -1458,6 +1485,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
     SmoothMeshBuilder bodyB;
     SmoothMeshBuilder glassB;
     SmoothMeshBuilder trimB;
+    SmoothMeshBuilder stripesB;
 
     // 1) Loft smooth continuous automotive outer body shell
     for (std::size_t i = 0; i + 1 < nSt; ++i) {
@@ -1614,29 +1642,85 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         }
     }
 
-    // 3) Dark Wheel-House Liners, Front Splitter, Grille, Side Skirts & Rear Diffuser (trim)
+    // 2.5) Contour-Hugging Curved Dual GT Vinyl Racing Stripes (lofted directly on body surface!)
+    {
+        auto addStripeStrip = [&](float sStart, float sEnd, float yLift, int segs) {
+            if (sEnd - sStart < 0.08f) return;
+            for (int side = -1; side <= 1; side += 2) {
+                const float sgn = static_cast<float>(side);
+                for (int seg = 0; seg < segs; ++seg) {
+                    const float sa = lerpf(sStart, sEnd, static_cast<float>(seg) / static_cast<float>(segs));
+                    const float sb = lerpf(sStart, sEnd, static_cast<float>(seg + 1) / static_cast<float>(segs));
+                    const StationEval ea = evalStation(sa);
+                    const StationEval eb = evalStation(sb);
+
+                    const float maxZa = std::max(0.18f, ea.wCrownSide * 0.84f);
+                    const float maxZb = std::max(0.18f, eb.wCrownSide * 0.84f);
+                    const float zInA  = std::min(0.085f, maxZa * 0.36f);
+                    const float zOutA = std::min(0.220f, maxZa);
+                    const float zInB  = std::min(0.085f, maxZb * 0.36f);
+                    const float zOutB = std::min(0.220f, maxZb);
+
+                    auto surfY = [&](const StationEval& e, float absZ) -> float {
+                        const float f = clampf(absZ / std::max(0.05f, e.wCrownSide), 0.0f, 1.0f);
+                        return lerpf(e.yTopCenter, e.yCrownSide, f) + yLift;
+                    };
+
+                    const Vector3 p0{ea.x, surfY(ea, zInA),  sgn * zInA};
+                    const Vector3 p1{eb.x, surfY(eb, zInB),  sgn * zInB};
+                    const Vector3 p2{eb.x, surfY(eb, zOutB), sgn * zOutB};
+                    const Vector3 p3{ea.x, surfY(ea, zOutA), sgn * zOutA};
+                    stripesB.addQuadOutward(p0, p1, p2, p3, {0.0f, 1.0f, 0.0f});
+                }
+            }
+        };
+
+        // Hood stripes (all passenger/performance cars; vans/fire engines have ultra-short noses)
+        if (kind != VehicleKind::DeliveryVan && kind != VehicleKind::Ambulance && kind != VehicleKind::FireTruck) {
+            addStripeStrip(sFrontBase + 0.025f, 0.94f, 0.011f, 10);
+        }
+        // Roof stripes (skip open-top roadster & roof-lightbar emergency vehicles)
+        if (kind != VehicleKind::ClassicRoadster && kind != VehicleKind::PoliceCruiser &&
+            kind != VehicleKind::Ambulance && kind != VehicleKind::FireTruck) {
+            addStripeStrip(sRearTop + 0.025f, sFrontTop - 0.025f, hasPanoRoof ? 0.024f : 0.011f, 8);
+        }
+        // Rear deck / trunk stripes (sedans, coupes, hypercars, roadster tonneau)
+        if (kind == VehicleKind::ClassicRoadster) {
+            addStripeStrip(-0.94f, -0.39f, 0.011f, 8);
+        } else if (kind != VehicleKind::OffroadPickup && sRearBase > -0.86f) {
+            addStripeStrip(-0.94f, sRearBase - 0.025f, 0.011f, 6);
+        }
+    }
+
+    // 3) Dark Wheel-House Liners (clamped strictly inside sculpted fender openings!), Splitter, Grille, Side Skirts & Diffuser
     constexpr int kArchSegs = 12;
     for (int side = -1; side <= 1; side += 2) {
         const float sgn = static_cast<float>(side);
-        const float zOuter = halfW * 0.72f;
-        const float zInner = halfW * 0.52f;
         for (float ax : {-axleX, axleX}) {
             for (int a = 0; a < kArchSegs; ++a) {
                 const float th0 = (static_cast<float>(a) / kArchSegs) * kPi;
                 const float th1 = (static_cast<float>(a + 1) / kArchSegs) * kPi;
-                const float x0 = ax + std::cos(th0) * (archR * 0.90f);
-                const float y0 = wheelR * 0.80f + std::sin(th0) * (archR * 0.62f);
-                const float x1 = ax + std::cos(th1) * (archR * 0.90f);
-                const float y1 = wheelR * 0.80f + std::sin(th1) * (archR * 0.62f);
+                const float x0 = ax + std::cos(th0) * (archR * 0.96f);
+                const float x1 = ax + std::cos(th1) * (archR * 0.96f);
+                const StationEval e0 = evalStation(clampf(x0 / halfL, -0.99f, 0.99f));
+                const StationEval e1 = evalStation(clampf(x1 / halfL, -0.99f, 0.99f));
 
-                // Cylindrical wheel-well arch liner (faces radially inward toward the tire)
-                trimB.addQuadOutward({x0, y0, sgn * zInner}, {x1, y1, sgn * zInner},
-                                     {x1, y1, sgn * zOuter}, {x0, y0, sgn * zOuter},
+                const float y0 = std::max(groundClear + 0.02f, e0.ySill - 0.012f);
+                const float y1 = std::max(groundClear + 0.02f, e1.ySill - 0.012f);
+                const float zOuter0 = std::min(halfW * 0.86f, e0.wSill - 0.015f);
+                const float zOuter1 = std::min(halfW * 0.86f, e1.wSill - 0.015f);
+                const float zInner0 = std::min(halfW * 0.48f, e0.wUnder);
+                const float zInner1 = std::min(halfW * 0.48f, e1.wUnder);
+
+                // Cylindrical wheel-well arch liner tucked cleanly beneath painted fender lip
+                trimB.addQuadOutward({x0, y0, sgn * zInner0}, {x1, y1, sgn * zInner1},
+                                     {x1, y1, sgn * zOuter1}, {x0, y0, sgn * zOuter0},
                                      {ax - 0.5f * (x0 + x1), wheelR - 0.5f * (y0 + y1), sgn * 0.25f});
                 // Dark inner chassis backing wall behind tire so there is zero see-through gap!
-                trimB.addTriOutward({ax, wheelR * 0.65f, sgn * zInner},
-                                    {x0, y0, sgn * zInner},
-                                    {x1, y1, sgn * zInner},
+                const float zBack = 0.5f * (zInner0 + zInner1);
+                trimB.addTriOutward({ax, wheelR * 0.65f, sgn * zBack},
+                                    {x0, y0, sgn * zInner0},
+                                    {x1, y1, sgn * zInner1},
                                     {0.0f, 0.0f, sgn});
             }
         }
@@ -1702,6 +1786,10 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
     out.body  = bodyB.uploadSmooth(48.0f);
     out.glass = glassB.uploadSmooth(48.0f);
     out.trim  = trimB.uploadSmooth(42.0f);
+    if (!stripesB.pos.empty()) {
+        out.stripes = stripesB.uploadSmooth(48.0f);
+        out.hasStripes = true;
+    }
     return out;
 }
 
@@ -1776,7 +1864,7 @@ void Renderer3D::init() {
     locPostNitro_         = GetShaderLocation(postShader_, "nitroStrength");
     locPostEnableBloom_   = GetShaderLocation(postShader_, "enableBloom");
 
-    // 5) Shared GPU-resident primitive & 9 sculpted smooth-normal automotive vehicle models
+    // 5) Shared GPU-resident primitive & 16 sculpted smooth-normal automotive vehicle models
     cubeModel_     = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
     cylModel_      = LoadModelFromMesh(GenMeshCylinder(1.0f, 1.0f, 16));
     coneModel_     = LoadModelFromMesh(GenMeshCone(1.0f, 1.0f, 16));
@@ -1790,6 +1878,10 @@ void Renderer3D::init() {
         carModels_[i].body  = LoadModelFromMesh(cm.body);
         carModels_[i].glass = LoadModelFromMesh(cm.glass);
         carModels_[i].trim  = LoadModelFromMesh(cm.trim);
+        carModels_[i].hasStripes = cm.hasStripes;
+        if (cm.hasStripes) {
+            carModels_[i].stripes = LoadModelFromMesh(cm.stripes);
+        }
     }
 
     skyDomeModel_.materials[0].shader = skyShader_;
@@ -1813,6 +1905,10 @@ void Renderer3D::shutdown() {
         UnloadModel(cm.body);
         UnloadModel(cm.glass);
         UnloadModel(cm.trim);
+        if (cm.hasStripes) {
+            UnloadModel(cm.stripes);
+            cm.hasStripes = false;
+        }
     }
 
     if (sceneTarget_.id > 0) {
@@ -1882,6 +1978,9 @@ void Renderer3D::setAllModelsShader(const Shader& shader) {
         cm.body.materials[0].shader  = shader;
         cm.glass.materials[0].shader = shader;
         cm.trim.materials[0].shader  = shader;
+        if (cm.hasStripes) {
+            cm.stripes.materials[0].shader = shader;
+        }
     }
 }
 
@@ -2180,6 +2279,7 @@ void Renderer3D::renderWorld(const GameWorld& world, const Camera3D& camera) {
 void Renderer3D::drawSceneGeometry(const GameWorld& world, const Camera3D& camera,
                                    bool shadowPass, bool hidePlayerForFps) {
     const Vec2 focus{camera.target.x, camera.target.z};
+    const Vec3 camPos{camera.position.x, camera.position.y, camera.position.z};
     const bool nightMode = world.isNightTime();
 
     if (!shadowPass) {
@@ -2188,14 +2288,14 @@ void Renderer3D::drawSceneGeometry(const GameWorld& world, const Camera3D& camer
     }
 
     drawBuildingsAndParks(world, focus, shadowPass);
-    drawTreesAndProps(world, focus, shadowPass);
+    drawTreesAndProps(world, focus, camPos, shadowPass);
 
     // Vehicles (in 1st-person driving, draw sculpted exterior hood + lights without blocking cabin shell)
     const float vehCull = shadowPass ? (135.0f * 135.0f) : (275.0f * 275.0f);
     for (const auto& v : world.vehicles()) {
         if ((v.pos - focus).lengthSq() > vehCull) continue;
         const bool fpCockpitCar = hidePlayerForFps && !shadowPass && v.isPlayerDriving;
-        drawVehicle3D(v, nightMode, shadowPass, fpCockpitCar);
+        drawVehicle3D(v, world.surfaceHeightAt(v.pos), nightMode, shadowPass, fpCockpitCar);
     }
 
     // Player character when on foot (rendered in shadowPass even in FPS so player casts a real 3D ground shadow!)
@@ -2291,10 +2391,10 @@ void Renderer3D::drawOceanAndGround(const GameWorld& world) {
                     {CityMap::kHalfCitySpan * 1.97f, 0.42f, CityMap::kHalfCitySpan * 1.97f},
                     Color{166, 170, 176, 255}, 0.78f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
 
-    // Iconic California Blue-and-Wood Lifeguard Tower on Sunset Beach
+    // Iconic California Blue-and-Wood Lifeguard Tower on South Sunset Beach (cleanly clear of Ferris Wheel)
     {
         const float lx = -372.0f;
-        const float lz = -26.0f;
+        const float lz = 26.0f;
         for (int sx = -1; sx <= 1; sx += 2) {
             for (int sz = -1; sz <= 1; sz += 2) {
                 drawModelStyled(cubeModel_, {lx + sx * 1.25f, 1.05f, lz + sz * 1.25f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -2882,16 +2982,16 @@ void Renderer3D::drawLandmarkStructures(const GameWorld& world, const Vec2& focu
     }
 
 
-    // 3. Sunset Pier Illuminated Ferris Wheel (x = -366.0f, z = -14.0f)
-    const Vec2 ferrisPos{-366.0f, -14.0f};
+    // 3. Sunset Beach Illuminated Ferris Wheel (x = -370.0f, z = -22.0f — cleanly clear of Sunset Pier!)
+    const Vec2 ferrisPos{-370.0f, -22.0f};
     if ((ferrisPos - focus).lengthSq() <= cullDistSq) {
         const float hubY = 14.8f;
         const float wheelR = 11.2f;
         const float wheelAngle = animT * 14.0f;
 
-        // Boarding platform & twin A-frame support legs
-        drawModelStyled(cubeModel_, {ferrisPos.x, 1.1f, ferrisPos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {10.5f, 2.2f, 24.0f}, Color{132, 96, 66, 255}, 0.78f, 0.08f, 0.0f, MatKind::Standard);
+        // Compact wooden boarding platform (z in [-29.5, -14.5], 6.9m clear of Sunset Pier) & twin A-frame legs
+        drawModelStyled(cubeModel_, {ferrisPos.x, 0.68f, ferrisPos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {10.2f, 1.36f, 15.0f}, Color{132, 96, 66, 255}, 0.78f, 0.08f, 0.0f, MatKind::Standard);
         for (int side = -1; side <= 1; side += 2) {
             const float lx = ferrisPos.x + static_cast<float>(side) * 2.2f;
             drawModelStyled(cubeModel_, {lx, hubY * 0.52f, ferrisPos.z - 3.6f}, {1.0f, 0.0f, 0.0f}, -15.0f,
@@ -2900,12 +3000,18 @@ void Renderer3D::drawLandmarkStructures(const GameWorld& world, const Vec2& focu
                             {0.42f, hubY * 1.04f, 0.42f}, Color{230, 236, 245, 255}, 0.32f, 0.78f, 0.0f, MatKind::Standard);
         }
 
-        // Central axle hub
-        drawModelStyled(cubeModel_, {ferrisPos.x, hubY, ferrisPos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {5.2f, 1.1f, 1.1f}, Color{56, 228, 255, 255}, 0.15f, 0.0f,
-                        night ? 2.6f : 0.8f, MatKind::EmissiveGlow);
+        // Smooth cylindrical central steel axle hub + glowing cyan end-cap rings
+        drawModelStyled(cylModel_, {ferrisPos.x + 2.6f, hubY, ferrisPos.z}, {0.0f, 0.0f, 1.0f}, 90.0f,
+                        {0.62f, 5.2f, 0.62f}, Color{226, 232, 242, 255}, 0.24f, 0.84f, 0.0f, MatKind::Standard);
+        if (!shadowPass) {
+            for (int side = -1; side <= 1; side += 2) {
+                drawModelStyled(sphereModel_, {ferrisPos.x + static_cast<float>(side) * 2.62f, hubY, ferrisPos.z},
+                                {0.0f, 1.0f, 0.0f}, 0.0f, {0.22f, 0.72f, 0.72f}, Color{56, 228, 255, 255},
+                                0.14f, 0.0f, night ? 2.6f : 0.85f, MatKind::EmissiveGlow);
+            }
+        }
 
-        // 12-Spoke Rotating Wheel + Self-Leveling Hanging Passenger Gondolas (using kFerrisWheelRing12)
+        // 12-Spoke Rotating Wheel (structural white steel spokes + glowing neon rim + windowed gondolas)
         for (int i = 0; i < 12; ++i) {
             const int next = (i + 1) % 12;
             const float rad = (static_cast<float>(i) * 30.0f + wheelAngle) * (3.14159265f / 180.0f);
@@ -2918,16 +3024,16 @@ void Renderer3D::drawLandmarkStructures(const GameWorld& world, const Vec2& focu
             const Color neonCol = (i % 2 == 0) ? Color{56, 234, 255, 255} : Color{255, 72, 212, 255};
             for (int side = -1; side <= 1; side += 2) {
                 const float rx = ferrisPos.x + static_cast<float>(side) * 1.65f;
-                // Spoke
+                // White structural steel radial spoke
                 rlPushMatrix();
                 rlTranslatef(rx, hubY + cy * 0.5f, ferrisPos.z + cz * 0.5f);
                 rlRotatef(-(static_cast<float>(i) * 30.0f + wheelAngle), 1.0f, 0.0f, 0.0f);
                 drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.14f, 0.14f, wheelR}, neonCol, 0.15f, 0.0f,
-                                night ? 2.2f : 0.65f, MatKind::EmissiveGlow);
+                                {0.13f, 0.13f, wheelR}, Color{235, 240, 248, 255}, 0.28f, 0.78f,
+                                0.0f, MatKind::Standard);
                 rlPopMatrix();
 
-                // Rim chord segment
+                // Neon outer rim chord segment
                 const float dz = nz - cz;
                 const float dy = ny - cy;
                 const float chordLen = std::sqrt(dz * dz + dy * dy);
@@ -2941,14 +3047,27 @@ void Renderer3D::drawLandmarkStructures(const GameWorld& world, const Vec2& focu
                 rlPopMatrix();
             }
 
-            // Self-leveling hanging passenger gondola cabin
+            // Self-leveling hanging passenger gondola cabin with panoramic tinted glass & roof cap
             if (!shadowPass) {
                 const Color cabCol = (i % 3 == 0) ? Color{255, 92, 118, 255}
                                    : ((i % 3 == 1) ? Color{64, 212, 255, 255} : Color{255, 214, 68, 255});
-                drawModelStyled(cubeModel_, {ferrisPos.x, hubY + cy - 0.85f, ferrisPos.z + cz},
-                                {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {2.6f, 1.35f, 1.45f}, cabCol, 0.25f, 0.35f,
-                                night ? 0.8f : 0.1f, MatKind::CarClearcoat);
+                const float gx = ferrisPos.x;
+                const float gy = hubY + cy - 0.85f;
+                const float gz = ferrisPos.z + cz;
+                // Suspension cross-axle + lower painted gondola body
+                drawModelStyled(cubeModel_, {gx, hubY + cy, gz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {3.30f, 0.12f, 0.12f}, Color{220, 226, 236, 255}, 0.30f, 0.82f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {gx, gy - 0.30f, gz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {2.55f, 0.72f, 1.44f}, cabCol, 0.22f, 0.35f,
+                                night ? 0.55f : 0.06f, MatKind::CarClearcoat);
+                // Panoramic smoked glass upper window surround
+                drawModelStyled(cubeModel_, {gx, gy + 0.28f, gz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {2.42f, 0.56f, 1.36f}, Color{18, 30, 46, 255}, 0.06f, 0.22f,
+                                0.0f, MatKind::CarGlass);
+                // Gondola roof canopy
+                drawModelStyled(cubeModel_, {gx, gy + 0.62f, gz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {2.66f, 0.14f, 1.52f}, Color{240, 244, 250, 255}, 0.34f, 0.25f,
+                                0.0f, MatKind::Standard);
             }
         }
     }
@@ -2984,7 +3103,7 @@ void Renderer3D::drawLandmarkStructures(const GameWorld& world, const Vec2& focu
                         {2.6f, 2.7f, 6.4f}, containerCol, 0.62f, 0.45f, 0.0f, MatKind::Standard);
     }
 
-    // 5. Overhead Highway Directional Sign Gantries across Major Avenues
+    // 5. Overhead Highway Directional Sign Gantries across Major Avenues (double-sided N/S signage)
     struct GantryDef {
         float x;
         float z;
@@ -3011,25 +3130,51 @@ void Renderer3D::drawLandmarkStructures(const GameWorld& world, const Vec2& focu
         }
         drawModelStyled(cubeModel_, {g.x, h - 0.35f, g.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {span + 0.5f, 0.42f, 0.42f}, gantrySteel, 0.38f, 0.78f, 0.0f, MatKind::Standard);
-        // Reflective green highway directional sign boards
+        // Reflective green highway directional sign boards with crisp double-sided route graphics
         for (int side = -1; side <= 1; side += 2) {
             const float sx = g.x + static_cast<float>(side) * 3.8f;
             drawModelStyled(cubeModel_, {sx, h - 0.35f, g.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {5.2f, 1.65f, 0.16f}, highwayGreen, 0.30f, 0.25f,
                             night ? 0.65f : 0.12f, MatKind::EmissiveGlow);
             if (!shadowPass) {
-                drawModelStyled(cubeModel_, {sx, h - 0.12f, g.z + 0.10f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {4.2f, 0.24f, 0.04f}, WHITE, 0.15f, 0.0f,
-                                night ? 1.8f : 0.4f, MatKind::EmissiveGlow);
-                drawModelStyled(cubeModel_, {sx, h - 0.58f, g.z + 0.10f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {3.1f, 0.18f, 0.04f}, Color{255, 214, 64, 255}, 0.15f, 0.0f,
-                                night ? 1.8f : 0.4f, MatKind::EmissiveGlow);
+                const float signGlow = night ? 1.8f : 0.42f;
+                for (int face = -1; face <= 1; face += 2) {
+                    const float fz = g.z + static_cast<float>(face) * 0.095f;
+                    // Crisp reflective white outer border frame (top/bottom/left/right)
+                    drawModelStyled(cubeModel_, {sx, h + 0.41f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {4.96f, 0.06f, 0.025f}, WHITE, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                    drawModelStyled(cubeModel_, {sx, h - 1.11f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {4.96f, 0.06f, 0.025f}, WHITE, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                    drawModelStyled(cubeModel_, {sx - 2.45f, h - 0.35f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.06f, 1.48f, 0.025f}, WHITE, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                    drawModelStyled(cubeModel_, {sx + 2.45f, h - 0.35f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.06f, 1.48f, 0.025f}, WHITE, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                    // Interstate-style route shield badge + destination text bars
+                    const float badgeX = sx - static_cast<float>(face) * 1.65f;
+                    const float textX = sx + static_cast<float>(face) * 0.42f;
+                    drawModelStyled(cubeModel_, {badgeX, h - 0.12f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.72f, 0.68f, 0.028f}, Color{24, 92, 208, 255}, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                    drawModelStyled(cubeModel_, {badgeX, h + 0.16f, fz + static_cast<float>(face) * 0.008f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.70f, 0.16f, 0.025f}, Color{216, 42, 42, 255}, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                    drawModelStyled(cubeModel_, {textX, h + 0.04f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {2.95f, 0.24f, 0.028f}, WHITE, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                    drawModelStyled(cubeModel_, {textX - static_cast<float>(face) * 0.25f, h - 0.34f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {2.25f, 0.16f, 0.028f}, Color{230, 240, 235, 255}, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                    // Downward yellow lane-exit chevron arrows
+                    for (int a = -1; a <= 1; a += 2) {
+                        const float ax = sx + static_cast<float>(a) * 1.05f;
+                        drawModelStyled(cubeModel_, {ax, h - 0.78f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                        {0.14f, 0.28f, 0.028f}, Color{255, 214, 64, 255}, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                        drawModelStyled(coneModel_, {ax, h - 0.86f, fz}, {0.0f, 0.0f, 1.0f}, 180.0f,
+                                        {0.18f, 0.22f, 0.03f}, Color{255, 214, 64, 255}, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                    }
+                }
             }
         }
     }
 }
 
-void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, bool shadowPass) {
+void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, const Vec3& camPos, bool shadowPass) {
     const float treeCull = shadowPass ? (135.0f * 135.0f) : (235.0f * 235.0f);
 
     for (const auto& t : world.city().trees()) {
@@ -3320,20 +3465,20 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, bo
         rlPopMatrix();
     }
 
-    // 3D Falling Rain Streaks when Dynamic Rain / Wet Road mode ([U]) is active
+    // 3D Falling Rain Streaks centered around the active camera when Dynamic Rain / Wet Road ([U]) is active
     if (!shadowPass && world.isRainWeather()) {
-        for (int i = 0; i < 64; ++i) {
+        for (int i = 0; i < 108; ++i) {
             const float seed = static_cast<float>(i) * 19.37f;
-            const float rx = focus.x + std::fmod( std::sin(seed * 1.71f) * 43758.5f, 28.0f);
-            const float rz = focus.z + std::fmod( std::cos(seed * 2.39f) * 31415.9f, 28.0f);
-            const float fallCycle = std::fmod(animT * 18.0f + seed * 3.1f, 11.0f);
-            const float ry = 11.2f - fallCycle;
-            DrawLine3D({rx, ry + 0.85f, rz}, {rx - 0.08f, ry, rz - 0.05f}, Color{186, 218, 248, 120});
+            const float rx = camPos.x + std::fmod(std::sin(seed * 1.71f) * 43758.5f, 18.0f);
+            const float rz = camPos.z + std::fmod(std::cos(seed * 2.39f) * 31415.9f, 18.0f);
+            const float fallCycle = std::fmod(animT * 19.5f + seed * 3.1f, 10.3f);
+            const float ry = std::max(0.2f, camPos.y - 1.8f + (10.3f - fallCycle));
+            DrawLine3D({rx, ry + 0.72f, rz}, {rx - 0.08f, ry, rz - 0.05f}, Color{196, 226, 255, 138});
         }
     }
 }
 
-void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass, bool cockpitHoodOnly) {
+void Renderer3D::drawVehicle3D(const Vehicle& v, float groundSurfY, bool nightMode, bool shadowPass, bool cockpitHoodOnly) {
     const auto& spec = getVehicleSpec(v.kind);
     const float halfL = spec.halfLength;
     const float halfW = spec.halfWidth;
@@ -3341,16 +3486,17 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
     const float W = halfW * 2.0f;
     const float H = spec.chassisHeight;
 
-    // 1) Soft contact shadow + Custom LED Neon Underglow Pool on the road!
+    // 1) Soft contact shadow + Custom LED Neon Underglow Pool anchored on actual ground/ramp surface!
     if (!shadowPass) {
+        const float hoverH = std::max(0.0f, v.posY - groundSurfY);
         rlPushMatrix();
-        rlTranslatef(v.pos.x, 0.016f, v.pos.z);
+        rlTranslatef(v.pos.x, groundSurfY + 0.016f, v.pos.z);
         rlRotatef(-v.heading * kRadToDeg, 0.0f, 1.0f, 0.0f);
-        const float shadowScale = std::clamp(1.0f - v.posY * 0.055f, 0.45f, 1.0f);
+        const float shadowScale = std::clamp(1.0f - hoverH * 0.055f, 0.45f, 1.0f);
         const unsigned char shadowA = static_cast<unsigned char>(145.0f * shadowScale);
         DrawCube({0.0f, 0.0f, 0.0f}, L * 0.98f * shadowScale, 0.008f, W * 1.02f * shadowScale, Color{8, 10, 14, shadowA});
 
-        if (!v.destroyed && v.neonPreset > 0 && v.posY < 1.2f) {
+        if (!v.destroyed && v.neonPreset > 0 && hoverH < 1.2f) {
             const Color nc = toRayColor(getNeonPresetColor(v.neonPreset));
             const float alphaMul = (nightMode ? 1.0f : 0.58f) * shadowScale;
             // 3 concentric soft oval glow rings on the asphalt (no harsh rectangular corners!)
@@ -3368,14 +3514,14 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                 rlPopMatrix();
             }
             // Bright emissive neon side tubes tucked cleanly under the rocker sills
-            drawModelStyled(cubeModel_, {0.0f, 0.14f + v.posY, -halfW * 0.86f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+            drawModelStyled(cubeModel_, {0.0f, 0.14f + hoverH, -halfW * 0.86f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {L * 0.52f, 0.03f, 0.05f}, nc, 0.1f, 0.0f, 2.8f, MatKind::EmissiveGlow);
-            drawModelStyled(cubeModel_, {0.0f, 0.14f + v.posY,  halfW * 0.86f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+            drawModelStyled(cubeModel_, {0.0f, 0.14f + hoverH,  halfW * 0.86f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {L * 0.52f, 0.03f, 0.05f}, nc, 0.1f, 0.0f, 2.8f, MatKind::EmissiveGlow);
         }
 
         // Alternating Police (Red/Blue) or EMS/Fire (Red/Amber-White) Emergency Siren Ground Light Pools!
-        if (!v.destroyed && v.sirenActive && v.posY < 1.5f) {
+        if (!v.destroyed && v.sirenActive && hoverH < 1.5f) {
             const bool redFlash = (v.sirenPhase < 0.5f);
             const bool isEmsOrFire = (v.kind == VehicleKind::Ambulance || v.kind == VehicleKind::FireTruck);
             const unsigned char mainA = static_cast<unsigned char>(nightMode ? 96 : 62);
@@ -3402,8 +3548,8 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
     }
 
     const float stanceOffsetY = v.destroyed ? 0.0f
-                              : ((v.stanceStyle == 1) ? -0.045f
-                              : ((v.stanceStyle == 2) ? -0.082f
+                              : ((v.stanceStyle == 1) ? -0.032f
+                              : ((v.stanceStyle == 2) ? -0.048f
                               : ((v.stanceStyle == 3) ?  0.095f : 0.0f)));
 
     rlPushMatrix();
@@ -3538,25 +3684,25 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                                v.kind == VehicleKind::ArmoredSuv || v.kind == VehicleKind::FireTruck) ? 0.26f : 0.16f;
         const float frontCrumpleTilt = v.frontDamage * 14.0f;
         rlPushMatrix();
-        rlTranslatef(halfL * 0.992f - v.frontDamage * 0.08f, grilleY, 0.0f);
+        rlTranslatef(halfL * 0.990f - v.frontDamage * 0.08f, grilleY, 0.0f);
         rlRotatef(frontCrumpleTilt, 0.0f, 0.0f, 1.0f);
         drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.045f, grilleH + 0.04f, W * 0.50f}, chromeCol, 0.18f, 0.90f, 0.0f, MatKind::Standard);
+                        {0.044f, grilleH + 0.036f, W * 0.36f}, chromeCol, 0.18f, 0.90f, 0.0f, MatKind::Standard);
         drawModelStyled(cubeModel_, {0.008f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.042f, grilleH, W * 0.46f}, Color{14, 16, 20, 255}, 0.65f, 0.35f, 0.0f, MatKind::Standard);
+                        {0.042f, grilleH, W * 0.32f}, Color{14, 16, 20, 255}, 0.65f, 0.35f, 0.0f, MatKind::Standard);
         // Horizontal chrome/anodized grille slats + front registration plate
         drawModelStyled(cubeModel_, {0.014f, 0.02f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.038f, 0.022f, W * 0.45f}, chromeCol, 0.16f, 0.92f, 0.0f, MatKind::Standard);
-        drawModelStyled(cubeModel_, {0.018f, -grilleH * 0.42f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.032f, 0.10f, 0.34f}, Color{242, 245, 250, 255}, 0.40f, 0.10f, 0.0f, MatKind::Standard);
+                        {0.036f, 0.022f, W * 0.31f}, chromeCol, 0.16f, 0.92f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.016f, -grilleH * 0.40f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.030f, 0.095f, 0.30f}, Color{242, 245, 250, 255}, 0.40f, 0.10f, 0.0f, MatKind::Standard);
         for (int side = -1; side <= 1; side += 2) {
-            drawModelStyled(cubeModel_, {-0.015f, -0.02f, static_cast<float>(side) * (halfW * 0.68f)},
+            drawModelStyled(cubeModel_, {-0.065f, -0.02f, static_cast<float>(side) * (halfW * 0.46f)},
                             {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.05f, grilleH * 0.78f, W * 0.18f}, Color{12, 14, 18, 255}, 0.60f, 0.30f, 0.0f, MatKind::Standard);
+                            {0.045f, grilleH * 0.70f, W * 0.12f}, Color{12, 14, 18, 255}, 0.60f, 0.30f, 0.0f, MatKind::Standard);
         }
         rlPopMatrix();
 
-        // Flush Color-Matched / Chrome Door Handles, Gloss Black B-Pillar Trim & Dual Windshield Wipers!
+        // Flush Color-Matched / Chrome Door Handles & Dual Windshield Wipers (B-pillars are contoured directly in glassB!)
         const float handleY = 0.24f + H * 0.36f;
         for (int side = -1; side <= 1; side += 2) {
             const float hz = static_cast<float>(side) * (halfW * 0.968f - ((side < 0) ? v.rightDamage : v.leftDamage) * 0.04f);
@@ -3567,11 +3713,6 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                 v.kind == VehicleKind::SUV || v.kind == VehicleKind::ArmoredSuv) {
                 drawModelStyled(cubeModel_, {-0.72f, handleY, hz}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {0.18f, 0.034f, 0.028f}, chromeCol, 0.16f, 0.90f, 0.0f, MatKind::Standard);
-            }
-            if (v.kind != VehicleKind::ClassicRoadster) {
-                drawModelStyled(cubeModel_, {-0.18f, 0.26f + H * 0.66f, static_cast<float>(side) * (halfW * 0.835f)},
-                                {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.09f, H * 0.34f, 0.026f}, Color{14, 16, 22, 255}, 0.12f, 0.65f, 0.0f, MatKind::Standard);
             }
         }
         // Dual aerodynamic windshield wiper blades at the base of the front windshield cowl
@@ -3607,46 +3748,18 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
             rlPopMatrix();
         }
 
-        // Custom Dual GT Racing Stripes on sculpted hood + roof across all non-roadster chassis!
-        if (!v.destroyed && v.stripeStyle > 0 && v.kind != VehicleKind::ClassicRoadster) {
+        // Contour-hugging curved Dual GT Racing Stripes lofted directly over hood, roof & rear deck!
+        if (!v.destroyed && carMdl.hasStripes && (v.stripeStyle > 0 || v.kind == VehicleKind::ClassicRoadster)) {
             const float stripeEmissive = (v.stripeStyle == 3) ? 0.85f : 0.0f;
             const MatKind stripeMat = (v.stripeStyle == 3) ? MatKind::EmissiveGlow : paintMat;
-            float hoodY = 0.75f;
-            float roofY = 1.395f;
-            switch (v.kind) {
-                case VehicleKind::TrackPrototype: hoodY = 0.66f; roofY = 1.095f; break;
-                case VehicleKind::Hypercar:       hoodY = 0.68f; roofY = 1.145f; break;
-                case VehicleKind::SportsCoupe:    hoodY = 0.72f; roofY = 1.255f; break;
-                case VehicleKind::JdmTuner:       hoodY = 0.74f; roofY = 1.295f; break;
-                case VehicleKind::MuscleCar:      hoodY = 0.78f; roofY = 1.325f; break;
-                case VehicleKind::PoliceCruiser:  hoodY = 0.77f; roofY = 1.405f; break;
-                case VehicleKind::SUV:            hoodY = 0.92f; roofY = 1.675f; break;
-                case VehicleKind::OffroadPickup:
-                case VehicleKind::ArmoredSuv:     hoodY = 1.02f; roofY = 1.795f; break;
-                case VehicleKind::DeliveryVan:
-                case VehicleKind::Ambulance:
-                case VehicleKind::FireTruck:      hoodY = 0.96f; roofY = 1.995f; break;
-                default: break;
-            }
-            for (int side = -1; side <= 1; side += 2) {
-                const float stZ = static_cast<float>(side) * 0.16f;
-                if (v.kind != VehicleKind::DeliveryVan && v.kind != VehicleKind::Ambulance &&
-                    v.kind != VehicleKind::FireTruck) {
-                    drawModelStyled(cubeModel_, {halfL * 0.67f, hoodY + 0.028f, stZ}, {0.0f, 0.0f, 1.0f}, -10.5f,
-                                    {halfL * 0.47f, 0.036f, 0.135f}, stripeCol, 0.12f, 0.35f, stripeEmissive, stripeMat);
-                }
-                if (v.kind != VehicleKind::PoliceCruiser && v.kind != VehicleKind::Ambulance &&
-                    v.kind != VehicleKind::FireTruck) {
-                    drawModelStyled(cubeModel_, {-0.08f, roofY, stZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {halfL * 0.52f, 0.026f, 0.135f}, stripeCol, 0.12f, 0.35f, stripeEmissive, stripeMat);
-                }
-            }
+            drawModelStyled(carMdl.stripes, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {1.0f, 1.0f, 1.0f}, stripeCol, 0.12f, 0.35f, stripeEmissive, stripeMat);
         }
     }
 
     // Bespoke 3D Signature Architecture for v0.7 Fleet!
     if (v.kind == VehicleKind::ClassicRoadster && !v.destroyed) {
-        // Open-top convertible leather bucket seats, center console, twin chrome roll-hoops & racing stripes!
+        // Open-top convertible leather bucket seats, center console & twin chrome roll-hoops!
         drawModelStyled(cubeModel_, {-0.22f, 0.62f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.92f, 0.14f, W * 0.72f}, Color{24, 22, 26, 255}, 0.68f, 0.08f, 0.0f, MatKind::Standard);
         for (int side = -1; side <= 1; side += 2) {
@@ -3661,16 +3774,6 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                                 {0.028f, 0.32f, 0.028f}, chromeCol, 0.14f, 0.94f, 0.0f, MatKind::Standard);
                 drawModelStyled(cubeModel_, {-0.44f, 1.08f, sz}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {0.052f, 0.052f, 0.30f}, chromeCol, 0.14f, 0.94f, 0.0f, MatKind::Standard);
-            }
-        }
-        if (!shadowPass) {
-            // Dual GT racing stripes on long hood & rear tonneau deck
-            for (int side = -1; side <= 1; side += 2) {
-                const float stZ = static_cast<float>(side) * 0.17f;
-                drawModelStyled(cubeModel_, {halfL * 0.68f, 0.64f, stZ}, {0.0f, 0.0f, 1.0f}, -11.0f,
-                                {halfL * 0.46f, 0.03f, 0.14f}, stripeCol, 0.12f, 0.35f, 0.0f, paintMat);
-                drawModelStyled(cubeModel_, {-halfL * 0.64f, 0.855f, stZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {halfL * 0.44f, 0.025f, 0.14f}, stripeCol, 0.12f, 0.35f, 0.0f, paintMat);
             }
         }
     } else if (v.kind == VehicleKind::OffroadPickup && !v.destroyed) {
@@ -3698,8 +3801,8 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
         }
     } else if (v.kind == VehicleKind::JdmTuner && !v.destroyed && !shadowPass) {
         // Exposed silver Front-Mount Intercooler (FMIC) core + roof rally intake scoop!
-        drawModelStyled(cubeModel_, {halfL + 0.012f, 0.34f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.06f, 0.18f, 0.82f}, Color{206, 214, 226, 255}, 0.22f, 0.88f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {halfL * 0.992f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.048f, 0.14f, 0.58f}, Color{206, 214, 226, 255}, 0.22f, 0.88f, 0.0f, MatKind::Standard);
         drawModelStyled(cubeModel_, {0.06f, 1.30f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.34f, 0.075f, 0.28f}, darkTrim, 0.32f, 0.55f, 0.0f, MatKind::Standard);
     } else if (v.kind == VehicleKind::TrackPrototype && !v.destroyed) {
@@ -3940,8 +4043,8 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                 rlRotatef(-v.steerVisual * 28.0f, 0.0f, 1.0f, 0.0f);
             }
             if (v.stanceStyle == 2 && !v.destroyed) {
-                // Aggressive Slammed Stance: -8.5 deg inward negative camber!
-                rlRotatef(static_cast<float>(-side) * 8.5f, 1.0f, 0.0f, 0.0f);
+                // Aggressive Slammed Stance: -6.5 deg inward negative camber!
+                rlRotatef(static_cast<float>(-side) * 6.5f, 1.0f, 0.0f, 0.0f);
             }
 
             // Non-spinning red sport brake caliper inside rim!
@@ -4046,12 +4149,18 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass
                                   : (halfW * 0.54f);
             const float exY = (v.kind == VehicleKind::TrackPrototype) ? 0.38f
                             : ((v.kind == VehicleKind::Hypercar) ? 0.34f : 0.24f);
-            drawModelStyled(coneModel_, {-halfL - 0.06f, exY, -exZ}, {0.0f, 0.0f, 1.0f}, 90.0f,
-                            {0.11f, 0.95f, 0.11f}, Color{68, 214, 255, 255},
-                            0.1f, 0.0f, 3.3f, MatKind::EmissiveGlow);
-            drawModelStyled(coneModel_, {-halfL - 0.06f, exY,  exZ}, {0.0f, 1.0f, 0.0f}, 90.0f,
-                            {0.11f, 0.95f, 0.11f}, Color{68, 214, 255, 255},
-                            0.1f, 0.0f, 3.3f, MatKind::EmissiveGlow);
+            const float flick = 0.88f + 0.16f * std::sin(static_cast<float>(GetTime()) * 48.0f);
+            for (int side = -1; side <= 1; side += 2) {
+                const float pz = static_cast<float>(side) * exZ;
+                // Outer blue-cyan afterburner plume shooting straight rearward (-X)
+                drawModelStyled(coneModel_, {-halfL - 0.06f, exY, pz}, {0.0f, 0.0f, 1.0f}, 90.0f,
+                                {0.11f, 0.95f * flick, 0.11f}, Color{68, 214, 255, 255},
+                                0.1f, 0.0f, 3.3f, MatKind::EmissiveGlow);
+                // Inner white-hot core cone
+                drawModelStyled(coneModel_, {-halfL - 0.04f, exY, pz}, {0.0f, 0.0f, 1.0f}, 90.0f,
+                                {0.055f, 0.52f * flick, 0.055f}, Color{235, 248, 255, 255},
+                                0.08f, 0.0f, 4.0f, MatKind::EmissiveGlow);
+            }
         }
     }
 
@@ -4195,7 +4304,7 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                     rlPushMatrix();
                     rlTranslatef(-0.20f, 1.16f, static_cast<float>(s) * 0.23f);
                     rlRotatef(static_cast<float>(s) * 26.0f, 1.0f, 0.0f, 0.0f);
-                    rlRotatef(-14.0f, 0.0f, 1.0f, 0.0f * static_cast<float>(s));
+                    rlRotatef(-14.0f * static_cast<float>(s), 0.0f, 1.0f, 0.0f);
                     drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {0.032f, 0.42f, 0.22f}, Color{36, 228, 255, 255}, 0.08f, 0.2f, 2.6f, MatKind::EmissiveGlow);
                     rlPopMatrix();
@@ -4529,8 +4638,9 @@ void Renderer3D::drawSkidsTracersParticles(const GameWorld& world) {
         const Vec2 d = s.b - s.a;
         const float len = d.length();
         const float yaw = std::atan2(d.z, d.x);
+        const float skidY = world.surfaceHeightAt(mid) + 0.014f;
         rlPushMatrix();
-        rlTranslatef(mid.x, 0.014f, mid.z);
+        rlTranslatef(mid.x, skidY, mid.z);
         rlRotatef(-yaw * kRadToDeg, 0.0f, 1.0f, 0.0f);
         DrawCube({0.0f, 0.0f, 0.0f}, len + 0.12f, 0.008f, 0.24f, Color{14, 14, 18, 175});
         rlPopMatrix();
@@ -4558,12 +4668,13 @@ void Renderer3D::drawGpsOverheadArrow(const GameWorld& world) {
     if (world.mission().kind == ActiveMissionKind::None) return;
 
     const Vec2 origin = (world.playerVehicle() != nullptr) ? world.playerVehicle()->pos : world.player().pos;
+    const float originY = (world.playerVehicle() != nullptr) ? world.playerVehicle()->posY : world.player().posY;
     const Vec2 delta = world.mission().currentObjectivePos - origin;
     if (delta.length() < 8.0f) return;
 
     const float yaw = std::atan2(delta.z, delta.x);
     rlPushMatrix();
-    rlTranslatef(origin.x, 3.55f, origin.z);
+    rlTranslatef(origin.x, originY + 3.55f, origin.z);
     rlRotatef(-yaw * kRadToDeg, 0.0f, 1.0f, 0.0f);
     drawModelStyled(cubeModel_, {-0.25f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                     {0.95f, 0.16f, 0.34f}, Color{255, 216, 48, 240},
@@ -4605,12 +4716,16 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
         const auto& spec = getVehicleSpec(car->kind);
         const Vec3 eye = driverSeatEyeLocal(car->kind);
         const float halfW = spec.halfWidth;
-        const float speedRatio = clampf(car->speed() / std::max(1.0f, spec.maxForwardSpeed), 0.0f, 1.0f);
+        const float rpmRatio = clampf((car->engineRpm - 880.0f) / 7270.0f, 0.0f, 1.0f);
+        const float stanceOffsetY = car->destroyed ? 0.0f
+                                  : ((car->stanceStyle == 1) ? -0.032f
+                                  : ((car->stanceStyle == 2) ? -0.048f
+                                  : ((car->stanceStyle == 3) ?  0.095f : 0.0f)));
 
         rlPushMatrix();
         rlTranslatef(camera.position.x, camera.position.y, camera.position.z);
         rlScalef(kVmScale, kVmScale, kVmScale);
-        rlTranslatef(car->pos.x - camera.position.x, -camera.position.y, car->pos.z - camera.position.z);
+        rlTranslatef(car->pos.x - camera.position.x, car->posY + stanceOffsetY - camera.position.y, car->pos.z - camera.position.z);
         rlRotatef(-car->heading * kRadToDeg, 0.0f, 1.0f, 0.0f);
         rlRotatef(car->bodyPitch * kRadToDeg, 0.0f, 0.0f, 1.0f);
         rlRotatef(car->bodyRoll * kRadToDeg, 1.0f, 0.0f, 0.0f);
@@ -4635,9 +4750,9 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                         {0.12f, 0.105f, 0.28f}, polyDark, 0.48f, 0.20f, 0.0f, MatKind::Standard);
         drawModelStyled(cubeModel_, {binX - 0.058f, binY - 0.004f, eye.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.012f, 0.076f, 0.24f}, Color{10, 16, 26, 255}, 0.15f, 0.1f, 0.4f, MatKind::EmissiveGlow);
-        const Color rpmCol = (speedRatio > 0.82f) ? Color{255, 68, 58, 255}
-                           : ((speedRatio > 0.48f) ? Color{72, 238, 152, 255} : Color{68, 206, 255, 255});
-        const float barW = std::max(0.025f, 0.21f * speedRatio);
+        const Color rpmCol = (rpmRatio > 0.82f) ? Color{255, 68, 58, 255}
+                           : ((rpmRatio > 0.48f) ? Color{72, 238, 152, 255} : Color{68, 206, 255, 255});
+        const float barW = std::max(0.025f, 0.21f * rpmRatio);
         drawModelStyled(cubeModel_, {binX - 0.063f, binY + 0.012f, eye.z - 0.105f + barW * 0.5f},
                         {0.0f, 1.0f, 0.0f}, 0.0f, {0.010f, 0.018f, barW},
                         rpmCol, 0.1f, 0.0f, 2.4f, MatKind::EmissiveGlow);

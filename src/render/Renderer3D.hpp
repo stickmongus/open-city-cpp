@@ -69,8 +69,8 @@ private:
     void drawRoadNetwork(const GameWorld& world, const Vec2& focus);
     void drawBuildingsAndParks(const GameWorld& world, const Vec2& focus, bool shadowPass);
     void drawLandmarkStructures(const GameWorld& world, const Vec2& focus, bool shadowPass);
-    void drawTreesAndProps(const GameWorld& world, const Vec2& focus, bool shadowPass);
-    void drawVehicle3D(const Vehicle& v, bool nightMode, bool shadowPass, bool cockpitHoodOnly = false);
+    void drawTreesAndProps(const GameWorld& world, const Vec2& focus, const Vec3& camPos, bool shadowPass);
+    void drawVehicle3D(const Vehicle& v, float groundSurfY, bool nightMode, bool shadowPass, bool cockpitHoodOnly = false);
     void drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D& camera, float adsBlend);
     void drawCharacter3D(const Vec2& pos, float groundY, float yaw, float animPhase,
                          ColorRGBA top, ColorRGBA bottom, ColorRGBA skin,
@@ -88,6 +88,8 @@ private:
         Model body{};
         Model glass{};
         Model trim{};
+        Model stripes{};
+        bool hasStripes = false;
     };
 
     bool initialized_ = false;

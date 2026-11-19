@@ -1,4 +1,5 @@
 #include "gameplay/GameWorld.hpp"
+#include "render/GeneratedRealisticAssets.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -1372,6 +1373,220 @@ void testRustPhysicsEngineStuntJumpsAndRealisticWorld() {
     ++gTestsPassed;
 }
 
+void testBugfixRegressionsV091() {
+    oc::GameWorld world(20261119ULL);
+
+    // 1. Verify ZERO trees or street props overlap any of the 6 Stunt Ramps or Sunset Pier walkway
+    auto overlapsAnyRampOrPier = [](const oc::Vec2& p) -> bool {
+        if (p.x < -342.0f && std::abs(p.z) < 8.2f) return true;
+        for (const auto& r : oc::generated::kCityStuntRamps) {
+            const float dx = p.x - r.centerX;
+            const float dz = p.z - r.centerZ;
+            const float along = dx * r.dirX + dz * r.dirZ;
+            const float across = -dx * r.dirZ + dz * r.dirX;
+            if (std::abs(along) <= r.length * 0.5f + 1.8f &&
+                std::abs(across) <= r.width * 0.5f + 1.2f) {
+                return true;
+            }
+        }
+        return false;
+    };
+    for (const auto& t : world.city().trees()) {
+        ASSERT_TRUE(!overlapsAnyRampOrPier(t.pos));
+    }
+    for (const auto& sp : world.city().streetProps()) {
+        ASSERT_TRUE(!overlapsAnyRampOrPier(sp.pos));
+    }
+
+    // Move all traffic & NPCs clear of the central test corridor
+    for (auto& v : world.vehicles()) {
+        v.pos = {-260.0f, -260.0f};
+        v.posY = 0.0f;
+        v.velY = 0.0f;
+        v.velocity = {0.0f, 0.0f};
+        v.hasNpcDriver = false;
+        v.isParked = true;
+        v.destroyed = false;
+    }
+    for (auto& n : world.npcs()) {
+        n.pos = {-260.0f, 260.0f};
+        n.velocity = {0.0f, 0.0f};
+    }
+
+    // 2. Verify 3D firearm raycast hits an elevated vehicle (posY = 2.4m) at elevated height & misses underneath it
+    ASSERT_TRUE(!world.vehicles().empty());
+    const int testCarId = world.vehicles()[0].id;
+    auto getCar = [&]() -> oc::Vehicle* {
+        return world.findVehicleMutable(testCarId);
+    };
+
+    {
+        oc::Vehicle* car = getCar();
+        ASSERT_TRUE(car != nullptr);
+        car->kind = oc::VehicleKind::SportsCoupe;
+        car->health = 200.0f;
+        car->maxHealth = 200.0f;
+        car->pos = {22.0f, 0.0f};
+        car->posY = 2.4f;
+        car->velY = 0.0f;
+        car->airborne = true;
+        car->heading = 0.0f;
+        car->velocity = {0.0f, 0.0f};
+    }
+
+    world.player().pos = {0.0f, 0.0f};
+    world.player().posY = 0.0f;
+    world.player().velocity = {0.0f, 0.0f};
+    world.player().currentWeapon = oc::WeaponId::AssaultRifle;
+    auto& ar = world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)];
+    ar.owned = true;
+    ar.magAmmo = 30;
+    ar.reserveAmmo = 120;
+    world.player().fireCooldown = 0.0f;
+
+    // Shot A: straight at y = 0.50m underneath the elevated car -> MUST MISS!
+    oc::PlayerInput lowShot{};
+    lowShot.firstPerson = true;
+    lowShot.aimHeld = true;
+    lowShot.fireHeld = true;
+    lowShot.hasAimRay3D = true;
+    lowShot.aimRayOrigin = {0.0f, 0.50f, 0.0f};
+    lowShot.aimRayDir = {1.0f, 0.0f, 0.0f};
+    lowShot.aimYaw = 0.0f;
+    lowShot.aimPitch = 0.0f;
+    world.update(1.0f / 60.0f, lowShot);
+    ASSERT_TRUE(getCar() != nullptr && getCar()->health >= 199.9f);
+
+    // Shot B: straight at y = 2.95m through the elevated car chassis -> MUST HIT!
+    {
+        oc::Vehicle* car = getCar();
+        ASSERT_TRUE(car != nullptr);
+        car->pos = {22.0f, 0.0f};
+        car->posY = 2.4f;
+        car->velY = 0.0f;
+    }
+    world.player().fireCooldown = 0.0f;
+    oc::PlayerInput highShot = lowShot;
+    highShot.aimRayOrigin = {0.0f, 2.95f, 0.0f};
+    world.update(1.0f / 60.0f, highShot);
+    ASSERT_TRUE(getCar() != nullptr && getCar()->health < 199.0f);
+    ASSERT_TRUE(world.player().hitMarkerTimer > 0.0f);
+
+    // 3. Verify player roof landing support height uses elevated vehicle's v.posY
+    const auto& carSpec = oc::getVehicleSpec(oc::VehicleKind::SportsCoupe);
+    {
+        oc::Vehicle* car = getCar();
+        ASSERT_TRUE(car != nullptr);
+        car->pos = {0.0f, 0.0f};
+        car->posY = 1.50f;
+        car->velY = 0.0f;
+        car->airborne = true;
+        car->velocity = {0.0f, 0.0f};
+
+        world.player().pos = {0.0f, 0.0f};
+        world.player().posY = car->posY + 0.24f + carSpec.chassisHeight + 0.04f;
+        world.player().verticalVel = -3.5f;
+        world.player().onGround = false;
+    }
+    oc::PlayerInput landIn{};
+    world.update(1.0f / 60.0f, landIn);
+    world.update(1.0f / 60.0f, landIn);
+    ASSERT_TRUE(world.player().onGround);
+    ASSERT_TRUE(getCar() != nullptr &&
+                world.player().posY >= getCar()->posY + 0.24f + carSpec.chassisHeight - 0.06f);
+    ASSERT_TRUE(world.player().posY > 2.4f);
+
+    // 4. Verify airborne car (posY = 2.6m, 25 m/s) over civilian + hydrant neither kills NPC nor breaks hydrant,
+    //    and nearestEnterableVehicle() ignores cars > 2.2m above the player on the ground.
+    int civId = -1;
+    for (auto& n : world.npcs()) {
+        if (n.alive && n.role == oc::NpcRole::Civilian) {
+            civId = n.id;
+            n.pos = {10.0f, 0.0f};
+            n.velocity = {0.0f, 0.0f};
+            n.health = 100.0f;
+            break;
+        }
+    }
+    ASSERT_TRUE(civId >= 0);
+
+    std::size_t hydrantIdx = world.city().streetProps().size();
+    for (std::size_t i = 0; i < world.city().streetProps().size(); ++i) {
+        if (world.city().streetProps()[i].kind == oc::StreetPropKind::Hydrant) {
+            hydrantIdx = i;
+            break;
+        }
+    }
+    ASSERT_TRUE(hydrantIdx < world.city().streetProps().size());
+    {
+        auto& hydrant = world.city().streetProps()[hydrantIdx];
+        hydrant.broken = false;
+        hydrant.pos = {10.0f, 0.0f};
+        hydrant.homePos = {10.0f, 0.0f};
+        hydrant.posY = 0.0f;
+    }
+
+    {
+        oc::Vehicle* car = getCar();
+        ASSERT_TRUE(car != nullptr);
+        car->pos = {9.8f, 0.0f};
+        car->posY = 2.6f;
+        car->velY = 2.0f;
+        car->airborne = true;
+        car->velocity = {25.0f, 0.0f};
+        car->heading = 0.0f;
+    }
+    world.player().pos = {-40.0f, -40.0f};
+    world.player().posY = 0.0f;
+
+    oc::PlayerInput stepIn{};
+    world.update(1.0f / 60.0f, stepIn);
+    bool civSurvived = false;
+    for (const auto& n : world.npcs()) {
+        if (n.id == civId) {
+            civSurvived = (n.alive && n.health >= 99.9f);
+            break;
+        }
+    }
+    ASSERT_TRUE(civSurvived);
+    ASSERT_TRUE(!world.city().streetProps()[hydrantIdx].broken);
+
+    // Player standing directly below an elevated car (posY = 3.2m) must not be offered enter prompt
+    {
+        oc::Vehicle* car = getCar();
+        ASSERT_TRUE(car != nullptr);
+        car->pos = {0.0f, 0.0f};
+        car->posY = 3.2f;
+        car->velocity = {0.0f, 0.0f};
+    }
+    world.player().pos = {0.0f, 0.0f};
+    world.player().posY = 0.0f;
+    ASSERT_TRUE(world.nearestEnterableVehicle() == nullptr);
+
+    // 5. Verify a destroyed airborne vehicle falls under gravity back to the road surface
+    {
+        oc::Vehicle* car = getCar();
+        ASSERT_TRUE(car != nullptr);
+        car->destroyed = true;
+        car->pos = {0.0f, 0.0f};
+        car->posY = 4.0f;
+        car->velY = 0.0f;
+        car->airborne = true;
+        car->velocity = {0.0f, 0.0f};
+    }
+    for (int i = 0; i < 90; ++i) {
+        world.update(1.0f / 60.0f, stepIn);
+    }
+    {
+        oc::Vehicle* car = getCar();
+        ASSERT_TRUE(car != nullptr);
+        ASSERT_TRUE(car->posY <= world.surfaceHeightAt(car->pos) + 0.05f);
+        ASSERT_TRUE(!car->airborne);
+    }
+
+    ++gTestsPassed;
+}
+
 
 } // namespace
 
@@ -1392,6 +1607,7 @@ int main() {
     testExpandedWeaponsVehiclesSniperAndEmergency();
     testFullCustomizationStudioCharacterGunsmithVehicleHud();
     testRustPhysicsEngineStuntJumpsAndRealisticWorld();
+    testBugfixRegressionsV091();
 
     std::cout << "[PASS] All " << gTestsPassed << " Open City C++ simulation test suites succeeded!\n";
     return 0;

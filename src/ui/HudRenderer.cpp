@@ -1,4 +1,5 @@
 #include "ui/HudRenderer.hpp"
+#include "render/GeneratedRealisticAssets.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -520,6 +521,15 @@ void HudRenderer::drawRadarMinimap(const GameWorld& world, float cameraYaw, int 
                 DrawCircleV(pn, 4.3f, Color{10, 14, 20, 255});
                 DrawCircleV(pn, 3.1f, cCol);
             }
+        }
+    }
+
+    // Stunt Jump Ramps (6 engineered ramps across city & Sunset Pier)
+    for (const auto& ramp : generated::kCityStuntRamps) {
+        const Vector2 pr = projectToRadar({ramp.centerX, ramp.centerZ}, false);
+        if (pr.x > -1000.0f) {
+            DrawRectanglePro({pr.x, pr.y, 7.0f, 7.0f}, {3.5f, 3.5f}, 45.0f, Color{14, 16, 22, 245});
+            DrawRectanglePro({pr.x, pr.y, 4.8f, 4.8f}, {2.4f, 2.4f}, 45.0f, Color{255, 138, 36, 255});
         }
     }
 
@@ -1886,8 +1896,8 @@ void HudRenderer::drawCustomStudioModal(const GameWorld& world, int screenW, int
                     break;
                 }
                 case 4: {
-                    static constexpr const char* kEn[4] = {"Stock Height", "Street Lowered (-45mm)", "Slammed Camber (-82mm)", "Rally Lift (+95mm)"};
-                    static constexpr const char* kKo[4] = {"순정 차고", "스트리트 로우다운 (-45mm)", "슬램드 마이너스 캠버 (-82mm)", "오프로드 리프트업 (+95mm)"};
+                    static constexpr const char* kEn[4] = {"Stock Height", "Street Lowered (-32mm)", "Slammed Camber (-48mm)", "Rally Lift (+95mm)"};
+                    static constexpr const char* kKo[4] = {"순정 차고", "스트리트 로우다운 (-32mm)", "슬램드 마이너스 캠버 (-48mm)", "오프로드 리프트업 (+95mm)"};
                     std::snprintf(titleEn, sizeof(titleEn), "[5] Suspension Stance & Camber");
                     std::snprintf(titleKo, sizeof(titleKo), "[5] 서스펜션 차고 · 마이너스 캠버");
                     std::snprintf(valEn, sizeof(valEn), "%s", kEn[scIdx]);
@@ -2076,7 +2086,7 @@ void HudRenderer::drawHelpOverlay(const GameWorld& world, int screenW, int scree
 
     DrawRectangleRounded({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, Color{10, 15, 24, 198});
     DrawRectangleRoundedLinesEx({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, 1.2f, toRayColor(themeRgba, 125));
-    drawUiText(pickText("OPEN CITY C++ + RUST v0.9 - CONTROLS", "OPEN CITY C++ + RUST v0.9 - 조작 안내"),
+    drawUiText(pickText("OPEN CITY C++ + RUST v0.9.1 - CONTROLS", "OPEN CITY C++ + RUST v0.9.1 - 조작 안내"),
                30.0f, 24.0f, 18.5f, toRayColor(themeRgba, 255));
 
     const char* linesEn[11] = {

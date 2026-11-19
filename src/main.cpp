@@ -102,7 +102,7 @@ int main(int argc, char** argv) {
     }
 
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1440, 860, "Open City C++ + Rust v0.9.0 - 3D Open-World Sandbox");
+    InitWindow(1440, 860, "Open City C++ + Rust v0.9.1 - 3D Open-World Sandbox");
     SetExitKey(KEY_NULL); // Keep ESC free for menu/cursor release instead of instant quit
     SetTargetFPS(60);
 
@@ -171,6 +171,7 @@ int main(int argc, char** argv) {
         if (chosenCar != nullptr) {
             if (hasPosOverride) {
                 chosenCar->pos = {posOverrideX, posOverrideZ};
+                chosenCar->posY = world.surfaceHeightAt(chosenCar->pos);
             }
             if (initialYawOverride > -100.0f) {
                 chosenCar->heading = initialYawOverride;
@@ -679,7 +680,10 @@ int main(int argc, char** argv) {
             input.interactPressed =
                 IsKeyPressed(KEY_F) || (!hud.isPhoneOpen() && !hud.isCustomStudioOpen() && IsKeyPressed(KEY_E));
             input.aimHeld = wantPrecisionAim;
-            input.fireHeld = cursorLocked && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+            const bool suppressModalFire =
+                hud.isPhoneOpen() ||
+                (hud.isCustomStudioOpen() && hud.customTab() != 1 && hud.customTab() != 3);
+            input.fireHeld = cursorLocked && !suppressModalFire && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
             input.reloadPressed = IsKeyPressed(KEY_R);
             input.hornPressed = IsKeyPressed(KEY_G);
             input.abortMissionPressed = IsKeyPressed(KEY_BACKSPACE);
@@ -840,17 +844,29 @@ int main(int argc, char** argv) {
             }
             renderYaw = oc::wrapAngle(car->heading + cockpitRelYaw);
             camYaw = renderYaw;
-            renderPitch = oc::clampf(camPitch, -0.68f, 0.62f);
+            renderPitch = oc::clampf(camPitch + car->bodyPitch, -0.68f, 0.78f);
             viewDir = oc::directionFromYawPitch(renderYaw, renderPitch).normalized();
 
             const oc::Vec3 eyeLocal = oc::driverSeatEyeLocal(car->kind);
             const oc::Vec2 carFwd = oc::forwardFromHeading(car->heading);
             const oc::Vec2 carRight = oc::rightFromHeading(car->heading);
-            const float seatY = car->posY + eyeLocal.y + eyeLocal.x * std::sin(car->bodyPitch) - eyeLocal.z * std::sin(car->bodyRoll);
+            const float stanceOffsetY = car->destroyed ? 0.0f
+                                      : ((car->stanceStyle == 1) ? -0.032f
+                                      : ((car->stanceStyle == 2) ? -0.048f
+                                      : ((car->stanceStyle == 3) ?  0.095f : 0.0f)));
+            const float cRoll = std::cos(car->bodyRoll);
+            const float sRoll = std::sin(car->bodyRoll);
+            const float cPitch = std::cos(car->bodyPitch);
+            const float sPitch = std::sin(car->bodyPitch);
+            const float y1 = eyeLocal.y * cRoll - eyeLocal.z * sRoll;
+            const float z1 = eyeLocal.y * sRoll + eyeLocal.z * cRoll;
+            const float x2 = eyeLocal.x * cPitch - y1 * sPitch;
+            const float y2 = eyeLocal.x * sPitch + y1 * cPitch;
+            const float z2 = z1;
             finalCamPos = {
-                car->pos.x + carFwd.x * eyeLocal.x + carRight.x * eyeLocal.z,
-                seatY,
-                car->pos.z + carFwd.z * eyeLocal.x + carRight.z * eyeLocal.z
+                car->pos.x + carFwd.x * x2 + carRight.x * z2,
+                car->posY + stanceOffsetY + y2,
+                car->pos.z + carFwd.z * x2 + carRight.z * z2
             };
             targetFov = 65.0f + oc::clampf(car->speed() * 0.22f, 0.0f, 9.0f) + (car->nitroActive ? 3.5f : 0.0f);
             if (!camInitialized) {
@@ -902,8 +918,8 @@ int main(int argc, char** argv) {
             // Showroom 3/4 Vehicle Custom Studio Camera (framed on right half, clear of left Studio panel!)
             const float orbitAng = oc::wrapAngle(camYaw + 0.64f);
             const oc::Vec2 oDir = oc::forwardFromHeading(orbitAng);
-            const oc::Vec3 subj{studioTargetCar->pos.x, 0.70f, studioTargetCar->pos.z};
-            finalCamPos = {subj.x + oDir.x * 5.65f, 1.52f, subj.z + oDir.z * 5.65f};
+            const oc::Vec3 subj{studioTargetCar->pos.x, studioTargetCar->posY + 0.70f, studioTargetCar->pos.z};
+            finalCamPos = {subj.x + oDir.x * 5.65f, studioTargetCar->posY + 1.52f, subj.z + oDir.z * 5.65f};
 
             const oc::Vec2 d2 = (oc::Vec2{subj.x - finalCamPos.x, subj.z - finalCamPos.z}).normalized();
             const oc::Vec2 scrRight{-d2.z, d2.x};
@@ -996,8 +1012,10 @@ int main(int argc, char** argv) {
         // Process synthesized audio events, vehicle engine/drift loops & distance-attenuated emergency sirens
         audio.playEvents(world.consumeAudioEvents());
         if (const oc::Vehicle* car = world.playerVehicle()) {
-            const float ratio = car->speed() / oc::getVehicleSpec(car->kind).maxForwardSpeed;
-            audio.updateVehicleLoops(true, ratio, car->isDrifting, car->nitroActive);
+            const float speedRatio = oc::clampf(car->speed() / std::max(1.0f, oc::getVehicleSpec(car->kind).maxForwardSpeed), 0.0f, 1.0f);
+            const float rpmRatio = oc::clampf((car->engineRpm - 880.0f) / 7270.0f, 0.0f, 1.0f);
+            const float enginePitchRatio = oc::clampf(rpmRatio * 0.80f + speedRatio * 0.20f, 0.0f, 1.0f);
+            audio.updateVehicleLoops(true, enginePitchRatio, car->isDrifting, car->nitroActive);
         } else {
             audio.updateVehicleLoops(false, 0.0f, false, false);
         }

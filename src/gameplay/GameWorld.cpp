@@ -662,7 +662,7 @@ float GameWorld::computePlayerSupportHeight(const Vec2& pos, float currentY, Vec
         if ((v.pos - pos).lengthSq() > 16.0f) continue;
         Vec2 mtv{};
         if (intersectOBB(pBox, v.obb(), mtv)) {
-            const float topY = 0.24f + getVehicleSpec(v.kind).chassisHeight;
+            const float topY = v.posY + 0.24f + getVehicleSpec(v.kind).chassisHeight;
             if (currentY >= topY - 0.38f && topY > supportY) {
                 supportY = topY;
                 if (platformCarryVel) {
@@ -897,6 +897,7 @@ const Vehicle* GameWorld::nearestEnterableVehicle(float maxRange) const {
     float bestDist = maxRange;
     for (const auto& v : vehicles_) {
         if (v.destroyed) continue;
+        if (std::abs(v.posY - player_.posY) > 2.2f) continue;
         const float d = (v.pos - player_.pos).length();
         if (d < bestDist) {
             bestDist = d;
@@ -1413,9 +1414,10 @@ bool GameWorld::tryEnterOrExitVehicle() {
         }
 
         player_.pos = exitPos;
-        player_.posY = surfaceHeightAt(exitPos);
-        player_.verticalVel = 0.0f;
-        player_.onGround = true;
+        const float exitSurfY = surfaceHeightAt(exitPos);
+        player_.posY = std::max(exitSurfY, car->posY);
+        player_.verticalVel = (player_.posY > exitSurfY + 0.05f) ? car->velY : 0.0f;
+        player_.onGround = (player_.posY <= exitSurfY + 0.05f);
         player_.velocity = car->velocity * 0.25f;
         player_.facingYaw = car->heading;
         pushAudio(AudioEventType::CarDoor, 0.85f);
@@ -1427,6 +1429,7 @@ bool GameWorld::tryEnterOrExitVehicle() {
     float bestDist = 4.6f;
     for (auto& v : vehicles_) {
         if (v.destroyed) continue;
+        if (std::abs(v.posY - player_.posY) > 2.2f) continue;
         const float d = (v.pos - player_.pos).length();
         if (d < bestDist) {
             bestDist = d;
@@ -1565,6 +1568,7 @@ bool GameWorld::buyOrSummonVehicle(VehicleKind kind) {
     delivered.id = nextVehicleId_++;
     delivered.kind = kind;
     delivered.pos = spawnPos;
+    delivered.posY = surfaceHeightAt(spawnPos);
     delivered.heading = spawnHeading;
     delivered.isParked = true;
     delivered.hasNpcDriver = false;
@@ -2954,10 +2958,14 @@ void GameWorld::updatePlayerOnFoot(float dt, const PlayerInput& input) {
     player_.verticalVel -= 18.5f * dt;
     player_.posY += player_.verticalVel * dt;
 
-    // Push player cleanly out of vehicle sides UNLESS high enough to land/stand on the vehicle roof!
+    // Push player cleanly out of vehicle sides UNLESS high enough to land/stand on the vehicle roof
+    // or cleanly underneath an airborne jumping vehicle!
     for (const auto& v : vehicles_) {
         const auto& spec = getVehicleSpec(v.kind);
-        const float carTopY = 0.24f + spec.chassisHeight;
+        const float carTopY = v.posY + 0.24f + spec.chassisHeight;
+        if (player_.posY + 1.65f < v.posY) {
+            continue; // Airborne vehicle flying safely overhead!
+        }
         const OBB2D playerBox{player_.pos, {0.42f, 0.42f}, 0.0f};
         Vec2 mtv{};
         if (intersectOBB(playerBox, v.obb(), mtv)) {
@@ -3081,11 +3089,12 @@ GameWorld::RayHit3D GameWorld::traceWorldRay3D(const Vec3& origin, const Vec3& d
         }
     }
 
-    // 4. 3D Vehicle OBBs
+    // 4. 3D Vehicle OBBs (elevated by v.posY on ramps, pier, and mid-air stunt jumps!)
     for (auto& v : vehicles_) {
         if (v.id == player_.drivingVehicleId) continue;
         const auto& vSpec = getVehicleSpec(v.kind);
-        const float tVeh = intersectRayOBB3D(origin, dir, result.dist, v.obb(), 0.12f, 0.26f + vSpec.chassisHeight);
+        const float tVeh = intersectRayOBB3D(origin, dir, result.dist, v.obb(),
+                                             v.posY + 0.12f, v.posY + 0.26f + vSpec.chassisHeight);
         if (tVeh >= 0.0f && tVeh < result.dist) {
             result.dist = tVeh;
             result.kind = RayHit3D::Kind::Vehicle;
@@ -3931,8 +3940,20 @@ void GameWorld::updateVehicles(float dt) {
             v.sirenActive = false;
             v.velocity *= std::max(0.0f, 1.0f - 3.5f * dt);
             v.pos += v.velocity * dt;
+            const float groundY = surfaceHeightAt(v.pos);
+            if (v.posY > groundY || v.velY != 0.0f) {
+                v.velY -= 19.5f * dt;
+                v.posY += v.velY * dt;
+                if (v.posY <= groundY) {
+                    v.posY = groundY;
+                    v.velY = (std::abs(v.velY) > 2.2f) ? (-v.velY * 0.25f) : 0.0f;
+                    v.airborne = false;
+                } else {
+                    v.airborne = true;
+                }
+            }
             if (v.destroyedTimer < 5.5f && rng_.chance(0.4f)) {
-                emitParticles({v.pos.x, 1.0f, v.pos.z}, 1, {65, 62, 60, 210}, 2.2f, 0.48f, 0.65f);
+                emitParticles({v.pos.x, v.posY + 1.0f, v.pos.z}, 1, {65, 62, 60, 210}, 2.2f, 0.48f, 0.65f);
             }
             continue;
         }
@@ -4108,9 +4129,10 @@ void GameWorld::explodeVehicle(Vehicle& v) {
         player_.drivingVehicleId = -1;
         player_.pos = v.pos - rightFromHeading(v.heading) * 2.4f;
         city_.resolveCircleWorld(player_.pos, 0.45f);
-        player_.posY = surfaceHeightAt(player_.pos);
-        player_.onGround = true;
-        player_.verticalVel = 0.0f;
+        const float ejSurf = surfaceHeightAt(player_.pos);
+        player_.posY = std::max(ejSurf, v.posY);
+        player_.onGround = (player_.posY <= ejSurf + 0.05f);
+        player_.verticalVel = player_.onGround ? 0.0f : v.velY;
         applyDamageToPlayer(45.0f);
     }
 
@@ -4119,17 +4141,18 @@ void GameWorld::explodeVehicle(Vehicle& v) {
     }
 
     pushAudio(AudioEventType::Explosion, 1.0f);
-    emitParticles({v.pos.x, 1.1f, v.pos.z}, 34, {255, 132, 36, 255}, 13.5f, 0.55f, 0.85f);
-    emitParticles({v.pos.x, 1.6f, v.pos.z}, 20, {72, 68, 65, 235}, 8.0f, 0.65f, 1.25f);
+    emitParticles({v.pos.x, v.posY + 1.1f, v.pos.z}, 34, {255, 132, 36, 255}, 13.5f, 0.55f, 0.85f);
+    emitParticles({v.pos.x, v.posY + 1.6f, v.pos.z}, 20, {72, 68, 65, 235}, 8.0f, 0.65f, 1.25f);
     triggerCivilianPanicNear(v.pos, 42.0f);
 
-    // Blast radius damage to nearby NPCs
+    // 3D blast radius damage to nearby NPCs (takes vehicle elevation v.posY into account)
     for (auto& npc : npcs_) {
         if (!npc.alive) continue;
         const Vec2 d = npc.pos - v.pos;
-        const float len = d.length();
-        if (len < 9.5f) {
-            damageNpc(npc, (1.0f - len / 9.5f) * 125.0f, d.normalized());
+        const float npcGroundY = surfaceHeightAt(npc.pos);
+        const float dist3D = std::hypot(d.length(), v.posY - npcGroundY);
+        if (dist3D < 9.5f) {
+            damageNpc(npc, (1.0f - dist3D / 9.5f) * 125.0f, d.normalized());
         }
     }
 }
@@ -4358,11 +4381,12 @@ void GameWorld::updateNpcs(float dt) {
             npc.muzzleFlashTimer = std::max(0.0f, npc.muzzleFlashTimer - dt);
         }
 
-        // Vehicle run-over check
+        // Vehicle run-over check (only when vehicle is within vertical height of the NPC)
         for (const auto& v : vehicles_) {
             if (v.speed() < 6.5f) continue;
             if (v.isPolice && !v.isPlayerDriving && npc.role == NpcRole::Police) continue;
             if ((v.pos - npc.pos).lengthSq() > 14.0f) continue;
+            if (v.posY - surfaceHeightAt(npc.pos) > 1.75f) continue;
             const OBB2D npcBox{npc.pos, {0.42f, 0.42f}, 0.0f};
             Vec2 mtv{};
             if (intersectOBB(npcBox, v.obb(), mtv)) {
@@ -4443,7 +4467,8 @@ void GameWorld::updateNpcs(float dt) {
                 const float spread = rng_.range(-spreadAmt, spreadAmt);
                 const Vec2 shotDir = forwardFromHeading(npc.facingYaw + spread);
                 const Vec2 end2D = npc.pos + shotDir * distToPlayer;
-                const float targetY = (player_.drivingVehicleId >= 0) ? 0.92f : (player_.posY + 1.12f);
+                const Vehicle* pCarRef = playerVehicle();
+                const float targetY = (pCarRef != nullptr) ? (pCarRef->posY + 0.92f) : (player_.posY + 1.12f);
 
                 tracers_.push_back(BulletTracer{
                     {npc.pos.x, 1.32f, npc.pos.z},
@@ -4496,9 +4521,11 @@ void GameWorld::updateNpcs(float dt) {
                         const float spread = rng_.range(-0.085f, 0.085f);
                         const Vec2 shotDir = forwardFromHeading(npc.facingYaw + spread);
                         const Vec2 end2D = npc.pos + shotDir * distToPlayer;
+                        const Vehicle* pCarRef = playerVehicle();
+                        const float targetY = (pCarRef != nullptr) ? (pCarRef->posY + 0.95f) : (player_.posY + 1.15f);
                         tracers_.push_back(BulletTracer{
                             {npc.pos.x, 1.28f, npc.pos.z},
-                            {end2D.x, (player_.drivingVehicleId >= 0) ? 0.95f : (player_.posY + 1.15f), end2D.z},
+                            {end2D.x, targetY, end2D.z},
                             {255, 145, 92, 255},
                             0.07f,
                             0.07f
@@ -4836,15 +4863,16 @@ void GameWorld::updatePickupsAndProps(float dt) {
                     emitParticles({geyserPos.x, 1.2f + rng_.range(0.0f, 2.6f), geyserPos.z},
                                   2, {138, 224, 255, 225}, 6.8f, 0.24f, 0.48f);
                 }
-                // Upward hydro-jet lift on any vehicle or player passing over the gushing hydrant pipe!
+                // Upward hydro-jet lift on any vehicle or player passing through the 4.5m hydrant column!
                 for (auto& v : vehicles_) {
-                    if (!v.destroyed && (v.pos - geyserPos).lengthSq() < 2.1f * 2.1f) {
+                    if (!v.destroyed && v.posY < 4.5f && (v.pos - geyserPos).lengthSq() < 2.1f * 2.1f) {
                         v.velY = std::max(v.velY, 6.2f);
                         v.airborne = true;
                         v.pitchVel += 0.18f;
                     }
                 }
-                if (player_.drivingVehicleId < 0 && (player_.pos - geyserPos).lengthSq() < 1.35f * 1.35f) {
+                if (player_.drivingVehicleId < 0 && player_.posY < 4.5f &&
+                    (player_.pos - geyserPos).lengthSq() < 1.35f * 1.35f) {
                     player_.verticalVel = std::max(player_.verticalVel, 8.2f);
                     player_.onGround = false;
                 }
@@ -4853,8 +4881,10 @@ void GameWorld::updatePickupsAndProps(float dt) {
         }
 
         const float minBreakSpeed = (prop.kind == StreetPropKind::StreetLight) ? 11.0f : 4.5f;
+        const float maxPropClearance = (prop.kind == StreetPropKind::StreetLight) ? 3.2f : 1.35f;
         for (auto& v : vehicles_) {
             if (v.speed() < minBreakSpeed) continue;
+            if (v.posY - surfaceHeightAt(prop.pos) > maxPropClearance) continue;
             if ((v.pos - prop.pos).lengthSq() < 6.2f) {
                 prop.broken = true;
                 prop.brokenTimer = 0.0f;

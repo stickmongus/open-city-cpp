@@ -1,5 +1,7 @@
 #include "world/CityMap.hpp"
+#include "render/GeneratedRealisticAssets.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -579,6 +581,55 @@ void CityMap::generate(std::uint64_t seed) {
         "미션: 항구 라이벌 갱단 소탕",
         {255, 128, 48, 255}
     });
+
+    // Post-pass spatial clearance filter: keep stunt ramps, Sunset Pier, Ferris wheel,
+    // South Beach lifeguard tower, and POI coronas 100% clear of obstructing trees & street props!
+    auto overlapsClearanceZone = [&](const Vec2& p, bool checkPois) -> bool {
+        // 1) All 6 engineered 3D stunt jump ramps (with generous approach/landing margin)
+        for (const auto& ramp : generated::kCityStuntRamps) {
+            const Vec2 rel{p.x - ramp.centerX, p.z - ramp.centerZ};
+            const float along = rel.x * ramp.dirX + rel.z * ramp.dirZ;
+            const float across = -rel.x * ramp.dirZ + rel.z * ramp.dirX;
+            if (std::abs(along) <= ramp.length * 0.5f + 2.6f &&
+                std::abs(across) <= ramp.width * 0.5f + 2.0f) {
+                return true;
+            }
+        }
+        // 2) Sunset Pier entrance & wooden ocean boardwalk (x < -342, |z| < 8.8)
+        if (p.x < -342.0f && std::abs(p.z) < 8.8f) {
+            return true;
+        }
+        // 3) Sunset Pier Ferris Wheel boarding platform (centered at {-370, -22})
+        if (p.x >= -378.0f && p.x <= -362.0f && p.z >= -31.5f && p.z <= -12.5f) {
+            return true;
+        }
+        // 4) South Beach Lifeguard Tower (centered at {-372, +26})
+        if ((p - Vec2{-372.0f, 26.0f}).lengthSq() < 4.8f * 4.8f) {
+            return true;
+        }
+        // 5) POI interaction coronas
+        if (checkPois) {
+            for (const auto& poi : pois_) {
+                const float r = poi.radius * 0.85f;
+                if ((p - poi.pos).lengthSq() < r * r) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    trees_.erase(
+        std::remove_if(trees_.begin(), trees_.end(),
+                       [&](const TreeProp& t) { return overlapsClearanceZone(t.pos, true); }),
+        trees_.end());
+    streetProps_.erase(
+        std::remove_if(streetProps_.begin(), streetProps_.end(),
+                       [&](const StreetProp& sp) {
+                           const bool checkPois = (sp.kind != StreetPropKind::FuelPump);
+                           return overlapsClearanceZone(sp.pos, checkPois);
+                       }),
+        streetProps_.end());
 
     for (auto& sp : streetProps_) {
         sp.homePos = sp.pos;
