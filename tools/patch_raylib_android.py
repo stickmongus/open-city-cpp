@@ -46,10 +46,17 @@ def main() -> int:
         ],
     )
 
-    # 2) src/platforms/rcore_android.c: request EGL ES 3.0 context & 24-bit depth buffer
+    # 2) src/platforms/rcore_android.c:
+    #    - avoid forcing portrait when InitWindow(0, 0) is used with sensorLandscape
+    #    - request EGL ES 3.0 context & 24-bit depth buffer
+    #    - cap high-DPI phone/tablet framebuffer short edge to 840px (exact native aspect, zero black bars, 60 FPS & thumb-sized HUD)
     patch_file(
         raylib_root / "src" / "platforms" / "rcore_android.c",
         [
+            (
+                "    if (CORE.Window.screen.width <= CORE.Window.screen.height)",
+                "    if (CORE.Window.screen.width > 0 && CORE.Window.screen.width <= CORE.Window.screen.height)",
+            ),
             (
                 "        EGL_DEPTH_SIZE, 16,         // Depth buffer size (Required to use Depth testing!)",
                 "        EGL_DEPTH_SIZE, 24,         // 24-bit depth buffer for large open-world draw distance",
@@ -57,6 +64,21 @@ def main() -> int:
             (
                 "        EGL_CONTEXT_CLIENT_VERSION, 2,",
                 "        EGL_CONTEXT_CLIENT_VERSION, (rlGetVersion() == RL_OPENGL_ES_30)? 3 : 2,",
+            ),
+            (
+                "    SetupFramebuffer(CORE.Window.display.width, CORE.Window.display.height);",
+                "    if ((CORE.Window.screen.width == 0 || CORE.Window.screen.height == 0) &&\n"
+                "        CORE.Window.display.width > 0 && CORE.Window.display.height > 0)\n"
+                "    {\n"
+                "        int minDim = (CORE.Window.display.width < CORE.Window.display.height)? CORE.Window.display.width : CORE.Window.display.height;\n"
+                "        if (minDim > 840)\n"
+                "        {\n"
+                "            float scale = 840.0f/(float)minDim;\n"
+                "            CORE.Window.screen.width = (int)((float)CORE.Window.display.width*scale + 0.5f);\n"
+                "            CORE.Window.screen.height = (int)((float)CORE.Window.display.height*scale + 0.5f);\n"
+                "        }\n"
+                "    }\n"
+                "    SetupFramebuffer(CORE.Window.display.width, CORE.Window.display.height);",
             ),
         ],
     )

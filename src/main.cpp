@@ -539,8 +539,22 @@ int main(int argc, char** argv) {
         return 0;
     };
 
+    float backExitTimer = 0.0f;
+
     while (!WindowShouldClose()) {
         const float frameDt = std::min(GetFrameTime(), 0.05f);
+        if (backExitTimer > 0.0f) {
+            backExitTimer = std::max(0.0f, backExitTimer - frameDt);
+        }
+        if (kIsAndroid && !IsWindowFocused()) {
+            touch.resetState();
+            audio.updateVehicleLoops(false, 0.0f, false, false);
+            audio.updatePoliceSiren(0.0f);
+            BeginDrawing();
+            ClearBackground(BLACK);
+            EndDrawing();
+            continue;
+        }
         const int screenW = GetScreenWidth();
         const int screenH = GetScreenHeight();
         const bool anyModalOpen = hud.isShopMenuOpen() || hud.isPhoneOpen() || hud.isCustomStudioOpen();
@@ -558,10 +572,19 @@ int main(int argc, char** argv) {
         if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_BACK)) {
             if (hud.isShopMenuOpen()) {
                 hud.setShopMenuOpen(false);
+                backExitTimer = 0.0f;
             } else if (hud.isPhoneOpen()) {
                 hud.setPhoneOpen(false);
+                backExitTimer = 0.0f;
             } else if (hud.isCustomStudioOpen()) {
                 hud.setCustomStudioOpen(false);
+                backExitTimer = 0.0f;
+            } else if (kIsAndroid && IsKeyPressed(KEY_BACK)) {
+                if (backExitTimer > 0.0f) {
+                    break;
+                }
+                backExitTimer = 2.4f;
+                hud.showSystemToast("Press Back again to exit", "한 번 더 누르면 게임이 종료됩니다");
             } else if (!mobileUiMode && IsKeyPressed(KEY_ESCAPE)) {
                 cursorLocked = !cursorLocked;
                 if (cursorLocked) {

@@ -9,7 +9,9 @@ OUT_DIR="${OUT_DIR:-${ROOT_DIR}/build-android}"
 ANDROID_API="${ANDROID_API:-24}"
 ANDROID_TARGET_SDK="${ANDROID_TARGET_SDK:-34}"
 ANDROID_ABIS="${ANDROID_ABIS:-arm64-v8a armeabi-v7a}"
-APK_OUTPUT="${APK_OUTPUT:-${OUT_DIR}/OpenCity-Android-v1.1.0.apk}"
+ANDROID_VERSION_NAME="${ANDROID_VERSION_NAME:-1.1.0}"
+ANDROID_VERSION_CODE="${ANDROID_VERSION_CODE:-110}"
+APK_OUTPUT="${APK_OUTPUT:-${OUT_DIR}/OpenCity-Android-v${ANDROID_VERSION_NAME}.apk}"
 
 ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
 if [[ ! -d "${ANDROID_SDK_ROOT}" ]]; then
@@ -38,6 +40,7 @@ if [[ ! -f "${ANDROID_JAR}" ]]; then
 fi
 
 echo "=== Open City Android APK Build ==="
+echo "Version     : ${ANDROID_VERSION_NAME} (code ${ANDROID_VERSION_CODE})"
 echo "SDK         : ${ANDROID_SDK_ROOT}"
 echo "NDK         : ${ANDROID_NDK_HOME}"
 echo "Build-Tools : ${BUILD_TOOLS_DIR}"
@@ -47,8 +50,9 @@ echo "ABIs        : ${ANDROID_ABIS}"
 mkdir -p "${OUT_DIR}/staging/assets/fonts" "${OUT_DIR}/staging/lib" "${OUT_DIR}/compiled_res" "${OUT_DIR}/java_gen" "${OUT_DIR}/java_obj" "${OUT_DIR}/dex"
 rm -f "${OUT_DIR}/base-unaligned.apk" "${OUT_DIR}/base-aligned.apk"
 
-# 1) Generate launcher icons if not already generated
+# 1) Generate launcher icons & sync compact Korean glyph table for zero missing Hangul on mobile
 python3 "${ROOT_DIR}/tools/gen_android_icons.py"
+python3 "${ROOT_DIR}/tools/gen_korean_glyphs.py"
 
 # 2) Bundle crisp Korean TrueType font into APK assets/fonts/korean.ttf
 FONT_SRC="${OPEN_CITY_ANDROID_FONT:-}"
@@ -101,6 +105,8 @@ done
     -o "${OUT_DIR}/base-unaligned.apk" \
     -I "${ANDROID_JAR}" \
     --manifest "${ROOT_DIR}/android/AndroidManifest.xml" \
+    --version-code "${ANDROID_VERSION_CODE}" \
+    --version-name "${ANDROID_VERSION_NAME}" \
     -A "${OUT_DIR}/staging/assets" \
     --java "${OUT_DIR}/java_gen" \
     "${OUT_DIR}/compiled_res/res.zip" \
