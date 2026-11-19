@@ -1,44 +1,62 @@
-# Open City C++ + Rust (`open-city-cpp`) — v1.0.0
+# Open City C++ + Rust (`open-city-cpp`) — v1.1.0
 
-실제 GTA 시리즈처럼 **모던 C++20 + Rust (`#![no_std]` 네이티브 물리 커널) + Python 3 (3D CAD 에셋 생성기) + OpenGL 3.3 (`raylib 5.5` + 커스텀 GLSL 330 Cook-Torrance GGX PBR 셰이더)** 폴리글랏 아키텍처로 제작된 **3D 1인칭·3인칭 오픈월드 시티 액션 & 풀 커스터마이징 샌드박스 게임**입니다.
+실제 GTA 시리즈처럼 **모던 C++20 + Rust (`#![no_std]` 네이티브 물리 커널) + Python 3 (3D CAD 에셋 생성기) + OpenGL 3.3 / OpenGL ES 3.0 (`raylib 5.5` + 커스텀 Cook-Torrance GGX PBR 셰이더)** 폴리글랏 아키텍처로 제작된 **크로스플랫폼(Android · Windows · Linux) 3D 1인칭·3인칭 오픈월드 시티 액션 & 풀 커스터마이징 샌드박스 게임**입니다.
 
-별도의 외부 에셋 폴더나 런타임(VC++ / Rust 런타임) 설치 없이 **단일 `open_city.exe` 실행 파일 하나만으로** Windows 10/11에서 즉시 실행되며, Windows 기본 한글 폰트(`맑은 고딕`)를 통해 현대 한글 11,172자 전체를 깨짐 없이 렌더링합니다.
-
----
-
-## 바로 플레이하기 (Windows `.exe` 다운로드)
-
-컴파일러 설치 없이 바로 플레이하려면 GitHub 자동 빌드 결과물을 내려받으세요:
-
-1. 리포지토리 우측 **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 페이지로 이동합니다.
-2. 최신 버전(**`v1.0.0`**)의 **`OpenCity-Windows-x64.zip`** 파일을 다운로드하고 압축을 풉니다.
-3. **`open_city.exe`** 를 더블클릭하면 바로 게임이 시작됩니다!
+- **Android (`.apk`)**: 정식 RSA-4096 v1/v2/v3 서명된 유니버설 APK(`arm64-v8a` + `armeabi-v7a`) 하나로 스마트폰·태블릿에서 가로 전체화면 & 10-포인트 멀티터치로 즉시 실행됩니다. (내장 나눔고딕 한글 폰트 포함)
+- **Windows (`.exe`)**: 별도의 외부 에셋 폴더나 런타임(VC++ / Rust) 설치 없이 단일 `open_city.exe` 실행 파일 하나로 Windows 10/11에서 즉시 실행됩니다.
 
 ---
 
-## 주요 기능 (v1.0.0 Ultra-Detail 오픈월드 리얼리즘 완성판)
+## 바로 플레이하기 (Android `.apk` / Windows `.exe` 다운로드)
 
-* **v1.0.0 Ultra-Detail 6대 핵심 디테일 업그레이드**:
-  * **유기적 조각 캐릭터**: 둥근 두개골·턱선·귀·코·눈동자·눈썹·입(도주 시 패닉 표정)·자연스러운 둥근 헤어 돔, 무릎/팔꿈치 관절, 투톤 스니커즈, 둥근 어깨, 손목시계, 경찰 무전기/파우치 & SWAT 탄창 파우치/안테나!
-  * **초정밀 자연 식생 & 센트럴 파크**: 4단 곡선 야자수·코코넛·8개 아치형 야자잎, 다층 수관·벚꽃/자카란다/단풍 가로수, 센트럴 파크 십자 산책로·다단 분수대 6갈래 포물선 물줄기·수중 야간 조명·원형 꽃밭·빈티지 글로브 가로등!
-  * **고밀도 도시 옥상·네온·소품**: 옥상 회전 HVAC 냉각팬·뉴욕식 목재 물탱크·위성 안테나·수직 네온 블레이드 간판, 도로명 표지판·실시간 신호등 연동 보행자 신호기(WALK/STOP)·야간 가로등 조명 콘·소화전 은색 노즐·반사 라바콘!
-  * **차량 외장 & 1인칭 운전석/우천 와이퍼**: 사이드미러 지지대/방향지시 LED·샤크핀 GPS 안테나·측면 휀더 루버·니트로 적열 배기구·백색 후진등·상단 제3 브레이크등(CHMSL)·빗길 후륜 물보라 미스트·파손 스파크, 그리고 **24세그먼트 원형 스티어링 휠·패들 시프터·10-LED RPM 시프트 라이트·크롬 송풍구·GPS 지도/MDT·기어봉·`[U]` 우천 시 자동 작동하는 듀얼 앞유리 와이퍼**!
-  * **살아 숨 쉬는 바다·하늘 & 경찰 헬기**: 해안 요트·범선 5척, 항구 컨테이너 화물선, 갈매기 10마리, 상공 여객기(항법등+비행운), **수배 `★3` 이상 시 출동해 볼류메트릭 서치라이트로 플레이어를 추적하는 SBPD 경찰 헬리콥터**!
-  * **1인칭 정밀 총기 & 3D 회전 탄피 배출**: 피카티니 레일·방아쇠 울·후퇴 노리쇠/배출구·장전 손잡이·머즐 브레이크·틴티드 홀로 렌즈, 그리고 **사격 시 회전하며 바닥에 튕기는 3D 황동 탄피 & 12게이지 산탄총 탄피**!
-* **폴리글랏 4대 언어 하이브리드 아키텍처 (`C++20` + `Rust` + `Python 3` + `GLSL 330`)**
-  * **Rust 네이티브 물리 엔진 (`src/physics/physics_kernel.rs`)**: `#![no_std]` FFI 정적 링크 방식으로 **6단 자동변속기(`D1~D6`/`R`)·실시간 RPM 타코미터**, **4륜 독립 스프링-댐퍼 서스펜션**, **Pacejka 타이어 슬립 커브**, **3D 스턴트 점프대 비행 물리**, **회전 충돌 임펄스(`r × J` PIT 매뉴버 스핀아웃)**, **4분면 차체 크럼플 파손(`앞·뒤·좌·우`)**, **3D 회전 거리 소품 파괴 및 소화전 물기둥 분출**을 시뮬레이션합니다.
-  * **GLSL 330 Cook-Torrance GGX 마이크로패싯 PBR & 3D 인테리어 매핑 (`src/render/Renderer3D.cpp`)**: 빌딩 유리창 내부에 실제 **3D 방·천장 조명·가구·블라인드가 깊이감 있게 비치는 3D Raycasted Interior Mapping**, **360° 3D 스카이라인·네온 환경 반사맵**, **16-Tap 푸아송 소프트 그림자**, 그리고 **`[U]` 우천·젖은 아스팔트 노면 거울 반사(Wet Road Mirror Puddles)** 를 지원합니다.
-  * **Python 3 절차적 3D CAD 에셋 파이프라인 (`tools/generate_realistic_assets.py`)**: 16종 차량 정밀 32-스테이션 CAD 프로파일, **금문교 스타일 현수교 현수선(`Catenary Curve`)**, **선셋 피어 대관람차 3D 링**, **도시 전역 6대 스턴트 점프대** 데이터를 자동 생성합니다.
-* **초사실적 3D 도시 랜드마크 구조물 & 디테일 업그레이드된 16종 차량**
-  * **5대 3D 랜드마크 구조물**: 북부 해안 **골든 베이 현수교(42m H형 주탑 + 메인 현수 케이블)**, 선셋 피어 **회전 네온 대관람차(12개 곤돌라)**, 항구 **컨테이너 갠트리 크레인**, 대로변 **고속도로 오버헤드 이정표 갠트리**, **도시 전역 6개 3D 스턴트 점프 램프(체공 현금 보너스)**
-  * **초정밀 3D 차량 디테일**: **전면 허니콤 라디에이터 그릴·크롬 서라운드·코너 브레이크 에어 인테이크**, **3D 프로젝터 헤드라이트 베젤·LED DRL 아이브로우**, **플러시 도어 핸들·B필러 트림·윈드실드 와이퍼**, **실시간 4륜 서스펜션 상하 스트로크**, **충돌 시 보닛·범퍼가 실제로 들리고 찌그러지는 4분면 크럼플 변형**
-* **`[K]` 통합 4탭 커스텀 스튜디오 (`캐릭터 · 총기 건스미스 · 차량 풀 커스텀 · 조준선/HUD`)**
-* **총기·중화기 11종 풀 아스날 & 3.2배율 광학 저격 스코프 (`1인칭·3인칭 3D 모델 + 전용 사운드`)**
-* **어지러움 제로(`Zero-Dizziness`) 1:1 정밀 에임, `[V]` 1·3인칭 시점, 도보 점프 & 경찰 `★1~★5` 추격전**
+컴파일러 설치 없이 바로 플레이하려면 GitHub **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 페이지에서 최신 버전(**`v1.1.0`**)을 내려받으세요:
+
+### Android 스마트폰 / 태블릿 (Android 7.0+ / OpenGL ES 3.0)
+1. **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 에서 **`OpenCity-Android-v1.1.0.apk`** 를 다운로드합니다.
+2. 다운로드한 `.apk` 파일을 탭해 설치합니다 *(최초 1회 "출처를 알 수 없는 앱 설치" 허용 필요)*.
+3. **Open City** 앱 아이콘을 눌러 가로 모드 전체화면으로 바로 플레이하세요!
+   * **패키지명**: `com.stickmongus.opencity` (`v1.1.0`, `versionCode 110`)
+   * **서명 인증서 SHA-256 지문**: `6C:9B:7E:D9:1E:60:AA:E2:E9:B3:2F:70:D6:D9:F1:A1:EB:A4:86:05:6D:35:8E:00:C9:75:EF:28:3C:41:A9:5E`
+
+### Windows 10 / 11 PC
+1. **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 에서 **`OpenCity-Windows-x64.zip`** 을 다운로드하고 압축을 풉니다.
+2. **`open_city.exe`** 를 더블클릭하면 바로 게임이 시작됩니다!
 
 ---
 
-## 조작키 안내
+## 주요 기능 (v1.1.0 Android 네이티브 APK & Ultra-Detail 오픈월드)
+
+* **v1.1.0 Android 네이티브 OpenGL ES 3.0 & 풀 멀티터치 에디션**:
+  * **GLSL ES 3.00 (`#version 300 es`) 모바일 PBR 엔진**: Cook-Torrance GGX PBR, 3D 빌딩 내부 매핑, 24비트 깊이 버퍼 + Khronos 규격 `GL_DEPTH_COMPONENT24` 실시간 그림자, 대기 산란 하늘, 우천 젖은 아스팔트 노면 반사를 모바일 GPU에서 60 FPS로 구현
+  * **10-포인트 멀티터치 가상 컨트롤러**: 도보 좌측 가상 조이스틱(자동 전력질주) + 우측 화면 드래그 1:1 정밀 조준 + `FIRE`/`ADS`/`JUMP`/`RLD` + 무기 순환 + 상황별 황금 액션 버튼(`탑승`·`상점`·`미션`), 운전 모드 대형 조향 패드·가속/브레이크 페달·니트로·드리프트·하차·사이렌·후방 카메라 지원
+  * **모바일 최적화 HUD & 원터치 모달**: 좌상단 레이더, 하단 중앙 디지털 속도계/RPM, 상단 중앙 6종 유틸리티 바(`1P/3P`·`커스텀`·`폰`·`날씨`·`GFX`·`시간`), 상점·스마트폰·커스텀 스튜디오 직접 터치 선택 + 빨간 `X` 닫기 버튼 + 3D 쇼룸 손가락 회전 + Android 뒤로가기 키 완벽 지원
+  * **APK 내장 한글 폰트**: `NanumGothicBold.ttf` 내장 및 440자 전용 모바일 글리프 아틀라스(`1024px`)로 80ms 이내 고속 로딩·한글 깨짐 제로
+  * **25년 RSA-4096 릴리스 서명 인증서**: APK Signature Scheme v1/v2/v3 정식 서명 완료 (동일 서명으로 향후 무손실 덮어쓰기 업데이트 지원)
+* **v1.0.0 Ultra-Detail 6대 핵심 디테일**:
+  * **유기적 조각 캐릭터**: 둥근 두개골·턱선·귀·코·눈동자·눈썹·입(도주 시 패닉 표정)·자연스러운 둥근 헤어 돔, 무릎/팔꿈치 관절, 투톤 스니커즈, 손목시계, 경찰 무전기/파우치 & SWAT 장비
+  * **초정밀 자연 식생 & 센트럴 파크**: 4단 곡선 야자수·코코넛·8개 아치형 야자잎, 벚꽃/자카란다/단풍 가로수길, 센트럴 파크 십자 산책로·다단 분수대 6갈래 포물선 물줄기·수중 야간 조명·원형 꽃밭·빈티지 글로브 가로등
+  * **고밀도 도시 옥상·네온·소품**: 회전 HVAC 냉각팬·뉴욕식 목재 물탱크·위성 안테나·수직 네온 블레이드 간판, 도로명 표지판·보행자 신호기(WALK/STOP)·야간 가로등 볼류메트릭 조명 콘
+  * **차량 외장 & 1인칭 운전석/우천 와이퍼**: 사이드미러/방향지시 LED·샤크핀 GPS·측면 루버·니트로 적열 배기구·백색 후진등·제3 브레이크등·빗길 물보라 미스트·파손 스파크, 24세그먼트 원형 스티어링 휠·패들 시프터·10-LED RPM 시프트 라이트·GPS/MDT·**`[U]` 우천 시 작동하는 듀얼 앞유리 와이퍼**
+  * **살아 숨 쉬는 바다·하늘 & 경찰 헬기**: 해안 요트·범선 5척, 항구 컨테이너 화물선, 갈매기 10마리, 여객기(비행운), **수배 `★3` 이상 시 출동하는 SBPD 경찰 헬리콥터 + 볼류메트릭 서치라이트**
+  * **1인칭 정밀 총기 & 3D 회전 탄피 배출**: 피카티니 레일·후퇴 노리쇠·머즐 브레이크·틴티드 홀로 렌즈 + 사격 시 튀어 오르는 **3D 황동 탄피 & 12게이지 산탄총 탄피**
+* **폴리글랏 4대 언어 하이브리드 아키텍처 (`C++20` + `Rust` + `Python 3` + `GLSL 330 / ES 3.00`)**
+  * 6단 자동변속기(`D1~D6`/`R`), 4륜 독립 서스펜션, Pacejka 타이어, 3D 스턴트 점프대 6기, PIT 매뉴버 회전 충돌, 4분면 차체 크럼플 파손, 16종 차량, 11종 총기·중화기, 4탭 커스텀 스튜디오
+
+---
+
+## 모바일 멀티터치 조작 안내 (Android / `--mobile-ui`)
+
+| 영역 / 버튼 | 도보 모드 | 차량 운전 모드 |
+| :--- | :--- | :--- |
+| 좌측 하단 | 가상 아날로그 조이스틱 *(끝까지 밀면 자동 전력질주)* | `◀` / `▶` 대형 조향 패드 |
+| 우측 빈 화면 드래그 | 흔들림 없는 1:1 정밀 시점 조준 *(모달 시 3D 쇼룸 회전)* | 360° 자유 시점 회전 |
+| 우측 하단 주요 버튼 | `FIRE` 사격 · `ADS` 정조준 · `JUMP` 점프 · `RLD` 재장전 | `GAS` 가속 · `BRK` 브레이크/후진 · `NOS` 니트로 · `DRF` 드리프트 |
+| 우측 중단 / 상황 버튼 | `◀ 무기 ▶` 슬롯 전환 · 근접 시 **`탑승` / `상점` / `미션`** 황금 버튼 | `EXIT` 하차 · `SIREN/HORN` 사이렌/경적 · `REAR` 후방 카메라 |
+| 상단 중앙 툴바 | `1P/3P` 시점 · `커스텀` · `폰` · `날씨` · `GFX` · `시간` | 동일 (운전석 1인칭·우천 와이퍼·품질 즉시 전환) |
+
+---
+
+## PC 키보드 & 마우스 조작키 안내
 
 | 입력 | 동작 |
 | :--- | :--- |
@@ -69,9 +87,19 @@
 
 ---
 
-## 소스 코드에서 직접 빌드하기 (CMake + C++20 + Rust + Python 3)
+## 소스 코드에서 직접 빌드하기
 
-`raylib 5.5`는 CMake `FetchContent`를 통해 자동으로 다운로드·정적 링크되며, `rustc`와 `python3`가 설치되어 있으면 CMake가 자동으로 Rust 물리 커널 오브젝트와 Python 3D 에셋 헤더를 빌드합니다.
+### Android `.apk` 직접 빌드 (Linux + Android SDK/NDK + JDK)
+```bash
+# 1) (선택) 릴리스 서명 키스토어 환경변수 지정 (미지정 시 임시 디버그 키로 자동 서명)
+export ANDROID_KEYSTORE_PATH=/path/to/open-city-release.jks
+export ANDROID_KEY_ALIAS=opencity
+export ANDROID_STORE_PASSWORD="..."
+export ANDROID_KEY_PASSWORD="..."
+
+# 2) 유니버설 APK (arm64-v8a + armeabi-v7a) 빌드·정렬·서명·검증
+./tools/build_android_apk.sh
+```
 
 ### Windows (Visual Studio 2022 + Rust + Python 3 + CMake)
 ```powershell
@@ -87,7 +115,8 @@ sudo apt-get install build-essential cmake ninja-build rustc python3 \
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
-./build/open_city
+./build/open_city              # PC 모드
+./build/open_city --mobile-ui  # PC에서 모바일 멀티터치 HUD 미리보기
 ```
 
 ---
@@ -97,7 +126,16 @@ ctest --test-dir build --output-on-failure
 ```text
 open-city-cpp/
 ├── CMakeLists.txt
+├── android/
+│   ├── AndroidManifest.xml              # OpenGL ES 3.0 · 가로 전체화면 NativeActivity 매니페스트
+│   ├── src/com/stickmongus/opencity/
+│   │   └── NativeLoader.java            # 몰입형 전체화면 + 디스플레이 컷아웃 + libopen_city.so 로더
+│   └── res/                             # mdpi~xxxhdpi 런처 아이콘 및 앱 리소스
 ├── tools/
+│   ├── build_android_apk.sh             # NDK CMake + aapt2 + d8 + zipalign + apksigner v1/v2/v3 원스톱 빌더
+│   ├── patch_raylib_android.py          # raylib 5.5 Android OpenGL ES 3.0 / 24비트 깊이 / 섀도우맵 패치
+│   ├── gen_android_icons.py             # Android 런처 아이콘 PNG 생성기
+│   ├── gen_korean_glyphs.py             # 모바일 1024px 아틀라스용 한글 코드포인트 추출기
 │   └── generate_realistic_assets.py     # Python 3 절차적 3D CAD 에셋·현수교·대관람차·스턴트 램프 생성기
 ├── src/
 │   ├── physics/
@@ -110,10 +148,12 @@ open-city-cpp/
 │   ├── audio/SynthAudio.*               # 절차적 16-bit PCM 사운드 합성 (소음기 총성, 매그넘·저격총·미니건, 사이렌)
 │   ├── render/
 │   │   ├── GeneratedRealisticAssets.hpp # Python 생성 3D 현수선·푸아송 커널·스턴트 램프 상수 헤더
-│   │   └── Renderer3D.*                 # Cook-Torrance GGX PBR, 3D 빌딩 내부 매핑, 젖은 노면 반사, 랜드마크 렌더러
-│   ├── ui/HudRenderer.*                 # 11,172자 한글 폰트, 6단 기어·RPM 게이지, [K] 4탭 커스텀 스튜디오 HUD
-│   └── main.cpp                         # 어지러움 제로 1:1 카메라, [U] 우천 토글, 스턴트 체공 카메라 루프
+│   │   └── Renderer3D.*                 # OpenGL 3.3 & GLES 3.0 Cook-Torrance GGX PBR, 3D 인테리어 매핑, 젖은 노면 반사
+│   ├── ui/
+│   │   ├── AndroidKoreanGlyphs.hpp      # 모바일 고속 로딩용 440자 한글 코드포인트 테이블
+│   │   ├── TouchControls.*              # 10-포인트 멀티터치 가상 조이스틱·운전 패드·상단 유틸리티 바
+│   │   └── HudRenderer.*                # 11,172자 한글 폰트, 모바일 HUD 레이아웃, 직접 터치 모달 UI
+│   └── main.cpp                         # 어지러움 제로 1:1 카메라, 멀티터치/키보드 통합 루프, Android 뒤로가기 처리
 └── tests/
-    └── test_simulation.cpp              # Rust 물리 엔진·스턴트 점프·회전 충돌·커스텀 등 16개 자동 테스트 스위트
+    └── test_simulation.cpp              # Rust 물리 엔진·스턴트 점프·회전 충돌·커스텀 등 18개 자동 테스트 스위트
 ```
-

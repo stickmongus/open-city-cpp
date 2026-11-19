@@ -5,6 +5,14 @@
 
 namespace oc {
 
+struct ModalTapAction {
+    int shopBuyOption = 0;      // 1..12
+    int phoneTab = 0;           // 0..3
+    int phoneOption = 0;        // 1..10
+    int customStudioTab = 0;    // 0..3
+    int customStudioOption = 0; // 1..8
+};
+
 class HudRenderer {
 public:
     HudRenderer() = default;
@@ -15,6 +23,15 @@ public:
 
     void init();
     void shutdown();
+
+    void setMobileUi(bool enabled) {
+        mobileUi_ = enabled;
+        if (enabled) {
+            showHelp_ = false;
+        }
+    }
+    bool isMobileUi() const { return mobileUi_; }
+    bool isUsingKorean() const { return useKorean_ && koreanFontLoaded_; }
 
     void toggleHelpOverlay() { showHelp_ = !showHelp_; }
     void toggleLanguage() { if (koreanFontLoaded_) useKorean_ = !useKorean_; }
@@ -52,10 +69,16 @@ public:
     void setCustomTab(int tab) { customTab_ = ((tab % 4) + 4) % 4; }
     void cycleCustomTab(int delta) { customTab_ = ((customTab_ + delta) % 4 + 4) % 4; }
 
+    bool handleModalTap(const GameWorld& world, int screenW, int screenH,
+                        Vector2 tapPos, ModalTapAction& out);
+
     void showSystemToast(const char* textEn, const char* textKo);
     void showGraphicsToast(const char* labelEn, const char* labelKo);
     void renderHud(const GameWorld& world, float cameraYaw, bool cursorLocked,
                    bool firstPerson = false, float adsBlend = 0.0f);
+
+    void drawUiText(const char* text, float x, float y, float fontSize, Color color) const;
+    float measureUiText(const char* text, float fontSize) const;
 
 private:
     static Font loadCompleteKoreanFont(const char* ttfPath, int fontSize);
@@ -63,9 +86,6 @@ private:
     const char* pickText(const char* en, const char* ko) const {
         return (useKorean_ && koreanFontLoaded_ && ko && ko[0] != '\0') ? ko : en;
     }
-
-    void drawUiText(const char* text, float x, float y, float fontSize, Color color) const;
-    float measureUiText(const char* text, float fontSize) const;
 
     void drawRadarMinimap(const GameWorld& world, float cameraYaw, int screenH);
     void drawTopRightStatus(const GameWorld& world, int screenW, bool firstPerson);
@@ -82,6 +102,7 @@ private:
     bool customFontLoaded_ = false;
     bool koreanFontLoaded_ = false;
     bool useKorean_ = true;
+    bool mobileUi_ = false;
     bool showHelp_ = true;
     bool shopMenuOpen_ = false;
     bool phoneOpen_ = false;

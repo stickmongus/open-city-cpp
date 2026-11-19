@@ -17,6 +17,17 @@ _deps/
 *.lib
 *.a
 *.zip
+*.apk
+*.aab
+
+# Android signing keys & build intermediates (NEVER commit release keystores!)
+*.jks
+*.keystore
+*.p12
+android/signing.properties
+android/build/
+android/.gradle/
+android/app/build/
 
 # IDE & OS files
 .vscode/

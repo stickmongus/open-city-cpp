@@ -87,6 +87,9 @@ public:
     const Vehicle* nearestEnterableVehicle(float maxRange = 4.6f) const;
 
     std::vector<AudioEvent> consumeAudioEvents();
+    void pushBanner(const std::string& titleEn, const std::string& titleKo,
+                    const std::string& subEn, const std::string& subKo,
+                    ColorRGBA accent, float duration = 3.6f);
 
 private:
     struct RayHit3D {
@@ -146,9 +149,6 @@ private:
     void updateEffects(float dt);
     void updateMission(float dt);
 
-    void pushBanner(const std::string& titleEn, const std::string& titleKo,
-                    const std::string& subEn, const std::string& subKo,
-                    ColorRGBA accent, float duration = 3.6f);
     void emitParticles(const Vec3& origin, int count, ColorRGBA color, float speed, float size, float ttl);
     void pushSkidMark(const Vec2& a, const Vec2& b, float alpha = 0.65f);
     void pushAudio(AudioEventType type, float volume = 1.0f);

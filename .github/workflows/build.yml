@@ -1,4 +1,4 @@
-name: Build & Package (Windows .exe & Linux)
+name: Build & Package (Android .apk, Windows .exe & Linux)
 
 on:
   push:
@@ -74,12 +74,64 @@ jobs:
           name: OpenCity-Windows-x64
           path: OpenCity-Windows-x64.zip
 
-  publish-release:
-    name: Update Latest GitHub Release (.exe)
-    needs: [build-linux, build-windows]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+  build-android:
+    name: Android Universal Signed .apk (arm64-v8a + armeabi-v7a)
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Android build tools & Korean font
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build zip python3 fonts-nanum
+
+      - name: Ensure Android SDK Platform 34, Build-Tools & NDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="${SDK}/cmdline-tools/latest/bin/sdkmanager"
+          echo "ANDROID_SDK_ROOT=${SDK}"
+          ls -la "${SDK}" || true
+          if [[ ! -f "${SDK}/platforms/android-34/android.jar" ]] && [[ -x "${SDKMANAGER}" ]]; then
+            yes | "${SDKMANAGER}" "platforms;android-34"
+          fi
+          if ! ls -1d "${SDK}"/build-tools/* >/dev/null 2>&1 && [[ -x "${SDKMANAGER}" ]]; then
+            yes | "${SDKMANAGER}" "build-tools;34.0.0"
+          fi
+          if ! ls -1d "${SDK}"/ndk/*/build/cmake/android.toolchain.cmake >/dev/null 2>&1 && [[ -x "${SDKMANAGER}" ]]; then
+            yes | "${SDKMANAGER}" "ndk;27.1.12297006"
+          fi
+
+      - name: Build, Align & Sign Universal APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          APK_OUTPUT: ${{ github.workspace }}/OpenCity-Android-v1.1.0.apk
+        run: |
+          chmod +x tools/build_android_apk.sh tools/patch_raylib_android.py tools/gen_android_icons.py
+          ./tools/build_android_apk.sh
+
+      - name: Upload Android Signed APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenCity-Android
+          path: OpenCity-Android-v1.1.0.apk
+
+  publish-release:
+    name: Publish GitHub Release (Android .apk, Windows .exe & Linux)
+    needs: [build-linux, build-windows, build-android]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    concurrency:
+      group: publish-release-${{ github.repository }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenCity-Android
+          path: release-assets
+
       - uses: actions/download-artifact@v4
         with:
           name: OpenCity-Windows-x64
@@ -90,50 +142,52 @@ jobs:
           name: OpenCity-Linux-x64
           path: release-assets
 
-      - name: Create or Update Release v1.0.0
+      - name: Create or Update Release v1.1.0
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
-          TAG_NAME="v1.0.0"
+          TAG_NAME="v1.1.0"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             TAG_NAME="${GITHUB_REF#refs/tags/}"
           fi
           cat <<'EOF' > release_notes.md
-          ### 바로 실행하기 (Windows 10 / 11)
+          ### Android 스마트폰/태블릿 바로 설치하기 (`.apk` — 정식 서명 완료)
+          1. 아래 **Assets**에서 **`OpenCity-Android-v1.1.0.apk`** 파일을 스마트폰으로 다운로드합니다.
+          2. 다운로드한 APK를 탭해 설치합니다 *(처음 설치 시 Android 설정 → "출처를 알 수 없는 앱 설치" 허용 필요)*.
+          3. **유니버설 바이너리(`arm64-v8a` + `armeabi-v7a`)** · Android 7.0 (API 24) 이상 · OpenGL ES 3.0 지원 기기에서 별도 설정 없이 가로 전체화면으로 바로 실행됩니다!
+
+          ### Windows PC 바로 실행하기 (Windows 10 / 11)
           1. 아래 **Assets**에서 **`OpenCity-Windows-x64.zip`** 파일을 다운로드합니다.
           2. 압축을 풀고 **`open_city.exe`** 를 더블클릭하면 별도 설치 없이 바로 실행됩니다!
 
-          ### v1.0.0 Ultra-Detail 도시·캐릭터·차량·운전석·생동감 풀 업그레이드
-          - **1. 유기적 인체 조각 캐릭터 (블록 인형 탈피)**:
-            - 둥근 두개골·턱선·귀·코·눈동자·눈썹·입(도주 시 패닉 표정)·자연스러운 둥근 헤어 돔 적용 (커스텀 모자/헬멧/왕관 7종·안경 4종 완벽 호환)
-            - 허벅지·무릎 관절·종아리·투톤 스니커즈(흰색 미드솔·토캡)·둥근 어깨 삼각근·팔꿈치 관절·커프스·왼손 손목시계·벨트 버클·자켓 지퍼·경찰 어깨 무전기/파우치·SWAT 탄창 파우치/안테나 추가!
-          - **2. 초정밀 자연 식생 & 센트럴 파크 광장**:
-            - 4단 곡선 줄기·코코넛 3개·바람에 흔들리는 8개 2단 아치형 야자잎 야자수
-            - 뿌리 버트레스·3갈래 가지·6엽 다층 수관 가로수 + 도시 전역 벚꽃/자카란다/단풍나무 가로수길
-            - 센트럴 파크 십자 석재 산책로·다단 대리석 분수대 + 실시간 6갈래 포물선 물줄기·야간 수중 아쿠아 조명·4개 원형 꽃밭·빈티지 글로브 가로등!
-          - **3. 고밀도 도시 옥상·네온 간판·거리 소품 디테일**:
-            - 빌딩 옥상 회전식 트윈 HVAC 냉각팬·뉴욕 스타일 목재 고가 물탱크(4각 철골+원뿔 지붕)·위성 안테나·상가 모서리 수직 발광 네온 블레이드 간판
-            - 가로등 플루티드 받침대·도로명 표지판·실시간 신호등 연동 보행자 신호기(WALK/STOP)·야간 볼류메트릭 조명 콘·소화전 은색 노즐·반사 띠 라바콘·버스정류장 야간 LED 천장등!
-          - **4. 차량 외장 마이크로 디테일 & 1인칭 운전석·우천 와이퍼**:
-            - 외장: 사이드미러 지지대·후면 거울·전면 호박색 방향지시 LED, 지붕 샤크핀 GPS 안테나, 스포츠카 측면 휀더 냉각 루버, 니트로 시 붉게 달아오르는 배기구 내부 코어, 후진 시 백색 후진등, 제동 시 상단 제3 브레이크등(CHMSL), 빗길 고속 주행 시 후륜 물보라 미스트 & 25% 이하 파손 시 엔진룸 불꽃 스파크!
-            - 1인칭 운전석: 24세그먼트 원형 가죽 스티어링 휠·엄지 그립·아노다이징 패들 시프터, 10-LED 순차 RPM 시프트 라이트·트윈 디지털 게이지 링·원형 크롬 송풍구, GPS 내비게이션 지도/경찰 MDT·로터리 공조 다이얼 3개·기어봉·컵홀더, **`[U]` 우천 시 앞유리 위를 부드럽게 닦아내는 실시간 듀얼 와이퍼 애니메이션**!
-          - **5. 살아 숨 쉬는 바다·항구·하늘 & 경찰 헬기 추격전**:
-            - 해안가 파도에 일렁이는 5척의 요트·범선, 남동쪽 항구 정박 초대형 컨테이너 화물선, 해변과 공원 상공을 날갯짓하며 선회하는 갈매기 10마리, 상공 순항 여객기(항법등+비행운)
-            - **수배 `★3` 이상 시 출동하는 SBPD 경찰 헬리콥터**: 고속 회전 메인/테일 로터·적청 경광등·플레이어를 추적하며 비추는 볼류메트릭 서치라이트 빔!
-          - **6. 1인칭 총기 정밀 가공 & 3D 회전 탄피 배출**:
-            - 피카티니 상부 레일·방아쇠 울 및 금속 방아쇠·발사 시 후퇴하는 우측 탄피 배출구/노리쇠·장전 손잡이·슬롯 머즐 브레이크·반사 방지 틴티드 홀로그램 렌즈
-            - 사격 시 약실에서 우측으로 튀어 올라 회전하며 땅에 튕기는 **3D 금속 황동 탄피 & 12게이지 적색 산탄총 탄피** 물리 구현!
+          ### v1.1.0 Android 네이티브 APK & 풀 멀티터치 에디션 신규 기능
+          - **1. Android 네이티브 C++20 + OpenGL ES 3.0 풀 포팅**:
+            - 데스크톱 GLSL 330 Cook-Torrance GGX PBR · 3D 인테리어 매핑 · 16-Tap 푸아송 소프트 그림자 · 대기 산란 하늘 · 우천 젖은 노면 반사 셰이더 전체를 **GLSL ES 3.00 (`#version 300 es`, 24비트 깊이 버퍼, Khronos 규격 `GL_DEPTH_COMPONENT24` 섀도우맵)** 으로 이식
+            - 모바일 GPU 최적화: 기본 `높음(High)` 프리셋(실시간 PBR + 1024px 그림자 직결 60 FPS), 상단 `GFX` 버튼으로 `울트라(HDR 블룸)` / `고성능` 즉시 전환
+            - APK 내장 **나눔고딕 한글 폰트(`assets/fonts/korean.ttf`) + 440자 전용 모바일 글리프 아틀라스(`1024px`, 80ms 이내 고속 로딩)** 로 Android 기기에서도 한글 깨짐 제로!
+          - **2. 10-포인트 동시 멀티터치 가상 컨트롤러 & 모바일 전용 HUD 재배치**:
+            - **도보 모드**: 좌측 아날로그 스틱(자동 전력질주), 우측 화면 드래그 1:1 정밀 조준, 사격(`FIRE`)·정조준(`ADS`)·점프(`JUMP`)·재장전(`RLD`)·무기 슬롯 전환(`◀ 무기 ▶`), 차량/상점/미션 근접 시 자동 표시되는 황금 액션 버튼(`탑승`·`상점`·`미션`)
+            - **운전 모드**: 좌측 `◀` / `▶` 대형 조향 패드, 우측 `가속(GAS)` · `브레이크/후진(BRK)` · `니트로(NOS)` · `드리프트(DRF)` · `하차(EXIT)` · `사이렌/경적` · `후방 카메라`
+            - **상단 중앙 6종 원터치 툴바**: `1인칭(1P/3P)` · `커스텀(K)` · `폰(P)` · `날씨(U)` · `품질(GFX)` · `시간(T)`
+            - **모든 모달 직접 터치 지원**: 상점·스마트폰(4탭)·4탭 커스텀 스튜디오 항목 원터치 선택, 우측 상단 빨간 `X` 닫기 버튼, 커스텀 스튜디오 3D 쇼룸 손가락 360° 회전, Android 뒤로가기 버튼 지원
+          - **3. 공식 25년 RSA-4096 릴리스 서명 인증서 (APK Signature Scheme v1 + v2 + v3)**:
+            - 패키지명: `com.stickmongus.opencity` (`versionCode 110`, `versionName 1.1.0`)
+            - 인증서 주체: `CN=Open City, OU=PC LAB, O=Stickmongus, L=Seoul, ST=Seoul, C=KR` (유효기간 2026~2051)
+            - **SHA-256 지문**: `6C:9B:7E:D9:1E:60:AA:E2:E9:B3:2F:70:D6:D9:F1:A1:EB:A4:86:05:6D:35:8E:00:C9:75:EF:28:3C:41:A9:5E`
+            - 향후 업데이트 APK도 동일 인증서로 자동 서명되어 데이터 유지 상태로 덮어쓰기 업데이트 가능!
           EOF
           ls -la release-assets
           if gh release view "${TAG_NAME}" -R "${REPO}" >/dev/null 2>&1; then
             gh release upload "${TAG_NAME}" release-assets/* --clobber -R "${REPO}"
+            gh release edit "${TAG_NAME}" -R "${REPO}" \
+              --title "Open City C++ ${TAG_NAME} (Android .apk, Windows .exe & Linux)" \
+              --notes-file release_notes.md
           else
             gh release create "${TAG_NAME}" release-assets/* \
               -R "${REPO}" \
               --target "${SHA}" \
-              --title "Open City C++ ${TAG_NAME} (Windows .exe & Linux)" \
+              --title "Open City C++ ${TAG_NAME} (Android .apk, Windows .exe & Linux)" \
               --notes-file release_notes.md
           fi
-

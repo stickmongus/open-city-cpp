@@ -1,7 +1,11 @@
 #include "ui/HudRenderer.hpp"
 #include "render/GeneratedRealisticAssets.hpp"
+#if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
+#include "ui/AndroidKoreanGlyphs.hpp"
+#endif
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -13,6 +17,191 @@
 namespace oc {
 
 namespace {
+
+bool pointInRect(Vector2 p, Rectangle r) {
+    return p.x >= r.x && p.x <= (r.x + r.width) && p.y >= r.y && p.y <= (r.y + r.height);
+}
+
+void drawModalCloseButton(Rectangle r) {
+    DrawRectangleRounded(r, 0.30f, 6, Color{208, 48, 58, 228});
+    DrawRectangleRoundedLinesEx(r, 0.30f, 6, 1.5f, Color{255, 162, 168, 245});
+    const float pad = r.width * 0.28f;
+    DrawLineEx({r.x + pad, r.y + pad}, {r.x + r.width - pad, r.y + r.height - pad}, 2.4f, WHITE);
+    DrawLineEx({r.x + r.width - pad, r.y + pad}, {r.x + pad, r.y + r.height - pad}, 2.4f, WHITE);
+}
+
+int getShopRowCount(const GameWorld& world) {
+    if (world.isPlayerInWeaponShopZone()) return 12;
+    if (world.isPlayerInGarageZone()) return 8;
+    if (world.isPlayerInDealershipZone()) return static_cast<int>(kDealershipCatalog.size()) + 1;
+    if (world.isPlayerInBoutiqueZone()) return 6;
+    if (world.isPlayerInGasStationZone()) return 2;
+    if (world.isPlayerInNightclubZone()) return 2;
+    return 0;
+}
+
+struct ShopModalGeom {
+    Rectangle panel{};
+    Rectangle closeBtn{};
+    float rowStep = 35.0f;
+    float rowBoxH = 30.0f;
+    float fontSz = 17.5f;
+    float rowsStartY = 0.0f;
+};
+
+ShopModalGeom computeShopModalGeom(int rowCount, int screenW, int screenH) {
+    ShopModalGeom g{};
+    const bool dense = (rowCount >= 10);
+    g.rowStep = dense ? 31.0f : 35.0f;
+    g.rowBoxH = dense ? 27.0f : 30.0f;
+    g.fontSz = dense ? 16.5f : 17.5f;
+
+    const float mw = std::min(576.0f, static_cast<float>(screenW) - 28.0f);
+    float mh = (dense ? 92.0f : 96.0f) + static_cast<float>(rowCount) * g.rowStep;
+    const float maxH = static_cast<float>(screenH) - 24.0f;
+    if (mh > maxH && rowCount > 0) {
+        const float avail = std::max(120.0f, maxH - 88.0f);
+        g.rowStep = avail / static_cast<float>(rowCount);
+        g.rowBoxH = std::max(20.0f, g.rowStep - 4.0f);
+        g.fontSz = std::min(g.fontSz, std::max(13.5f, g.rowBoxH * 0.60f));
+        mh = 88.0f + static_cast<float>(rowCount) * g.rowStep;
+    }
+
+    const float mx = (static_cast<float>(screenW) - mw) * 0.5f;
+    const float my = std::max(12.0f, (static_cast<float>(screenH) - mh) * 0.5f);
+    g.panel = {mx, my, mw, mh};
+    g.closeBtn = {mx + mw - 42.0f, my + 12.0f, 28.0f, 28.0f};
+    g.rowsStartY = my + 52.0f;
+    return g;
+}
+
+struct PhoneModalGeom {
+    Rectangle panel{};
+    Rectangle closeBtn{};
+    std::array<Rectangle, 4> tabs{};
+    float listTop = 0.0f;
+    float rowH = 54.0f;
+    float rowGap = 4.0f;
+    bool dense = false;
+};
+
+PhoneModalGeom computePhoneModalGeom(int phoneTab, int screenW, int screenH) {
+    PhoneModalGeom g{};
+    const int rowCount = (phoneTab == 0 || phoneTab == 3) ? 10 : 6;
+    g.dense = (rowCount >= 10);
+    const float pw = std::min(342.0f, static_cast<float>(screenW) - 24.0f);
+    float ph = g.dense ? 530.0f : 456.0f;
+    g.rowH = g.dense ? 39.0f : 54.0f;
+    g.rowGap = g.dense ? 3.0f : 4.0f;
+
+    const float maxH = static_cast<float>(screenH) - 24.0f;
+    if (ph > maxH) {
+        ph = maxH;
+        const float listSpace = std::max(120.0f, ph - 104.0f);
+        g.rowGap = 2.5f;
+        g.rowH = std::max(24.0f, (listSpace / static_cast<float>(rowCount)) - g.rowGap);
+    }
+
+    const float px = static_cast<float>(screenW) - pw - 22.0f;
+    const float py = std::max(12.0f, static_cast<float>(screenH) - ph - 20.0f);
+    g.panel = {px, py, pw, ph};
+    g.closeBtn = {px + pw - 38.0f, py + 11.0f, 26.0f, 26.0f};
+    const float tabW = (pw - 28.0f - 12.0f) / 4.0f;
+    for (int t = 0; t < 4; ++t) {
+        g.tabs[static_cast<std::size_t>(t)] = {
+            px + 14.0f + static_cast<float>(t) * (tabW + 4.0f), py + 41.0f, tabW, 27.0f
+        };
+    }
+    g.listTop = py + (g.dense ? 75.0f : 80.0f);
+    return g;
+}
+
+struct StudioModalGeom {
+    Rectangle panel{};
+    Rectangle closeBtn{};
+    std::array<Rectangle, 4> tabs{};
+    float rowsTop = 0.0f;
+    float rowStep = 43.0f;
+    float rowH = 38.5f;
+    int rowCount = 8;
+};
+
+StudioModalGeom computeStudioModalGeom(int customTab, int screenW, int screenH) {
+    StudioModalGeom g{};
+    g.rowCount = (customTab == 0 || customTab == 2) ? 8 : 6;
+    const float pw = std::min(452.0f, static_cast<float>(screenW) * 0.56f);
+    float ph = 504.0f;
+    g.rowStep = (g.rowCount == 8) ? 43.0f : 54.0f;
+    g.rowH = (g.rowCount == 8) ? 38.5f : 46.0f;
+
+    const float maxH = static_cast<float>(screenH) - 24.0f;
+    if (ph > maxH) {
+        ph = maxH;
+        const float listSpace = std::max(160.0f, ph - 146.0f);
+        g.rowStep = listSpace / static_cast<float>(g.rowCount);
+        g.rowH = std::max(26.0f, g.rowStep - 4.0f);
+    }
+
+    const float px = 22.0f;
+    const float py = std::max(12.0f, std::min(18.0f, (static_cast<float>(screenH) - ph) * 0.5f));
+    g.panel = {px, py, pw, ph};
+    g.closeBtn = {px + pw - 40.0f, py + 9.0f, 28.0f, 28.0f};
+    const float tabGap = 6.0f;
+    const float tabW = (pw - 32.0f - tabGap * 3.0f) * 0.25f;
+    for (int t = 0; t < 4; ++t) {
+        g.tabs[static_cast<std::size_t>(t)] = {
+            px + 16.0f + static_cast<float>(t) * (tabW + tabGap), py + 42.0f, tabW, 29.0f
+        };
+    }
+    g.rowsTop = py + 116.0f;
+    return g;
+}
+
+unsigned char* loadFontBytes(const char* path, int& outSize, bool& outUsedRaylibLoader) {
+    outSize = 0;
+    outUsedRaylibLoader = false;
+    if (!path || path[0] == '\0') return nullptr;
+    const bool isAbsolute = (path[0] == '/') || (path[1] == ':');
+    if (!isAbsolute) {
+        outUsedRaylibLoader = true;
+        return LoadFileData(path, &outSize);
+    }
+    // Read absolute filesystem paths via POSIX stdio so Android /system/fonts/* works alongside APK assets
+    std::FILE* fp = std::fopen(path, "rb");
+    if (!fp) return nullptr;
+    if (std::fseek(fp, 0, SEEK_END) != 0) {
+        std::fclose(fp);
+        return nullptr;
+    }
+    const long sz = std::ftell(fp);
+    if (sz <= 0 || sz > 64L * 1024L * 1024L) {
+        std::fclose(fp);
+        return nullptr;
+    }
+    std::rewind(fp);
+    auto* buf = static_cast<unsigned char*>(MemAlloc(static_cast<unsigned int>(sz)));
+    if (!buf) {
+        std::fclose(fp);
+        return nullptr;
+    }
+    const std::size_t got = std::fread(buf, 1, static_cast<std::size_t>(sz), fp);
+    std::fclose(fp);
+    if (static_cast<long>(got) != sz) {
+        MemFree(buf);
+        return nullptr;
+    }
+    outSize = static_cast<int>(sz);
+    return buf;
+}
+
+void freeFontBytes(unsigned char* data, bool usedRaylibLoader) {
+    if (!data) return;
+    if (usedRaylibLoader) {
+        UnloadFileData(data);
+    } else {
+        MemFree(data);
+    }
+}
 
 const char* neonPresetNameEn(int preset) {
     switch (preset) {
@@ -81,9 +270,10 @@ HudRenderer::~HudRenderer() {
 
 Font HudRenderer::loadCompleteKoreanFont(const char* ttfPath, int fontSize) {
     int dataSize = 0;
-    unsigned char* fileData = LoadFileData(ttfPath, &dataSize);
+    bool usedRaylibLoader = false;
+    unsigned char* fileData = loadFontBytes(ttfPath, dataSize, usedRaylibLoader);
     if (!fileData || dataSize <= 0) {
-        if (fileData) UnloadFileData(fileData);
+        freeFontBytes(fileData, usedRaylibLoader);
         return Font{};
     }
 
@@ -125,12 +315,30 @@ Font HudRenderer::loadCompleteKoreanFont(const char* ttfPath, int fontSize) {
         }
     }
 
-    // Complete codepoint table:
+    std::vector<int> codepoints;
+#if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
+    // On Android, pack Printable ASCII + UI symbols + exact game Hangul set into a compact 1024px atlas (<80ms load!)
+    codepoints.reserve(768);
+    for (int cp = 0x0020; cp <= 0x007E; ++cp) {
+        codepoints.push_back(cp);
+    }
+    const int uiSymbols[] = {
+        0x00B0, 0x00B7, 0x00D7, 0x2013, 0x2014, 0x2022, 0x2026,
+        0x20A9, 0x2190, 0x2191, 0x2192, 0x2193,
+        0x25B2, 0x25BC, 0x25C0, 0x25B6, 0x2605, 0x2606
+    };
+    for (int cp : uiSymbols) {
+        codepoints.push_back(cp);
+    }
+    for (int cp : kAndroidKoreanCodepoints) {
+        codepoints.push_back(cp);
+    }
+#else
+    // Desktop complete codepoint table:
     // - Printable ASCII (0x0020..0x007E)
     // - Hangul Compatibility Jamo (0x3131..0x3163)
     // - ALL 11,172 Modern Hangul Syllables (0xAC00..0xD7A3) so zero Korean text can ever show '?'
     // - Common UI punctuation & symbols
-    std::vector<int> codepoints;
     codepoints.reserve(11400);
     for (int cp = 0x0020; cp <= 0x007E; ++cp) {
         codepoints.push_back(cp);
@@ -149,31 +357,42 @@ Font HudRenderer::loadCompleteKoreanFont(const char* ttfPath, int fontSize) {
     for (int cp = 0xAC00; cp <= 0xD7A3; ++cp) {
         codepoints.push_back(cp);
     }
+#endif
 
     std::sort(codepoints.begin(), codepoints.end());
     codepoints.erase(std::unique(codepoints.begin(), codepoints.end()), codepoints.end());
     const int count = static_cast<int>(codepoints.size());
 
     GlyphInfo* glyphs = LoadFontData(fileData, dataSize, fontSize, codepoints.data(), count, FONT_DEFAULT);
-    UnloadFileData(fileData);
+    freeFontBytes(fileData, usedRaylibLoader);
     if (!glyphs) {
         return Font{};
     }
 
-    // Verify that the candidate TTF genuinely contains Hangul glyphs (e.g. '가', '료', '힣')
+    // Verify that the candidate TTF genuinely contains Hangul glyphs
     auto hasRenderedGlyph = [&](int targetCp) -> bool {
         auto it = std::lower_bound(codepoints.begin(), codepoints.end(), targetCp);
         if (it == codepoints.end() || *it != targetCp) return false;
         const std::size_t idx = static_cast<std::size_t>(it - codepoints.begin());
         return glyphs[idx].image.data != nullptr && glyphs[idx].image.width > 0 && glyphs[idx].image.height > 0;
     };
+#if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
+    if (!hasRenderedGlyph(0xAC00) || !hasRenderedGlyph(0xB8CC) || !hasRenderedGlyph(0xC2DC)) {
+#else
     if (!hasRenderedGlyph(0xAC00) || !hasRenderedGlyph(0xB8CC) || !hasRenderedGlyph(0xD7A3)) {
+#endif
         UnloadFontData(glyphs, count);
         return Font{};
     }
 
     // Overflow-proof 2-pass exact row packer (avoids raylib GenImageFontAtlas height-halving overflow)
+#if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
+    constexpr int kAtlasWidth = 1024;
+    int atlasHeight = 256;
+#else
     constexpr int kAtlasWidth = 4096;
+    int atlasHeight = 512;
+#endif
     constexpr int kPadding = 2;
 
     int curX = kPadding;
@@ -193,7 +412,6 @@ Font HudRenderer::loadCompleteKoreanFont(const char* ttfPath, int fontSize) {
     }
 
     const int usedHeight = curY + rowMaxH + kPadding * 2;
-    int atlasHeight = 512;
     while (atlasHeight < usedHeight) {
         atlasHeight *= 2;
     }
@@ -281,6 +499,54 @@ Font HudRenderer::loadCompleteKoreanFont(const char* ttfPath, int fontSize) {
 }
 
 void HudRenderer::init() {
+    const Font defaultFont = GetFontDefault();
+
+#if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
+    // 1) Try APK-bundled NanumGothicBold.ttf first (relative path via Android AAssetManager)
+    const char* androidKoreanCandidates[] = {
+        "fonts/korean.ttf",
+        "/system/fonts/NotoSansCJK-Bold.ttc",
+        "/system/fonts/NotoSansCJK-Regular.ttc",
+        "/system/fonts/SamsungKorean-Regular.ttf",
+        "/system/fonts/NanumGothic.ttf",
+        "/system/fonts/DroidSansFallback.ttf"
+    };
+    for (const char* path : androidKoreanCandidates) {
+        Font candidate = loadCompleteKoreanFont(path, 30);
+        if (candidate.texture.id != 0 && candidate.texture.id != defaultFont.texture.id) {
+            uiFont_ = candidate;
+            SetTextureFilter(uiFont_.texture, TEXTURE_FILTER_BILINEAR);
+            customFontLoaded_ = true;
+            koreanFontLoaded_ = true;
+            useKorean_ = true;
+            return;
+        }
+    }
+
+    // Fallback to Android system Roboto if no Hangul font was readable
+    useKorean_ = false;
+    const char* androidLatinCandidates[] = {
+        "/system/fonts/Roboto-Bold.ttf",
+        "/system/fonts/Roboto-Regular.ttf"
+    };
+    for (const char* path : androidLatinCandidates) {
+        int fsz = 0;
+        bool usedRl = false;
+        unsigned char* bytes = loadFontBytes(path, fsz, usedRl);
+        if (!bytes || fsz <= 0) {
+            freeFontBytes(bytes, usedRl);
+            continue;
+        }
+        Font candidate = LoadFontFromMemory(".ttf", bytes, fsz, 30, nullptr, 95);
+        freeFontBytes(bytes, usedRl);
+        if (candidate.texture.id != 0 && candidate.texture.id != defaultFont.texture.id) {
+            uiFont_ = candidate;
+            SetTextureFilter(uiFont_.texture, TEXTURE_FILTER_BILINEAR);
+            customFontLoaded_ = true;
+            return;
+        }
+    }
+#else
     std::vector<std::string> koreanTtfCandidates;
     if (const char* envFont = std::getenv("OPEN_CITY_FONT_PATH")) {
         if (envFont[0] != '\0') {
@@ -294,8 +560,6 @@ void HudRenderer::init() {
     koreanTtfCandidates.emplace_back("/usr/share/fonts/truetype/nanum/NanumGothic.ttf");
     koreanTtfCandidates.emplace_back("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc");
     koreanTtfCandidates.emplace_back("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc");
-
-    const Font defaultFont = GetFontDefault();
 
     for (const std::string& path : koreanTtfCandidates) {
         std::error_code ec;
@@ -334,6 +598,7 @@ void HudRenderer::init() {
             return;
         }
     }
+#endif
 }
 
 void HudRenderer::shutdown() {
@@ -377,6 +642,96 @@ void HudRenderer::showGraphicsToast(const char* labelEn, const char* labelKo) {
     gfxToastTimer_ = 2.4f;
 }
 
+bool HudRenderer::handleModalTap(const GameWorld& world, int screenW, int screenH,
+                                 Vector2 tapPos, ModalTapAction& out) {
+    out = ModalTapAction{};
+
+    if (shopMenuOpen_) {
+        const int rowCount = getShopRowCount(world);
+        if (rowCount <= 0) {
+            shopMenuOpen_ = false;
+            return true;
+        }
+        const ShopModalGeom g = computeShopModalGeom(rowCount, screenW, screenH);
+        if (pointInRect(tapPos, g.closeBtn) || !pointInRect(tapPos, g.panel)) {
+            setShopMenuOpen(false);
+            return true;
+        }
+        for (int i = 0; i < rowCount; ++i) {
+            const Rectangle rowRect{
+                g.panel.x + 18.0f,
+                g.rowsStartY + static_cast<float>(i) * g.rowStep,
+                g.panel.width - 36.0f,
+                g.rowBoxH
+            };
+            if (pointInRect(tapPos, rowRect)) {
+                out.shopBuyOption = i + 1;
+                return true;
+            }
+        }
+        return true;
+    }
+
+    if (phoneOpen_) {
+        const int rowCount = (phoneTab_ == 0 || phoneTab_ == 3) ? 10 : 6;
+        const PhoneModalGeom g = computePhoneModalGeom(phoneTab_, screenW, screenH);
+        if (pointInRect(tapPos, g.closeBtn) || !pointInRect(tapPos, g.panel)) {
+            setPhoneOpen(false);
+            return true;
+        }
+        for (int t = 0; t < 4; ++t) {
+            if (pointInRect(tapPos, g.tabs[static_cast<std::size_t>(t)])) {
+                setPhoneTab(t);
+                return true;
+            }
+        }
+        for (int i = 0; i < rowCount; ++i) {
+            const Rectangle rowRect{
+                g.panel.x + 12.0f,
+                g.listTop + static_cast<float>(i) * (g.rowH + g.rowGap),
+                g.panel.width - 24.0f,
+                g.rowH
+            };
+            if (pointInRect(tapPos, rowRect)) {
+                out.phoneTab = phoneTab_;
+                out.phoneOption = i + 1;
+                return true;
+            }
+        }
+        return true;
+    }
+
+    if (customStudioOpen_) {
+        const StudioModalGeom g = computeStudioModalGeom(customTab_, screenW, screenH);
+        if (pointInRect(tapPos, g.closeBtn)) {
+            setCustomStudioOpen(false);
+            return true;
+        }
+        for (int t = 0; t < 4; ++t) {
+            if (pointInRect(tapPos, g.tabs[static_cast<std::size_t>(t)])) {
+                setCustomTab(t);
+                return true;
+            }
+        }
+        for (int i = 0; i < g.rowCount; ++i) {
+            const Rectangle rowRect{
+                g.panel.x + 16.0f,
+                g.rowsTop + static_cast<float>(i) * g.rowStep,
+                g.panel.width - 32.0f,
+                g.rowH
+            };
+            if (pointInRect(tapPos, rowRect)) {
+                out.customStudioTab = customTab_;
+                out.customStudioOption = i + 1;
+                return true;
+            }
+        }
+        return pointInRect(tapPos, g.panel);
+    }
+
+    return false;
+}
+
 void HudRenderer::renderHud(const GameWorld& world, float cameraYaw, bool cursorLocked,
                             bool firstPerson, float adsBlend) {
     const int sw = GetScreenWidth();
@@ -391,9 +746,13 @@ void HudRenderer::renderHud(const GameWorld& world, float cameraYaw, bool cursor
     }
 
     drawCrosshair(world, sw, sh, firstPerson, adsBlend);
-    drawRadarMinimap(world, cameraYaw, sh);
+    if (!(mobileUi_ && customStudioOpen_)) {
+        drawRadarMinimap(world, cameraYaw, sh);
+    }
     drawTopRightStatus(world, sw, firstPerson);
-    drawSpeedometerAndDrift(world, sw, sh);
+    if (!(mobileUi_ && (shopMenuOpen_ || phoneOpen_))) {
+        drawSpeedometerAndDrift(world, sw, sh);
+    }
     drawContextPromptsAndMission(world, sw, sh);
 
     if (shopMenuOpen_) {
@@ -405,15 +764,22 @@ void HudRenderer::renderHud(const GameWorld& world, float cameraYaw, bool cursor
     }
 
     drawBannerToast(world, sw, sh);
-    if (!customStudioOpen_) {
+    if (!customStudioOpen_ && !mobileUi_) {
         drawHelpOverlay(world, sw, sh, cursorLocked);
     }
 }
 
 void HudRenderer::drawRadarMinimap(const GameWorld& world, float cameraYaw, int screenH) {
-    const float radius = 92.0f;
-    const float cx = 26.0f + radius;
-    const float cy = static_cast<float>(screenH) - 42.0f - radius;
+    float radius = 92.0f;
+    float cx = 26.0f + radius;
+    float cy = static_cast<float>(screenH) - 42.0f - radius;
+    if (mobileUi_) {
+        // Place radar at Top-Left on touchscreens so Bottom-Left stays clear for virtual joystick / steering
+        const float s = clampf(static_cast<float>(screenH) / 820.0f, 0.70f, 1.32f);
+        radius = 70.0f * s;
+        cx = std::max(24.0f, 22.0f * s) + radius;
+        cy = 14.0f * s + radius;
+    }
     const float worldRange = 155.0f;
     const float scale = radius / worldRange;
 
@@ -583,7 +949,7 @@ void HudRenderer::drawRadarMinimap(const GameWorld& world, float cameraYaw, int 
 
     // GTA Health (green) & Armor (blue) bars directly below radar
     const float barW = (radius * 2.0f - 6.0f) * 0.5f;
-    const float barY = cy + radius + 12.0f;
+    const float barY = cy + radius + (mobileUi_ ? 10.0f : 12.0f);
     const float leftX = cx - radius;
 
     DrawRectangleRounded({leftX, barY, barW, 11.0f}, 0.35f, 4, Color{22, 28, 34, 225});
@@ -621,15 +987,20 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
         }
     }
 
-    const char* viewBadge = firstPerson
-                                ? pickText("[V] 1ST PERSON", "[V] 1인칭 시점")
-                                : pickText("[V] 3RD PERSON", "[V] 3인칭 시점");
-    const char* weatherBadge = world.isRainWeather()
-                                   ? pickText("  |  [U] RAIN", "  |  [U] 우천")
-                                   : "";
     char clockBuf[160];
-    std::snprintf(clockBuf, sizeof(clockBuf), "%s  |  %02d:%02d  |  %s%s",
-                  viewBadge, hour, minute, distName, weatherBadge);
+    if (mobileUi_) {
+        // Compact header on touchscreens (top-center pills already show 1st/3rd view and weather)
+        std::snprintf(clockBuf, sizeof(clockBuf), "%02d:%02d  |  %s", hour, minute, distName);
+    } else {
+        const char* viewBadge = firstPerson
+                                    ? pickText("[V] 1ST PERSON", "[V] 1인칭 시점")
+                                    : pickText("[V] 3RD PERSON", "[V] 3인칭 시점");
+        const char* weatherBadge = world.isRainWeather()
+                                       ? pickText("  |  [U] RAIN", "  |  [U] 우천")
+                                       : "";
+        std::snprintf(clockBuf, sizeof(clockBuf), "%s  |  %02d:%02d  |  %s%s",
+                      viewBadge, hour, minute, distName, weatherBadge);
+    }
     const float clockW = measureUiText(clockBuf, 17.5f);
     drawUiText(clockBuf, rightEdge - clockW, 18.0f, 17.5f,
                firstPerson ? Color{128, 228, 255, 250} : Color{225, 232, 242, 245});
@@ -647,7 +1018,16 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
 
     char assetBuf[160];
     const int propCount = world.ownedPropertyCount();
-    if (propCount > 0) {
+    if (mobileUi_) {
+        if (propCount > 0) {
+            std::snprintf(assetBuf, sizeof(assetBuf),
+                          pickText("INCOME +$%d / 25s (%d/6)", "수익 +$%d / 25초 (자산 %d/6)"),
+                          world.passiveIncomePerCycle(), propCount);
+        } else {
+            std::snprintf(assetBuf, sizeof(assetBuf), "%s",
+                          pickText("OPEN CITY v1.1.0 MOBILE", "오픈 시티 v1.1.0 모바일"));
+        }
+    } else if (propCount > 0) {
         std::snprintf(assetBuf, sizeof(assetBuf),
                       pickText("INCOME +$%d / 25s (%d/6)  |  [P] Phone  ·  [K] Studio",
                                "수익 +$%d / 25초 (자산 %d/6)  |  [P] 스마트폰  ·  [K] 커스텀"),
@@ -740,7 +1120,9 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
     } else if (wspec.magazineSize > 0) {
         std::snprintf(ammoBuf, sizeof(ammoBuf), "%d / %d", wslot.magAmmo, wslot.reserveAmmo);
     } else {
-        std::snprintf(ammoBuf, sizeof(ammoBuf), "%s", pickText("MELEE [1-0,- · Z/X]", "근접 격투 [1~0,- · Z/X]"));
+        std::snprintf(ammoBuf, sizeof(ammoBuf), "%s",
+                      mobileUi_ ? pickText("MELEE COMBAT", "근접 격투")
+                                : pickText("MELEE [1-0,- · Z/X]", "근접 격투 [1~0,- · Z/X]"));
     }
     drawUiText(ammoBuf, rightEdge - 250.0f, weaponCardY + 28.0f, 16.5f, Color{255, 214, 92, 255});
 
@@ -765,8 +1147,12 @@ void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, i
     const auto& hc = world.player().hudCustom;
     const ColorRGBA themeRgba = getHudThemeColorRGBA(hc.hudThemeIdx);
     const float phoneShift = phoneOpen_ ? 342.0f : 0.0f;
-    const float rx = static_cast<float>(screenW) - 256.0f - phoneShift;
-    const float ry = static_cast<float>(screenH) - 150.0f;
+    const float rx = mobileUi_
+                         ? (static_cast<float>(screenW) - 234.0f) * 0.5f
+                         : (static_cast<float>(screenW) - 256.0f - phoneShift);
+    const float ry = mobileUi_
+                         ? (static_cast<float>(screenH) - 134.0f)
+                         : (static_cast<float>(screenH) - 150.0f);
 
     DrawRectangleRounded({rx, ry, 234.0f, 124.0f}, 0.20f, 8, Color{14, 18, 26, 224});
     DrawRectangleRoundedLinesEx({rx, ry, 234.0f, 124.0f}, 0.20f, 8, 1.2f, toRayColor(themeRgba, 128));
@@ -995,62 +1381,73 @@ void HudRenderer::drawContextPromptsAndMission(const GameWorld& world, int scree
     // Active Mission top-center objective bar
     if (world.mission().kind != ActiveMissionKind::None) {
         const auto& m = world.mission();
-        DrawRectangleRounded({midX - 280.0f, 16.0f, 560.0f, 58.0f}, 0.22f, 8, Color{14, 18, 26, 225});
+        const float ms = clampf(static_cast<float>(screenH) / 820.0f, 0.70f, 1.38f);
+        const float missionY = mobileUi_ ? (58.0f * ms) : 16.0f;
+        DrawRectangleRounded({midX - 280.0f, missionY, 560.0f, 58.0f}, 0.22f, 8, Color{14, 18, 26, 225});
 
         const char* objText = pickText(m.objectiveEn.c_str(), m.objectiveKo.c_str());
         const float ow = measureUiText(objText, 19.0f);
-        drawUiText(objText, midX - ow * 0.5f, 22.0f, 19.0f, Color{255, 224, 78, 255});
+        drawUiText(objText, midX - ow * 0.5f, missionY + 6.0f, 19.0f, Color{255, 224, 78, 255});
 
         const int sec = std::max(0, static_cast<int>(std::ceil(m.timeRemaining)));
         char timerBuf[96];
-        std::snprintf(timerBuf, sizeof(timerBuf), "%s %02d:%02d   |   [Backspace] %s",
-                      pickText("TIME", "남은 시간"), sec / 60, sec % 60,
-                      pickText("Abort", "미션 취소"));
+        if (mobileUi_) {
+            std::snprintf(timerBuf, sizeof(timerBuf), "%s %02d:%02d",
+                          pickText("TIME", "남은 시간"), sec / 60, sec % 60);
+        } else {
+            std::snprintf(timerBuf, sizeof(timerBuf), "%s %02d:%02d   |   [Backspace] %s",
+                          pickText("TIME", "남은 시간"), sec / 60, sec % 60,
+                          pickText("Abort", "미션 취소"));
+        }
         const float tw = measureUiText(timerBuf, 17.0f);
         const Color tCol = (sec <= 15) ? Color{255, 88, 82, 255} : Color{210, 220, 232, 245};
-        drawUiText(timerBuf, midX - tw * 0.5f, 48.0f, 17.0f, tCol);
+        drawUiText(timerBuf, midX - tw * 0.5f, missionY + 32.0f, 17.0f, tCol);
     }
 
     // Bottom-center interaction prompt (Shops / Mission Coronas / Vehicles)
     std::string prompt;
-    if (!shopMenuOpen_) {
+    if (!shopMenuOpen_ && !(mobileUi_ && (phoneOpen_ || customStudioOpen_))) {
+        const char* shopPrefixEn = mobileUi_ ? "Tap [SHOP]: " : "Press [B] to open ";
+        const char* shopPrefixKo = mobileUi_ ? "[매장] 버튼 탭 · " : "[B] 키를 눌러 ";
         if (world.isPlayerInWeaponShopZone()) {
-            prompt = pickText("Press [B] to open Ammu-Tech Weapon & Heavy Ordnance Shop",
-                              "[B] 키를 눌러 AMMU-TECH 중화기 · 방탄복 상점 열기");
+            prompt = std::string(pickText(shopPrefixEn, shopPrefixKo)) +
+                     pickText("Ammu-Tech Weapon & Heavy Ordnance Shop", "AMMU-TECH 중화기 · 방탄복 상점 열기");
         } else if (world.isPlayerInGarageZone()) {
-            prompt = pickText("Press [B] to open Pay 'n' Tune Full Custom Shop",
-                              "[B] 키를 눌러 PAY 'N' TUNE 풀튜닝 · 네온 공방 열기");
+            prompt = std::string(pickText(shopPrefixEn, shopPrefixKo)) +
+                     pickText("Pay 'n' Tune Full Custom Shop", "PAY 'N' TUNE 풀튜닝 · 네온 공방 열기");
         } else if (world.isPlayerInDealershipZone()) {
-            prompt = pickText("Press [B] to browse Luxury Autos Supercar Showroom",
-                              "[B] 키를 눌러 LUXURY AUTOS 슈퍼카 전시장 열기");
+            prompt = std::string(pickText(shopPrefixEn, shopPrefixKo)) +
+                     pickText("Luxury Autos Supercar Showroom", "LUXURY AUTOS 슈퍼카 전시장 열기");
         } else if (world.isPlayerInBoutiqueZone()) {
-            prompt = pickText("Press [B] to enter Moda Designer Clothing Boutique",
-                              "[B] 키를 눌러 MODA 프리미엄 의상 부티크 열기");
+            prompt = std::string(pickText(shopPrefixEn, shopPrefixKo)) +
+                     pickText("Moda Designer Clothing Boutique", "MODA 프리미엄 의상 부티크 열기");
         } else if (world.isPlayerInGasStationZone()) {
-            prompt = pickText("Press [B] for Globe Oil Pit Service & Property Investment",
-                              "[B] 키를 눌러 GLOBE OIL 급속 주유 · 주유소 매입 열기");
+            prompt = std::string(pickText(shopPrefixEn, shopPrefixKo)) +
+                     pickText("Globe Oil Pit Service & Property Investment", "GLOBE OIL 급속 주유 · 주유소 매입 열기");
         } else if (world.isPlayerInNightclubZone()) {
-            prompt = pickText("Press [B] to manage Pulse Nightclub & Eclipse Penthouse",
-                              "[B] 키를 눌러 PULSE 나이트클럽 · 펜트하우스 매입 열기");
+            prompt = std::string(pickText(shopPrefixEn, shopPrefixKo)) +
+                     pickText("Pulse Nightclub & Eclipse Penthouse", "PULSE 나이트클럽 · 펜트하우스 매입 열기");
         } else if (const auto* poi = world.activePoiNearPlayer()) {
             if (world.mission().kind == ActiveMissionKind::None &&
                 (poi->kind == PoiKind::MissionDelivery ||
                  poi->kind == PoiKind::MissionRace ||
                  poi->kind == PoiKind::MissionGangRaid)) {
                 char buf[196];
-                std::snprintf(buf, sizeof(buf), "[F] %s",
+                std::snprintf(buf, sizeof(buf), "%s %s",
+                              mobileUi_ ? pickText("[JOB]", "[미션]") : "[F]",
                               pickText(poi->nameEn.c_str(), poi->nameKo.c_str()));
                 prompt = buf;
             }
         } else if (const Vehicle* nearCar = world.nearestEnterableVehicle()) {
             const auto& spec = getVehicleSpec(nearCar->kind);
             char buf[196];
+            const char* actTag = mobileUi_ ? pickText("[DRIVE]", "[탑승]") : "[F]";
             if (nearCar->hasNpcDriver) {
-                std::snprintf(buf, sizeof(buf), "[F] %s (%s)",
+                std::snprintf(buf, sizeof(buf), "%s %s (%s)", actTag,
                               pickText("Carjack Vehicle", "주행 차량 탈취하기"),
                               pickText(spec.nameEn, spec.nameKo));
             } else {
-                std::snprintf(buf, sizeof(buf), "[F] %s (%s)",
+                std::snprintf(buf, sizeof(buf), "%s %s (%s)", actTag,
                               pickText("Drive Vehicle", "차량 탑승하기"),
                               pickText(spec.nameEn, spec.nameKo));
             }
@@ -1060,7 +1457,9 @@ void HudRenderer::drawContextPromptsAndMission(const GameWorld& world, int scree
 
     if (!prompt.empty()) {
         const float pw = measureUiText(prompt.c_str(), 20.0f);
-        const float py = static_cast<float>(screenH) - 60.0f;
+        const float py = (mobileUi_ && world.playerVehicle() != nullptr)
+                             ? (static_cast<float>(screenH) - 180.0f)
+                             : (static_cast<float>(screenH) - 60.0f);
         DrawRectangleRounded({midX - pw * 0.5f - 18.0f, py - 8.0f, pw + 36.0f, 36.0f},
                              0.30f, 6, Color{12, 16, 24, 228});
         drawUiText(prompt.c_str(), midX - pw * 0.5f, py, 20.0f, Color{255, 242, 152, 255});
@@ -1268,31 +1667,34 @@ void HudRenderer::drawShopModal(const GameWorld& world, int screenW, int screenH
 
     if (rows.empty()) return;
 
-    const bool dense = (rows.size() >= 10);
-    const float rowStep = dense ? 31.0f : 35.0f;
-    const float rowBoxH = dense ? 27.0f : 30.0f;
-    const float fontSz = dense ? 16.5f : 17.5f;
-    const float mw = 576.0f;
-    const float mh = (dense ? 92.0f : 96.0f) + static_cast<float>(rows.size()) * rowStep;
-    const float mx = (static_cast<float>(screenW) - mw) * 0.5f;
-    const float my = (static_cast<float>(screenH) - mh) * 0.5f;
+    const ShopModalGeom g = computeShopModalGeom(static_cast<int>(rows.size()), screenW, screenH);
+    const float mx = g.panel.x;
+    const float my = g.panel.y;
+    const float mw = g.panel.width;
+    const float mh = g.panel.height;
 
-    DrawRectangleRounded({mx, my, mw, mh}, 0.06f, 8, Color{12, 18, 28, 244});
-    DrawRectangleRoundedLinesEx({mx, my, mw, mh}, 0.06f, 8, 2.4f, accent);
+    DrawRectangleRounded(g.panel, 0.06f, 8, Color{12, 18, 28, 244});
+    DrawRectangleRoundedLinesEx(g.panel, 0.06f, 8, 2.4f, accent);
 
     drawUiText(pickText(titleEn.c_str(), titleKo.c_str()), mx + 22.0f, my + 16.0f, 21.5f, accent);
+    if (mobileUi_) {
+        drawModalCloseButton(g.closeBtn);
+    }
 
     for (std::size_t i = 0; i < rows.size(); ++i) {
-        const float ry = my + 52.0f + static_cast<float>(i) * rowStep;
-        DrawRectangleRounded({mx + 18.0f, ry, mw - 36.0f, rowBoxH}, 0.24f, 4, Color{24, 33, 46, 228});
+        const float ry = g.rowsStartY + static_cast<float>(i) * g.rowStep;
+        DrawRectangleRounded({mx + 18.0f, ry, mw - 36.0f, g.rowBoxH}, 0.24f, 4, Color{24, 33, 46, 228});
         drawUiText(pickText(rows[i].labelEn.c_str(), rows[i].labelKo.c_str()),
-                   mx + 28.0f, ry + 4.5f, fontSz, Color{238, 243, 250, 255});
-        const float pw = measureUiText(rows[i].priceTag.c_str(), fontSz);
-        drawUiText(rows[i].priceTag.c_str(), mx + mw - 28.0f - pw, ry + 4.5f, fontSz, rows[i].tagColor);
+                   mx + 28.0f, ry + 4.5f, g.fontSz, Color{238, 243, 250, 255});
+        const float pw = measureUiText(rows[i].priceTag.c_str(), g.fontSz);
+        drawUiText(rows[i].priceTag.c_str(), mx + mw - 28.0f - pw, ry + 4.5f, g.fontSz, rows[i].tagColor);
     }
 
     char hintEn[112], hintKo[128];
-    if (rows.size() == 12) {
+    if (mobileUi_) {
+        std::snprintf(hintEn, sizeof(hintEn), "Tap any item to buy/select   |   Tap X or outside to close");
+        std::snprintf(hintKo, sizeof(hintKo), "항목 터치로 구매·선택   |   우측 상단 닫기 또는 바깥 터치");
+    } else if (rows.size() == 12) {
         std::snprintf(hintEn, sizeof(hintEn), "Keys [1-9, 0, -, =] Select   |   [B] or [ESC] Close");
         std::snprintf(hintKo, sizeof(hintKo), "키 [1~9, 0, -, =] 구매·선택   |   [B] 또는 [ESC] 닫기");
     } else if (rows.size() == 11) {
@@ -1312,11 +1714,12 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
     };
 
     const int rowCount = (phoneTab_ == 0 || phoneTab_ == 3) ? 10 : 6;
-    const bool densePhone = (rowCount >= 10);
-    const float pw = 342.0f;
-    const float ph = densePhone ? 530.0f : 456.0f;
-    const float px = static_cast<float>(screenW) - pw - 22.0f;
-    const float py = static_cast<float>(screenH) - ph - 20.0f;
+    const PhoneModalGeom g = computePhoneModalGeom(phoneTab_, screenW, screenH);
+    const bool densePhone = g.dense;
+    const float px = g.panel.x;
+    const float py = g.panel.y;
+    const float pw = g.panel.width;
+    const float ph = g.panel.height;
 
     // Sleek metallic smartphone chassis + glass OLED screen
     DrawRectangleRounded({px - 5.0f, py - 5.0f, pw + 10.0f, ph + 10.0f}, 0.09f, 10, Color{38, 46, 62, 248});
@@ -1333,33 +1736,36 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
 
     // Top speaker notch & status bar
     DrawRectangleRounded({px + pw * 0.5f - 36.0f, py + 7.0f, 72.0f, 5.0f}, 0.5f, 4, Color{42, 52, 68, 255});
-    drawUiText(pickText("iFRUIT OS  |  [Q/E] Switch App", "iFRUIT 스마트폰  |  [Q/E] 앱 전환"),
+    drawUiText(mobileUi_
+                   ? pickText("iFRUIT OS  |  Tap Tabs", "iFRUIT 스마트폰")
+                   : pickText("iFRUIT OS  |  [Q/E] Switch App", "iFRUIT 스마트폰  |  [Q/E] 앱 전환"),
                px + 16.0f, py + 17.0f, 15.2f, Color{198, 212, 228, 245});
+    if (mobileUi_) {
+        drawModalCloseButton(g.closeBtn);
+    }
 
     // 4 App Tab Pills
     const char* tabEn[4] = {"AUTOS", "REALTY", "STYLE", "SUPPLY"};
     const char* tabKo[4] = {"차량호출", "부동산", "의상실", "긴급보급"};
-    const float tabW = (pw - 28.0f - 12.0f) / 4.0f;
     for (int t = 0; t < 4; ++t) {
-        const float tx = px + 14.0f + static_cast<float>(t) * (tabW + 4.0f);
-        const float ty = py + 41.0f;
+        const Rectangle tr = g.tabs[static_cast<std::size_t>(t)];
         const bool sel = (t == phoneTab_);
-        DrawRectangleRounded({tx, ty, tabW, 27.0f}, 0.30f, 6,
+        DrawRectangleRounded(tr, 0.30f, 6,
                              sel ? Color{activeAccent.r, activeAccent.g, activeAccent.b, 56}
                                  : Color{22, 30, 42, 230});
         if (sel) {
-            DrawRectangleRoundedLinesEx({tx, ty, tabW, 27.0f}, 0.30f, 6, 1.5f, activeAccent);
+            DrawRectangleRoundedLinesEx(tr, 0.30f, 6, 1.5f, activeAccent);
         }
         const char* tLabel = pickText(tabEn[t], tabKo[t]);
         const float tw = measureUiText(tLabel, 14.8f);
-        drawUiText(tLabel, tx + (tabW - tw) * 0.5f, ty + 5.5f, 14.8f,
+        drawUiText(tLabel, tr.x + (tr.width - tw) * 0.5f, tr.y + 5.5f, 14.8f,
                    sel ? activeAccent : Color{168, 180, 198, 235});
     }
 
     const auto& pl = world.player();
-    const float listTop = py + (densePhone ? 75.0f : 80.0f);
-    const float rowH = densePhone ? 39.0f : 54.0f;
-    const float rowGap = densePhone ? 3.0f : 4.0f;
+    const float listTop = g.listTop;
+    const float rowH = g.rowH;
+    const float rowGap = g.rowGap;
 
     for (int i = 0; i < rowCount; ++i) {
         const float ry = listTop + static_cast<float>(i) * (rowH + rowGap);
@@ -1489,7 +1895,11 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
         drawUiText(rightTag, px + pw - 20.0f - tw, ry + y1Off + 0.5f, f1, rightCol);
     }
 
-    if (phoneTab_ == 0) {
+    if (mobileUi_) {
+        drawUiText(pickText("Tap tabs & items   |   Tap X or outside to close",
+                            "탭 · 항목 터치로 즉시 실행   |   우측 상단 닫기"),
+                   px + 18.0f, py + ph - 23.0f, 14.5f, Color{186, 198, 214, 245});
+    } else if (phoneTab_ == 0) {
         drawUiText(pickText("Keys [1-9, 0] Select   |   [P] Close Phone",
                             "숫자 [1~9, 0] 구매·호출   |   [P] 닫기"),
                    px + 18.0f, py + ph - 23.0f, 14.5f, Color{186, 198, 214, 245});
@@ -1505,44 +1915,44 @@ void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int s
 }
 
 void HudRenderer::drawCustomStudioModal(const GameWorld& world, int screenW, int screenH) {
-    (void)screenW;
-    (void)screenH;
-
     const auto& pl = world.player();
     const auto& cc = pl.characterCustom;
     const auto& hc = pl.hudCustom;
     const ColorRGBA themeRgba = getHudThemeColorRGBA(hc.hudThemeIdx);
     const Color themeCol = toRayColor(themeRgba, 255);
 
-    const float px = 22.0f;
-    const float py = 18.0f;
-    const float pw = 452.0f;
-    const float ph = 504.0f;
+    const StudioModalGeom g = computeStudioModalGeom(customTab_, screenW, screenH);
+    const float px = g.panel.x;
+    const float py = g.panel.y;
+    const float pw = g.panel.width;
+    const float ph = g.panel.height;
 
     // Studio glass backdrop & themed neon bezel
     DrawRectangleRounded({px - 4.0f, py - 4.0f, pw + 8.0f, ph + 8.0f}, 0.05f, 8, Color{6, 9, 15, 238});
-    DrawRectangleRounded({px, py, pw, ph}, 0.05f, 8, Color{13, 19, 30, 236});
-    DrawRectangleRoundedLinesEx({px, py, pw, ph}, 0.05f, 8, 1.8f, toRayColor(themeRgba, 195));
+    DrawRectangleRounded(g.panel, 0.05f, 8, Color{13, 19, 30, 236});
+    DrawRectangleRoundedLinesEx(g.panel, 0.05f, 8, 1.8f, toRayColor(themeRgba, 195));
 
     // Title bar
     drawUiText(pickText("CUSTOM STUDIO", "커스텀 스튜디오"), px + 16.0f, py + 11.0f, 21.0f, themeCol);
-    const char* topHint = pickText("[Q/E] Tab  ·  [K] Close", "[Q/E] 탭 전환  ·  [K] 닫기");
-    const float thw = measureUiText(topHint, 14.5f);
-    drawUiText(topHint, px + pw - 16.0f - thw, py + 15.0f, 14.5f, Color{196, 210, 228, 240});
+    if (mobileUi_) {
+        drawModalCloseButton(g.closeBtn);
+    } else {
+        const char* topHint = pickText("[Q/E] Tab  ·  [K] Close", "[Q/E] 탭 전환  ·  [K] 닫기");
+        const float thw = measureUiText(topHint, 14.5f);
+        drawUiText(topHint, px + pw - 16.0f - thw, py + 15.0f, 14.5f, Color{196, 210, 228, 240});
+    }
 
     // 4 Studio Category Tabs
     const char* tabsEn[4] = {"CHARACTER", "GUNSMITH", "VEHICLE", "HUD / AIM"};
     const char* tabsKo[4] = {"캐릭터", "총기 건스미스", "차량 커스텀", "조준·HUD"};
-    const float tabGap = 6.0f;
-    const float tabW = (pw - 32.0f - tabGap * 3.0f) * 0.25f;
     for (int t = 0; t < 4; ++t) {
-        const float tx = px + 16.0f + static_cast<float>(t) * (tabW + tabGap);
+        const Rectangle tr = g.tabs[static_cast<std::size_t>(t)];
         const bool active = (customTab_ == t);
-        DrawRectangleRounded({tx, py + 42.0f, tabW, 29.0f}, 0.26f, 6,
+        DrawRectangleRounded(tr, 0.26f, 6,
                              active ? toRayColor(themeRgba, 235) : Color{26, 35, 50, 230});
         const char* tLabel = pickText(tabsEn[t], tabsKo[t]);
         const float lw = measureUiText(tLabel, 14.5f);
-        drawUiText(tLabel, tx + (tabW - lw) * 0.5f, py + 48.0f, 14.5f,
+        drawUiText(tLabel, tr.x + (tr.width - lw) * 0.5f, tr.y + 6.0f, 14.5f,
                    active ? Color{10, 14, 20, 255} : Color{205, 216, 232, 240});
     }
 
@@ -1605,12 +2015,12 @@ void HudRenderer::drawCustomStudioModal(const GameWorld& world, int screenW, int
         return std::max(20, static_cast<int>(std::round(static_cast<float>(basePrice) * disc)));
     };
 
-    const int rowCount = (customTab_ == 0 || customTab_ == 2) ? 8 : 6;
-    const float rowStep = (rowCount == 8) ? 43.0f : 54.0f;
-    const float rowH = (rowCount == 8) ? 38.5f : 46.0f;
+    const int rowCount = g.rowCount;
+    const float rowStep = g.rowStep;
+    const float rowH = g.rowH;
 
     for (int i = 0; i < rowCount; ++i) {
-        const float ry = py + 116.0f + static_cast<float>(i) * rowStep;
+        const float ry = g.rowsTop + static_cast<float>(i) * rowStep;
         DrawRectangleRounded({px + 16.0f, ry, pw - 32.0f, rowH}, 0.20f, 6, Color{22, 31, 46, 224});
         DrawRectangleRoundedLinesEx({px + 16.0f, ry, pw - 32.0f, rowH}, 0.20f, 6, 1.0f, Color{54, 74, 102, 130});
 
@@ -2020,11 +2430,15 @@ void HudRenderer::drawCustomStudioModal(const GameWorld& world, int screenW, int
         }
     }
 
-    const char* footTxt = (rowCount == 8)
-                              ? pickText("Keys [1-8] Customize  |  [V] 1st/3rd View  |  Mouse Orbit",
-                                         "숫자 [1~8] 즉시 적용  |  [V] 1·3인칭 전환  |  마우스 회전")
-                              : pickText("Keys [1-6] Customize  |  [V] 1st/3rd View  |  Mouse Orbit",
-                                         "숫자 [1~6] 즉시 적용  |  [V] 1·3인칭 전환  |  마우스 회전");
+    const char* footTxt =
+        mobileUi_
+            ? pickText("Tap tabs & items  |  Drag right side to orbit 3D",
+                       "탭 · 항목 터치로 즉시 적용  |  우측 화면 드래그 회전")
+            : ((rowCount == 8)
+                   ? pickText("Keys [1-8] Customize  |  [V] 1st/3rd View  |  Mouse Orbit",
+                              "숫자 [1~8] 즉시 적용  |  [V] 1·3인칭 전환  |  마우스 회전")
+                   : pickText("Keys [1-6] Customize  |  [V] 1st/3rd View  |  Mouse Orbit",
+                              "숫자 [1~6] 즉시 적용  |  [V] 1·3인칭 전환  |  마우스 회전"));
     drawUiText(footTxt, px + 18.0f, py + ph - 23.0f, 14.0f, Color{190, 204, 222, 245});
 }
 
@@ -2046,7 +2460,9 @@ void HudRenderer::drawBannerToast(const GameWorld& world, int screenW, int scree
         const float ga = clampf(gfxToastTimer_ * 2.0f, 0.0f, 1.0f);
         const char* gtxt = pickText(gfxToastEn_.c_str(), gfxToastKo_.c_str());
         const float gw = measureUiText(gtxt, 19.0f);
-        const float gy = static_cast<float>(screenH) - 112.0f;
+        const float gy = (mobileUi_ && world.playerVehicle() != nullptr)
+                             ? (static_cast<float>(screenH) - 178.0f)
+                             : (static_cast<float>(screenH) - 112.0f);
         DrawRectangleRounded({midX - gw * 0.5f - 16.0f, gy - 6.0f, gw + 32.0f, 32.0f},
                              0.35f, 6, Color{10, 16, 26, static_cast<unsigned char>(215.0f * ga)});
         DrawRectangleRoundedLinesEx({midX - gw * 0.5f - 16.0f, gy - 6.0f, gw + 32.0f, 32.0f},
@@ -2086,7 +2502,7 @@ void HudRenderer::drawHelpOverlay(const GameWorld& world, int screenW, int scree
 
     DrawRectangleRounded({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, Color{10, 15, 24, 198});
     DrawRectangleRoundedLinesEx({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, 1.2f, toRayColor(themeRgba, 125));
-    drawUiText(pickText("OPEN CITY C++ + RUST v1.0.0 - CONTROLS", "OPEN CITY C++ + RUST v1.0.0 - 조작 안내"),
+    drawUiText(pickText("OPEN CITY C++ + RUST v1.1.0 - CONTROLS", "OPEN CITY C++ + RUST v1.1.0 - 조작 안내"),
                30.0f, 24.0f, 18.5f, toRayColor(themeRgba, 255));
 
     const char* linesEn[11] = {

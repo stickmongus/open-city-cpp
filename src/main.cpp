@@ -2,6 +2,7 @@
 #include "gameplay/GameWorld.hpp"
 #include "render/Renderer3D.hpp"
 #include "ui/HudRenderer.hpp"
+#include "ui/TouchControls.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -10,7 +11,14 @@
 #include <raylib.h>
 
 int main(int argc, char** argv) {
+#if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
+    constexpr bool kIsAndroid = true;
+#else
+    constexpr bool kIsAndroid = false;
+#endif
+
     bool smokeTestMode = false;
+    bool mobileUiMode = kIsAndroid;
     const char* screenshotPath = nullptr;
     float initialTimeOverride = -1.0f;
     float initialPitchOverride = -999.0f;
@@ -43,6 +51,8 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--smoke-test") == 0) {
             smokeTestMode = true;
+        } else if (std::strcmp(argv[i], "--mobile-ui") == 0) {
+            mobileUiMode = true;
         } else if (std::strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
             screenshotPath = argv[++i];
             smokeTestMode = true;
@@ -101,19 +111,33 @@ int main(int argc, char** argv) {
         }
     }
 
+#if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
+    SetConfigFlags(FLAG_VSYNC_HINT);
+    InitWindow(0, 0, "Open City v1.1.0");
+#else
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1440, 860, "Open City C++ + Rust v1.0.0 - 3D Open-World Sandbox");
-    SetExitKey(KEY_NULL); // Keep ESC free for menu/cursor release instead of instant quit
+    InitWindow(1440, 860, "Open City C++ + Rust v1.1.0 - 3D Open-World Sandbox");
+#endif
+    SetExitKey(KEY_NULL); // Keep ESC / Android Back free for closing modals instead of instant quit
     SetTargetFPS(60);
 
     oc::GameWorld world(20261107ULL);
     oc::Renderer3D renderer;
     oc::HudRenderer hud;
+    oc::TouchControls touch;
     oc::SynthAudio audio;
 
     renderer.init();
     hud.init();
+    hud.setMobileUi(mobileUiMode);
+    touch.setEnabled(mobileUiMode);
     audio.init();
+    if (mobileUiMode) {
+        world.pushBanner("WELCOME TO SUNSET BAY", "선셋 베이 시티에 오신 것을 환영합니다",
+                         "Left Stick Move  |  Drag Right to Aim  |  Top Bar: 1P / Custom / Phone / Rain",
+                         "좌측 스틱 이동 · 우측 드래그 조준 · 상단 바 1·3인칭 / 커스텀 / 폰 / 날씨",
+                         {92, 224, 255, 255}, 4.8f);
+    }
 
     if (wetRoadDemo) {
         world.setRainWeather(true);
@@ -475,16 +499,18 @@ int main(int argc, char** argv) {
     if (openShopOverride && world.isPlayerInAnyShopZone()) {
         hud.setShopMenuOpen(true);
     }
-    if (hideHelpInSmoke) {
+    if (hideHelpInSmoke && !mobileUiMode) {
         hud.toggleHelpOverlay();
     }
 
-    bool cursorLocked = true;
+    bool cursorLocked = !mobileUiMode;
     bool invertMouseY = false;
     bool firstPersonMode = startFirstPerson;
     float mouseSensScale = 1.0f;
     int skipMouseFrames = 2;
-    DisableCursor();
+    if (cursorLocked) {
+        DisableCursor();
+    }
 
     float camYaw = (initialYawOverride > -100.0f) ? initialYawOverride : -oc::kHalfPi;
     float camPitch = (initialPitchOverride > -100.0f)
@@ -515,16 +541,28 @@ int main(int argc, char** argv) {
 
     while (!WindowShouldClose()) {
         const float frameDt = std::min(GetFrameTime(), 0.05f);
+        const int screenW = GetScreenWidth();
+        const int screenH = GetScreenHeight();
+        const bool anyModalOpen = hud.isShopMenuOpen() || hud.isPhoneOpen() || hud.isCustomStudioOpen();
 
-        // Window / cursor / modal hotkeys
-        if (IsKeyPressed(KEY_ESCAPE)) {
+        // Multi-touch controller update (plus mouse-click simulation in desktop --mobile-ui preview)
+        const oc::TouchControlResult tRes =
+            touch.update(world, screenW, screenH, anyModalOpen, hud.isCustomStudioOpen(), !kIsAndroid);
+
+        oc::ModalTapAction modalTap{};
+        if (tRes.modalTapValid && anyModalOpen) {
+            hud.handleModalTap(world, screenW, screenH, tRes.modalTapPos, modalTap);
+        }
+
+        // Window / cursor / modal hotkeys (plus Android hardware/gesture Back key)
+        if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_BACK)) {
             if (hud.isShopMenuOpen()) {
                 hud.setShopMenuOpen(false);
             } else if (hud.isPhoneOpen()) {
                 hud.setPhoneOpen(false);
             } else if (hud.isCustomStudioOpen()) {
                 hud.setCustomStudioOpen(false);
-            } else {
+            } else if (!mobileUiMode && IsKeyPressed(KEY_ESCAPE)) {
                 cursorLocked = !cursorLocked;
                 if (cursorLocked) {
                     DisableCursor();
@@ -534,7 +572,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        if (IsKeyPressed(KEY_TAB)) {
+        if (!mobileUiMode && IsKeyPressed(KEY_TAB)) {
             cursorLocked = !cursorLocked;
             if (cursorLocked) {
                 DisableCursor();
@@ -543,7 +581,7 @@ int main(int argc, char** argv) {
                 EnableCursor();
             }
         }
-        if (!cursorLocked && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !hud.isShopMenuOpen()) {
+        if (!mobileUiMode && !cursorLocked && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !hud.isShopMenuOpen()) {
             cursorLocked = true;
             DisableCursor();
             skipMouseFrames = 2;
@@ -562,8 +600,9 @@ int main(int argc, char** argv) {
             hud.showSystemToast(invertMouseY ? "MOUSE Y-AXIS: INVERTED" : "MOUSE Y-AXIS: STANDARD",
                                 invertMouseY ? "마우스 상하 반전: 켜짐" : "마우스 상하 반전: 기본");
         }
-        // [V] or Middle Mouse Button: Toggle 1st-Person (FPS / Cockpit) <-> 3rd-Person Camera!
-        if (IsKeyPressed(KEY_V) || (!hud.isShopMenuOpen() && IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE))) {
+        // [V] or Middle Mouse Button or Mobile Top Bar: Toggle 1st-Person (FPS / Cockpit) <-> 3rd-Person Camera!
+        if (IsKeyPressed(KEY_V) || (!mobileUiMode && !hud.isShopMenuOpen() && IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) ||
+            tRes.toggleViewPressed) {
             firstPersonMode = !firstPersonMode;
             camInitialized = false;
             if (const oc::Vehicle* car = world.playerVehicle()) {
@@ -576,8 +615,8 @@ int main(int argc, char** argv) {
             hud.showSystemToast(firstPersonMode ? "CAMERA: 1ST PERSON (FPS / COCKPIT)" : "CAMERA: 3RD PERSON",
                                 firstPersonMode ? "시점 전환: 1인칭 시점 (FPS · 운전석)" : "시점 전환: 3인칭 숄더 시점");
         }
-        // [F3]: Cycle graphics quality preset (High / Medium / Low)
-        if (IsKeyPressed(KEY_F3)) {
+        // [F3] or Mobile Top Bar: Cycle graphics quality preset (Ultra / High / Performance)
+        if (IsKeyPressed(KEY_F3) || tRes.cycleQualityPressed) {
             renderer.cycleQuality();
             hud.showGraphicsToast(renderer.qualityNameEn(), renderer.qualityNameKo());
         }
@@ -592,19 +631,19 @@ int main(int argc, char** argv) {
             std::snprintf(sensKo, sizeof(sensKo), "마우스 감도: %d%%  ([ / ] 조절)", pct);
             hud.showSystemToast(sensEn, sensKo);
         }
-        if (IsKeyPressed(KEY_T)) {
+        if (IsKeyPressed(KEY_T) || tRes.advanceTimePressed) {
             world.advanceTimeOfDayHours(3.0f);
         }
-        if (IsKeyPressed(KEY_U)) {
+        if (IsKeyPressed(KEY_U) || tRes.toggleWeatherPressed) {
             world.toggleRainWeather();
             hud.showSystemToast(
                 world.isRainWeather() ? "WEATHER: RAIN & WET ROAD REFLECTIONS" : "WEATHER: CLEAR SKY",
                 world.isRainWeather() ? "날씨 전환: 우천 및 젖은 아스팔트 거울 반사" : "날씨 전환: 맑음");
         }
-        if (IsKeyPressed(KEY_P)) {
+        if (IsKeyPressed(KEY_P) || tRes.togglePhonePressed) {
             hud.setPhoneOpen(!hud.isPhoneOpen());
         }
-        if (IsKeyPressed(KEY_K)) {
+        if (IsKeyPressed(KEY_K) || tRes.toggleCustomPressed) {
             const bool opening = !hud.isCustomStudioOpen();
             hud.setCustomStudioOpen(opening);
             if (opening) {
@@ -616,7 +655,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        if (IsKeyPressed(KEY_B)) {
+        if (IsKeyPressed(KEY_B) || tRes.toggleShopPressed) {
             if (world.isPlayerInAnyShopZone()) {
                 hud.setShopMenuOpen(!hud.isShopMenuOpen());
             } else {
@@ -627,7 +666,8 @@ int main(int argc, char** argv) {
         const bool wantPrecisionAim =
             (smokeTestMode && forceAdsDemo) ||
             (cursorLocked && !hud.isShopMenuOpen() && world.player().drivingVehicleId < 0 &&
-             IsMouseButtonDown(MOUSE_BUTTON_RIGHT));
+             IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) ||
+            tRes.aimToggled;
         adsBlend = (smokeTestMode && forceAdsDemo)
                        ? 1.0f
                        : oc::lerpf(adsBlend, wantPrecisionAim ? 1.0f : 0.0f, std::min(1.0f, frameDt * 12.0f));
@@ -661,11 +701,28 @@ int main(int argc, char** argv) {
         } else {
             (void)GetMouseDelta();
         }
+        // Multi-touch drag camera look & 3D Studio showcase orbit
+        if (std::abs(tRes.lookDeltaX) > 0.01f || std::abs(tRes.lookDeltaY) > 0.01f) {
+            const float tdx = oc::clampf(tRes.lookDeltaX, -140.0f, 140.0f);
+            const float tdy = oc::clampf(tRes.lookDeltaY, -140.0f, 140.0f);
+            const float adsSensScale = sniperEquipped ? 0.30f : 0.60f;
+            const float tSens = 0.0036f * oc::lerpf(1.0f, adsSensScale, adsBlend);
+            const float ySign = invertMouseY ? 1.0f : -1.0f;
+            if (firstPersonMode && world.playerVehicle() != nullptr) {
+                cockpitRelYaw = oc::clampf(cockpitRelYaw + tdx * tSens, -1.55f, 1.55f);
+                camPitch = oc::clampf(camPitch + ySign * tdy * tSens, -0.68f, 0.62f);
+                camYaw = oc::wrapAngle(world.playerVehicle()->heading + cockpitRelYaw);
+            } else {
+                camYaw = oc::wrapAngle(camYaw + tdx * tSens);
+                camPitch = oc::clampf(camPitch + ySign * tdy * (tSens * 0.90f), -1.12f, 1.18f);
+            }
+            manualCamHoldTimer = 1.6f;
+        }
         if (manualCamHoldTimer > 0.0f) {
             manualCamHoldTimer = std::max(0.0f, manualCamHoldTimer - frameDt);
         }
 
-        // Gather gameplay inputs
+        // Gather gameplay inputs (keyboard/mouse + mobile multi-touch merged cleanly)
         oc::PlayerInput input{};
         const int menuKey = readMenuOptionKey();
         if (!hud.isShopMenuOpen()) {
@@ -674,29 +731,37 @@ int main(int argc, char** argv) {
             if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) input.moveRight += 1.0f;
             if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  input.moveRight -= 1.0f;
 
-            input.sprintOrNitro = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
-            input.handbrake = IsKeyDown(KEY_SPACE);
-            input.jumpPressed = IsKeyPressed(KEY_SPACE);
+            input.moveForward = oc::clampf(input.moveForward + tRes.moveForward, -1.0f, 1.0f);
+            input.moveRight = oc::clampf(input.moveRight + tRes.moveRight, -1.0f, 1.0f);
+
+            input.sprintOrNitro = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) || tRes.sprintOrNitro;
+            input.handbrake = IsKeyDown(KEY_SPACE) || tRes.handbrake;
+            input.jumpPressed = IsKeyPressed(KEY_SPACE) || tRes.jumpPressed;
             input.interactPressed =
-                IsKeyPressed(KEY_F) || (!hud.isPhoneOpen() && !hud.isCustomStudioOpen() && IsKeyPressed(KEY_E));
+                IsKeyPressed(KEY_F) || (!hud.isPhoneOpen() && !hud.isCustomStudioOpen() && IsKeyPressed(KEY_E)) ||
+                tRes.interactPressed;
             input.aimHeld = wantPrecisionAim;
             const bool suppressModalFire =
                 hud.isPhoneOpen() ||
                 (hud.isCustomStudioOpen() && hud.customTab() != 1 && hud.customTab() != 3);
-            input.fireHeld = cursorLocked && !suppressModalFire && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
-            input.reloadPressed = IsKeyPressed(KEY_R);
-            input.hornPressed = IsKeyPressed(KEY_G);
+            input.fireHeld =
+                (cursorLocked && !suppressModalFire && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) ||
+                (!suppressModalFire && tRes.fireHeld);
+            input.reloadPressed = IsKeyPressed(KEY_R) || tRes.reloadPressed;
+            input.hornPressed = IsKeyPressed(KEY_G) || tRes.hornPressed;
             input.abortMissionPressed = IsKeyPressed(KEY_BACKSPACE);
 
             auto handleWeaponCycleKeys = [&]() {
                 const float wheel = GetMouseWheelMove();
-                int cycleStep = 0;
-                if (std::abs(wheel) > 0.1f) {
-                    cycleStep = (wheel > 0.0f) ? 1 : -1;
-                } else if (IsKeyPressed(KEY_X)) {
-                    cycleStep = 1;
-                } else if (IsKeyPressed(KEY_Z)) {
-                    cycleStep = -1;
+                int cycleStep = tRes.weaponCycleDelta;
+                if (cycleStep == 0) {
+                    if (std::abs(wheel) > 0.1f) {
+                        cycleStep = (wheel > 0.0f) ? 1 : -1;
+                    } else if (IsKeyPressed(KEY_X)) {
+                        cycleStep = 1;
+                    } else if (IsKeyPressed(KEY_Z)) {
+                        cycleStep = -1;
+                    }
                 }
                 if (cycleStep != 0 && world.player().drivingVehicleId < 0) {
                     int cur = static_cast<int>(world.player().currentWeapon);
@@ -714,7 +779,10 @@ int main(int argc, char** argv) {
                 if (IsKeyPressed(KEY_Q)) hud.cyclePhoneTab(-1);
                 if (IsKeyPressed(KEY_E)) hud.cyclePhoneTab(1);
                 const int maxOpt = (hud.phoneTab() == 0 || hud.phoneTab() == 3) ? 10 : 6;
-                if (menuKey >= 1 && menuKey <= maxOpt) {
+                if (modalTap.phoneOption >= 1 && modalTap.phoneOption <= maxOpt) {
+                    input.phoneTab = modalTap.phoneTab;
+                    input.phoneOption = modalTap.phoneOption;
+                } else if (menuKey >= 1 && menuKey <= maxOpt) {
                     input.phoneTab = hud.phoneTab();
                     input.phoneOption = menuKey;
                 }
@@ -722,7 +790,10 @@ int main(int argc, char** argv) {
                 if (IsKeyPressed(KEY_Q)) hud.cycleCustomTab(-1);
                 if (IsKeyPressed(KEY_E)) hud.cycleCustomTab(1);
                 const int maxOpt = (hud.customTab() == 0 || hud.customTab() == 2) ? 8 : 6;
-                if (menuKey >= 1 && menuKey <= maxOpt) {
+                if (modalTap.customStudioOption >= 1 && modalTap.customStudioOption <= maxOpt) {
+                    input.customStudioTab = modalTap.customStudioTab;
+                    input.customStudioOption = modalTap.customStudioOption;
+                } else if (menuKey >= 1 && menuKey <= maxOpt) {
                     input.customStudioTab = hud.customTab();
                     input.customStudioOption = menuKey;
                 }
@@ -734,12 +805,14 @@ int main(int argc, char** argv) {
                 handleWeaponCycleKeys();
             }
         } else {
-            if (menuKey >= 1 && menuKey <= 12) {
+            if (modalTap.shopBuyOption >= 1 && modalTap.shopBuyOption <= 12) {
+                input.shopBuyOption = modalTap.shopBuyOption;
+            } else if (menuKey >= 1 && menuKey <= 12) {
                 input.shopBuyOption = menuKey;
             }
         }
 
-        const bool lookBack = IsKeyDown(KEY_C);
+        const bool lookBack = IsKeyDown(KEY_C) || tRes.lookBackHeld;
         const bool sniperScoped = !lookBack && sniperEquipped && adsBlend > 0.72f;
         const bool activeFirstPerson = (firstPersonMode || sniperScoped) && !lookBack;
 
@@ -1048,6 +1121,17 @@ int main(int argc, char** argv) {
         BeginDrawing();
         renderer.renderFrame(world, camera, renderAsFirstPerson, adsBlend, lookBack);
         hud.renderHud(world, renderYaw, cursorLocked, postFirstPerson, adsBlend);
+        if (touch.isEnabled()) {
+            const bool modalNow = hud.isShopMenuOpen() || hud.isPhoneOpen() || hud.isCustomStudioOpen();
+            touch.render(
+                world, GetScreenWidth(), GetScreenHeight(), modalNow, postFirstPerson, hud.isUsingKorean(),
+                [&](const char* text, float x, float y, float fontSize, Color color) {
+                    hud.drawUiText(text, x, y, fontSize, color);
+                },
+                [&](const char* text, float fontSize) {
+                    return hud.measureUiText(text, fontSize);
+                });
+        }
         EndDrawing();
 
         if (smokeTestMode) {

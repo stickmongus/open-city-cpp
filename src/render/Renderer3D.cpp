@@ -18,14 +18,23 @@ namespace oc {
 
 namespace {
 
+#if defined(PLATFORM_ANDROID) || defined(__ANDROID__) || defined(GRAPHICS_API_OPENGL_ES3)
+#define OC_IS_GLES3 1
+#define OC_GLSL_VERT_HEADER "#version 300 es\nprecision highp float;\n"
+#define OC_GLSL_FRAG_HEADER "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\n"
+constexpr int kShadowMapResolution = 1024;
+#else
+#define OC_IS_GLES3 0
+#define OC_GLSL_VERT_HEADER "#version 330\n"
+#define OC_GLSL_FRAG_HEADER "#version 330\n"
 constexpr int kShadowMapResolution = 2048;
-constexpr int kShadowTextureSlot = 14;
+#endif
+constexpr int kShadowTextureSlot = 6;
 
 // ---------------------------------------------------------------------------
-// 1) Fast Depth-Only Shader for 2048x2048 Directional Sun/Moon Shadow Map
+// 1) Fast Depth-Only Shader for Directional Sun/Moon Shadow Map
 // ---------------------------------------------------------------------------
-const char* kDepthVertShader = R"GLSL(
-#version 330
+const char* kDepthVertShader = OC_GLSL_VERT_HEADER R"GLSL(
 in vec3 vertexPosition;
 uniform mat4 mvp;
 
@@ -34,8 +43,7 @@ void main() {
 }
 )GLSL";
 
-const char* kDepthFragShader = R"GLSL(
-#version 330
+const char* kDepthFragShader = OC_GLSL_FRAG_HEADER R"GLSL(
 out vec4 finalColor;
 
 void main() {
@@ -46,8 +54,7 @@ void main() {
 // ---------------------------------------------------------------------------
 // 2) Atmospheric Sky Dome Shader (Rayleigh/Mie Sky, Sun Corona, FBM Clouds, Stars)
 // ---------------------------------------------------------------------------
-const char* kSkyVertShader = R"GLSL(
-#version 330
+const char* kSkyVertShader = OC_GLSL_VERT_HEADER R"GLSL(
 in vec3 vertexPosition;
 uniform mat4 mvp;
 
@@ -59,8 +66,7 @@ void main() {
 }
 )GLSL";
 
-const char* kSkyFragShader = R"GLSL(
-#version 330
+const char* kSkyFragShader = OC_GLSL_FRAG_HEADER R"GLSL(
 in vec3 vLocalDir;
 
 uniform vec3 sunDir;      // Unit vector pointing TOWARD the sun/moon light source
@@ -223,8 +229,7 @@ void main() {
 // 3) Unified Cook-Torrance GGX PBR + 16-Tap Poisson Soft Shadow +
 //    3D Raycasted Interior Mapping + Wet-Road Mirror Puddle Shader
 // ---------------------------------------------------------------------------
-const char* kWorldVertShader = R"GLSL(
-#version 330
+const char* kWorldVertShader = OC_GLSL_VERT_HEADER R"GLSL(
 in vec3 vertexPosition;
 in vec2 vertexTexCoord;
 in vec3 vertexNormal;
@@ -249,8 +254,7 @@ void main() {
 }
 )GLSL";
 
-const char* kWorldFragShader = R"GLSL(
-#version 330
+const char* kWorldFragShader = OC_GLSL_FRAG_HEADER R"GLSL(
 in vec3 fragPosition;
 in vec2 fragTexCoord;
 in vec4 fragColor;
@@ -838,8 +842,24 @@ void main() {
 // ---------------------------------------------------------------------------
 // 4) Full-Screen Multi-Ring HDR-Threshold Bloom + Cinematic Color Polish Shader
 // ---------------------------------------------------------------------------
-const char* kPostFragShader = R"GLSL(
-#version 330
+const char* kPostVertShader = OC_GLSL_VERT_HEADER R"GLSL(
+in vec3 vertexPosition;
+in vec2 vertexTexCoord;
+in vec4 vertexColor;
+
+uniform mat4 mvp;
+
+out vec2 fragTexCoord;
+out vec4 fragColor;
+
+void main() {
+    fragTexCoord = vertexTexCoord;
+    fragColor = vertexColor;
+    gl_Position = mvp * vec4(vertexPosition, 1.0);
+}
+)GLSL";
+
+const char* kPostFragShader = OC_GLSL_FRAG_HEADER R"GLSL(
 in vec2 fragTexCoord;
 in vec4 fragColor;
 
@@ -1806,6 +1826,10 @@ RenderTexture2D createShadowMapFbo(int width, int height, bool& outValid) {
         target.depth.height = height;
         target.depth.format = 19;
         target.depth.mipmaps = 1;
+        if (target.depth.id > 0) {
+            SetTextureFilter(target.depth, TEXTURE_FILTER_POINT);
+            SetTextureWrap(target.depth, TEXTURE_WRAP_CLAMP);
+        }
         rlFramebufferAttach(target.id, target.depth.id, RL_ATTACHMENT_DEPTH, RL_ATTACHMENT_TEXTURE2D, 0);
         outValid = rlFramebufferComplete(target.id);
         rlDisableFramebuffer();
@@ -1820,6 +1844,12 @@ Renderer3D::~Renderer3D() {
 }
 
 void Renderer3D::init() {
+#if OC_IS_GLES3
+    // On mobile GPUs default to High (PBR + 1024px real-time shadows direct-to-backbuffer at 60 FPS);
+    // users can still toggle Ultra HDR Bloom or Performance live via the HUD GFX button.
+    quality_ = GraphicsQuality::High;
+#endif
+
     // 1) World PBR-lite + PCF shadow shader
     worldShader_ = LoadShaderFromMemory(kWorldVertShader, kWorldFragShader);
     locLightDir_      = GetShaderLocation(worldShader_, "lightDir");
@@ -1844,7 +1874,7 @@ void Renderer3D::init() {
     const float shadowTexel = 1.0f / static_cast<float>(kShadowMapResolution);
     SetShaderValue(worldShader_, locShadowTexel_, &shadowTexel, SHADER_UNIFORM_FLOAT);
 
-    // 2) Depth-only shadow pass shader + 2048x2048 depth FBO
+    // 2) Depth-only shadow pass shader + directional depth FBO
     depthShader_ = LoadShaderFromMemory(kDepthVertShader, kDepthFragShader);
     shadowMap_ = createShadowMapFbo(kShadowMapResolution, kShadowMapResolution, shadowMapValid_);
 
@@ -1856,8 +1886,8 @@ void Renderer3D::init() {
     locSkyAnimTime_  = GetShaderLocation(skyShader_, "animTime");
     locSkyWet_       = GetShaderLocation(skyShader_, "wetWeather");
 
-    // 4) Full-screen HDR Bloom + ACES post-process shader
-    postShader_ = LoadShaderFromMemory(nullptr, kPostFragShader);
+    // 4) Full-screen HDR Bloom + ACES post-process shader (explicit VS for GLES 3.0 + GL 3.3 parity)
+    postShader_ = LoadShaderFromMemory(kPostVertShader, kPostFragShader);
     locPostResolution_    = GetShaderLocation(postShader_, "resolution");
     locPostBloomStrength_ = GetShaderLocation(postShader_, "bloomStrength");
     locPostExposure_      = GetShaderLocation(postShader_, "exposure");
@@ -2168,8 +2198,14 @@ void Renderer3D::renderFrame(const GameWorld& world, const Camera3D& camera,
     const Vector3 lightDir = computeSunDirection(world);
     const Vec2 focus{camera.target.x, camera.target.z};
 
-    const bool useShadows = (quality_ != GraphicsQuality::Performance) && shadowMapValid_;
-    const bool usePostFbo = (quality_ != GraphicsQuality::Performance);
+    const bool useShadows = (quality_ != GraphicsQuality::Performance) && shadowMapValid_ &&
+                            (depthShader_.id > 0) && (worldShader_.id > 0);
+#if OC_IS_GLES3
+    // On mobile GPUs, reserve full-screen HDR post-FBO for Ultra quality to avoid double-fillrate stalls
+    const bool usePostFbo = (quality_ == GraphicsQuality::Ultra) && (postShader_.id > 0);
+#else
+    const bool usePostFbo = (quality_ != GraphicsQuality::Performance) && (postShader_.id > 0);
+#endif
     const bool activeFpsView = firstPerson && !lookBack && !world.player().wasted;
 
     const double prevNear = rlGetCullDistanceNear();

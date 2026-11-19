@@ -9,18 +9,18 @@ endif()
 # without requiring a separate VC++ Redistributable install.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(open_city VERSION 1.0.0 LANGUAGES C CXX)
+project(open_city VERSION 1.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(OPEN_CITY_BUILD_APP "Build the 3D OpenGL game executable" ON)
+option(OPEN_CITY_BUILD_APP "Build the 3D OpenGL game executable / Android shared library" ON)
 option(OPEN_CITY_BUILD_TESTS "Build the simulation unit & integration tests" ON)
 
 find_program(RUSTC_EXECUTABLE rustc)
 set(OPEN_CITY_RUST_OBJECTS "")
-if(UNIX AND RUSTC_EXECUTABLE)
+if(UNIX AND NOT ANDROID AND RUSTC_EXECUTABLE)
     set(RUST_PHYSICS_OBJ "${CMAKE_CURRENT_BINARY_DIR}/physics_kernel.o")
     add_custom_command(
         OUTPUT "${RUST_PHYSICS_OBJ}"
@@ -50,7 +50,7 @@ add_library(open_city_core STATIC
     ${OPEN_CITY_RUST_OBJECTS}
 )
 
-if(UNIX AND RUSTC_EXECUTABLE)
+if(UNIX AND NOT ANDROID AND RUSTC_EXECUTABLE)
     target_compile_definitions(open_city_core PUBLIC OC_USE_RUST_PHYSICS=1)
 endif()
 
@@ -71,31 +71,52 @@ if(OPEN_CITY_BUILD_APP)
     set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
-    FetchContent_Declare(
-        raylib
-        GIT_REPOSITORY https://github.com/raysan5/raylib.git
-        GIT_TAG 5.5
-        GIT_SHALLOW TRUE
-    )
+    if(ANDROID)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        set(PLATFORM "Android" CACHE STRING "" FORCE)
+        FetchContent_Declare(
+            raylib
+            GIT_REPOSITORY https://github.com/raysan5/raylib.git
+            GIT_TAG 5.5
+            GIT_SHALLOW TRUE
+            PATCH_COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/patch_raylib_android.py" .
+        )
+    else()
+        FetchContent_Declare(
+            raylib
+            GIT_REPOSITORY https://github.com/raysan5/raylib.git
+            GIT_TAG 5.5
+            GIT_SHALLOW TRUE
+        )
+    endif()
     FetchContent_MakeAvailable(raylib)
 
-    add_executable(open_city
+    set(OPEN_CITY_APP_SOURCES
         src/main.cpp
         src/audio/SynthAudio.cpp
         src/render/Renderer3D.cpp
         src/ui/HudRenderer.cpp
+        src/ui/TouchControls.cpp
     )
 
-    target_link_libraries(open_city PRIVATE open_city_core raylib)
-
-    if(MSVC)
-        target_compile_options(open_city PRIVATE /utf-8 /W4 /permissive-)
-        target_link_options(open_city PRIVATE "/SUBSYSTEM:WINDOWS" "/ENTRY:mainCRTStartup")
-    elseif(MINGW)
+    if(ANDROID)
+        add_library(open_city SHARED ${OPEN_CITY_APP_SOURCES})
+        target_link_libraries(open_city PRIVATE open_city_core raylib log android EGL GLESv3 OpenSLES)
+        target_link_options(open_city PRIVATE "-u" "ANativeActivity_onCreate")
         target_compile_options(open_city PRIVATE -Wall -Wextra -Wpedantic)
-        target_link_options(open_city PRIVATE -mwindows -static -static-libgcc -static-libstdc++)
     else()
-        target_compile_options(open_city PRIVATE -Wall -Wextra -Wpedantic)
+        add_executable(open_city ${OPEN_CITY_APP_SOURCES})
+        target_link_libraries(open_city PRIVATE open_city_core raylib)
+
+        if(MSVC)
+            target_compile_options(open_city PRIVATE /utf-8 /W4 /permissive-)
+            target_link_options(open_city PRIVATE "/SUBSYSTEM:WINDOWS" "/ENTRY:mainCRTStartup")
+        elseif(MINGW)
+            target_compile_options(open_city PRIVATE -Wall -Wextra -Wpedantic)
+            target_link_options(open_city PRIVATE -mwindows -static -static-libgcc -static-libstdc++)
+        else()
+            target_compile_options(open_city PRIVATE -Wall -Wextra -Wpedantic)
+        endif()
     endif()
 endif()
 
