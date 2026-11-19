@@ -470,6 +470,13 @@ struct SkidMark {
     float alpha = 0.65f;
 };
 
+enum class ParticleKind : std::uint8_t {
+    Standard = 0,
+    BrassCasing = 1,
+    ShotgunShell = 2,
+    WaterSpray = 3
+};
+
 struct Particle {
     Vec3 pos{};
     Vec3 vel{};
@@ -477,6 +484,9 @@ struct Particle {
     float size = 0.25f;
     float ttl = 0.5f;
     float maxTtl = 0.5f;
+    ParticleKind kind = ParticleKind::Standard;
+    float spinAngle = 0.0f;
+    float spinSpeed = 0.0f;
 };
 
 enum class ActiveMissionKind {

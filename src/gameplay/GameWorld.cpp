@@ -3421,6 +3421,26 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
     const Vec3 basisRight = baseDir.cross(worldUp).normalized();
     const Vec3 basisUp = basisRight.cross(baseDir).normalized();
 
+    // Eject spinning 3D brass casing (or red 12-gauge shotgun hull) to the right of the chamber!
+    if (weaponId != WeaponId::Fists && weaponId != WeaponId::HeavyRevolver && weaponId != WeaponId::HeavyLauncher &&
+        particles_.size() < 780) {
+        const bool isShotgun = (weaponId == WeaponId::Shotgun || weaponId == WeaponId::AutoShotgun);
+        Particle casing{};
+        casing.kind = isShotgun ? ParticleKind::ShotgunShell : ParticleKind::BrassCasing;
+        casing.pos = muzzle3D - baseDir * 0.22f + basisRight * 0.06f;
+        const Vec3 ejectDir = basisRight * rng_.range(1.65f, 2.55f)
+                            + basisUp * rng_.range(1.35f, 2.15f)
+                            - baseDir * rng_.range(0.25f, 0.85f);
+        casing.vel = ejectDir;
+        casing.color = isShotgun ? ColorRGBA{214, 42, 46, 255} : ColorRGBA{236, 198, 86, 255};
+        casing.size = isShotgun ? 0.058f : ((weaponId == WeaponId::SniperRifle || weaponId == WeaponId::CombatMG || weaponId == WeaponId::Minigun) ? 0.052f : 0.042f);
+        casing.ttl = rng_.range(1.35f, 1.95f);
+        casing.maxTtl = casing.ttl;
+        casing.spinAngle = rng_.range(0.0f, kTwoPi);
+        casing.spinSpeed = rng_.range(14.0f, 26.0f) * (rng_.chance(0.5f) ? 1.0f : -1.0f);
+        particles_.push_back(casing);
+    }
+
     float spreadScale = (weaponId == WeaponId::SniperRifle && precisionAim)
                             ? 0.008f
                             : ((precisionAim && spec.pellets == 1) ? 0.045f : (precisionAim ? 0.68f : 1.0f));
@@ -3673,11 +3693,40 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
         }
     }
 
-    // Engine damage smoke when below 42% HP
+    // Wet-road raindrop tire spray mist behind rear wheels at highway speeds!
+    const float curSpeed = v.speed();
+    if (rainWeather_ && !v.airborne && !v.destroyed && curSpeed > 11.0f && particles_.size() < 760) {
+        const float sprayChance = clampf((curSpeed - 9.0f) / 22.0f, 0.25f, 0.85f);
+        if (rng_.chance(sprayChance)) {
+            const Vec2 rearAxle = v.pos - fwd * (spec.halfLength * 0.78f);
+            const Vec2 wheelOff = right * (spec.halfWidth * 0.84f);
+            for (int s = -1; s <= 1; s += 2) {
+                const Vec2 wp = rearAxle + wheelOff * static_cast<float>(s);
+                Particle spray{};
+                spray.kind = ParticleKind::WaterSpray;
+                spray.pos = {wp.x, v.posY + 0.20f, wp.z};
+                spray.vel = {
+                    -fwd.x * curSpeed * 0.16f + right.x * static_cast<float>(s) * rng_.range(0.4f, 1.3f),
+                    rng_.range(0.85f, 2.05f),
+                    -fwd.z * curSpeed * 0.16f + right.z * static_cast<float>(s) * rng_.range(0.4f, 1.3f)
+                };
+                spray.color = {188, 214, 236, 138};
+                spray.size = rng_.range(0.24f, 0.44f);
+                spray.ttl = rng_.range(0.24f, 0.42f);
+                spray.maxTtl = spray.ttl;
+                particles_.push_back(spray);
+            }
+        }
+    }
+
+    // Engine damage smoke + electrical sparks when below 42% / 25% HP
     if (!v.destroyed && v.health < v.maxHealth * 0.42f && rng_.chance(0.45f)) {
         const Vec2 hood = v.pos + fwd * (spec.halfLength * 0.68f);
         const std::uint8_t shade = (v.health < v.maxHealth * 0.2f) ? 45 : 125;
         emitParticles({hood.x, v.posY + 0.85f, hood.z}, 1, {shade, shade, shade, 200}, 1.6f, 0.38f, 0.55f);
+        if (v.health < v.maxHealth * 0.25f && rng_.chance(0.35f)) {
+            emitParticles({hood.x, v.posY + 0.82f, hood.z}, 2, {255, 198, 72, 255}, 3.6f, 0.10f, 0.24f);
+        }
     }
 }
 
@@ -5052,10 +5101,28 @@ void GameWorld::updateEffects(float dt) {
     for (auto& p : particles_) {
         p.ttl -= dt;
         p.pos = p.pos + p.vel * dt;
-        p.vel.y -= 5.2f * dt;
-        if (p.pos.y < 0.05f) {
-            p.pos.y = 0.05f;
-            p.vel.y *= -0.25f;
+        if (p.kind == ParticleKind::BrassCasing || p.kind == ParticleKind::ShotgunShell) {
+            p.vel.y -= 9.8f * dt;
+            p.spinAngle += p.spinSpeed * dt;
+            if (p.pos.y < 0.03f) {
+                p.pos.y = 0.03f;
+                p.vel.y = (std::abs(p.vel.y) > 0.65f) ? (-p.vel.y * 0.36f) : 0.0f;
+                p.vel.x *= 0.72f;
+                p.vel.z *= 0.72f;
+                p.spinSpeed *= 0.58f;
+            }
+        } else if (p.kind == ParticleKind::WaterSpray) {
+            p.vel.y -= 2.4f * dt;
+            p.vel.x *= std::max(0.0f, 1.0f - 2.6f * dt);
+            p.vel.z *= std::max(0.0f, 1.0f - 2.6f * dt);
+            p.size += 0.55f * dt;
+            if (p.pos.y < 0.04f) p.pos.y = 0.04f;
+        } else {
+            p.vel.y -= 5.2f * dt;
+            if (p.pos.y < 0.05f) {
+                p.pos.y = 0.05f;
+                p.vel.y *= -0.25f;
+            }
         }
     }
     particles_.erase(

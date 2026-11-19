@@ -2086,7 +2086,7 @@ void HudRenderer::drawHelpOverlay(const GameWorld& world, int screenW, int scree
 
     DrawRectangleRounded({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, Color{10, 15, 24, 198});
     DrawRectangleRoundedLinesEx({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, 1.2f, toRayColor(themeRgba, 125));
-    drawUiText(pickText("OPEN CITY C++ + RUST v0.9.1 - CONTROLS", "OPEN CITY C++ + RUST v0.9.1 - 조작 안내"),
+    drawUiText(pickText("OPEN CITY C++ + RUST v1.0.0 - CONTROLS", "OPEN CITY C++ + RUST v1.0.0 - 조작 안내"),
                30.0f, 24.0f, 18.5f, toRayColor(themeRgba, 255));
 
     const char* linesEn[11] = {

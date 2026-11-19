@@ -2278,6 +2278,7 @@ void Renderer3D::renderWorld(const GameWorld& world, const Camera3D& camera) {
 
 void Renderer3D::drawSceneGeometry(const GameWorld& world, const Camera3D& camera,
                                    bool shadowPass, bool hidePlayerForFps) {
+    rlSetTexture(0);
     const Vec2 focus{camera.target.x, camera.target.z};
     const Vec3 camPos{camera.position.x, camera.position.y, camera.position.z};
     const bool nightMode = world.isNightTime();
@@ -2358,6 +2359,7 @@ void Renderer3D::drawSceneGeometry(const GameWorld& world, const Camera3D& camer
     }
 
     if (!shadowPass) {
+        drawLivingWorldAmbience(world, focus, camPos);
         drawPoisAndPickups(world);
         drawSkidsTracersParticles(world);
         drawGpsOverheadArrow(world);
@@ -2530,22 +2532,122 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
                             0.68f, 0.0f, 0.0f, MatKind::FoliageGrass);
         }
 
-        // Central Park Plaza multi-tier marble fountain & animated water basin
-        if (const auto& parks = city.parks(); !parks.empty()) {
-            const Vec2 fc = parks.front().bounds.center();
+        // Central Park Plaza: Crossed Stone Footpaths, Tiered Marble Fountain, Arcing Water Jets, Flowerbeds & Vintage Globes!
+        const ParkPatch* centralPark = nullptr;
+        for (const auto& park : city.parks()) {
+            const Vec2 phe = park.bounds.halfExtents();
+            if (phe.x > 22.0f && phe.z > 22.0f) {
+                centralPark = &park;
+                break;
+            }
+        }
+        if (centralPark != nullptr) {
+            const Vec2 fc = centralPark->bounds.center();
+            const Vec2 he = centralPark->bounds.halfExtents();
             if ((fc - focus).lengthSq() < 260.0f * 260.0f) {
-                drawModelStyled(cylModel_, {fc.x, 0.08f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {5.8f, 0.55f, 5.8f}, Color{205, 210, 218, 255},
-                                0.55f, 0.05f, 0.0f, MatKind::Standard);
-                drawModelStyled(cylModel_, {fc.x, 0.52f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {4.9f, 0.16f, 4.9f}, Color{42, 182, 238, 255},
-                                0.08f, 0.05f, 0.2f, MatKind::OceanWater);
-                drawModelStyled(cylModel_, {fc.x, 0.58f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {1.25f, 2.85f, 1.25f}, Color{220, 224, 232, 255},
-                                0.42f, 0.12f, 0.0f, MatKind::Standard);
-                drawModelStyled(sphereModel_, {fc.x, 3.65f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.85f, 0.85f, 0.85f}, Color{135, 228, 255, 255},
-                                0.12f, 0.10f, 0.45f, MatKind::EmissiveGlow);
+                const Color stonePath{198, 194, 184, 255};
+                const Color marbleLight{224, 226, 232, 255};
+                const Color marbleMid{196, 200, 210, 255};
+
+                // Crossed crushed-stone park footpaths + circular stone plaza apron
+                drawModelStyled(cubeModel_, {fc.x, 0.115f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {he.x * 1.98f, 0.03f, 3.6f}, stonePath, 0.80f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+                drawModelStyled(cubeModel_, {fc.x, 0.115f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {3.6f, 0.03f, he.z * 1.98f}, stonePath, 0.80f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+                drawModelStyled(cylModel_, {fc.x, 0.105f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {9.1f, 0.04f, 9.1f}, stonePath, 0.78f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+
+                // Multi-tiered Beaux-Arts marble fountain basin & upper pedestal bowl
+                drawModelStyled(cylModel_, {fc.x, 0.12f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {5.85f, 0.56f, 5.85f}, marbleMid, 0.52f, 0.05f, 0.0f, MatKind::Standard);
+                drawModelStyled(cylModel_, {fc.x, 0.64f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {6.05f, 0.12f, 6.05f}, marbleLight, 0.45f, 0.05f, 0.0f, MatKind::Standard);
+                drawModelStyled(cylModel_, {fc.x, 0.56f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {5.15f, 0.16f, 5.15f}, Color{42, 186, 242, 255},
+                                0.08f, 0.05f, night ? 0.45f : 0.18f, MatKind::OceanWater);
+                // Center fluted pedestal + mid stone catch-basin + finial spire
+                drawModelStyled(cylModel_, {fc.x, 0.62f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {1.20f, 2.75f, 1.20f}, marbleLight, 0.40f, 0.10f, 0.0f, MatKind::Standard);
+                drawModelStyled(cylModel_, {fc.x, 2.05f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {2.35f, 0.24f, 2.35f}, marbleLight, 0.40f, 0.08f, 0.0f, MatKind::Standard);
+                drawModelStyled(cylModel_, {fc.x, 2.26f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {2.05f, 0.08f, 2.05f}, Color{88, 212, 252, 255},
+                                0.08f, 0.05f, night ? 0.75f : 0.25f, MatKind::EmissiveGlow);
+
+                // Effervescent central vertical water plume
+                const float plumeH = 1.65f + 0.18f * std::sin(animT * 5.2f);
+                drawModelStyled(coneModel_, {fc.x, 3.28f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.42f, plumeH, 0.42f}, Color{178, 238, 255, 255},
+                                0.12f, 0.05f, night ? 1.45f : 0.42f, MatKind::EmissiveGlow);
+                drawModelStyled(sphereModel_, {fc.x, 3.30f + plumeH * 0.85f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.54f, 0.46f, 0.54f}, Color{212, 246, 255, 255},
+                                0.12f, 0.05f, night ? 1.35f : 0.38f, MatKind::EmissiveGlow);
+
+                // 6 Animated Parabolic Water Jets arching cleanly from the mid basin into the lower pool!
+                for (int j = 0; j < 6; ++j) {
+                    const float ang = static_cast<float>(j) * (kTwoPi / 6.0f);
+                    const float ca = std::cos(ang);
+                    const float sa = std::sin(ang);
+                    for (int seg = 0; seg < 5; ++seg) {
+                        const float t = std::fmod((static_cast<float>(seg) * 0.20f) + animT * 0.75f, 1.0f);
+                        const float r = 1.15f + t * 2.95f;
+                        const float y = 2.32f + 1.48f * t - 2.92f * t * t;
+                        if (y < 0.74f) continue;
+                        const float sz = 0.14f + 0.06f * std::sin(t * kPi);
+                        drawModelStyled(sphereModel_, {fc.x + ca * r, y, fc.z + sa * r},
+                                        {0.0f, 1.0f, 0.0f}, 0.0f, {sz, sz * 1.15f, sz},
+                                        Color{184, 240, 255, 255}, 0.10f, 0.05f,
+                                        night ? 1.45f : 0.35f, MatKind::EmissiveGlow);
+                    }
+                    // Underwater aqua LED fountain accent lights glowing at night
+                    if (night) {
+                        drawModelStyled(sphereModel_, {fc.x + ca * 3.85f, 0.68f, fc.z + sa * 3.85f},
+                                        {0.0f, 1.0f, 0.0f}, 0.0f, {0.20f, 0.10f, 0.20f},
+                                        Color{68, 224, 255, 255}, 0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
+                    }
+                }
+
+                // 4 Manicured Diagonal Ornamental Flowerbed Planters (cleanly clear of benches & trash bin!)
+                static constexpr Color kFlowerColors[4] = {
+                    {246, 86, 118, 255},
+                    {252, 204, 58, 255},
+                    {198, 112, 248, 255},
+                    {252, 134, 62, 255}
+                };
+                int fbIdx = 0;
+                for (int sx = -1; sx <= 1; sx += 2) {
+                    for (int sz = -1; sz <= 1; sz += 2) {
+                        const float fx = fc.x + static_cast<float>(sx) * 5.45f;
+                        const float fz = fc.z + static_cast<float>(sz) * 5.45f;
+                        drawModelStyled(cylModel_, {fx, 0.12f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                        {1.08f, 0.32f, 1.08f}, marbleMid, 0.65f, 0.05f, 0.0f, MatKind::Standard);
+                        drawModelStyled(cylModel_, {fx, 0.38f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                        {0.92f, 0.12f, 0.92f}, Color{48, 128, 56, 255}, 0.75f, 0.0f, 0.0f, MatKind::FoliageGrass);
+                        const Color flCol = kFlowerColors[fbIdx++ % 4];
+                        for (int b = 0; b < 5; ++b) {
+                            const float ba = static_cast<float>(b) * (kTwoPi / 5.0f) + 0.4f;
+                            const float br = (b == 0) ? 0.0f : 0.48f;
+                            drawModelStyled(sphereModel_, {fx + std::cos(ba) * br, 0.58f, fz + std::sin(ba) * br},
+                                            {0.0f, 1.0f, 0.0f}, 0.0f, {0.26f, 0.20f, 0.26f},
+                                            flCol, 0.58f, 0.0f, 0.0f, MatKind::Standard);
+                        }
+                    }
+                }
+
+                // 4 Vintage Cast-Iron Park Globe Lamp Posts flanking the fountain plaza
+                const float lampOffsets[4][2] = {{-8.7f, -2.5f}, {8.7f, 2.5f}, {-2.5f, 8.7f}, {2.5f, -8.7f}};
+                for (int l = 0; l < 4; ++l) {
+                    const float lx = fc.x + lampOffsets[l][0];
+                    const float lz = fc.z + lampOffsets[l][1];
+                    drawModelStyled(cylModel_, {lx, 0.12f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.16f, 0.45f, 0.16f}, Color{36, 40, 46, 255}, 0.42f, 0.68f, 0.0f, MatKind::Standard);
+                    drawModelStyled(cylModel_, {lx, 0.55f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.07f, 3.15f, 0.07f}, Color{40, 46, 54, 255}, 0.38f, 0.72f, 0.0f, MatKind::Standard);
+                    drawModelStyled(sphereModel_, {lx, 3.82f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.25f, 0.25f, 0.25f}, night ? Color{255, 232, 168, 255} : Color{238, 242, 248, 255},
+                                    0.12f, 0.0f, night ? 2.5f : 0.25f,
+                                    night ? MatKind::EmissiveGlow : MatKind::Standard);
+                }
             }
         }
     }
@@ -2633,11 +2735,71 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
                         0.35f, 0.30f, crownGlow ? 1.35f : 0.0f,
                         crownGlow ? MatKind::EmissiveGlow : MatKind::Standard);
 
-        // Rooftop HVAC mechanical unit on mid/high-rise roofs
-        if (!shadowPass && b.upperTierHeight <= 0.5f && !b.hasHelipad && b.height > 15.0f && he.x > 6.5f) {
-            drawModelStyled(cubeModel_, {c.x + he.x * 0.32f, b.height + 1.15f, c.z - he.z * 0.28f},
-                            {0.0f, 1.0f, 0.0f}, 0.0f, {3.4f, 1.6f, 2.8f},
-                            Color{116, 122, 130, 255}, 0.62f, 0.35f, 0.0f, MatKind::IndustrialMetal);
+        // Rich Architectural Rooftop Equipment: Water Towers on Stilts, Spinning HVAC Fan Banks, Satellite Dishes & Access Penthouses!
+        if (!shadowPass && distSq < 255.0f * 255.0f && b.upperTierHeight <= 0.5f && !b.hasHelipad && b.height > 10.5f && he.x > 5.2f) {
+            const int roofHash = std::abs(static_cast<int>(c.x * 3.0f + c.z * 7.0f)) % 5;
+            const Color steelDark{72, 78, 88, 255};
+            const Color metalHvac{128, 134, 144, 255};
+
+            // 1) Roof-access stairwell penthouse & twin HVAC fan bank with live spinning blades
+            const float hx = c.x + he.x * 0.30f;
+            const float hz = c.z - he.z * 0.26f;
+            drawModelStyled(cubeModel_, {hx, b.height + 1.05f, hz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {3.4f, 1.55f, 2.5f}, metalHvac, 0.58f, 0.42f, 0.0f, MatKind::IndustrialMetal);
+            for (int f = -1; f <= 1; f += 2) {
+                const float fx = hx + static_cast<float>(f) * 0.85f;
+                drawModelStyled(cylModel_, {fx, b.height + 1.80f, hz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.68f, 0.22f, 0.68f}, steelDark, 0.45f, 0.65f, 0.0f, MatKind::Standard);
+                rlPushMatrix();
+                rlTranslatef(fx, b.height + 1.98f, hz);
+                rlRotatef(animT * (210.0f + static_cast<float>(roofHash) * 28.0f), 0.0f, 1.0f, 0.0f);
+                drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {1.12f, 0.04f, 0.14f}, Color{42, 46, 52, 255}, 0.4f, 0.6f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 90.0f,
+                                {1.12f, 0.04f, 0.14f}, Color{42, 46, 52, 255}, 0.4f, 0.6f, 0.0f, MatKind::Standard);
+                rlPopMatrix();
+            }
+
+            // 2) Iconic Cylindrical Wooden Rooftop Water Tower on 4 Steel Stilts (Masonry/Brick Mid-Rises!)
+            if (b.style != BuildingStyle::GlassTower && b.style != BuildingStyle::Warehouse &&
+                b.style != BuildingStyle::ShippingStack && (roofHash == 0 || roofHash == 2 || roofHash == 4) && he.z > 5.5f) {
+                const float wx = c.x - he.x * 0.34f;
+                const float wz = c.z + he.z * 0.28f;
+                const float stiltH = 2.35f;
+                for (int sx = -1; sx <= 1; sx += 2) {
+                    for (int sz = -1; sz <= 1; sz += 2) {
+                        drawModelStyled(cylModel_, {wx + sx * 0.92f, b.height + 0.30f, wz + sz * 0.92f},
+                                        {0.0f, 1.0f, 0.0f}, 0.0f, {0.10f, stiltH, 0.10f},
+                                        steelDark, 0.45f, 0.72f, 0.0f, MatKind::Standard);
+                    }
+                }
+                // Cross tie deck + timber barrel tank + dark iron hoops + conical tin roof
+                drawModelStyled(cubeModel_, {wx, b.height + 0.30f + stiltH, wz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {2.35f, 0.16f, 2.35f}, steelDark, 0.50f, 0.65f, 0.0f, MatKind::Standard);
+                drawModelStyled(cylModel_, {wx, b.height + 0.38f + stiltH, wz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {1.38f, 2.85f, 1.38f}, Color{138, 102, 68, 255}, 0.82f, 0.05f, 0.0f, MatKind::Standard);
+                drawModelStyled(cylModel_, {wx, b.height + 1.15f + stiltH, wz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {1.41f, 0.10f, 1.41f}, Color{48, 52, 58, 255}, 0.45f, 0.75f, 0.0f, MatKind::Standard);
+                drawModelStyled(cylModel_, {wx, b.height + 2.35f + stiltH, wz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {1.41f, 0.10f, 1.41f}, Color{48, 52, 58, 255}, 0.45f, 0.75f, 0.0f, MatKind::Standard);
+                drawModelStyled(coneModel_, {wx, b.height + 3.22f + stiltH, wz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {1.62f, 1.35f, 1.62f}, Color{84, 90, 98, 255}, 0.55f, 0.45f, 0.0f, MatKind::Standard);
+            } else {
+                // Satellite Dish + Communications Lattice Antenna
+                const float dx = c.x - he.x * 0.32f;
+                const float dz = c.z + he.z * 0.25f;
+                drawModelStyled(cylModel_, {dx, b.height + 0.30f, dz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.11f, 1.45f, 0.11f}, steelDark, 0.42f, 0.75f, 0.0f, MatKind::Standard);
+                rlPushMatrix();
+                rlTranslatef(dx, b.height + 1.85f, dz);
+                rlRotatef(static_cast<float>(roofHash) * 65.0f, 0.0f, 1.0f, 0.0f);
+                rlRotatef(38.0f, 0.0f, 0.0f, 1.0f);
+                drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.92f, 0.16f, 0.92f}, Color{226, 232, 240, 255}, 0.38f, 0.35f, 0.0f, MatKind::Standard);
+                drawModelStyled(cylModel_, {0.0f, 0.14f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.05f, 0.65f, 0.05f}, steelDark, 0.40f, 0.70f, 0.0f, MatKind::Standard);
+                rlPopMatrix();
+            }
         }
 
         float roofTopY = b.height;
@@ -2736,6 +2898,36 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
                     drawModelStyled(cubeModel_, {c.x, 3.00f, fz + outZ * 1.24f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {shopW + 0.42f, 0.16f, 0.06f}, Color{242, 244, 248, 255},
                                     0.55f, 0.0f, 0.0f, MatKind::Standard);
+                }
+
+                // Vertical Illuminated Commercial Neon Blade Sign mounted on street-facing building corner!
+                if (b.height >= 12.0f) {
+                    const int signHash = std::abs(static_cast<int>(c.x * 5.0f + c.z * 11.0f)) % 4;
+                    static constexpr Color kBladeCols[4] = {
+                        {52, 226, 255, 255},
+                        {255, 76, 178, 255},
+                        {255, 198, 56, 255},
+                        {74, 246, 152, 255}
+                    };
+                    const Color neonCol = kBladeCols[signHash];
+                    const float cornerX = b.footprint.max.x + 0.72f;
+                    const float cornerZ = (signHash % 2 == 0) ? (b.footprint.min.z + 1.4f) : (b.footprint.max.z - 1.4f);
+                    const float bladeH = std::min(5.2f, b.height * 0.34f);
+                    const float bladeY = 4.6f + bladeH * 0.5f;
+                    // Twin dark steel wall mounting struts
+                    drawModelStyled(cubeModel_, {b.footprint.max.x + 0.32f, bladeY + bladeH * 0.34f, cornerZ},
+                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.72f, 0.09f, 0.09f},
+                                    Color{38, 42, 50, 255}, 0.40f, 0.72f, 0.0f, MatKind::Standard);
+                    drawModelStyled(cubeModel_, {b.footprint.max.x + 0.32f, bladeY - bladeH * 0.34f, cornerZ},
+                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.72f, 0.09f, 0.09f},
+                                    Color{38, 42, 50, 255}, 0.40f, 0.72f, 0.0f, MatKind::Standard);
+                    // Vertical blade housing + double-sided emissive neon tube strips
+                    drawModelStyled(cubeModel_, {cornerX, bladeY, cornerZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.82f, bladeH, 0.20f}, Color{24, 28, 36, 255},
+                                    0.35f, 0.55f, 0.0f, MatKind::Standard);
+                    drawModelStyled(cubeModel_, {cornerX, bladeY, cornerZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.62f, bladeH * 0.88f, 0.24f}, neonCol,
+                                    0.12f, 0.0f, night ? 2.5f : 0.72f, MatKind::EmissiveGlow);
                 }
             }
 
@@ -3174,73 +3366,525 @@ void Renderer3D::drawLandmarkStructures(const GameWorld& world, const Vec2& focu
     }
 }
 
+void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& focus, const Vec3& camPos) {
+    (void)camPos;
+    const bool night = world.isNightTime();
+    const float animT = static_cast<float>(GetTime());
+    constexpr float kWaterY = -0.85f; // Top surface of coastal OceanWater plane
+
+    // 1. Bobbing Coastal Luxury Sailboats & Motor Yachts off Sunset Beach & North Bay!
+    struct VesselDef {
+        float x;
+        float z;
+        float yawDeg;
+        float scale;
+        bool sailboat;
+        Color stripe;
+    };
+    static constexpr VesselDef kVessels[5] = {
+        {-462.0f, -44.0f,  18.0f, 1.05f, true,  {36, 128, 214, 255}},
+        {-495.0f,  36.0f, -24.0f, 1.20f, false, {24, 48, 86, 255}},
+        {-448.0f,  92.0f,  42.0f, 0.95f, true,  {218, 56, 54, 255}},
+        {-110.0f, 438.0f,  84.0f, 1.32f, false, {28, 96, 142, 255}},
+        {  96.0f, 452.0f, -72.0f, 1.00f, true,  {242, 188, 54, 255}}
+    };
+    for (int i = 0; i < 5; ++i) {
+        const auto& b = kVessels[i];
+        const Vec2 bPos{b.x, b.z};
+        if ((bPos - focus).lengthSq() > 520.0f * 520.0f) continue;
+
+        const float phase = static_cast<float>(i) * 1.37f;
+        const float heave = 0.14f * std::sin(animT * 1.45f + phase);
+        const float rollDeg = 2.8f * std::sin(animT * 1.15f + phase * 1.4f);
+        const float pitchDeg = 1.6f * std::cos(animT * 0.95f + phase);
+
+        rlPushMatrix();
+        rlTranslatef(b.x, kWaterY + heave, b.z);
+        rlRotatef(b.yawDeg, 0.0f, 1.0f, 0.0f);
+        rlRotatef(pitchDeg, 0.0f, 0.0f, 1.0f);
+        rlRotatef(rollDeg, 1.0f, 0.0f, 0.0f);
+        rlScalef(b.scale, b.scale, b.scale);
+
+        // Sculpted white hull + pointed bow + colored waterline stripe + teak deck
+        drawModelStyled(cubeModel_, {0.0f, 0.45f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {9.2f, 1.25f, 3.2f}, Color{242, 245, 250, 255}, 0.25f, 0.15f, 0.0f, MatKind::CarClearcoat);
+        drawModelStyled(coneModel_, {4.6f, 0.45f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                        {1.42f, 3.2f, 1.60f}, Color{242, 245, 250, 255}, 0.25f, 0.15f, 0.0f, MatKind::CarClearcoat);
+        drawModelStyled(cubeModel_, {0.2f, 0.26f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {9.6f, 0.24f, 3.28f}, b.stripe, 0.22f, 0.25f, 0.0f, MatKind::CarClearcoat);
+        drawModelStyled(cubeModel_, {-0.2f, 1.10f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {8.4f, 0.10f, 2.85f}, Color{176, 134, 88, 255}, 0.72f, 0.0f, 0.0f, MatKind::Standard);
+
+        if (b.sailboat) {
+            // Compact cabin coachroof + tall brushed aluminum mast + billowing cream mainsail & jib!
+            drawModelStyled(cubeModel_, {-0.6f, 1.55f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {3.6f, 0.85f, 2.05f}, Color{246, 248, 252, 255}, 0.28f, 0.15f, 0.0f, MatKind::Standard);
+            drawModelStyled(cylModel_, {0.6f, 1.12f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.10f, 11.4f, 0.10f}, Color{210, 218, 228, 255}, 0.25f, 0.85f, 0.0f, MatKind::Standard);
+            // Boom + billowing mainsail (slight wind curve)
+            const float sailSway = 5.0f * std::sin(animT * 0.9f + phase);
+            rlPushMatrix();
+            rlTranslatef(0.6f, 2.6f, 0.0f);
+            rlRotatef(sailSway, 0.0f, 1.0f, 0.0f);
+            drawModelStyled(cubeModel_, {-2.1f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {4.2f, 0.12f, 0.12f}, Color{200, 208, 220, 255}, 0.30f, 0.80f, 0.0f, MatKind::Standard);
+            drawModelStyled(coneModel_, {-1.45f, 0.15f, 0.0f}, {0.0f, 0.0f, 1.0f}, -10.0f,
+                            {2.05f, 9.2f, 0.16f}, Color{250, 248, 240, 255}, 0.65f, 0.0f, 0.0f, MatKind::Standard);
+            rlPopMatrix();
+            // Forward triangular jib sail
+            drawModelStyled(coneModel_, {2.45f, 2.4f, 0.0f}, {0.0f, 0.0f, 1.0f}, 14.0f,
+                            {1.45f, 7.6f, 0.14f}, Color{246, 244, 236, 255}, 0.65f, 0.0f, 0.0f, MatKind::Standard);
+            // Masthead white anchor light at night
+            if (night) {
+                drawModelStyled(sphereModel_, {0.6f, 12.65f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.18f, 0.18f, 0.18f}, Color{255, 242, 198, 255}, 0.1f, 0.0f, 2.8f, MatKind::EmissiveGlow);
+            }
+        } else {
+            // Luxury 2-Deck Motor Yacht superstructure + panoramic smoked-glass bridge + radar arch!
+            drawModelStyled(cubeModel_, {-0.5f, 1.85f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {5.8f, 1.45f, 2.55f}, Color{245, 247, 252, 255}, 0.22f, 0.18f, 0.0f, MatKind::CarClearcoat);
+            drawModelStyled(cubeModel_, {0.2f, 1.98f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {4.6f, 0.64f, 2.62f}, night ? Color{255, 224, 156, 255} : Color{18, 32, 48, 255},
+                            0.08f, 0.20f, night ? 1.45f : 0.0f, night ? MatKind::EmissiveGlow : MatKind::CarGlass);
+            // Upper flybridge deck + swept radar mast
+            drawModelStyled(cubeModel_, {-1.1f, 2.95f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {3.4f, 0.78f, 2.15f}, Color{248, 250, 254, 255}, 0.24f, 0.15f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {-1.4f, 3.72f, 0.0f}, {0.0f, 0.0f, 1.0f}, 18.0f,
+                            {0.28f, 1.10f, 2.05f}, Color{236, 240, 248, 255}, 0.28f, 0.35f, 0.0f, MatKind::Standard);
+        }
+
+        // Port (Red) & Starboard (Green) Marine Navigation Lights
+        if (night) {
+            drawModelStyled(sphereModel_, {2.2f, 1.38f, -1.52f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.14f, 0.14f, 0.14f}, Color{255, 48, 48, 255}, 0.1f, 0.0f, 2.4f, MatKind::EmissiveGlow);
+            drawModelStyled(sphereModel_, {2.2f, 1.38f,  1.52f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.14f, 0.14f, 0.14f}, Color{52, 248, 108, 255}, 0.1f, 0.0f, 2.4f, MatKind::EmissiveGlow);
+        }
+        rlPopMatrix();
+    }
+
+    // 2. Anchored Southeast Harbor Container Freighter Ship (x = 432, z = 248)
+    const Vec2 shipPos{432.0f, 248.0f};
+    if ((shipPos - focus).lengthSq() < 540.0f * 540.0f) {
+        const float shipRoll = 0.8f * std::sin(animT * 0.65f);
+        rlPushMatrix();
+        rlTranslatef(shipPos.x, kWaterY, shipPos.z);
+        rlRotatef(shipRoll, 0.0f, 0.0f, 1.0f);
+        // Red-oxide lower hull + dark navy freeboard + bow bulb
+        drawModelStyled(cubeModel_, {0.0f, 1.15f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {14.0f, 2.8f, 52.0f}, Color{154, 44, 38, 255}, 0.68f, 0.25f, 0.0f, MatKind::IndustrialMetal);
+        drawModelStyled(cubeModel_, {0.0f, 3.65f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {14.4f, 2.4f, 52.4f}, Color{28, 40, 56, 255}, 0.58f, 0.35f, 0.0f, MatKind::IndustrialMetal);
+        // Multi-colored stacked intermodal cargo containers along main deck
+        static constexpr Color kCargoCols[4] = {
+            {194, 54, 44, 255}, {36, 106, 178, 255}, {214, 152, 42, 255}, {44, 136, 86, 255}
+        };
+        for (int row = 0; row < 4; ++row) {
+            const float cz = -17.0f + static_cast<float>(row) * 8.2f;
+            for (int col = -1; col <= 1; ++col) {
+                const float cx = static_cast<float>(col) * 3.6f;
+                const int layers = (row == 1 || row == 2) ? 2 : 1;
+                for (int l = 0; l < layers; ++l) {
+                    const Color cc = kCargoCols[(row + col + l + 4) % 4];
+                    drawModelStyled(cubeModel_, {cx, 6.1f + static_cast<float>(l) * 2.7f, cz},
+                                    {0.0f, 1.0f, 0.0f}, 0.0f, {3.1f, 2.55f, 7.2f},
+                                    cc, 0.62f, 0.38f, 0.0f, MatKind::IndustrialMetal);
+                }
+            }
+        }
+        // Tall white aft bridge superstructure + lit wheelhouse windows + orange funnel
+        drawModelStyled(cubeModel_, {0.0f, 9.8f, 18.2f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {12.2f, 10.2f, 7.8f}, Color{236, 240, 246, 255}, 0.45f, 0.15f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.0f, 13.4f, 14.2f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {10.4f, 1.35f, 0.35f}, night ? Color{255, 226, 148, 255} : Color{22, 34, 48, 255},
+                        0.10f, 0.25f, night ? 1.8f : 0.0f, night ? MatKind::EmissiveGlow : MatKind::CarGlass);
+        drawModelStyled(cubeModel_, {0.0f, 16.4f, 20.5f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {2.6f, 4.2f, 3.2f}, Color{226, 86, 38, 255}, 0.50f, 0.30f, 0.0f, MatKind::Standard);
+        rlPopMatrix();
+    }
+
+    // 3. Soaring Flapping Coastal Seagulls gliding over Sunset Beach, Pier & Central Park!
+    struct FlockCenter { float x; float z; float y; float r; };
+    static constexpr FlockCenter kFlocks[2] = {
+        {-382.0f, -12.0f, 18.5f, 26.0f},
+        { -42.0f, -42.0f, 22.0f, 24.0f}
+    };
+    for (int f = 0; f < 2; ++f) {
+        const Vec2 fc{kFlocks[f].x, kFlocks[f].z};
+        if ((fc - focus).lengthSq() > 260.0f * 260.0f) continue;
+        for (int g = 0; g < 5; ++g) {
+            const float gf = static_cast<float>(g);
+            const float orbitAng = animT * (0.34f + gf * 0.04f) + gf * 1.26f + static_cast<float>(f) * 2.1f;
+            const float rad = kFlocks[f].r * (0.62f + 0.38f * std::sin(gf * 2.3f));
+            const float gx = fc.x + std::cos(orbitAng) * rad;
+            const float gz = fc.z + std::sin(orbitAng) * rad;
+            const float gy = kFlocks[f].y + 2.4f * std::sin(animT * 0.8f + gf * 1.7f);
+            const float headingDeg = -orbitAng * kRadToDeg - 90.0f;
+            const float flapDeg = 28.0f * std::sin(animT * (6.2f + gf * 0.45f) + gf * 2.0f);
+
+            rlPushMatrix();
+            rlTranslatef(gx, gy, gz);
+            rlRotatef(headingDeg, 0.0f, 1.0f, 0.0f);
+            drawModelStyled(sphereModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.32f, 0.10f, 0.12f}, Color{246, 248, 252, 255}, 0.55f, 0.0f, 0.0f, MatKind::Standard);
+            for (int side = -1; side <= 1; side += 2) {
+                rlPushMatrix();
+                rlRotatef(static_cast<float>(side) * flapDeg, 1.0f, 0.0f, 0.0f);
+                drawModelStyled(cubeModel_, {-0.02f, 0.0f, static_cast<float>(side) * 0.34f},
+                                {0.0f, 1.0f, 0.0f}, static_cast<float>(-side) * 14.0f,
+                                {0.16f, 0.03f, 0.68f}, Color{240, 244, 250, 255}, 0.55f, 0.0f, 0.0f, MatKind::Standard);
+                rlPopMatrix();
+            }
+            rlPopMatrix();
+        }
+    }
+
+    // 4. High-Altitude Commercial City Airliner with Blinking Nav Strobes & Dual Jet Contrails!
+    {
+        const float cycle = std::fmod(animT * 18.0f, 1100.0f) - 550.0f;
+        const float px = cycle;
+        const float py = 138.0f;
+        const float pz = -140.0f + cycle * 0.22f;
+        const bool strobeOn = (std::fmod(animT * 1.4f, 1.0f) < 0.20f);
+
+        rlPushMatrix();
+        rlTranslatef(px, py, pz);
+        rlRotatef(-12.4f, 0.0f, 1.0f, 0.0f);
+        // Fuselage + swept wings + vertical tailfin
+        drawModelStyled(cylModel_, {-7.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                        {1.15f, 14.0f, 1.15f}, Color{242, 246, 252, 255}, 0.25f, 0.45f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {-0.5f, -0.1f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {3.4f, 0.26f, 16.2f}, Color{226, 232, 240, 255}, 0.28f, 0.55f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {-6.4f, 1.8f, 0.0f}, {0.0f, 0.0f, 1.0f}, 18.0f,
+                        {2.6f, 3.6f, 0.22f}, Color{36, 112, 204, 255}, 0.30f, 0.35f, 0.0f, MatKind::Standard);
+        // Blinking port red / starboard green / tail white strobes
+        if (strobeOn || night) {
+            drawModelStyled(sphereModel_, {-0.8f, 0.0f, -8.2f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.42f, 0.42f, 0.42f}, Color{255, 42, 42, 255}, 0.1f, 0.0f, 3.4f, MatKind::EmissiveGlow);
+            drawModelStyled(sphereModel_, {-0.8f, 0.0f,  8.2f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.42f, 0.42f, 0.42f}, Color{48, 255, 96, 255}, 0.1f, 0.0f, 3.4f, MatKind::EmissiveGlow);
+        }
+        // Subtle twin jet contrail ribbons trailing behind engines
+        for (int s = -1; s <= 1; s += 2) {
+            DrawLine3D({-2.5f, -0.4f, static_cast<float>(s) * 2.8f},
+                       {-95.0f, -0.4f, static_cast<float>(s) * 3.8f},
+                       Color{235, 242, 252, static_cast<unsigned char>(night ? 45 : 105)});
+        }
+        rlPopMatrix();
+    }
+
+    // 5. Active Circling SBPD Tactical Police Helicopter when Wanted Level >= 3 Stars!
+    if (world.player().wantedLevel >= 3 && !world.player().wasted) {
+        const Vec2 targetXZ = (world.playerVehicle() != nullptr) ? world.playerVehicle()->pos : world.player().pos;
+        const float targetY = (world.playerVehicle() != nullptr) ? world.playerVehicle()->posY : world.player().posY;
+        const float orbitAng = animT * 0.56f;
+        const float orbitR = 30.0f;
+        const float heliX = targetXZ.x + std::cos(orbitAng) * orbitR;
+        const float heliZ = targetXZ.z + std::sin(orbitAng) * orbitR;
+        const float heliY = targetY + 20.5f + 1.2f * std::sin(animT * 1.1f);
+        // Tangent heading along circular orbit + inward bank roll!
+        const float tanYawRad = orbitAng + kHalfPi;
+        const float tanYawDeg = -tanYawRad * kRadToDeg;
+        const bool redFlash = (std::fmod(animT * 3.8f, 1.0f) < 0.5f);
+
+        rlPushMatrix();
+        rlTranslatef(heliX, heliY, heliZ);
+        rlRotatef(tanYawDeg, 0.0f, 1.0f, 0.0f);
+        rlRotatef(-11.0f, 0.0f, 0.0f, 1.0f); // Nose-down forward airspeed pitch
+        rlRotatef( 20.0f, 1.0f, 0.0f, 0.0f); // Banked smoothly into the turn
+
+        const Color heliNavy{22, 30, 44, 255};
+        const Color heliWhite{240, 244, 250, 255};
+        const Color heliSteel{164, 174, 188, 255};
+
+        // Main sculpted fuselage pod + panoramic bubble nose cockpit + white SBPD belly stripe
+        drawModelStyled(sphereModel_, {0.35f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {2.45f, 1.05f, 1.10f}, heliNavy, 0.28f, 0.45f, 0.0f, MatKind::CarClearcoat);
+        drawModelStyled(sphereModel_, {1.45f, 0.08f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {1.35f, 0.86f, 0.96f}, Color{18, 34, 52, 255}, 0.06f, 0.35f, 0.0f, MatKind::CarGlass);
+        drawModelStyled(cubeModel_, {0.10f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {3.2f, 0.24f, 1.98f}, heliWhite, 0.24f, 0.25f, 0.0f, MatKind::CarClearcoat);
+
+        // Twin tubular landing skids & diagonal struts
+        for (int s = -1; s <= 1; s += 2) {
+            const float sz = static_cast<float>(s) * 1.15f;
+            drawModelStyled(cylModel_, {-1.4f, -1.32f, sz}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.075f, 3.6f, 0.075f}, heliSteel, 0.32f, 0.78f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.95f, -0.92f, sz * 0.78f}, {1.0f, 0.0f, 0.0f}, static_cast<float>(-s) * 24.0f,
+                            {0.09f, 0.92f, 0.09f}, heliSteel, 0.35f, 0.75f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {-0.65f, -0.92f, sz * 0.78f}, {1.0f, 0.0f, 0.0f}, static_cast<float>(-s) * 24.0f,
+                            {0.09f, 0.92f, 0.09f}, heliSteel, 0.35f, 0.75f, 0.0f, MatKind::Standard);
+        }
+
+        // Tapered tail boom + horizontal stabilizer + vertical tailfin + spinning tail rotor!
+        drawModelStyled(cubeModel_, {-3.35f, 0.24f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {4.6f, 0.40f, 0.38f}, heliNavy, 0.32f, 0.45f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {-4.55f, 0.26f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.58f, 0.10f, 1.85f}, heliWhite, 0.35f, 0.25f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {-5.45f, 0.78f, 0.0f}, {0.0f, 0.0f, 1.0f}, 18.0f,
+                        {0.78f, 1.55f, 0.14f}, heliNavy, 0.32f, 0.45f, 0.0f, MatKind::Standard);
+        rlPushMatrix();
+        rlTranslatef(-5.55f, 0.78f, 0.24f);
+        rlRotatef(animT * 2400.0f, 0.0f, 0.0f, 1.0f);
+        drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {1.35f, 0.12f, 0.04f}, Color{42, 46, 54, 255}, 0.38f, 0.65f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 90.0f,
+                        {1.35f, 0.12f, 0.04f}, Color{42, 46, 54, 255}, 0.38f, 0.65f, 0.0f, MatKind::Standard);
+        rlPopMatrix();
+
+        // Mast + high-speed spinning 4-blade main rotor + translucent motion-blur disc
+        drawModelStyled(cylModel_, {0.15f, 0.92f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.18f, 0.75f, 0.18f}, heliSteel, 0.30f, 0.80f, 0.0f, MatKind::Standard);
+        rlPushMatrix();
+        rlTranslatef(0.15f, 1.65f, 0.0f);
+        rlRotatef(animT * 1650.0f, 0.0f, 1.0f, 0.0f);
+        drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {8.8f, 0.055f, 0.24f}, Color{34, 38, 46, 255}, 0.35f, 0.65f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 90.0f,
+                        {8.8f, 0.055f, 0.24f}, Color{34, 38, 46, 255}, 0.35f, 0.65f, 0.0f, MatKind::Standard);
+        rlPopMatrix();
+        rlDrawRenderBatchActive();
+        rlSetTexture(0);
+        rlDisableDepthMask();
+        DrawCylinder({0.15f, 1.62f, 0.0f}, 4.35f, 4.35f, 0.02f, 20, Color{180, 195, 215, 36});
+        rlDrawRenderBatchActive();
+        rlEnableDepthMask();
+
+        // Flashing Red/Blue Police Strobe Beacon + Nose Gimbal Spotlight Lens!
+        drawModelStyled(sphereModel_, {0.15f, -0.98f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.26f, 0.26f, 0.26f},
+                        redFlash ? Color{255, 38, 48, 255} : Color{42, 138, 255, 255},
+                        0.1f, 0.0f, 3.8f, MatKind::EmissiveGlow);
+        drawModelStyled(sphereModel_, {2.15f, -0.58f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.34f, 0.34f, 0.34f}, Color{245, 250, 255, 255},
+                        0.08f, 0.0f, 4.0f, MatKind::EmissiveGlow);
+        rlPopMatrix();
+
+        // Dramatic Additive Volumetric Sweeping Helicopter Searchlight Cone (open-ended gradient frustum, zero depth artifacts!)
+        const Vec3 bStart{heliX, heliY - 0.85f, heliZ};
+        const Vec3 bEnd{
+            targetXZ.x + 1.8f * std::sin(animT * 1.4f),
+            targetY + 0.06f,
+            targetXZ.z + 1.8f * std::cos(animT * 1.1f)
+        };
+        const Vec3 bDir = (bEnd - bStart).normalized();
+        Vec3 refUp{0.0f, 1.0f, 0.0f};
+        if (std::fabs(bDir.y) > 0.92f) refUp = {1.0f, 0.0f, 0.0f};
+        const Vec3 bRight = Vec3{
+            bDir.y * refUp.z - bDir.z * refUp.y,
+            bDir.z * refUp.x - bDir.x * refUp.z,
+            bDir.x * refUp.y - bDir.y * refUp.x
+        }.normalized();
+        const Vec3 bFwd = Vec3{
+            bRight.y * bDir.z - bRight.z * bDir.y,
+            bRight.z * bDir.x - bRight.x * bDir.z,
+            bRight.x * bDir.y - bRight.y * bDir.x
+        }.normalized();
+
+        rlDrawRenderBatchActive();
+        rlSetTexture(0);
+        rlDisableDepthMask();
+        rlDisableBackfaceCulling();
+        BeginBlendMode(BLEND_ADDITIVE);
+        constexpr int kBeamSides = 24;
+        const float rTop = 0.38f;
+        const float rBot = 4.6f;
+        const unsigned char aTop = static_cast<unsigned char>(night ? 76 : 32);
+        const unsigned char aBot = static_cast<unsigned char>(night ? 18 : 8);
+        rlBegin(RL_TRIANGLES);
+        for (int i = 0; i < kBeamSides; ++i) {
+            const float a0 = static_cast<float>(i) * (kTwoPi / static_cast<float>(kBeamSides));
+            const float a1 = static_cast<float>(i + 1) * (kTwoPi / static_cast<float>(kBeamSides));
+            const Vec3 d0 = bRight * std::cos(a0) + bFwd * std::sin(a0);
+            const Vec3 d1 = bRight * std::cos(a1) + bFwd * std::sin(a1);
+            const Vec3 t0 = bStart + d0 * rTop;
+            const Vec3 t1 = bStart + d1 * rTop;
+            const Vec3 g0 = bEnd + d0 * rBot;
+            const Vec3 g1 = bEnd + d1 * rBot;
+
+            rlColor4ub(222, 240, 255, aTop); rlVertex3f(t0.x, t0.y, t0.z);
+            rlColor4ub(222, 240, 255, aTop); rlVertex3f(t1.x, t1.y, t1.z);
+            rlColor4ub(196, 224, 255, aBot); rlVertex3f(g0.x, g0.y, g0.z);
+
+            rlColor4ub(222, 240, 255, aTop); rlVertex3f(t1.x, t1.y, t1.z);
+            rlColor4ub(196, 224, 255, aBot); rlVertex3f(g1.x, g1.y, g1.z);
+            rlColor4ub(196, 224, 255, aBot); rlVertex3f(g0.x, g0.y, g0.z);
+        }
+        rlEnd();
+        DrawCylinder({bEnd.x, bEnd.y, bEnd.z}, rBot, rBot, 0.02f, 24,
+                     Color{225, 242, 255, static_cast<unsigned char>(night ? 56 : 22)});
+        rlDrawRenderBatchActive();
+        EndBlendMode();
+        rlEnableBackfaceCulling();
+        rlEnableDepthMask();
+    }
+}
+
 void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, const Vec3& camPos, bool shadowPass) {
+    const bool night = world.isNightTime();
+    const float animT = static_cast<float>(GetTime());
     const float treeCull = shadowPass ? (135.0f * 135.0f) : (235.0f * 235.0f);
 
     for (const auto& t : world.city().trees()) {
         if ((t.pos - focus).lengthSq() > treeCull) continue;
+        const int treeHash = std::abs(static_cast<int>(t.pos.x * 7.0f + t.pos.z * 13.0f));
+        const float windSway = std::sin(animT * 1.45f + t.pos.x * 0.11f + t.pos.z * 0.09f);
 
-        // Concrete urban sidewalk tree planter curb & dark soil mulch
+        // Beveled concrete urban sidewalk tree planter curb, soil mulch & warm night landscape uplight!
         if (!shadowPass && t.inPlanter) {
-            drawModelStyled(cubeModel_, {t.pos.x, 0.18f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {1.55f, 0.24f, 1.55f}, Color{154, 158, 166, 255},
+            drawModelStyled(cubeModel_, {t.pos.x, 0.17f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {1.58f, 0.22f, 1.58f}, Color{154, 158, 166, 255},
                             0.72f, 0.05f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {t.pos.x, 0.28f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {1.28f, 0.08f, 1.28f}, Color{68, 50, 36, 255},
+                            {1.66f, 0.06f, 1.66f}, Color{186, 190, 198, 255},
+                            0.65f, 0.05f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {t.pos.x, 0.28f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {1.28f, 0.08f, 1.28f}, Color{64, 46, 32, 255},
                             0.90f, 0.0f, 0.0f, MatKind::Standard);
+            if (night) {
+                drawModelStyled(sphereModel_, {t.pos.x + 0.48f, 0.34f, t.pos.z + 0.48f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.08f, 0.05f, 0.08f}, Color{255, 224, 152, 255},
+                                0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
+            }
         }
 
         if (t.palmStyle) {
-            // California coastal palm tree: segmented leaning trunk + 6 arched 3D fronds
+            // Iconic California Coastal Palm Tree: 4-Segment Curved Bark Trunk + Coconut Cluster + 8 Arched Drooping Fronds!
+            const float leanYaw = static_cast<float>(treeHash % 360);
+            const float segH = t.trunkHeight * 0.28f;
+            const Color barkLight{142, 104, 70, 255};
+            const Color barkDark{108, 76, 50, 255};
+
             rlPushMatrix();
             rlTranslatef(t.pos.x, 0.06f, t.pos.z);
-            drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.26f, t.trunkHeight * 0.55f, 0.26f}, Color{132, 96, 66, 255},
-                            0.85f, 0.0f, 0.0f, MatKind::Standard);
-            rlTranslatef(0.14f, t.trunkHeight * 0.52f, 0.0f);
-            rlRotatef(-7.0f, 0.0f, 0.0f, 1.0f);
-            drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.21f, t.trunkHeight * 0.58f, 0.21f}, Color{140, 102, 70, 255},
-                            0.85f, 0.0f, 0.0f, MatKind::Standard);
+            rlRotatef(leanYaw, 0.0f, 1.0f, 0.0f);
+            // Flared fibrous root collar
+            drawModelStyled(coneModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.34f, 0.55f, 0.34f}, barkDark, 0.88f, 0.0f, 0.0f, MatKind::Standard);
+            for (int seg = 0; seg < 4; ++seg) {
+                const float r = 0.25f - static_cast<float>(seg) * 0.025f;
+                drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {r, segH * 1.05f, r}, (seg % 2 == 0) ? barkLight : barkDark,
+                                0.86f, 0.0f, 0.0f, MatKind::Standard);
+                if (!shadowPass && seg > 0) {
+                    // Fibrous palm bark ring collar
+                    drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {r * 1.15f, 0.09f, r * 1.15f}, barkDark, 0.90f, 0.0f, 0.0f, MatKind::Standard);
+                }
+                rlTranslatef(0.0f, segH, 0.0f);
+                rlRotatef(-4.5f - static_cast<float>(seg) * 0.9f + windSway * 0.45f, 0.0f, 0.0f, 1.0f);
+            }
 
-            rlTranslatef(0.0f, t.trunkHeight * 0.56f, 0.0f);
-            for (int f = 0; f < 6; ++f) {
+            // Crown heart + cluster of 3 tropical coconuts nestled beneath fronds!
+            if (!shadowPass) {
+                drawModelStyled(sphereModel_, {0.0f, 0.02f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.24f, 0.22f, 0.24f}, Color{84, 128, 56, 255}, 0.78f, 0.0f, 0.0f, MatKind::Standard);
+                for (int c = 0; c < 3; ++c) {
+                    const float ca = static_cast<float>(c) * (kTwoPi / 3.0f);
+                    drawModelStyled(sphereModel_, {std::cos(ca) * 0.20f, -0.14f, std::sin(ca) * 0.20f},
+                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.13f, 0.15f, 0.13f},
+                                    Color{96, 62, 34, 255}, 0.75f, 0.0f, 0.0f, MatKind::Standard);
+                }
+            }
+
+            // 8 Gracefully Arched 2-Segment Drooping Tropical Palm Fronds swaying gently in coastal wind!
+            const int frondCount = shadowPass ? 6 : 8;
+            for (int f = 0; f < frondCount; ++f) {
+                const bool upperTier = (f % 2 == 0);
+                const float fAng = static_cast<float>(f) * (360.0f / static_cast<float>(frondCount)) + static_cast<float>(treeHash % 45);
+                const float liftDeg = (upperTier ? 34.0f : 16.0f) + windSway * 2.6f;
+                const Color frondCol = upperTier ? Color{78, 174, 76, 255} : Color{54, 146, 62, 255};
+                const float innerLen = t.crownRadius * (upperTier ? 0.68f : 0.74f);
+                const float outerLen = t.crownRadius * (upperTier ? 0.76f : 0.82f);
+
                 rlPushMatrix();
-                rlRotatef(static_cast<float>(f) * 60.0f + t.pos.x * 9.0f, 0.0f, 1.0f, 0.0f);
-                rlRotatef(26.0f, 0.0f, 0.0f, 1.0f);
-                drawModelStyled(cubeModel_, {t.crownRadius * 0.58f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {t.crownRadius * 1.25f, 0.12f, 0.62f}, Color{72, 168, 74, 255},
+                rlRotatef(fAng, 0.0f, 1.0f, 0.0f);
+                // Inner rising arch segment
+                rlRotatef(liftDeg, 0.0f, 0.0f, 1.0f);
+                drawModelStyled(cubeModel_, {innerLen * 0.5f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {innerLen, 0.075f, 0.44f}, frondCol, 0.62f, 0.0f, 0.0f, MatKind::FoliageGrass);
+                // Outer gracefully drooping tapered leaf tip
+                rlTranslatef(innerLen * 0.94f, 0.0f, 0.0f);
+                rlRotatef(-48.0f + windSway * 3.2f, 0.0f, 0.0f, 1.0f);
+                drawModelStyled(coneModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                                {0.10f, outerLen, 0.34f}, Color{64, 158, 68, 255},
                                 0.62f, 0.0f, 0.0f, MatKind::FoliageGrass);
                 rlPopMatrix();
             }
             rlPopMatrix();
         } else {
-            // Multi-cluster lush park/boulevard deciduous tree
+            // Organic Sculpted Park/Boulevard Deciduous Tree: Flared Roots + 3 Woody Boughs + 6-Lobe Multi-Tone Crown!
+            const Color barkCol{102, 72, 48, 255};
+            const Color barkDark{82, 56, 36, 255};
+            drawModelStyled(coneModel_, {t.pos.x, 0.06f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.44f, 0.68f, 0.44f}, barkDark, 0.88f, 0.0f, 0.0f, MatKind::Standard);
             drawModelStyled(cylModel_, {t.pos.x, 0.06f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.30f, t.trunkHeight, 0.30f}, Color{108, 76, 50, 255},
+                            {0.27f, t.trunkHeight * 1.04f, 0.27f}, barkCol,
                             0.86f, 0.0f, 0.0f, MatKind::Standard);
 
-            const float cy = t.trunkHeight + t.crownRadius * 0.55f;
-            const Color cMain{54, 148, 66, 255};
-            const Color cBright{68, 166, 76, 255};
-            drawModelStyled(sphereModel_, {t.pos.x, cy, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {t.crownRadius, t.crownRadius * 0.88f, t.crownRadius},
-                            cMain, 0.68f, 0.0f, 0.0f, MatKind::FoliageGrass);
+            // 3 Spreading Woody Boughs rising into the canopy!
             if (!shadowPass) {
-                drawModelStyled(sphereModel_, {t.pos.x + t.crownRadius * 0.42f, cy - 0.22f, t.pos.z + 0.25f},
-                                {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {t.crownRadius * 0.68f, t.crownRadius * 0.64f, t.crownRadius * 0.68f},
-                                cBright, 0.68f, 0.0f, 0.0f, MatKind::FoliageGrass);
-                drawModelStyled(sphereModel_, {t.pos.x - t.crownRadius * 0.38f, cy + 0.18f, t.pos.z - 0.30f},
-                                {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {t.crownRadius * 0.64f, t.crownRadius * 0.62f, t.crownRadius * 0.64f},
-                                cBright, 0.68f, 0.0f, 0.0f, MatKind::FoliageGrass);
+                for (int br = 0; br < 3; ++br) {
+                    const float bYaw = static_cast<float>(br) * 120.0f + static_cast<float>(treeHash % 90);
+                    rlPushMatrix();
+                    rlTranslatef(t.pos.x, t.trunkHeight * 0.68f, t.pos.z);
+                    rlRotatef(bYaw, 0.0f, 1.0f, 0.0f);
+                    rlRotatef(42.0f, 0.0f, 0.0f, 1.0f);
+                    drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.12f, t.crownRadius * 0.88f, 0.12f}, barkDark,
+                                    0.86f, 0.0f, 0.0f, MatKind::Standard);
+                    rlPopMatrix();
+                }
+            }
+
+            // Rich Botanical Palette: seasonal flowering Sakura / Jacaranda / Golden Elm trees along parks & boulevards!
+            const int palRoll = treeHash % 10;
+            Color cDeep{40, 118, 52, 255};
+            Color cMain{54, 148, 66, 255};
+            Color cSun{84, 178, 76, 255};
+            if (palRoll == 0) {
+                // Spring Sakura Cherry Blossom!
+                cDeep = {208, 128, 152, 255};
+                cMain = {238, 162, 186, 255};
+                cSun  = {252, 196, 214, 255};
+            } else if (palRoll == 1) {
+                // Coastal Lavender Jacaranda!
+                cDeep = {112, 92, 178, 255};
+                cMain = {146, 122, 214, 255};
+                cSun  = {178, 154, 238, 255};
+            } else if (palRoll == 2) {
+                // Warm Autumn Golden Elm!
+                cDeep = {168, 112, 38, 255};
+                cMain = {212, 152, 48, 255};
+                cSun  = {242, 192, 68, 255};
+            }
+
+            const float cy = t.trunkHeight + t.crownRadius * 0.64f;
+            const float r = t.crownRadius;
+            const float swayOff = windSway * 0.06f;
+            drawModelStyled(sphereModel_, {t.pos.x + swayOff, cy, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {r * 0.94f, r * 0.80f, r * 0.94f}, cMain, 0.68f, 0.0f, 0.0f, MatKind::FoliageGrass);
+            if (!shadowPass) {
+                // 5 Asymmetric layered shaded/sunlit crown clusters for lush natural silhouette
+                const float rotBase = static_cast<float>(treeHash % 360) * (kPi / 180.0f);
+                for (int l = 0; l < 4; ++l) {
+                    const float la = rotBase + static_cast<float>(l) * kHalfPi + 0.35f;
+                    const float dist = r * (0.42f + 0.08f * static_cast<float>(l % 2));
+                    const float ly = cy + ((l % 2 == 0) ? (-r * 0.16f) : (r * 0.14f));
+                    const float ls = r * ((l % 2 == 0) ? 0.62f : 0.58f);
+                    drawModelStyled(sphereModel_,
+                                    {t.pos.x + std::cos(la) * dist + swayOff, ly, t.pos.z + std::sin(la) * dist},
+                                    {0.0f, 1.0f, 0.0f}, 0.0f, {ls, ls * 0.88f, ls},
+                                    (l % 2 == 0) ? cDeep : cMain, 0.68f, 0.0f, 0.0f, MatKind::FoliageGrass);
+                }
+                // Sunlit crowning apex tuft
+                drawModelStyled(sphereModel_, {t.pos.x + r * 0.12f + swayOff * 1.4f, cy + r * 0.44f, t.pos.z - r * 0.10f},
+                                {0.0f, 1.0f, 0.0f}, 0.0f, {r * 0.62f, r * 0.54f, r * 0.62f},
+                                cSun, 0.66f, 0.0f, 0.0f, MatKind::FoliageGrass);
             }
         }
     }
 
-    const bool night = world.isNightTime();
-    const float animT = static_cast<float>(GetTime());
     const float propCull = shadowPass ? (105.0f * 105.0f) : (195.0f * 195.0f);
 
     for (const auto& prop : world.city().streetProps()) {
@@ -3275,14 +3919,21 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, co
 
         switch (prop.kind) {
             case StreetPropKind::StreetLight: {
-                // Metallic streetlamp mast + overhanging signal arm
+                // Fluted Cast-Iron Pedestal Base + Metallic Streetlamp Mast + Curved Arm + Street Name Plate!
+                if (!shadowPass) {
+                    drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.23f, 0.62f, 0.23f}, Color{58, 64, 74, 255},
+                                    0.40f, 0.76f, 0.0f, MatKind::Standard);
+                    drawModelStyled(cylModel_, {0.0f, 0.62f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.18f, 0.24f, 0.18f}, Color{68, 74, 84, 255},
+                                    0.38f, 0.74f, 0.0f, MatKind::Standard);
+                }
                 drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.13f, 6.25f, 0.13f}, Color{78, 84, 94, 255},
+                                {0.125f, 6.25f, 0.125f}, Color{78, 84, 94, 255},
                                 0.38f, 0.72f, 0.0f, MatKind::Standard);
                 drawModelStyled(cubeModel_, {0.72f, 6.18f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {1.56f, 0.14f, 0.18f}, Color{86, 92, 104, 255},
                                 0.38f, 0.72f, 0.0f, MatKind::Standard);
-
 
                 if (!shadowPass && !prop.broken) {
                     const bool ewGreen = world.isTrafficGreenForHorizontal();
@@ -3291,6 +3942,20 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, co
                                                 : (nsGreen ? Color{255, 54, 48, 255} : Color{255, 202, 42, 255});
                     const Color nsCol = nsGreen ? Color{48, 248, 96, 255}
                                                 : (ewGreen ? Color{255, 54, 48, 255} : Color{255, 202, 42, 255});
+
+                    // Green reflective street-name sign plate mounted near top of mast
+                    drawModelStyled(cubeModel_, {0.0f, 5.15f, 0.42f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.06f, 0.28f, 0.96f}, Color{20, 118, 74, 255},
+                                    0.35f, 0.25f, night ? 0.35f : 0.0f,
+                                    night ? MatKind::EmissiveGlow : MatKind::Standard);
+
+                    // Pedestrian Crosswalk WALK / DON'T WALK Signal Box at eye-level (y = 2.65m)!
+                    drawModelStyled(cubeModel_, {0.22f, 2.65f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.22f, 0.36f, 0.26f}, Color{26, 30, 36, 255},
+                                    0.50f, 0.35f, 0.0f, MatKind::Standard);
+                    const Color pedCol = ewGreen ? Color{225, 248, 255, 255} : Color{255, 112, 36, 255};
+                    drawModelStyled(cubeModel_, {0.335f, 2.65f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.02f, 0.20f, 0.16f}, pedCol, 0.10f, 0.0f, 2.0f, MatKind::EmissiveGlow);
 
                     drawModelStyled(cubeModel_, {1.05f, 5.62f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {0.30f, 0.74f, 0.30f}, Color{24, 28, 34, 255},
@@ -3304,41 +3969,91 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, co
                     drawModelStyled(sphereModel_, {1.05f, 5.62f, -0.16f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {0.11f, 0.11f, 0.11f}, nsCol, 0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
 
-                    // LED luminaire head (glows warmly at night + casts ground light pool)
+                    // LED luminaire head + warm night volumetric light cone & ground pool!
                     const Color lampCol = night ? Color{255, 232, 168, 255} : Color{210, 218, 228, 255};
                     drawModelStyled(cubeModel_, {1.35f, 6.08f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.42f, 0.10f, 0.24f}, lampCol,
-                                    0.15f, 0.2f, night ? 2.4f : 0.0f,
+                                    {0.44f, 0.11f, 0.26f}, lampCol,
+                                    0.15f, 0.2f, night ? 2.5f : 0.0f,
                                     night ? MatKind::EmissiveGlow : MatKind::Standard);
                     if (night) {
-                        DrawCylinder({1.35f, -0.02f, 0.0f}, 4.2f, 4.2f, 0.015f, 16, Color{255, 220, 142, 40});
+                        rlDrawRenderBatchActive();
+                        rlSetTexture(0);
+                        rlDisableDepthMask();
+                        BeginBlendMode(BLEND_ADDITIVE);
+                        DrawCylinder({1.35f, -0.02f, 0.0f}, 4.3f, 4.3f, 0.015f, 16, Color{255, 220, 142, 34});
+                        DrawCylinder({1.35f, 0.02f, 0.0f}, 0.35f, 2.85f, 6.02f, 14, Color{255, 226, 158, 14});
+                        rlDrawRenderBatchActive();
+                        EndBlendMode();
+                        rlEnableDepthMask();
                     }
                 }
                 break;
             }
             case StreetPropKind::Hydrant: {
+                // Multi-Part Cast-Iron Fire Hydrant: Bolted Base Flange + Side Hose Nozzles + Front Steamer Port + Bonnet Nut!
                 drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.21f, 0.72f, 0.21f}, Color{224, 42, 38, 255},
-                                0.35f, 0.35f, 0.0f, MatKind::Standard);
+                                {0.26f, 0.12f, 0.26f}, Color{188, 34, 32, 255},
+                                0.42f, 0.45f, 0.0f, MatKind::Standard);
+                drawModelStyled(cylModel_, {0.0f, 0.10f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.20f, 0.62f, 0.20f}, Color{224, 42, 38, 255},
+                                0.34f, 0.38f, 0.0f, MatKind::Standard);
                 drawModelStyled(sphereModel_, {0.0f, 0.72f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.20f, 0.16f, 0.20f}, Color{236, 198, 62, 255},
-                                0.30f, 0.55f, 0.0f, MatKind::Standard);
+                                {0.21f, 0.14f, 0.21f}, Color{236, 198, 62, 255},
+                                0.28f, 0.65f, 0.0f, MatKind::Standard);
+                if (!shadowPass) {
+                    // Twin metallic side hose nozzles + front steamer port + top pentagon nut
+                    drawModelStyled(cylModel_, {0.0f, 0.52f, -0.27f}, {1.0f, 0.0f, 0.0f}, 90.0f,
+                                    {0.075f, 0.54f, 0.075f}, Color{212, 218, 226, 255},
+                                    0.25f, 0.82f, 0.0f, MatKind::Standard);
+                    drawModelStyled(cylModel_, {0.06f, 0.44f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                                    {0.105f, 0.22f, 0.105f}, Color{212, 218, 226, 255},
+                                    0.25f, 0.82f, 0.0f, MatKind::Standard);
+                    drawModelStyled(cylModel_, {0.0f, 0.84f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.065f, 0.09f, 0.065f}, Color{232, 200, 72, 255},
+                                    0.24f, 0.85f, 0.0f, MatKind::Standard);
+                }
                 break;
             }
             case StreetPropKind::Crate: {
+                // Reinforced Cargo Crate with Outer Frame Rails, Corner Battens & Diagonal Cross-Brace!
                 drawModelStyled(cubeModel_, {0.0f, 0.45f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.92f, 0.90f, 0.92f}, Color{176, 130, 78, 255},
+                                {0.88f, 0.86f, 0.88f}, Color{176, 130, 78, 255},
                                 0.78f, 0.0f, 0.0f, MatKind::Standard);
+                if (!shadowPass) {
+                    const Color battenCol{134, 94, 52, 255};
+                    drawModelStyled(cubeModel_, {0.0f, 0.06f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.96f, 0.12f, 0.96f}, battenCol, 0.82f, 0.0f, 0.0f, MatKind::Standard);
+                    drawModelStyled(cubeModel_, {0.0f, 0.84f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.96f, 0.12f, 0.96f}, battenCol, 0.82f, 0.0f, 0.0f, MatKind::Standard);
+                    drawModelStyled(cubeModel_, {0.0f, 0.45f, 0.0f}, {0.0f, 0.0f, 1.0f}, 45.0f,
+                                    {0.11f, 1.05f, 0.94f}, battenCol, 0.82f, 0.0f, 0.0f, MatKind::Standard);
+                }
                 break;
             }
             case StreetPropKind::TrafficCone: {
-                drawModelStyled(coneModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.26f, 0.70f, 0.26f}, Color{252, 114, 28, 255},
-                                0.48f, 0.0f, 0.0f, MatKind::Standard);
+                // Weighted Black Rubber Base + High-Vis Orange Cone + Twin Reflective White Collars!
+                if (!shadowPass) {
+                    drawModelStyled(cubeModel_, {0.0f, 0.035f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.54f, 0.07f, 0.54f}, Color{28, 30, 36, 255},
+                                    0.78f, 0.05f, 0.0f, MatKind::Standard);
+                }
+                drawModelStyled(coneModel_, {0.0f, 0.05f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.24f, 0.68f, 0.24f}, Color{252, 114, 28, 255},
+                                0.46f, 0.0f, 0.0f, MatKind::Standard);
+                if (!shadowPass) {
+                    drawModelStyled(cylModel_, {0.0f, 0.34f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.155f, 0.095f, 0.155f}, Color{246, 248, 252, 255},
+                                    0.20f, 0.15f, night ? 1.15f : 0.18f,
+                                    night ? MatKind::EmissiveGlow : MatKind::Standard);
+                    drawModelStyled(cylModel_, {0.0f, 0.50f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.105f, 0.075f, 0.105f}, Color{246, 248, 252, 255},
+                                    0.20f, 0.15f, night ? 1.15f : 0.18f,
+                                    night ? MatKind::EmissiveGlow : MatKind::Standard);
+                }
                 break;
             }
             case StreetPropKind::BusShelter: {
-                // Modern Glass & Anodized Aluminum Transit Shelter + Interior Bench + Lit Route Panel
+                // Modern Glass & Anodized Aluminum Transit Shelter + Interior Bench + Night Downlight + Route Lightbox
                 const Color frameCol{42, 46, 56, 255};
                 drawModelStyled(cubeModel_, {0.0f, 2.36f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {3.50f, 0.12f, 1.56f}, frameCol, 0.35f, 0.65f, 0.0f, MatKind::Standard);
@@ -3351,14 +4066,24 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, co
                     drawModelStyled(cubeModel_, {0.0f, 1.18f, -0.62f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {3.14f, 2.16f, 0.05f}, Color{28, 44, 62, 255},
                                     0.08f, 0.2f, 0.0f, MatKind::CarGlass);
+                    // Overhead warm LED transit shelter ceiling light strip at night
+                    drawModelStyled(cubeModel_, {0.0f, 2.28f, -0.10f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {2.45f, 0.04f, 0.18f}, Color{245, 248, 255, 255},
+                                    0.12f, 0.0f, night ? 2.4f : 0.25f,
+                                    night ? MatKind::EmissiveGlow : MatKind::Standard);
                     // Illuminated side ad / route map lightbox
                     drawModelStyled(cubeModel_, {1.62f, 1.18f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {0.10f, 2.08f, 1.24f}, Color{68, 198, 255, 255},
                                     0.15f, 0.0f, night ? 1.8f : 0.55f, MatKind::EmissiveGlow);
-                    // Waiting bench inside shelter
+                    // Waiting bench inside shelter with brushed steel armrests
                     drawModelStyled(cubeModel_, {-0.25f, 0.48f, -0.34f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {2.10f, 0.08f, 0.44f}, Color{168, 118, 72, 255},
                                     0.72f, 0.0f, 0.0f, MatKind::Standard);
+                    for (int a = -1; a <= 1; a += 2) {
+                        drawModelStyled(cubeModel_, {-0.25f + static_cast<float>(a) * 0.98f, 0.62f, -0.34f},
+                                        {0.0f, 1.0f, 0.0f}, 0.0f, {0.05f, 0.26f, 0.40f},
+                                        Color{188, 196, 208, 255}, 0.28f, 0.85f, 0.0f, MatKind::Standard);
+                    }
                 }
                 break;
             }
@@ -3645,17 +4370,75 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, float groundSurfY, bool nightMo
         drawModelStyled(carMdl.glass, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {1.0f, 1.0f, 1.0f}, smokedGlass, 0.05f, 0.18f, 0.0f, MatKind::CarGlass);
 
-        // Sculpted aerodynamic wing mirrors on sleek stalks
+        // Sculpted aerodynamic wing mirrors on sleek dark stalks with rear glass & amber LED turn strip
         const float mirrorX = (v.kind == VehicleKind::FireTruck) ? (halfL * 0.62f)
                             : ((v.kind == VehicleKind::Ambulance || v.kind == VehicleKind::DeliveryVan) ? (halfL * 0.48f) : (halfL * 0.22f));
         const float mirrorY = 0.22f + H * 0.56f;
         for (int side = -1; side <= 1; side += 2) {
-            drawModelStyled(sphereModel_, {mirrorX, mirrorY, static_cast<float>(side) * (halfW * 0.99f)},
-                            {0.0f, 1.0f, 0.0f}, 0.0f, {0.11f, 0.065f, 0.095f},
+            const float sgn = static_cast<float>(side);
+            // Angled dark mounting stalk from door shoulder to mirror housing
+            drawModelStyled(cubeModel_, {mirrorX - 0.018f, mirrorY - 0.024f, sgn * (halfW * 0.915f)},
+                            {1.0f, 0.0f, 0.0f}, sgn * 24.0f, {0.062f, 0.026f, 0.125f},
+                            darkTrim, 0.40f, 0.35f, 0.0f, MatKind::Standard);
+            // Aerodynamic body-color mirror cap
+            drawModelStyled(sphereModel_, {mirrorX, mirrorY, sgn * (halfW * 1.00f)},
+                            {0.0f, 1.0f, 0.0f}, 0.0f, {0.105f, 0.062f, 0.092f},
                             bodyCol, paintRough, paintMetal, 0.0f, paintMat);
+            // Reflective rear mirror glass + thin forward amber LED turn-signal strip
+            drawModelStyled(cubeModel_, {mirrorX - 0.062f, mirrorY, sgn * (halfW * 1.00f)},
+                            {0.0f, 1.0f, 0.0f}, 0.0f, {0.016f, 0.064f, 0.112f},
+                            Color{130, 152, 174, 255}, 0.05f, 0.88f, 0.0f, MatKind::CarGlass);
+            drawModelStyled(cubeModel_, {mirrorX + 0.062f, mirrorY + 0.004f, sgn * (halfW * 1.005f)},
+                            {0.0f, 1.0f, 0.0f}, 0.0f, {0.022f, 0.015f, 0.088f},
+                            Color{255, 176, 44, 255}, 0.12f, 0.10f, nightMode ? 1.55f : 0.45f,
+                            nightMode ? MatKind::EmissiveGlow : MatKind::Standard);
         }
 
-        // Rear performance grille vent, license plate & twin/quad chrome exhaust tips
+        // Rooftop aerodynamic shark-fin GPS antenna on modern closed-roof cars
+        if (!v.destroyed &&
+            (v.kind == VehicleKind::Compact || v.kind == VehicleKind::LuxurySedan ||
+             v.kind == VehicleKind::PoliceCruiser || v.kind == VehicleKind::SportsCoupe ||
+             v.kind == VehicleKind::JdmTuner || v.kind == VehicleKind::MuscleCar ||
+             v.kind == VehicleKind::SUV || v.kind == VehicleKind::ArmoredSuv ||
+             v.kind == VehicleKind::Hypercar)) {
+            float finY = 1.38f;
+            float finX = -halfL * 0.30f;
+            switch (v.kind) {
+                case VehicleKind::Hypercar:      finY = 1.125f; finX = -halfL * 0.15f; break;
+                case VehicleKind::SportsCoupe:   finY = 1.235f; finX = -halfL * 0.21f; break;
+                case VehicleKind::JdmTuner:      finY = 1.275f; finX = -halfL * 0.25f; break;
+                case VehicleKind::MuscleCar:     finY = 1.305f; finX = -halfL * 0.26f; break;
+                case VehicleKind::LuxurySedan:   finY = 1.375f; finX = -halfL * 0.30f; break;
+                case VehicleKind::PoliceCruiser: finY = 1.390f; finX = -halfL * 0.31f; break;
+                case VehicleKind::Compact:       finY = 1.375f; finX = -halfL * 0.50f; break;
+                case VehicleKind::SUV:           finY = 1.655f; finX = -halfL * 0.64f; break;
+                case VehicleKind::ArmoredSuv:    finY = 1.775f; finX = -halfL * 0.68f; break;
+                default: break;
+            }
+            drawModelStyled(cubeModel_, {finX, finY + 0.024f, 0.0f}, {0.0f, 0.0f, 1.0f}, 28.0f,
+                            {0.145f, 0.058f, 0.024f}, darkTrim, 0.24f, 0.55f, 0.0f, MatKind::Standard);
+        }
+
+        // Side fender aerodynamic brake-cooling louver gills on performance & sports cars
+        if (!v.destroyed &&
+            (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype ||
+             v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::JdmTuner ||
+             v.kind == VehicleKind::MuscleCar || v.kind == VehicleKind::ClassicRoadster)) {
+            const float ventX = halfL * 0.31f;
+            const float ventY = (v.kind == VehicleKind::TrackPrototype || v.kind == VehicleKind::Hypercar) ? 0.44f : 0.48f;
+            for (int side = -1; side <= 1; side += 2) {
+                const float vz = static_cast<float>(side) * (halfW * 0.964f);
+                drawModelStyled(cubeModel_, {ventX, ventY, vz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.26f, 0.14f, 0.024f}, Color{14, 16, 20, 255}, 0.58f, 0.35f, 0.0f, MatKind::Standard);
+                for (int g = -1; g <= 1; ++g) {
+                    drawModelStyled(cubeModel_, {ventX + static_cast<float>(g) * 0.072f, ventY, vz + static_cast<float>(side) * 0.008f},
+                                    {0.0f, 0.0f, 1.0f}, -18.0f, {0.018f, 0.125f, 0.016f},
+                                    chromeCol, 0.18f, 0.88f, 0.0f, MatKind::Standard);
+                }
+            }
+        }
+
+        // Rear performance grille vent, license plate & twin/quad chrome exhaust tips (with glowing nitro inner cores!)
         if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype ||
             v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::JdmTuner) {
             drawModelStyled(cubeModel_, {-halfL * 0.995f, 0.52f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -3670,10 +4453,17 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, float groundSurfY, bool nightMo
         const float exZ = (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype)
                               ? (halfW * 0.20f)
                               : (halfW * 0.54f);
-        drawModelStyled(wheelModel_, {-halfL - 0.015f, exY, -exZ}, {0.0f, 1.0f, 0.0f}, 90.0f,
-                        {0.058f, 0.058f, 0.16f}, chromeCol, 0.18f, 0.92f, 0.0f, MatKind::Standard);
-        drawModelStyled(wheelModel_, {-halfL - 0.015f, exY,  exZ}, {0.0f, 1.0f, 0.0f}, 90.0f,
-                        {0.058f, 0.058f, 0.16f}, chromeCol, 0.18f, 0.92f, 0.0f, MatKind::Standard);
+        for (int side = -1; side <= 1; side += 2) {
+            const float pz = static_cast<float>(side) * exZ;
+            drawModelStyled(wheelModel_, {-halfL - 0.015f, exY, pz}, {0.0f, 1.0f, 0.0f}, 90.0f,
+                            {0.058f, 0.058f, 0.16f}, chromeCol, 0.18f, 0.92f, 0.0f, MatKind::Standard);
+            drawModelStyled(wheelModel_, {-halfL - 0.032f, exY, pz}, {0.0f, 1.0f, 0.0f}, 90.0f,
+                            {0.038f, 0.038f, 0.06f},
+                            v.nitroActive ? Color{255, 128, 42, 255} : Color{14, 14, 18, 255},
+                            v.nitroActive ? 0.12f : 0.75f, v.nitroActive ? 0.0f : 0.20f,
+                            v.nitroActive ? 3.2f : 0.0f,
+                            v.nitroActive ? MatKind::EmissiveGlow : MatKind::Standard);
+        }
 
         // Realistic Recessed Front Honeycomb Radiator Grille, Chrome/Carbon Surround & Corner Brake-Cooling Intakes!
         const float grilleY = (v.kind == VehicleKind::TrackPrototype || v.kind == VehicleKind::Hypercar) ? 0.28f
@@ -4143,6 +4933,42 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, float groundSurfY, bool nightMo
                             {0.06f, 0.12f, 0.30f}, tailCol, 0.1f, 0.0f, tailGlow, MatKind::EmissiveGlow);
         }
 
+        // White LED reverse backup lights when driving in reverse!
+        const float fwdSpeed = v.velocity.dot(forwardFromHeading(v.heading));
+        if (fwdSpeed < -0.6f) {
+            for (int side = -1; side <= 1; side += 2) {
+                drawModelStyled(cubeModel_, {-halfL - 0.011f, tailY - 0.056f, static_cast<float>(side) * (halfW * 0.45f)},
+                                {0.0f, 1.0f, 0.0f}, 0.0f, {0.042f, 0.042f, 0.16f},
+                                Color{242, 248, 255, 255}, 0.08f, 0.0f, 2.7f, MatKind::EmissiveGlow);
+            }
+        }
+
+        // High-mount Center 3rd Brake Light (CHMSL) along rear roofline/glass when braking!
+        if (v.brakingVisual && v.kind != VehicleKind::ClassicRoadster && v.kind != VehicleKind::FireTruck) {
+            float chmslX = -halfL * 0.34f;
+            float chmslY = 1.35f;
+            switch (v.kind) {
+                case VehicleKind::TrackPrototype: chmslX = -halfL * 0.22f; chmslY = 1.055f; break;
+                case VehicleKind::Hypercar:       chmslX = -halfL * 0.24f; chmslY = 1.105f; break;
+                case VehicleKind::SportsCoupe:    chmslX = -halfL * 0.29f; chmslY = 1.215f; break;
+                case VehicleKind::JdmTuner:       chmslX = -halfL * 0.32f; chmslY = 1.255f; break;
+                case VehicleKind::MuscleCar:      chmslX = -halfL * 0.34f; chmslY = 1.285f; break;
+                case VehicleKind::LuxurySedan:
+                case VehicleKind::PoliceCruiser:
+                case VehicleKind::Taxi:           chmslX = -halfL * 0.37f; chmslY = 1.355f; break;
+                case VehicleKind::Compact:        chmslX = -halfL * 0.65f; chmslY = 1.355f; break;
+                case VehicleKind::SUV:            chmslX = -halfL * 0.78f; chmslY = 1.635f; break;
+                case VehicleKind::OffroadPickup:  chmslX = -halfL * 0.06f; chmslY = 1.755f; break;
+                case VehicleKind::ArmoredSuv:     chmslX = -halfL * 0.80f; chmslY = 1.755f; break;
+                case VehicleKind::Ambulance:      chmslX = -halfL * 0.94f; chmslY = 1.985f; break;
+                case VehicleKind::DeliveryVan:
+                default:                          chmslX = -halfL * 0.92f; chmslY = 1.945f; break;
+            }
+            drawModelStyled(cubeModel_, {chmslX, chmslY, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.055f, 0.028f, 0.34f}, Color{255, 34, 34, 255},
+                            0.08f, 0.0f, 3.2f, MatKind::EmissiveGlow);
+        }
+
         if (v.nitroActive) {
             const float exZ = (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype)
                                   ? (halfW * 0.18f)
@@ -4202,21 +5028,47 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                      0.36f * shScale, 0.36f * shScale, 0.008f, 12, Color{10, 12, 16, shAlpha});
     }
 
-    // Left & Right Legs + Sneakers/Dress Shoes (with dynamic tucked airborne jump pose!)
+    // Articulated Left & Right Legs (Thigh, Knee Joint, Shin, Multi-Part Sneakers/Dress Shoes)
+    const bool dressShoe = (styleOutfit == OutfitId::MidnightTuxedo || styleOutfit == OutfitId::GoldBossCoat || isPolice);
+    const Color soleC = dressShoe ? Color{18, 20, 24, 255} : Color{236, 238, 244, 255};
     for (int side = -1; side <= 1; side += 2) {
         rlPushMatrix();
         const float hipLift = (jumping && alive) ? ((side < 0) ? 0.11f : 0.06f) : 0.0f;
-        rlTranslatef(0.0f, 0.76f + hipLift, static_cast<float>(side) * 0.125f);
+        rlTranslatef(0.0f, 0.76f + hipLift, static_cast<float>(side) * 0.118f);
         const float legAngle = (jumping && alive)
-                                   ? ((side < 0) ? 34.0f : -22.0f)
+                                   ? ((side < 0) ? 38.0f : -20.0f)
                                    : (static_cast<float>(side) * legSwing);
+        const float kneeBend = (jumping && alive)
+                                   ? ((side < 0) ? -52.0f : -34.0f)
+                                   : (alive ? -clampf(std::abs(legSwing) * 0.58f, 0.0f, 22.0f) : 0.0f);
         rlRotatef(legAngle, 0.0f, 0.0f, 1.0f);
-        drawModelStyled(cubeModel_, {0.0f, -0.34f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.19f, 0.66f, 0.19f}, botC, 0.78f, 0.0f, 0.0f, MatKind::Standard);
+
+        // Rounded hip cap & sculpted tapered thigh
+        drawModelStyled(sphereModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.094f, 0.092f, 0.094f}, botC, 0.76f, 0.0f, 0.0f, MatKind::Standard);
+        drawModelStyled(cylModel_, {0.0f, -0.34f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.092f, 0.34f, 0.092f}, botC, 0.76f, 0.0f, 0.0f, MatKind::Standard);
+
+        // Articulated Knee Joint + Lower Shin + Detailed Multi-Part Shoe
+        rlPushMatrix();
+        rlTranslatef(0.0f, -0.34f, 0.0f);
+        drawModelStyled(sphereModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.084f, 0.082f, 0.084f}, botC, 0.76f, 0.0f, 0.0f, MatKind::Standard);
+        rlRotatef(kneeBend, 0.0f, 0.0f, 1.0f);
+        drawModelStyled(cylModel_, {0.0f, -0.34f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.078f, 0.34f, 0.078f}, botC, 0.78f, 0.0f, 0.0f, MatKind::Standard);
         if (!shadowPass) {
-            drawModelStyled(cubeModel_, {0.04f, -0.70f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.26f, 0.11f, 0.20f}, shoeC, 0.55f, 0.10f, 0.0f, MatKind::Standard);
+            // Ankle cuff, contoured sneaker/shoe upper, rounded toe cap & contrasting midsole!
+            drawModelStyled(cylModel_, {0.0f, -0.345f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.066f, 0.05f, 0.066f}, Color{226, 228, 234, 255}, 0.72f, 0.0f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.036f, -0.358f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.21f, 0.074f, 0.155f}, shoeC, dressShoe ? 0.24f : 0.54f, dressShoe ? 0.22f : 0.08f, 0.0f, MatKind::Standard);
+            drawModelStyled(sphereModel_, {0.132f, -0.366f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.064f, 0.042f, 0.074f}, shoeC, dressShoe ? 0.24f : 0.54f, dressShoe ? 0.22f : 0.08f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.048f, -0.398f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.26f, 0.026f, 0.165f}, soleC, 0.62f, 0.05f, 0.0f, MatKind::Standard);
         }
+        rlPopMatrix();
         rlPopMatrix();
     }
 
@@ -4227,49 +5079,88 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
         rlRotatef(-9.5f, 0.0f, 0.0f, 1.0f);
     }
 
-    // Belt + Sculpted Jacket/Torso + Bespoke Boutique / SBPD / SWAT 3D Details!
+    // Sculpted Pelvis/Belt + Tapered Chest/Jacket + Rounded Deltoid Shoulders & Collar!
+    const float topRough = (styleOutfit == OutfitId::RacerLeather) ? 0.28f : 0.62f;
+    const float topMetal = (styleOutfit == OutfitId::GoldBossCoat) ? 0.35f : 0.06f;
     drawModelStyled(cubeModel_, {0.0f, 0.77f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.27f, 0.08f, 0.43f}, Color{24, 26, 32, 255}, 0.48f, 0.30f, 0.0f, MatKind::Standard);
-    drawModelStyled(cubeModel_, {0.0f, 1.09f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.27f, 0.60f, 0.44f}, topC,
-                    (styleOutfit == OutfitId::RacerLeather) ? 0.28f : 0.62f,
-                    (styleOutfit == OutfitId::GoldBossCoat) ? 0.35f : 0.06f,
-                    0.0f, MatKind::Standard);
+                    {0.246f, 0.072f, 0.396f}, Color{24, 26, 32, 255}, 0.46f, 0.30f, 0.0f, MatKind::Standard);
+    drawModelStyled(cubeModel_, {0.0f, 0.94f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                    {0.242f, 0.28f, 0.394f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+    drawModelStyled(cubeModel_, {0.0f, 1.21f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                    {0.264f, 0.34f, 0.428f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+    // Organic rounded shoulder deltoids + collar ring
+    for (int s = -1; s <= 1; s += 2) {
+        drawModelStyled(sphereModel_, {0.0f, 1.305f, static_cast<float>(s) * 0.205f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.098f, 0.096f, 0.090f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+    }
+    drawModelStyled(cylModel_, {0.0f, 1.375f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                    {0.104f, 0.044f, 0.104f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
 
     if (!shadowPass) {
+        // Metallic silver/brass belt buckle on all characters
+        drawModelStyled(cubeModel_, {0.130f, 0.77f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.020f, 0.052f, 0.068f},
+                        isPolice ? Color{236, 196, 68, 255} : Color{196, 204, 216, 255},
+                        0.22f, 0.88f, 0.0f, MatKind::Standard);
+
         if (isPolice && isSwat) {
-            // Heavy SWAT Kevlar tactical plate-carrier vest + shoulder armor
-            drawModelStyled(cubeModel_, {0.0f, 1.10f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.34f, 0.48f, 0.48f}, Color{26, 32, 40, 255}, 0.40f, 0.42f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {0.175f, 1.16f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.025f, 0.08f, 0.24f}, Color{236, 240, 248, 255}, 0.35f, 0.1f, 0.0f, MatKind::Standard);
+            // Heavy SWAT Kevlar tactical plate-carrier vest + 3 rifle mag pouches + shoulder pauldrons + radio whip!
+            drawModelStyled(cubeModel_, {0.0f, 1.11f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.335f, 0.46f, 0.47f}, Color{26, 32, 40, 255}, 0.40f, 0.42f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.172f, 1.19f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.024f, 0.075f, 0.24f}, Color{236, 240, 248, 255}, 0.35f, 0.1f, 0.0f, MatKind::Standard);
+            for (int mp = -1; mp <= 1; ++mp) {
+                drawModelStyled(cubeModel_, {0.180f, 0.99f, static_cast<float>(mp) * 0.115f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.048f, 0.135f, 0.082f}, Color{20, 24, 30, 255}, 0.50f, 0.25f, 0.0f, MatKind::Standard);
+            }
+            // Tactical back radio whip antenna
+            drawModelStyled(cylModel_, {-0.175f, 1.24f, -0.13f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.008f, 0.42f, 0.008f}, Color{28, 32, 38, 255}, 0.32f, 0.80f, 0.0f, MatKind::Standard);
         } else if (isPolice) {
-            // SBPD Officer uniform tie, duty belt brass buckle & gold shield chest badge!
-            drawModelStyled(cubeModel_, {0.140f, 1.12f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.025f, 0.34f, 0.055f}, Color{16, 20, 30, 255}, 0.45f, 0.15f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {0.144f, 1.22f, -0.095f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.025f, 0.085f, 0.068f}, Color{246, 204, 62, 255}, 0.20f, 0.90f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {0.142f, 0.77f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.025f, 0.065f, 0.08f}, Color{232, 194, 68, 255}, 0.25f, 0.85f, 0.0f, MatKind::Standard);
+            // SBPD Officer uniform tie, gold shield chest badge, shoulder radio mic & duty-belt pouches!
+            drawModelStyled(cubeModel_, {0.138f, 1.13f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.024f, 0.34f, 0.052f}, Color{16, 20, 30, 255}, 0.45f, 0.15f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.142f, 1.23f, -0.095f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.024f, 0.084f, 0.068f}, Color{246, 204, 62, 255}, 0.20f, 0.90f, 0.0f, MatKind::Standard);
+            // Left-shoulder speaker mic + hip duty-belt radio & holster pouches
+            drawModelStyled(cubeModel_, {0.132f, 1.31f, -0.145f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.045f, 0.062f, 0.045f}, Color{22, 24, 30, 255}, 0.40f, 0.35f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.02f, 0.76f, -0.225f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.095f, 0.115f, 0.060f}, Color{22, 24, 30, 255}, 0.45f, 0.28f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.04f, 0.74f,  0.225f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.105f, 0.145f, 0.062f}, Color{20, 22, 26, 255}, 0.42f, 0.32f, 0.0f, MatKind::Standard);
         } else if (styleOutfit == OutfitId::ViceWhiteSuit || styleOutfit == OutfitId::MidnightTuxedo) {
-            // Crisp dress shirt V-front + silk necktie!
+            // Crisp dress shirt V-front + silk necktie + metallic tie bar + breast pocket square!
             drawModelStyled(cubeModel_, {0.132f, 1.16f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.03f, 0.40f, 0.17f}, WHITE, 0.65f, 0.0f, 0.0f, MatKind::Standard);
+                            {0.028f, 0.40f, 0.165f}, WHITE, 0.65f, 0.0f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.145f, 1.12f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.025f, 0.34f, 0.055f}, accC, 0.35f, 0.15f, 0.0f, MatKind::Standard);
+                            {0.024f, 0.34f, 0.052f}, accC, 0.35f, 0.15f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.152f, 1.13f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.014f, 0.014f, 0.062f}, Color{238, 206, 86, 255}, 0.18f, 0.92f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.136f, 1.22f, -0.115f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.020f, 0.028f, 0.068f}, accC, 0.40f, 0.10f, 0.0f, MatKind::Standard);
         } else if (styleOutfit == OutfitId::TacOpsArmor) {
-            // Molded 3D Kevlar plate-carrier vest + mag pouches + shoulder armor!
-            drawModelStyled(cubeModel_, {0.0f, 1.10f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.33f, 0.48f, 0.47f}, accC, 0.42f, 0.35f, 0.0f, MatKind::Standard);
+            // Molded 3D Kevlar plate-carrier vest + 3 front mag pouches!
+            drawModelStyled(cubeModel_, {0.0f, 1.11f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.325f, 0.46f, 0.46f}, accC, 0.42f, 0.35f, 0.0f, MatKind::Standard);
+            for (int mp = -1; mp <= 1; ++mp) {
+                drawModelStyled(cubeModel_, {0.174f, 0.99f, static_cast<float>(mp) * 0.11f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.044f, 0.13f, 0.078f}, Color{28, 32, 36, 255}, 0.52f, 0.20f, 0.0f, MatKind::Standard);
+            }
         } else if (styleOutfit == OutfitId::GoldBossCoat) {
-            // Knee-length tailored boss overcoat skirt + gold lapel trim!
-            drawModelStyled(cubeModel_, {-0.02f, 0.62f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.30f, 0.36f, 0.47f}, topC, 0.48f, 0.25f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {0.138f, 1.12f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.03f, 0.48f, 0.15f}, accC, 0.25f, 0.80f, 0.0f, MatKind::Standard);
+            // Tailored boss overcoat lower panels cleanly below waist belt (zero Z-fighting!) + gold lapel trim + medallion!
+            drawModelStyled(cubeModel_, {-0.012f, 0.585f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.232f, 0.295f, 0.402f}, topC, 0.48f, 0.25f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.136f, 1.13f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.028f, 0.46f, 0.14f}, accC, 0.25f, 0.80f, 0.0f, MatKind::Standard);
+            drawModelStyled(sphereModel_, {0.148f, 1.18f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.014f, 0.036f, 0.036f}, Color{250, 206, 58, 255}, 0.16f, 0.96f, 0.0f, MatKind::Standard);
         } else {
-            drawModelStyled(cubeModel_, {0.11f, 1.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.08f, 0.18f, 0.18f}, accC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
+            // Layered inner shirt neckline + sleek metallic front jacket zipper!
+            drawModelStyled(cubeModel_, {0.120f, 1.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.055f, 0.16f, 0.16f}, accC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.136f, 1.06f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.014f, 0.48f, 0.018f}, Color{186, 194, 208, 255}, 0.26f, 0.82f, 0.0f, MatKind::Standard);
         }
 
         // Custom 3D Back Gear (Tactical Backpack / Heist Duffle Bag / Cyber Neon Wing Pack)!
@@ -4313,21 +5204,69 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
         }
     }
 
-    // Neck + Rounded Head + 7 Custom Hair/Headgear Styles + 4 Eyewear Styles!
+    // Neck + Organic Sculpted Cranium & Jaw + Ears/Eyes/Nose/Brows/Mouth + 7 Custom Hair/Headgear & 4 Eyewear!
     rlPushMatrix();
-    rlTranslatef(0.0f, 1.42f, 0.0f);
+    rlTranslatef(0.0f, 1.41f, 0.0f);
     if (alive) {
         rlRotatef(clampf(aimPitch * 0.65f, -0.65f, 0.75f) * kRadToDeg, 0.0f, 0.0f, 1.0f);
     }
     drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.075f, 0.08f, 0.075f}, skinC, 0.65f, 0.0f, 0.0f, MatKind::Standard);
-    drawModelStyled(cubeModel_, {0.0f, 0.16f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.25f, 0.26f, 0.25f}, skinC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
+                    {0.068f, 0.090f, 0.068f}, skinC, 0.65f, 0.0f, 0.0f, MatKind::Standard);
+    // Smooth organic sculpted cranium + tapered lower jaw/chin
+    drawModelStyled(sphereModel_, {0.0f, 0.175f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                    {0.132f, 0.140f, 0.124f}, skinC, 0.60f, 0.0f, 0.0f, MatKind::Standard);
+    drawModelStyled(sphereModel_, {0.020f, 0.098f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                    {0.098f, 0.066f, 0.088f}, skinC, 0.60f, 0.0f, 0.0f, MatKind::Standard);
 
     const int headStyle = (customChar != nullptr) ? customChar->hairOrHatStyle : 0;
     const Color hairCol = (customChar != nullptr)
                               ? toRayColor(getPlayerHairColor(styleOutfit, customChar->hairColorIdx))
                               : ((styleOutfit == OutfitId::TacOpsArmor) ? Color{32, 38, 34, 255} : Color{36, 30, 26, 255});
+    const int glassesStyle = (customChar != nullptr) ? customChar->glassesStyle : (hasSunglasses ? 1 : 0);
+
+    // Sculpted Ears, Nose, Expressive Eyes, Eyebrows & Mouth (skipped inside full-face helmets!)
+    if (!shadowPass && headStyle != 4) {
+        if (!(isPolice && isSwat)) {
+            for (int side = -1; side <= 1; side += 2) {
+                drawModelStyled(sphereModel_, {-0.008f, 0.162f, static_cast<float>(side) * 0.124f},
+                                {0.0f, 1.0f, 0.0f}, 0.0f, {0.022f, 0.036f, 0.018f},
+                                skinC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
+            }
+        }
+        // Sculpted nose bridge/tip
+        drawModelStyled(sphereModel_, {0.128f, 0.156f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.022f, 0.024f, 0.016f}, skinC, 0.60f, 0.0f, 0.0f, MatKind::Standard);
+        // Eyes + eyebrows (visible when not covered by opaque SWAT goggles or cyber visor)
+        if (!(isPolice && isSwat) && headStyle != 5 && glassesStyle != 3) {
+            const float browY = panicking ? 0.220f : 0.211f;
+            for (int side = -1; side <= 1; side += 2) {
+                const float ez = static_cast<float>(side) * 0.044f;
+                drawModelStyled(sphereModel_, {0.116f, 0.184f, ez}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.016f, 0.015f, 0.020f}, Color{242, 244, 248, 255}, 0.20f, 0.0f, 0.0f, MatKind::Standard);
+                drawModelStyled(sphereModel_, {0.128f, 0.184f, ez}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.009f, 0.010f, 0.011f}, Color{24, 26, 32, 255}, 0.12f, 0.15f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {0.120f, browY, ez}, {1.0f, 0.0f, 0.0f},
+                                isPolice ? (static_cast<float>(side) * -10.0f) : 0.0f,
+                                {0.016f, 0.011f, 0.040f}, hairCol, 0.65f, 0.0f, 0.0f, MatKind::Standard);
+            }
+        }
+        // Subtle closed lip line — or wide open panic gasp while fleeing!
+        if (panicking && alive) {
+            drawModelStyled(sphereModel_, {0.112f, 0.106f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.016f, 0.022f, 0.024f}, Color{62, 24, 26, 255}, 0.55f, 0.0f, 0.0f, MatKind::Standard);
+        } else {
+            drawModelStyled(cubeModel_, {0.114f, 0.110f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.014f, 0.009f, 0.044f}, Color{138, 76, 70, 255}, 0.55f, 0.0f, 0.0f, MatKind::Standard);
+        }
+    }
+
+    auto drawNaturalHairDome = [&]() {
+        // Sculpted smooth rounded hair cap hugging crown, back of head & front hairline
+        drawModelStyled(sphereModel_, {-0.015f, 0.214f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.136f, 0.118f, 0.130f}, hairCol, 0.60f, 0.12f, 0.0f, MatKind::Standard);
+        drawModelStyled(sphereModel_, {0.042f, 0.278f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.092f, 0.042f, 0.104f}, hairCol, 0.56f, 0.14f, 0.0f, MatKind::Standard);
+    };
 
     if (isPolice && isSwat) {
         // Ballistic SWAT tactical helmet + dark visor goggles
@@ -4348,15 +5287,14 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                             {0.022f, 0.048f, 0.045f}, Color{246, 204, 62, 255}, 0.20f, 0.90f, 0.0f, MatKind::Standard);
         }
     } else if (headStyle == 1) {
-        // Slick Pompadour (swept high front quiff + tapered sides)
-        drawModelStyled(cubeModel_, {-0.015f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.27f, 0.085f, 0.26f}, hairCol, 0.48f, 0.18f, 0.0f, MatKind::Standard);
-        drawModelStyled(cubeModel_, {0.075f, 0.335f, 0.0f}, {0.0f, 0.0f, 1.0f}, 14.0f,
-                        {0.16f, 0.105f, 0.22f}, hairCol, 0.42f, 0.22f, 0.0f, MatKind::Standard);
+        // Slick Pompadour (rounded base + swept high front quiff!)
+        drawNaturalHairDome();
+        drawModelStyled(sphereModel_, {0.068f, 0.326f, 0.0f}, {0.0f, 0.0f, 1.0f}, 14.0f,
+                        {0.105f, 0.068f, 0.102f}, hairCol, 0.40f, 0.22f, 0.0f, MatKind::Standard);
     } else if (headStyle == 2) {
-        // Spiky Street Mohawk (3 stepped crest spikes along center)
-        drawModelStyled(cubeModel_, {-0.01f, 0.272f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.26f, 0.04f, 0.25f}, Color{26, 24, 28, 255}, 0.72f, 0.05f, 0.0f, MatKind::Standard);
+        // Spiky Street Mohawk (tapered scalp + 3 stepped crest spikes along center)
+        drawModelStyled(sphereModel_, {-0.010f, 0.216f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.132f, 0.105f, 0.126f}, Color{26, 24, 28, 255}, 0.72f, 0.05f, 0.0f, MatKind::Standard);
         drawModelStyled(coneModel_, { 0.07f, 0.28f, 0.0f}, {0.0f, 0.0f, 1.0f}, -14.0f,
                         {0.045f, 0.19f, 0.042f}, hairCol, 0.38f, 0.20f, 0.0f, MatKind::Standard);
         drawModelStyled(coneModel_, {-0.01f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -4380,17 +5318,15 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                             {0.12f, 0.045f, 0.16f}, Color{22, 26, 34, 255}, 0.25f, 0.65f, 0.0f, MatKind::Standard);
         }
     } else if (headStyle == 5) {
-        // Cyber Neon Visor + Sleek Hair Cap!
-        drawModelStyled(cubeModel_, {-0.015f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.27f, 0.085f, 0.27f}, hairCol, 0.55f, 0.20f, 0.0f, MatKind::Standard);
+        // Cyber Neon Visor + Sleek Sculpted Hair!
+        drawNaturalHairDome();
         if (!shadowPass) {
             drawModelStyled(cubeModel_, {0.065f, 0.188f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.165f, 0.064f, 0.272f}, Color{42, 238, 255, 255}, 0.08f, 0.2f, 3.1f, MatKind::EmissiveGlow);
+                            {0.165f, 0.064f, 0.264f}, Color{42, 238, 255, 255}, 0.08f, 0.2f, 3.1f, MatKind::EmissiveGlow);
         }
     } else if (headStyle == 6) {
         // 24K VIP Gold Crown!
-        drawModelStyled(cubeModel_, {-0.015f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.27f, 0.080f, 0.27f}, hairCol, 0.58f, 0.15f, 0.0f, MatKind::Standard);
+        drawNaturalHairDome();
         const Color crownGold{250, 206, 62, 255};
         drawModelStyled(cylModel_, {0.0f, 0.305f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.145f, 0.065f, 0.145f}, crownGold, 0.12f, 0.96f, 0.0f, MatKind::Standard);
@@ -4403,42 +5339,70 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
             }
         }
     } else {
-        drawModelStyled(cubeModel_, {-0.015f, 0.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.27f, 0.085f, 0.27f}, hairCol, 0.65f, 0.15f, 0.0f, MatKind::Standard);
+        drawNaturalHairDome();
     }
 
-    const int glassesStyle = (customChar != nullptr) ? customChar->glassesStyle : (hasSunglasses ? 1 : 0);
     if (!shadowPass && glassesStyle > 0 && !(isPolice && isSwat) && headStyle != 4 && headStyle != 5) {
         if (glassesStyle == 2) {
             // Gold Aviator Sunglasses (gold brow bar + twin tinted lenses)
-            drawModelStyled(cubeModel_, {0.128f, 0.208f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.024f, 0.012f, 0.225f}, Color{246, 202, 68, 255}, 0.16f, 0.92f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.130f, 0.208f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.024f, 0.012f, 0.220f}, Color{246, 202, 68, 255}, 0.16f, 0.92f, 0.0f, MatKind::Standard);
             for (int s = -1; s <= 1; s += 2) {
-                drawModelStyled(cubeModel_, {0.126f, 0.176f, static_cast<float>(s) * 0.058f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.028f, 0.058f, 0.086f}, Color{36, 28, 18, 255}, 0.08f, 0.65f, 0.0f, MatKind::CarGlass);
+                drawModelStyled(cubeModel_, {0.128f, 0.176f, static_cast<float>(s) * 0.056f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.028f, 0.056f, 0.084f}, Color{36, 28, 18, 255}, 0.08f, 0.65f, 0.0f, MatKind::CarGlass);
             }
         } else if (glassesStyle == 3) {
             // Cyan Tactical Goggles!
-            drawModelStyled(cubeModel_, {0.128f, 0.184f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.036f, 0.068f, 0.235f}, Color{44, 232, 255, 255}, 0.08f, 0.3f, 2.2f, MatKind::EmissiveGlow);
+            drawModelStyled(cubeModel_, {0.130f, 0.184f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.036f, 0.068f, 0.230f}, Color{44, 232, 255, 255}, 0.08f, 0.3f, 2.2f, MatKind::EmissiveGlow);
         } else {
-            drawModelStyled(cubeModel_, {0.125f, 0.18f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.03f, 0.06f, 0.22f}, Color{16, 20, 28, 255},
+            drawModelStyled(cubeModel_, {0.128f, 0.182f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.03f, 0.058f, 0.216f}, Color{16, 20, 28, 255},
                             0.12f, 0.45f, 0.0f, MatKind::CarGlass);
         }
     }
     rlPopMatrix();
 
-    // Arms, Hands & Multi-Part 3D Weapons (with Gunsmith Finishes, Suppressor & Extended Mag!)
+    // Articulated Arms, Elbows, Jacket Cuffs, Wristwatch, Hands & Multi-Part 3D Weapons!
+    auto drawHangingSculptedArm = [&](int side, float elbowDeg) {
+        // Upper arm sleeve
+        drawModelStyled(cylModel_, {0.0f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.068f, 0.22f, 0.068f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+        // Articulated elbow joint + lower forearm sleeve + cuff + wristwatch + sculpted hand
+        rlPushMatrix();
+        rlTranslatef(0.0f, -0.22f, 0.0f);
+        drawModelStyled(sphereModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.064f, 0.062f, 0.064f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+        rlRotatef(elbowDeg, 0.0f, 0.0f, 1.0f);
+        drawModelStyled(cylModel_, {0.0f, -0.21f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.058f, 0.21f, 0.058f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+        if (!shadowPass) {
+            drawModelStyled(cylModel_, {0.0f, -0.215f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.062f, 0.028f, 0.062f}, accC, 0.45f, 0.15f, 0.0f, MatKind::Standard);
+            if (side < 0) {
+                // Sleek metallic wristwatch on left wrist!
+                drawModelStyled(cylModel_, {0.0f, -0.236f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.056f, 0.022f, 0.056f}, Color{198, 206, 220, 255}, 0.18f, 0.90f, 0.0f, MatKind::Standard);
+            }
+            drawModelStyled(sphereModel_, {0.0f, -0.275f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.054f, 0.064f, 0.048f}, skinC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
+        }
+        rlPopMatrix();
+    };
+
     for (int side = -1; side <= 1; side += 2) {
         rlPushMatrix();
-        rlTranslatef(0.0f, 1.32f, static_cast<float>(side) * 0.27f);
+        rlTranslatef(0.0f, 1.31f, static_cast<float>(side) * 0.258f);
         if (armed && side == 1 && alive) {
             rlRotatef(aimPitch * kRadToDeg, 0.0f, 0.0f, 1.0f);
-            drawModelStyled(cubeModel_, {0.22f, -0.04f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.44f, 0.14f, 0.14f}, topC, 0.68f, 0.04f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {0.46f, -0.04f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.10f, 0.11f, 0.11f}, skinC, 0.65f, 0.0f, 0.0f, MatKind::Standard);
+            drawModelStyled(cylModel_, {0.02f, -0.04f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.068f, 0.41f, 0.068f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+            if (!shadowPass) {
+                drawModelStyled(cylModel_, {0.40f, -0.04f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                                {0.072f, 0.032f, 0.072f}, accC, 0.45f, 0.15f, 0.0f, MatKind::Standard);
+            }
+            drawModelStyled(sphereModel_, {0.46f, -0.04f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.058f, 0.054f, 0.052f}, skinC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
 
             const int wSkin = (customWep != nullptr) ? customWep->skinIndex : 0;
             const auto wFin = getWeaponFinishMaterial(weapon, wSkin);
@@ -4502,8 +5466,22 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                 const float bodyRough = (wSkin > 0) ? wFin.roughness : (isRevolver ? 0.14f : 0.28f);
                 const float bodyMetal = (wSkin > 0) ? wFin.metallic  : (isRevolver ? 0.94f : 0.82f);
                 drawModelStyled(cubeModel_, {gunCenterX, 0.025f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {gunLen, heavyMg ? 0.12f : (isSniper ? 0.085f : 0.10f), 0.075f}, bodyTint,
+                                {gunLen * 0.72f, heavyMg ? 0.115f : (isSniper ? 0.082f : 0.095f), 0.072f}, bodyTint,
                                 bodyRough, bodyMetal, wFin.emissive, wMat);
+                // Machined round steel barrel extending cleanly forward + compact buttstock & top optic on long guns
+                drawModelStyled(cylModel_, {gunCenterX + gunLen * 0.20f, 0.036f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                                {0.020f, gunLen * 0.34f, 0.020f}, Color{46, 52, 62, 255},
+                                0.24f, 0.88f, 0.0f, MatKind::Standard);
+                if (!shadowPass && longGun) {
+                    drawModelStyled(cubeModel_, {gunCenterX - gunLen * 0.44f, 0.008f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.20f, 0.092f, 0.056f}, Color{26, 30, 36, 255},
+                                    0.48f, 0.32f, 0.0f, MatKind::Standard);
+                    if (!isSniper) {
+                        drawModelStyled(cubeModel_, {gunCenterX - 0.03f, 0.092f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                        {0.095f, 0.048f, 0.052f}, Color{22, 26, 32, 255},
+                                        0.34f, 0.65f, 0.0f, MatKind::Standard);
+                    }
+                }
 
                 const float extScale = (customWep != nullptr && customWep->extendedMag) ? 1.45f : 1.0f;
                 if (!shadowPass && isSniper) {
@@ -4543,33 +5521,19 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
             }
         } else if (panicking && alive) {
             // Both arms thrown high above the head waving frantically while fleeing!
-            const float waveDeg = 154.0f + std::sin(animPhase * 1.45f + static_cast<float>(side) * 1.15f) * 20.0f;
+            const float waveDeg = 152.0f + std::sin(animPhase * 1.45f + static_cast<float>(side) * 1.15f) * 20.0f;
             rlRotatef(waveDeg, 0.0f, 0.0f, 1.0f);
             rlRotatef(static_cast<float>(-side) * 14.0f, 1.0f, 0.0f, 0.0f);
-            drawModelStyled(cubeModel_, {0.0f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.15f, 0.44f, 0.15f}, topC, 0.68f, 0.04f, 0.0f, MatKind::Standard);
-            if (!shadowPass) {
-                drawModelStyled(cubeModel_, {0.0f, -0.47f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.12f, 0.11f, 0.12f}, skinC, 0.65f, 0.0f, 0.0f, MatKind::Standard);
-            }
+            drawHangingSculptedArm(side, 22.0f);
         } else if (jumping && alive) {
             // Athletic mid-air arm lift for jump balance
             rlRotatef((side < 0) ? 46.0f : 32.0f, 0.0f, 0.0f, 1.0f);
             rlRotatef(static_cast<float>(-side) * 18.0f, 1.0f, 0.0f, 0.0f);
-            drawModelStyled(cubeModel_, {0.0f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.15f, 0.44f, 0.15f}, topC, 0.68f, 0.04f, 0.0f, MatKind::Standard);
-            if (!shadowPass) {
-                drawModelStyled(cubeModel_, {0.0f, -0.47f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.12f, 0.11f, 0.12f}, skinC, 0.65f, 0.0f, 0.0f, MatKind::Standard);
-            }
+            drawHangingSculptedArm(side, 32.0f);
         } else {
-            rlRotatef(static_cast<float>(-side) * legSwing * 0.8f, 0.0f, 0.0f, 1.0f);
-            drawModelStyled(cubeModel_, {0.0f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.15f, 0.44f, 0.15f}, topC, 0.68f, 0.04f, 0.0f, MatKind::Standard);
-            if (!shadowPass) {
-                drawModelStyled(cubeModel_, {0.0f, -0.47f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.12f, 0.11f, 0.12f}, skinC, 0.65f, 0.0f, 0.0f, MatKind::Standard);
-            }
+            const float armSwing = static_cast<float>(-side) * legSwing * 0.8f;
+            rlRotatef(armSwing, 0.0f, 0.0f, 1.0f);
+            drawHangingSculptedArm(side, alive ? (10.0f + std::max(0.0f, armSwing * 0.55f)) : 0.0f);
         }
         rlPopMatrix();
     }
@@ -4654,13 +5618,47 @@ void Renderer3D::drawSkidsTracersParticles(const GameWorld& world) {
 
     for (const auto& p : world.particles()) {
         const float life = clampf(p.ttl / std::max(0.01f, p.maxTtl), 0.0f, 1.0f);
-        Color c = toRayColor(p.color);
-        c.a = static_cast<unsigned char>(static_cast<float>(c.a) * life);
-        const bool fiery = (p.color.r > 210 && p.color.g > 90 && p.color.b < 140);
-        drawModelStyled(sphereModel_, {p.pos.x, p.pos.y, p.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {p.size * 0.65f, p.size * 0.65f, p.size * 0.65f}, c,
-                        0.65f, 0.0f, fiery ? 2.2f : 0.0f,
-                        fiery ? MatKind::EmissiveGlow : MatKind::Standard);
+        if (p.kind == ParticleKind::BrassCasing) {
+            const float fade = clampf(life * 2.5f, 0.0f, 1.0f);
+            Color brassCol = toRayColor(p.color);
+            brassCol.a = static_cast<unsigned char>(255.0f * fade);
+            rlPushMatrix();
+            rlTranslatef(p.pos.x, p.pos.y, p.pos.z);
+            rlRotatef(p.spinAngle * kRadToDeg, 0.45f, 0.85f, 0.30f);
+            rlRotatef(p.spinAngle * kRadToDeg * 0.65f, 1.0f, 0.0f, 0.0f);
+            drawModelStyled(cylModel_, {0.0f, -0.024f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.014f, 0.048f, 0.014f}, brassCol,
+                            0.14f, 0.95f, 0.35f, MatKind::Standard);
+            rlPopMatrix();
+        } else if (p.kind == ParticleKind::ShotgunShell) {
+            const float fade = clampf(life * 2.5f, 0.0f, 1.0f);
+            Color hullCol{216, 36, 42, static_cast<unsigned char>(255.0f * fade)};
+            Color rimCol{242, 204, 88, static_cast<unsigned char>(255.0f * fade)};
+            rlPushMatrix();
+            rlTranslatef(p.pos.x, p.pos.y, p.pos.z);
+            rlRotatef(p.spinAngle * kRadToDeg, 0.65f, 0.70f, 0.25f);
+            rlRotatef(p.spinAngle * kRadToDeg * 0.50f, 0.0f, 0.0f, 1.0f);
+            // Red 12-gauge hull body + bright metallic brass head
+            drawModelStyled(cylModel_, {0.0f, -0.018f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.020f, 0.056f, 0.020f}, hullCol, 0.38f, 0.12f, 0.0f, MatKind::Standard);
+            drawModelStyled(cylModel_, {0.0f, -0.036f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.021f, 0.020f, 0.021f}, rimCol, 0.14f, 0.95f, 0.30f, MatKind::Standard);
+            rlPopMatrix();
+        } else if (p.kind == ParticleKind::WaterSpray) {
+            Color sprayCol = toRayColor(p.color);
+            sprayCol.a = static_cast<unsigned char>(clampf(static_cast<float>(sprayCol.a) * life * 0.85f, 8.0f, 170.0f));
+            const float r = p.size * (0.65f + (1.0f - life) * 0.65f);
+            drawModelStyled(sphereModel_, {p.pos.x, p.pos.y, p.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {r, r * 0.78f, r}, sprayCol, 0.35f, 0.05f, 0.0f, MatKind::Standard);
+        } else {
+            Color c = toRayColor(p.color);
+            c.a = static_cast<unsigned char>(static_cast<float>(c.a) * life);
+            const bool fiery = (p.color.r > 210 && p.color.g > 90 && p.color.b < 140);
+            drawModelStyled(sphereModel_, {p.pos.x, p.pos.y, p.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {p.size * 0.65f, p.size * 0.65f, p.size * 0.65f}, c,
+                            0.65f, 0.0f, fiery ? 2.2f : 0.0f,
+                            fiery ? MatKind::EmissiveGlow : MatKind::Standard);
+        }
     }
 }
 
@@ -4730,7 +5728,7 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
         rlRotatef(car->bodyPitch * kRadToDeg, 0.0f, 0.0f, 1.0f);
         rlRotatef(car->bodyRoll * kRadToDeg, 1.0f, 0.0f, 0.0f);
 
-        // 1. Sculpted dark stitched-leather dashboard deck & trim strip
+        // 1. Sculpted dark stitched-leather dashboard deck, trim strip & dual circular brushed-chrome AC vents!
         const float dashX = eye.x + 0.54f;
         const float dashY = eye.y - 0.275f;
         drawModelStyled(cubeModel_, {dashX, dashY, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -4743,35 +5741,118 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
         drawModelStyled(cubeModel_, {dashX - 0.125f, dashY + 0.055f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.02f, 0.016f, halfW * 1.66f}, accentStrip, 0.22f, 0.65f, 0.0f, MatKind::Standard);
 
-        // 2. Instrument binnacle hood & illuminated digital RPM/Speed cluster behind wheel
+        // Dual circular brushed-chrome AC air vents flanking driver & center console
+        const float ventZs[2] = {eye.z - 0.22f, 0.22f};
+        for (float vz : ventZs) {
+            drawModelStyled(cylModel_, {dashX - 0.130f, dashY + 0.018f, vz}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.036f, 0.024f, 0.036f}, Color{198, 206, 218, 255}, 0.18f, 0.90f, 0.0f, MatKind::Standard);
+            drawModelStyled(cylModel_, {dashX - 0.134f, dashY + 0.018f, vz}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.029f, 0.016f, 0.029f}, Color{14, 16, 22, 255}, 0.55f, 0.25f, 0.0f, MatKind::Standard);
+            for (int sl = -1; sl <= 1; ++sl) {
+                drawModelStyled(cubeModel_, {dashX - 0.136f, dashY + 0.018f + static_cast<float>(sl) * 0.011f, vz},
+                                {0.0f, 1.0f, 0.0f}, 0.0f, {0.008f, 0.004f, 0.048f},
+                                Color{150, 158, 172, 255}, 0.25f, 0.80f, 0.0f, MatKind::Standard);
+            }
+        }
+
+        // 2. Instrument binnacle hood, twin glowing gauge rings & 10-LED progressive RPM shift-light strip!
         const float binX = eye.x + 0.485f;
         const float binY = eye.y - 0.165f;
         drawModelStyled(cubeModel_, {binX, binY, eye.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.12f, 0.105f, 0.28f}, polyDark, 0.48f, 0.20f, 0.0f, MatKind::Standard);
+                        {0.12f, 0.108f, 0.29f}, polyDark, 0.48f, 0.20f, 0.0f, MatKind::Standard);
         drawModelStyled(cubeModel_, {binX - 0.058f, binY - 0.004f, eye.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.012f, 0.076f, 0.24f}, Color{10, 16, 26, 255}, 0.15f, 0.1f, 0.4f, MatKind::EmissiveGlow);
-        const Color rpmCol = (rpmRatio > 0.82f) ? Color{255, 68, 58, 255}
-                           : ((rpmRatio > 0.48f) ? Color{72, 238, 152, 255} : Color{68, 206, 255, 255});
-        const float barW = std::max(0.025f, 0.21f * rpmRatio);
-        drawModelStyled(cubeModel_, {binX - 0.063f, binY + 0.012f, eye.z - 0.105f + barW * 0.5f},
-                        {0.0f, 1.0f, 0.0f}, 0.0f, {0.010f, 0.018f, barW},
-                        rpmCol, 0.1f, 0.0f, 2.4f, MatKind::EmissiveGlow);
+                        {0.012f, 0.080f, 0.252f}, Color{10, 16, 26, 255}, 0.15f, 0.1f, 0.4f, MatKind::EmissiveGlow);
+        // Twin circular glowing tachometer & speedometer bezels inside digital binnacle
+        for (int g = -1; g <= 1; g += 2) {
+            const float gz = eye.z + static_cast<float>(g) * 0.068f;
+            const Color dialCol = (g < 0) ? Color{56, 212, 255, 255} : Color{255, 196, 68, 255};
+            drawModelStyled(cylModel_, {binX - 0.063f, binY - 0.014f, gz}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.028f, 0.006f, 0.028f}, dialCol, 0.1f, 0.0f, 1.75f, MatKind::EmissiveGlow);
+            drawModelStyled(cylModel_, {binX - 0.066f, binY - 0.014f, gz}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.022f, 0.005f, 0.022f}, Color{10, 16, 26, 255}, 0.2f, 0.1f, 0.35f, MatKind::EmissiveGlow);
+        }
+        // 10-LED progressive motorsport RPM shift-light strip across top brow of instrument cluster!
+        const bool redlineBlink = (rpmRatio > 0.88f) && (std::fmod(static_cast<float>(GetTime()) * 11.0f, 1.0f) < 0.5f);
+        for (int led = 0; led < 10; ++led) {
+            const float thresh = static_cast<float>(led) / 10.0f;
+            const bool lit = (rpmRatio > thresh + 0.04f) && (!redlineBlink || led < 7);
+            const float lz = eye.z - 0.099f + static_cast<float>(led) * 0.022f;
+            Color ledCol = Color{28, 34, 46, 255};
+            if (lit) {
+                ledCol = (led < 4) ? Color{52, 224, 255, 255}
+                       : ((led < 7) ? Color{68, 245, 142, 255}
+                       : ((led < 9) ? Color{255, 198, 46, 255}
+                                    : Color{255, 42, 48, 255}));
+            }
+            drawModelStyled(cubeModel_, {binX - 0.064f, binY + 0.024f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.008f, 0.011f, 0.016f}, ledCol, 0.12f, 0.0f,
+                            lit ? 2.8f : 0.0f, lit ? MatKind::EmissiveGlow : MatKind::Standard);
+        }
 
-        // 3. Center console infotainment screen (or Police / EMS / Fire MDT terminal!)
+        // 3. Detailed Center Console GPS Navigation Map / Police MDT + 3 Rotary Climate Knobs + Lower Gear Shifter!
         rlPushMatrix();
         rlTranslatef(eye.x + 0.48f, eye.y - 0.185f, 0.03f);
         rlRotatef(14.0f, 0.0f, 1.0f, 0.0f);
         drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.026f, 0.115f, 0.19f}, polyDark, 0.35f, 0.35f, 0.0f, MatKind::Standard);
+                        {0.026f, 0.120f, 0.195f}, polyDark, 0.35f, 0.35f, 0.0f, MatKind::Standard);
         const bool emergencyScreen = isEmergencySirenVehicle(*car);
-        const Color scrCol = emergencyScreen
-                                 ? ((car->sirenActive && car->sirenPhase < 0.5f) ? Color{255, 58, 68, 255} : Color{48, 152, 255, 255})
-                                 : Color{42, 188, 232, 255};
+        // Dark screen backdrop
         drawModelStyled(cubeModel_, {-0.013f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.008f, 0.092f, 0.165f}, scrCol, 0.1f, 0.0f, 1.65f, MatKind::EmissiveGlow);
+                        {0.007f, 0.098f, 0.172f}, Color{12, 22, 36, 255}, 0.12f, 0.1f, 0.55f, MatKind::EmissiveGlow);
+        if (emergencyScreen) {
+            // Police / EMS / Fire MDT dispatch header bar + tactical scan rings!
+            const Color hdrCol = (car->sirenActive && car->sirenPhase < 0.5f) ? Color{255, 52, 64, 255} : Color{48, 152, 255, 255};
+            drawModelStyled(cubeModel_, {-0.017f, 0.036f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.004f, 0.018f, 0.160f}, hdrCol, 0.1f, 0.0f, 2.4f, MatKind::EmissiveGlow);
+            for (int r = 0; r < 3; ++r) {
+                drawModelStyled(cubeModel_, {-0.017f, 0.008f - static_cast<float>(r) * 0.020f, -0.025f},
+                                {0.0f, 1.0f, 0.0f}, 0.0f, {0.004f, 0.008f, 0.095f - static_cast<float>(r) * 0.015f},
+                                Color{72, 212, 255, 255}, 0.1f, 0.0f, 1.7f, MatKind::EmissiveGlow);
+            }
+        } else {
+            // Illuminated GPS city grid + bright route path + pulsing player chevron!
+            for (int g = -1; g <= 1; ++g) {
+                drawModelStyled(cubeModel_, {-0.016f, static_cast<float>(g) * 0.026f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.004f, 0.003f, 0.158f}, Color{28, 92, 132, 255}, 0.1f, 0.0f, 0.9f, MatKind::EmissiveGlow);
+                drawModelStyled(cubeModel_, {-0.016f, 0.0f, static_cast<float>(g) * 0.044f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.004f, 0.088f, 0.003f}, Color{28, 92, 132, 255}, 0.1f, 0.0f, 0.9f, MatKind::EmissiveGlow);
+            }
+            // Active neon route line & triangular GPS vehicle marker
+            drawModelStyled(cubeModel_, {-0.018f, 0.012f, 0.016f}, {1.0f, 0.0f, 0.0f}, 24.0f,
+                            {0.004f, 0.068f, 0.007f}, Color{68, 245, 168, 255}, 0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
+            drawModelStyled(coneModel_, {-0.019f, -0.020f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.008f, 0.018f, 0.008f}, Color{255, 214, 58, 255}, 0.1f, 0.0f, 2.6f, MatKind::EmissiveGlow);
+        }
+        // 3 brushed-chrome rotary climate knobs + hazard button beneath screen
+        for (int k = -1; k <= 1; ++k) {
+            drawModelStyled(cylModel_, {-0.015f, -0.076f, static_cast<float>(k) * 0.048f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.013f, 0.016f, 0.013f}, Color{198, 206, 218, 255}, 0.20f, 0.90f, 0.0f, MatKind::Standard);
+        }
+        drawModelStyled(cubeModel_, {-0.015f, -0.076f, 0.080f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.010f, 0.014f, 0.016f}, Color{236, 46, 48, 255}, 0.2f, 0.0f, 1.4f, MatKind::EmissiveGlow);
         rlPopMatrix();
 
-        // 4. Wide-view A-pillars, top sun-visor bar (omitted on open-top ClassicRoadster!) & center mirror
+        // Lower center tunnel, metallic gated gear shifter stalk & twin recessed cupholders!
+        drawModelStyled(cubeModel_, {eye.x + 0.34f, eye.y - 0.355f, 0.02f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.34f, 0.06f, 0.17f}, Color{24, 27, 34, 255}, 0.55f, 0.18f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {eye.x + 0.39f, eye.y - 0.322f, 0.02f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.075f, 0.012f, 0.068f}, Color{168, 176, 190, 255}, 0.20f, 0.88f, 0.0f, MatKind::Standard);
+        const float gearTiltDeg = clampf((static_cast<float>(car->currentGear) - 3.0f) * 4.5f, -14.0f, 14.0f);
+        rlPushMatrix();
+        rlTranslatef(eye.x + 0.39f, eye.y - 0.320f, 0.02f);
+        rlRotatef(gearTiltDeg, 0.0f, 0.0f, 1.0f);
+        drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.008f, 0.095f, 0.008f}, Color{208, 214, 224, 255}, 0.16f, 0.94f, 0.0f, MatKind::Standard);
+        drawModelStyled(sphereModel_, {0.0f, 0.100f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.022f, 0.026f, 0.022f}, Color{32, 36, 44, 255}, 0.30f, 0.35f, 0.0f, MatKind::Standard);
+        rlPopMatrix();
+        for (int ch = 0; ch < 2; ++ch) {
+            drawModelStyled(cylModel_, {eye.x + 0.26f, eye.y - 0.324f, -0.022f + static_cast<float>(ch) * 0.072f},
+                            {0.0f, 1.0f, 0.0f}, 0.0f, {0.026f, 0.008f, 0.026f},
+                            Color{14, 16, 20, 255}, 0.55f, 0.20f, 0.0f, MatKind::Standard);
+        }
+
+        // 4. Wide-view A-pillars, top sun-visor bar (omitted on open-top ClassicRoadster!), center mirror & animated rain wipers!
         for (int side = -1; side <= 1; side += 2) {
             rlPushMatrix();
             rlTranslatef(eye.x + 0.42f, eye.y + 0.05f, static_cast<float>(side) * (halfW * 0.85f));
@@ -4789,7 +5870,28 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
         drawModelStyled(cubeModel_, {eye.x + 0.405f, eye.y + 0.195f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.008f, 0.042f, 0.184f}, Color{96, 128, 158, 255}, 0.06f, 0.85f, 0.0f, MatKind::CarGlass);
 
-        // 5. Live-rotating 3D Sport Steering Wheel + Driver Hands & Sleeves
+        // Dual Windshield Wipers mounted flush on the outer cowl windshield plane (sweep smoothly in rain without blocking sightline!)
+        const float wiperSweep = world.isRainWeather()
+                                     ? (0.5f - 0.5f * std::cos(static_cast<float>(GetTime()) * 3.6f + 1.05f))
+                                     : 0.0f;
+        const float wiperDeg = lerpf(86.0f, 22.0f, wiperSweep);
+        const float wiperPivots[2] = {eye.z - 0.06f, 0.24f};
+        for (float wpZ : wiperPivots) {
+            rlPushMatrix();
+            rlTranslatef(eye.x + 0.655f, eye.y - 0.198f, wpZ);
+            rlRotatef(34.0f, 0.0f, 0.0f, 1.0f);   // Match windshield slope plane
+            rlRotatef(wiperDeg, 1.0f, 0.0f, 0.0f); // Sweep across lower-to-mid glass
+            // Sleek cowl pivot cap + slender steel wiper arm + aerodynamic squeegee blade
+            drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.0055f, 0.145f, 0.0055f}, Color{26, 30, 36, 255}, 0.35f, 0.70f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.004f, 0.155f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.007f, 0.036f, 0.011f}, Color{36, 40, 48, 255}, 0.35f, 0.65f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.005f, 0.190f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.0055f, 0.215f, 0.0085f}, Color{16, 18, 22, 255}, 0.58f, 0.22f, 0.0f, MatKind::Standard);
+            rlPopMatrix();
+        }
+
+        // 5. Smooth 24-Segment Sport Steering Wheel + Thumb Bolsters + Anodized Paddle Shifters + Driver Hands!
         rlPushMatrix();
         rlTranslatef(eye.x + 0.365f, eye.y - 0.195f, eye.z);
         rlRotatef(-18.0f, 0.0f, 0.0f, 1.0f);
@@ -4797,29 +5899,32 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                         {0.14f, 0.055f, 0.055f}, polyDark, 0.5f, 0.2f, 0.0f, MatKind::Standard);
         rlRotatef(car->steerVisual * 68.0f, 1.0f, 0.0f, 0.0f);
 
-        constexpr int kRimSegs = 12;
+        constexpr int kRimSegs = 24;
         constexpr float kWheelR = 0.146f;
+        const bool isSportWheel = (car->kind == VehicleKind::TrackPrototype ||
+                                   car->kind == VehicleKind::Hypercar ||
+                                   car->kind == VehicleKind::SportsCoupe ||
+                                   car->kind == VehicleKind::ClassicRoadster ||
+                                   car->kind == VehicleKind::JdmTuner ||
+                                   car->kind == VehicleKind::MuscleCar);
         for (int s = 0; s < kRimSegs; ++s) {
             const float angDeg = static_cast<float>(s) * (360.0f / static_cast<float>(kRimSegs));
             const float angRad = angDeg * (kPi / 180.0f);
             const float ry = std::cos(angRad) * kWheelR;
             const float rz = std::sin(angRad) * kWheelR;
-            const bool topStripe = (s == 0) && (car->kind == VehicleKind::TrackPrototype ||
-                                                car->kind == VehicleKind::Hypercar ||
-                                                car->kind == VehicleKind::SportsCoupe ||
-                                                car->kind == VehicleKind::ClassicRoadster ||
-                                                car->kind == VehicleKind::JdmTuner ||
-                                                car->kind == VehicleKind::MuscleCar);
+            const bool topStripe = (s == 0) && isSportWheel;
+            const bool thumbBolster = (s == 4 || s == 5 || s == 19 || s == 20);
             rlPushMatrix();
             rlTranslatef(0.0f, ry, rz);
             rlRotatef(angDeg, 1.0f, 0.0f, 0.0f);
             drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.026f, 0.026f, 0.084f},
-                            topStripe ? Color{232, 42, 48, 255} : Color{28, 32, 40, 255},
-                            0.38f, 0.15f, 0.0f, MatKind::Standard);
+                            {thumbBolster ? 0.029f : 0.025f, thumbBolster ? 0.028f : 0.024f, 0.044f},
+                            topStripe ? Color{236, 42, 48, 255}
+                                      : (thumbBolster ? Color{40, 44, 54, 255} : Color{26, 30, 38, 255}),
+                            0.34f, 0.18f, 0.0f, MatKind::Standard);
             rlPopMatrix();
         }
-        // Center hub + 3 metallic spokes (9, 3, and 6 o'clock)
+        // Center hub, brushed emblem, 3 metallic spokes & dual anodized F1 paddle shifters behind wheel!
         drawModelStyled(sphereModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.032f, 0.054f, 0.054f}, polyDark, 0.42f, 0.25f, 0.0f, MatKind::Standard);
         drawModelStyled(sphereModel_, {-0.016f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -4828,17 +5933,25 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                         {0.016f, 0.024f, kWheelR * 1.88f}, gunSteel, 0.25f, 0.80f, 0.0f, MatKind::Standard);
         drawModelStyled(cubeModel_, {0.0f, -kWheelR * 0.46f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.016f, kWheelR * 0.92f, 0.026f}, gunSteel, 0.25f, 0.80f, 0.0f, MatKind::Standard);
+        for (int side = -1; side <= 1; side += 2) {
+            drawModelStyled(cubeModel_, {0.028f, 0.020f, static_cast<float>(side) * (kWheelR * 0.74f)},
+                            {0.0f, 1.0f, 0.0f}, 0.0f, {0.007f, 0.050f, 0.020f},
+                            isSportWheel ? Color{216, 52, 58, 255} : Color{186, 194, 208, 255},
+                            0.20f, 0.88f, 0.0f, MatKind::Standard);
+        }
 
-        // Driver hands & sleeves gripping 9-and-3 positions
+        // Driver sculpted hands, cuffs & sleeves gripping 9-and-3 positions (100% clear of camera near-plane!)
         for (int side = -1; side <= 1; side += 2) {
             const float hz = static_cast<float>(side) * kWheelR;
-            drawModelStyled(cubeModel_, {-0.008f, 0.01f, hz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.042f, 0.048f, 0.042f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
+            drawModelStyled(sphereModel_, {-0.008f, 0.01f, hz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.024f, 0.028f, 0.024f}, skinCol, 0.64f, 0.0f, 0.0f, MatKind::Standard);
             rlPushMatrix();
-            rlTranslatef(-0.105f, -0.055f, hz * 1.12f);
-            rlRotatef(26.0f, 0.0f, 0.0f, 1.0f);
-            drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.17f, 0.054f, 0.054f}, sleeveCol, 0.58f, 0.08f, 0.0f, MatKind::Standard);
+            rlTranslatef(-0.068f, -0.036f, hz * 1.05f);
+            rlRotatef(28.0f, 0.0f, 0.0f, 1.0f);
+            drawModelStyled(cylModel_, {-0.038f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.026f, 0.095f, 0.026f}, sleeveCol, 0.58f, 0.08f, 0.0f, MatKind::Standard);
+            drawModelStyled(cylModel_, {0.048f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.028f, 0.018f, 0.028f}, cuffCol, 0.42f, 0.20f, 0.0f, MatKind::Standard);
             rlPopMatrix();
         }
         rlPopMatrix();
@@ -4933,15 +6046,52 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                   1.0f, 0.0f, 0.0f);
     }
 
-    // Right trigger hand & forearm sleeve
-    drawModelStyled(cubeModel_, {-0.03f, -0.048f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.048f, 0.058f, 0.044f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
-    rlPushMatrix();
-    rlTranslatef(-0.105f, -0.095f, 0.045f * (1.0f - ads * 0.45f));
-    rlRotatef(24.0f, 0.0f, 0.0f, 1.0f);
-    drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.16f, 0.054f, 0.054f}, sleeveCol, 0.58f, 0.08f, 0.0f, MatKind::Standard);
-    rlPopMatrix();
+    // Helper: mathematically exact 3D forearm-to-hand connector (cylindrical sleeve + cuff + optional wristwatch + sculpted hand!)
+    const Color vmCuffCol = Color{
+        static_cast<unsigned char>(std::clamp(static_cast<int>(sleeveCol.r) + 22, 0, 255)),
+        static_cast<unsigned char>(std::clamp(static_cast<int>(sleeveCol.g) + 22, 0, 255)),
+        static_cast<unsigned char>(std::clamp(static_cast<int>(sleeveCol.b) + 24, 0, 255)),
+        255
+    };
+    auto drawConnectedArm = [&](Vector3 elbowPos, Vector3 handPos, Vector3 handScale, bool hasWatch) {
+        drawModelStyled(sphereModel_, handPos, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        handScale, skinCol, 0.64f, 0.0f, 0.0f, MatKind::Standard);
+        const float dx = handPos.x - elbowPos.x;
+        const float dy = handPos.y - elbowPos.y;
+        const float dz = handPos.z - elbowPos.z;
+        const float horiz = std::sqrt(dx * dx + dz * dz);
+        const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < 0.02f) return;
+        const float yawDeg = std::atan2(-dz, dx) * kRadToDeg;
+        const float pitchDeg = std::atan2(dy, horiz) * kRadToDeg;
+        const float sleeveLen = std::max(0.04f, dist - 0.024f);
+        rlPushMatrix();
+        rlTranslatef(elbowPos.x, elbowPos.y, elbowPos.z);
+        rlRotatef(yawDeg, 0.0f, 1.0f, 0.0f);
+        rlRotatef(pitchDeg, 0.0f, 0.0f, 1.0f);
+        drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                        {0.026f, sleeveLen, 0.026f}, sleeveCol, 0.56f, 0.08f, 0.0f, MatKind::Standard);
+        drawModelStyled(cylModel_, {sleeveLen - 0.014f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                        {0.0285f, 0.017f, 0.0285f}, vmCuffCol, 0.44f, 0.18f, 0.0f, MatKind::Standard);
+        if (hasWatch) {
+            drawModelStyled(cylModel_, {sleeveLen + 0.002f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.022f, 0.012f, 0.022f}, Color{44, 48, 56, 255}, 0.25f, 0.85f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {sleeveLen + 0.008f, 0.021f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.014f, 0.006f, 0.015f}, Color{198, 212, 228, 255}, 0.14f, 0.90f, 0.0f, MatKind::Standard);
+        }
+        rlPopMatrix();
+    };
+
+    // Right sculpted trigger hand, cuff & cylindrical forearm sleeve!
+    drawConnectedArm({-0.165f, -0.135f, 0.068f * (1.0f - ads * 0.45f)},
+                     {-0.028f, -0.042f, 0.0f},
+                     {0.025f, 0.030f, 0.023f}, false);
+
+    auto drawLeftSupportArm = [&](Vector3 handPos, Vector3 armPos, float yawDeg, float pitchDeg, float len) {
+        (void)yawDeg; (void)pitchDeg; (void)len;
+        const Vector3 elbowPos{armPos.x - 0.075f, armPos.y - 0.065f, armPos.z - 0.055f};
+        drawConnectedArm(elbowPos, handPos, {0.027f, 0.024f, 0.024f}, true);
+    };
 
     float muzzleTipX = 0.19f;
     float barrelY = 0.058f;
@@ -5017,16 +6167,8 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                             {0.075f, 0.022f, 0.022f}, gunSteel, 0.22f, 0.85f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.065f, -0.032f - (extScale - 1.0f) * 0.045f, 0.0f}, {0.0f, 0.0f, 1.0f}, 8.0f,
                             {0.028f, 0.125f * extScale, 0.024f}, polyDark, 0.45f, 0.35f, 0.0f, MatKind::Standard);
-            // Left support hand & sleeve under shroud
-            drawModelStyled(cubeModel_, {0.115f, 0.018f, -0.014f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.052f, 0.044f, 0.042f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
-            rlPushMatrix();
-            rlTranslatef(0.015f, -0.055f, -0.075f);
-            rlRotatef(30.0f, 0.0f, 1.0f, 0.0f);
-            rlRotatef(26.0f, 0.0f, 0.0f, 1.0f);
-            drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.18f, 0.050f, 0.050f}, sleeveCol, 0.58f, 0.08f, 0.0f, MatKind::Standard);
-            rlPopMatrix();
+            // Left support hand, wristwatch & cylindrical sleeve under shroud
+            drawLeftSupportArm({0.115f, 0.018f, -0.014f}, {0.015f, -0.055f, -0.075f}, 30.0f, 26.0f, 0.18f);
             // Open panoramic Reflex Sight centered at y = +0.105f!
             drawModelStyled(cubeModel_, {0.025f, 0.082f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.052f, 0.012f, 0.036f}, polyDark, 0.35f, 0.5f, 0.0f, MatKind::Standard);
@@ -5051,19 +6193,11 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                             {0.17f, 0.022f, 0.022f}, gunSteel, 0.22f, 0.88f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.165f + (extScale - 1.0f) * 0.03f, 0.048f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.15f * extScale, 0.020f, 0.020f}, gunMetal, 0.35f, 0.70f, 0.0f, MatKind::Standard);
-            // Tactical ribbed pump forend + left support hand
+            // Tactical ribbed pump forend + sculpted left support arm & wristwatch
             const float pumpSlide = (recoilFrac > 0.25f) ? (-0.035f * std::sin(recoilFrac * kPi)) : 0.0f;
             drawModelStyled(cubeModel_, {0.145f + pumpSlide, 0.042f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.095f, 0.034f, 0.036f}, Color{98, 62, 36, 255}, 0.62f, 0.08f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {0.140f + pumpSlide, 0.024f, -0.012f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.054f, 0.044f, 0.044f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
-            rlPushMatrix();
-            rlTranslatef(0.035f, -0.050f, -0.078f);
-            rlRotatef(28.0f, 0.0f, 1.0f, 0.0f);
-            rlRotatef(24.0f, 0.0f, 0.0f, 1.0f);
-            drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.19f, 0.052f, 0.052f}, sleeveCol, 0.58f, 0.08f, 0.0f, MatKind::Standard);
-            rlPopMatrix();
+            drawLeftSupportArm({0.140f + pumpSlide, 0.024f, -0.012f}, {0.035f + pumpSlide * 0.5f, -0.050f, -0.078f}, 28.0f, 24.0f, 0.19f);
             // Ghost-ring rear ears + fiber-optic front bead at y = +0.105f
             drawModelStyled(cubeModel_, {-0.015f, 0.098f, -0.011f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.012f, 0.018f, 0.005f}, polyDark, 0.35f, 0.5f, 0.0f, MatKind::Standard);
@@ -5088,16 +6222,8 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
             // Round drum magazine underneath receiver
             drawModelStyled(cylModel_, {0.068f, -0.028f, -0.036f}, {1.0f, 0.0f, 0.0f}, 90.0f,
                             {0.062f * extScale, 0.072f * extScale, 0.062f * extScale}, Color{28, 32, 40, 255}, 0.42f, 0.55f, 0.0f, MatKind::Standard);
-            // Left foregrip hand + sleeve
-            drawModelStyled(cubeModel_, {0.155f, 0.020f, -0.012f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.054f, 0.044f, 0.044f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
-            rlPushMatrix();
-            rlTranslatef(0.040f, -0.052f, -0.078f);
-            rlRotatef(28.0f, 0.0f, 1.0f, 0.0f);
-            rlRotatef(24.0f, 0.0f, 0.0f, 1.0f);
-            drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.19f, 0.052f, 0.052f}, sleeveCol, 0.58f, 0.08f, 0.0f, MatKind::Standard);
-            rlPopMatrix();
+            // Sculpted left foregrip hand, wristwatch & cylindrical sleeve
+            drawLeftSupportArm({0.155f, 0.020f, -0.012f}, {0.040f, -0.052f, -0.078f}, 28.0f, 24.0f, 0.19f);
             // Wide CQB Reflex Hood centered at y = +0.105f!
             drawModelStyled(cubeModel_, {0.035f, 0.105f, -0.020f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.042f, 0.036f, 0.0045f}, polyDark, 0.32f, 0.6f, 0.0f, MatKind::Standard);
@@ -5131,9 +6257,8 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
             const Color lensCol = toRayColor(getOpticReticleColorRGBA(wSlot.opticColorIdx, {48, 178, 232, 255}));
             drawModelStyled(sphereModel_, {-0.035f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.006f, 0.017f, 0.017f}, lensCol, 0.06f, 0.85f, 0.6f, MatKind::CarGlass);
-            // Left support hand
-            drawModelStyled(cubeModel_, {0.148f, 0.024f, -0.012f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.054f, 0.044f, 0.042f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
+            // Sculpted left support hand & sleeve
+            drawLeftSupportArm({0.148f, 0.024f, -0.012f}, {0.042f, -0.050f, -0.076f}, 28.0f, 24.0f, 0.19f);
             break;
         }
         case WeaponId::Minigun: {
@@ -5219,16 +6344,8 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                 drawModelStyled(cubeModel_, {0.068f, -0.028f - (extScale - 1.0f) * 0.038f, 0.0f}, {0.0f, 0.0f, 1.0f}, 14.0f,
                                 {0.042f, 0.115f * extScale, 0.026f}, polyDark, 0.46f, 0.35f, 0.0f, MatKind::Standard);
             }
-            // Left handguard support hand + sleeve
-            drawModelStyled(cubeModel_, {0.148f, 0.024f, -0.012f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.054f, 0.044f, 0.042f}, skinCol, 0.68f, 0.0f, 0.0f, MatKind::Standard);
-            rlPushMatrix();
-            rlTranslatef(0.040f, -0.050f, -0.076f);
-            rlRotatef(28.0f, 0.0f, 1.0f, 0.0f);
-            rlRotatef(24.0f, 0.0f, 0.0f, 1.0f);
-            drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.19f, 0.052f, 0.052f}, sleeveCol, 0.58f, 0.08f, 0.0f, MatKind::Standard);
-            rlPopMatrix();
+            // Left sculpted handguard support hand, wristwatch & cylindrical sleeve
+            drawLeftSupportArm({0.148f, 0.024f, -0.012f}, {0.040f, -0.050f, -0.076f}, 28.0f, 24.0f, 0.19f);
 
             // Tactical Holographic / Red-Dot Optic Hood aligned dead-center at y = +0.105f!
             drawModelStyled(cubeModel_, {0.032f, 0.083f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -5239,6 +6356,8 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
                             {0.046f, 0.038f, 0.0045f}, polyDark, 0.32f, 0.6f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.032f, 0.125f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.046f, 0.0045f, 0.042f}, polyDark, 0.32f, 0.6f, 0.0f, MatKind::Standard);
+            // Subtle anti-reflective tinted holographic optic glass lens
+            DrawCube({0.036f, 0.105f, 0.0f}, 0.003f, 0.033f, 0.033f, Color{72, 210, 238, 34});
             const ColorRGBA defaultDot = isMg ? ColorRGBA{92, 255, 138, 255} : ColorRGBA{255, 62, 68, 255};
             const Color dotCol = toRayColor(getOpticReticleColorRGBA(wSlot.opticColorIdx, defaultDot));
             drawModelStyled(sphereModel_, {0.032f, 0.105f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -5247,12 +6366,73 @@ void Renderer3D::drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D
         }
     }
 
-    // 1st-Person 3D Tactical Barrel Suppressor!
+    // 1st-Person Machined Firearm Micro-Details (Picatinny Rails, M-LOK Slots, Trigger Guard, Bolt, Charging Handle & Muzzle Brake!)
+    const bool hasRailSystem = (pl.currentWeapon == WeaponId::SMG ||
+                                pl.currentWeapon == WeaponId::AssaultRifle ||
+                                pl.currentWeapon == WeaponId::CombatMG ||
+                                pl.currentWeapon == WeaponId::AutoShotgun ||
+                                pl.currentWeapon == WeaponId::SniperRifle);
+    if (hasRailSystem) {
+        const float railY = (pl.currentWeapon == WeaponId::CombatMG || pl.currentWeapon == WeaponId::AutoShotgun) ? 0.084f : 0.077f;
+        // Continuous Picatinny top rail spine + 8 crisp machined transverse cross-ribs
+        drawModelStyled(cubeModel_, {0.145f, railY - 0.003f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.142f, 0.006f, 0.022f}, polyDark, 0.36f, 0.62f, 0.0f, MatKind::Standard);
+        for (int r = 0; r < 8; ++r) {
+            drawModelStyled(cubeModel_, {0.082f + static_cast<float>(r) * 0.017f, railY + 0.002f, 0.0f},
+                            {0.0f, 1.0f, 0.0f}, 0.0f, {0.0085f, 0.0065f, 0.028f},
+                            Color{52, 58, 68, 255}, 0.28f, 0.78f, 0.0f, MatKind::Standard);
+        }
+        // Machined M-LOK handguard ventilation slots along both sides!
+        const float slotZ = (pl.currentWeapon == WeaponId::CombatMG || pl.currentWeapon == WeaponId::AutoShotgun) ? 0.024f : 0.020f;
+        for (int s = -1; s <= 1; s += 2) {
+            for (int v = 0; v < 3; ++v) {
+                drawModelStyled(cubeModel_, {0.125f + static_cast<float>(v) * 0.032f, 0.053f, static_cast<float>(s) * slotZ},
+                                {0.0f, 1.0f, 0.0f}, 0.0f, {0.020f, 0.010f, 0.0035f},
+                                Color{14, 16, 20, 255}, 0.70f, 0.20f, 0.0f, MatKind::Standard);
+            }
+        }
+        // Subtle tinted reflex glass for SMG & AutoShotgun optics too
+        if (pl.currentWeapon == WeaponId::SMG || pl.currentWeapon == WeaponId::AutoShotgun) {
+            const float ox = (pl.currentWeapon == WeaponId::SMG) ? 0.028f : 0.038f;
+            DrawCube({ox, 0.105f, 0.0f}, 0.003f, 0.032f, 0.032f, Color{72, 210, 238, 34});
+        }
+    }
+    if (pl.currentWeapon != WeaponId::Minigun && pl.currentWeapon != WeaponId::HeavyLauncher) {
+        // Trigger guard loop + curved metallic trigger blade
+        drawModelStyled(cubeModel_, {0.012f, 0.002f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.044f, 0.006f, 0.014f}, polyDark, 0.42f, 0.45f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.032f, 0.016f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.006f, 0.026f, 0.014f}, polyDark, 0.42f, 0.45f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.006f, 0.018f, 0.0f}, {0.0f, 0.0f, 1.0f}, 24.0f,
+                        {0.005f, 0.022f, 0.006f}, gunSteel, 0.22f, 0.90f, 0.0f, MatKind::Standard);
+    }
+    if (hasRailSystem || pl.currentWeapon == WeaponId::Shotgun) {
+        // Right-side ejection port recess, reciprocating silver bolt carrier & left knurled charging handle!
+        const float portZ = (pl.currentWeapon == WeaponId::CombatMG || pl.currentWeapon == WeaponId::AutoShotgun) ? 0.0245f : 0.0205f;
+        const float boltKick = recoilFrac * 0.024f;
+        drawModelStyled(cubeModel_, {0.072f, 0.060f, portZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.048f, 0.018f, 0.004f}, Color{10, 12, 16, 255}, 0.70f, 0.20f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {0.076f - boltKick, 0.060f, portZ + 0.001f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.036f, 0.014f, 0.004f}, Color{188, 196, 210, 255}, 0.18f, 0.92f, 0.0f, MatKind::Standard);
+        drawModelStyled(cylModel_, {0.045f - boltKick, 0.062f, -portZ - 0.012f}, {1.0f, 0.0f, 0.0f}, 90.0f,
+                        {0.0055f, 0.016f, 0.0055f}, gunSteel, 0.25f, 0.85f, 0.0f, MatKind::Standard);
+    }
+
+    // 1st-Person 3D Tactical Barrel Suppressor (or Slotted Muzzle Compensator Brake when unsuppressed!)
     if (wSlot.suppressor && weaponSupportsSuppressor(pl.currentWeapon)) {
         drawModelStyled(cylModel_, {muzzleTipX - 0.008f, barrelY, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
                         {0.016f, 0.094f, 0.016f}, Color{26, 30, 38, 255}, 0.32f, 0.76f, 0.0f, MatKind::Standard);
         drawModelStyled(cylModel_, {muzzleTipX + 0.068f, barrelY, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
                         {0.0175f, 0.016f, 0.0175f}, gunSteel, 0.24f, 0.88f, 0.0f, MatKind::Standard);
+    } else if (hasRailSystem && pl.currentWeapon != WeaponId::SniperRifle) {
+        // Machined 2-chamber slotted muzzle compensator brake!
+        drawModelStyled(cubeModel_, {muzzleTipX + 0.006f, barrelY, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.032f, 0.022f, 0.024f}, polyDark, 0.30f, 0.78f, 0.0f, MatKind::Standard);
+        for (int sl = 0; sl < 2; ++sl) {
+            drawModelStyled(cubeModel_, {muzzleTipX + static_cast<float>(sl) * 0.012f, barrelY, 0.0f},
+                            {0.0f, 1.0f, 0.0f}, 0.0f, {0.005f, 0.014f, 0.026f},
+                            Color{10, 12, 16, 255}, 0.70f, 0.20f, 0.0f, MatKind::Standard);
+        }
     }
 
     // 1st-Person Tactical Side/Underbarrel Laser Module!

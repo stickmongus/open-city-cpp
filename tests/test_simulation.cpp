@@ -1588,6 +1588,150 @@ void testBugfixRegressionsV091() {
 }
 
 
+void testUltraDetailV100ParticlesAndEffects() {
+    oc::GameWorld world(20261119ULL);
+
+    // 1. Firing AssaultRifle ejects spinning 3D BrassCasing that advances spinAngle & bounces cleanly above ground!
+    auto& ar = world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)];
+    ar.owned = true;
+    ar.magAmmo = 30;
+    ar.reserveAmmo = 120;
+    world.player().currentWeapon = oc::WeaponId::AssaultRifle;
+    world.player().fireCooldown = 0.0f;
+    world.player().pos = {0.0f, 0.0f};
+    world.player().posY = world.surfaceHeightAt({0.0f, 0.0f});
+
+    oc::PlayerInput fireIn{};
+    fireIn.firstPerson = true;
+    fireIn.fireHeld = true;
+    fireIn.hasAimRay3D = true;
+    fireIn.aimRayOrigin = {0.0f, 1.62f, 0.0f};
+    fireIn.aimRayDir = {1.0f, 0.0f, 0.0f};
+    fireIn.aimYaw = 0.0f;
+    fireIn.aimPitch = 0.0f;
+    world.update(1.0f / 60.0f, fireIn);
+
+    bool foundBrass = false;
+    float initialSpin = 0.0f;
+    for (const auto& p : world.particles()) {
+        if (p.kind == oc::ParticleKind::BrassCasing) {
+            foundBrass = true;
+            initialSpin = p.spinAngle;
+            break;
+        }
+    }
+    ASSERT_TRUE(foundBrass);
+
+    // Step 45 frames and verify brass shell spins and stays cleanly above ground surface without NaN
+    oc::PlayerInput idleIn{};
+    for (int f = 0; f < 45; ++f) {
+        world.update(1.0f / 60.0f, idleIn);
+    }
+    bool brassStillValid = false;
+    for (const auto& p : world.particles()) {
+        if (p.kind == oc::ParticleKind::BrassCasing) {
+            ASSERT_TRUE(std::isfinite(p.pos.x) && std::isfinite(p.pos.y) && std::isfinite(p.pos.z));
+            ASSERT_TRUE(p.pos.y >= world.surfaceHeightAt({p.pos.x, p.pos.z}));
+            if (std::abs(p.spinAngle - initialSpin) > 0.5f) {
+                brassStillValid = true;
+            }
+        }
+    }
+    ASSERT_TRUE(brassStillValid);
+
+    // 2. Firing Shotgun ejects a 12-gauge ShotgunShell; HeavyRevolver & Fists eject neither!
+    auto& sg = world.player().weapons[static_cast<std::size_t>(oc::WeaponId::Shotgun)];
+    sg.owned = true;
+    sg.magAmmo = 8;
+    sg.reserveAmmo = 32;
+    world.player().currentWeapon = oc::WeaponId::Shotgun;
+    world.player().fireCooldown = 0.0f;
+    world.update(1.0f / 60.0f, fireIn);
+    bool foundShotgunShell = false;
+    for (const auto& p : world.particles()) {
+        if (p.kind == oc::ParticleKind::ShotgunShell) {
+            foundShotgunShell = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(foundShotgunShell);
+
+    // Check HeavyRevolver spawns NO new shell casing
+    int shellsBeforeRev = 0;
+    for (const auto& p : world.particles()) {
+        if (p.kind == oc::ParticleKind::BrassCasing || p.kind == oc::ParticleKind::ShotgunShell) {
+            ++shellsBeforeRev;
+        }
+    }
+    auto& rev = world.player().weapons[static_cast<std::size_t>(oc::WeaponId::HeavyRevolver)];
+    rev.owned = true;
+    rev.magAmmo = 6;
+    rev.reserveAmmo = 24;
+    world.player().currentWeapon = oc::WeaponId::HeavyRevolver;
+    world.player().fireCooldown = 0.0f;
+    world.update(1.0f / 60.0f, fireIn);
+    int shellsAfterRev = 0;
+    for (const auto& p : world.particles()) {
+        if (p.kind == oc::ParticleKind::BrassCasing || p.kind == oc::ParticleKind::ShotgunShell) {
+            ++shellsAfterRev;
+        }
+    }
+    ASSERT_TRUE(shellsAfterRev <= shellsBeforeRev);
+
+    // 3. Driving fast (>14 m/s) in rain weather emits WaterSpray behind tires; dry driving emits zero WaterSpray!
+    oc::GameWorld dryWorld(20261120ULL);
+    dryWorld.setRainWeather(false);
+    dryWorld.player().cash = 80000;
+    ASSERT_TRUE(dryWorld.buyOrSummonVehicle(oc::VehicleKind::SportsCoupe));
+    oc::Vehicle* dryCar = dryWorld.findVehicleMutable(dryWorld.player().activePersonalVehicleId);
+    ASSERT_TRUE(dryCar != nullptr);
+    dryCar->pos = {0.0f, 0.0f};
+    dryCar->posY = dryWorld.surfaceHeightAt(dryCar->pos);
+    dryCar->heading = 0.0f;
+    dryCar->velocity = {18.0f, 0.0f};
+    dryCar->isPlayerDriving = true;
+    dryCar->isParked = false;
+    dryWorld.player().drivingVehicleId = dryCar->id;
+    oc::PlayerInput accelIn{};
+    accelIn.moveForward = 1.0f;
+    for (int f = 0; f < 25; ++f) {
+        dryWorld.update(1.0f / 60.0f, accelIn);
+    }
+    int drySprayCount = 0;
+    for (const auto& p : dryWorld.particles()) {
+        if (p.kind == oc::ParticleKind::WaterSpray) ++drySprayCount;
+    }
+    ASSERT_TRUE(drySprayCount == 0);
+
+    // Now turn on Rain Weather and drive fast -> WaterSpray MUST spawn!
+    dryWorld.setRainWeather(true);
+    dryCar = dryWorld.findVehicleMutable(dryWorld.player().activePersonalVehicleId);
+    ASSERT_TRUE(dryCar != nullptr);
+    dryCar->velocity = oc::forwardFromHeading(dryCar->heading) * 20.0f;
+    for (int f = 0; f < 25; ++f) {
+        dryWorld.update(1.0f / 60.0f, accelIn);
+    }
+    int rainSprayCount = 0;
+    for (const auto& p : dryWorld.particles()) {
+        if (p.kind == oc::ParticleKind::WaterSpray) ++rainSprayCount;
+    }
+    ASSERT_TRUE(rainSprayCount >= 2);
+
+    // 4. Severely damaged vehicle (<25% HP) emits smoke/engine-bay sparks cleanly without NaN or crash!
+    dryCar = dryWorld.findVehicleMutable(dryWorld.player().activePersonalVehicleId);
+    ASSERT_TRUE(dryCar != nullptr);
+    dryCar->health = dryCar->maxHealth * 0.18f;
+    for (int f = 0; f < 40; ++f) {
+        dryWorld.update(1.0f / 60.0f, idleIn);
+    }
+    for (const auto& p : dryWorld.particles()) {
+        ASSERT_TRUE(std::isfinite(p.pos.x) && std::isfinite(p.pos.y) && std::isfinite(p.pos.z));
+    }
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -1608,6 +1752,7 @@ int main() {
     testFullCustomizationStudioCharacterGunsmithVehicleHud();
     testRustPhysicsEngineStuntJumpsAndRealisticWorld();
     testBugfixRegressionsV091();
+    testUltraDetailV100ParticlesAndEffects();
 
     std::cout << "[PASS] All " << gTestsPassed << " Open City C++ simulation test suites succeeded!\n";
     return 0;

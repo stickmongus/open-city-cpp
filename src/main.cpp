@@ -102,7 +102,7 @@ int main(int argc, char** argv) {
     }
 
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1440, 860, "Open City C++ + Rust v0.9.1 - 3D Open-World Sandbox");
+    InitWindow(1440, 860, "Open City C++ + Rust v1.0.0 - 3D Open-World Sandbox");
     SetExitKey(KEY_NULL); // Keep ESC free for menu/cursor release instead of instant quit
     SetTargetFPS(60);
 
