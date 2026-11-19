@@ -73,6 +73,17 @@ private:
     void drawTreesAndProps(const GameWorld& world, const Vec2& focus, const Vec3& camPos, bool shadowPass);
     void drawVehicle3D(const Vehicle& v, float groundSurfY, bool nightMode, bool shadowPass, bool cockpitHoodOnly = false);
     void drawFirstPersonOverlay3D(const GameWorld& world, const Camera3D& camera, float adsBlend);
+    struct NpcVisualExtra {
+        float heightScale = 1.0f;
+        float headLookYaw = 0.0f;
+        float fallProgress = 1.0f;
+        NpcHeldProp heldProp = NpcHeldProp::None;
+        NpcActivity activity = NpcActivity::None;
+        bool holdingUmbrella = false;
+        ColorRGBA umbrellaColor{48, 132, 236, 255};
+        bool nightMode = false;
+    };
+
     void drawCharacter3D(const Vec2& pos, float groundY, float yaw, float animPhase,
                          ColorRGBA top, ColorRGBA bottom, ColorRGBA skin,
                          bool alive, bool armed, WeaponId weapon, float muzzleFlash,
@@ -80,7 +91,8 @@ private:
                          float shadowGroundY = -999.0f, bool jumping = false,
                          bool panicking = false, bool isPolice = false, bool isSwat = false,
                          const CharacterCustomState* customChar = nullptr,
-                         const WeaponSlotState* customWep = nullptr);
+                         const WeaponSlotState* customWep = nullptr,
+                         const NpcVisualExtra* npcExtra = nullptr);
     void drawPoisAndPickups(const GameWorld& world);
     void drawSkidsTracersParticles(const GameWorld& world);
     void drawGpsOverheadArrow(const GameWorld& world);

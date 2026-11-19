@@ -1025,7 +1025,7 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
                           world.passiveIncomePerCycle(), propCount);
         } else {
             std::snprintf(assetBuf, sizeof(assetBuf), "%s",
-                          pickText("OPEN CITY v1.1.0 MOBILE", "오픈 시티 v1.1.0 모바일"));
+                          pickText("OPEN CITY v1.2.0 MOBILE", "오픈 시티 v1.2.0 모바일"));
         }
     } else if (propCount > 0) {
         std::snprintf(assetBuf, sizeof(assetBuf),
@@ -1151,11 +1151,11 @@ void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, i
                          ? (static_cast<float>(screenW) - 234.0f) * 0.5f
                          : (static_cast<float>(screenW) - 256.0f - phoneShift);
     const float ry = mobileUi_
-                         ? (static_cast<float>(screenH) - 134.0f)
-                         : (static_cast<float>(screenH) - 150.0f);
+                         ? (static_cast<float>(screenH) - 148.0f)
+                         : (static_cast<float>(screenH) - 164.0f);
 
-    DrawRectangleRounded({rx, ry, 234.0f, 124.0f}, 0.20f, 8, Color{14, 18, 26, 224});
-    DrawRectangleRoundedLinesEx({rx, ry, 234.0f, 124.0f}, 0.20f, 8, 1.2f, toRayColor(themeRgba, 128));
+    DrawRectangleRounded({rx, ry, 234.0f, 138.0f}, 0.18f, 8, Color{14, 18, 26, 224});
+    DrawRectangleRoundedLinesEx({rx, ry, 234.0f, 138.0f}, 0.18f, 8, 1.2f, toRayColor(themeRgba, 128));
 
     const char* vName = pickText(spec.nameEn, spec.nameKo);
     drawUiText(vName, rx + 14.0f, ry + 8.0f, 17.0f,
@@ -1168,7 +1168,7 @@ void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, i
                car->nitroActive ? Color{92, 224, 255, 255} : Color{255, 255, 255, 255});
     drawUiText(hc.useMph ? "MPH" : "KM/H", rx + 92.0f, ry + 32.0f, 15.5f, Color{175, 185, 198, 255});
 
-    // Rust 6-Speed Automatic Transmission Gear + Airborne Badge
+    // Rust 6-Speed Dual-Clutch Transmission Gear + Shift Flash + Airborne Badge
     char gearBuf[32];
     if (car->airborne) {
         std::snprintf(gearBuf, sizeof(gearBuf), "AIR");
@@ -1177,9 +1177,12 @@ void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, i
     } else {
         std::snprintf(gearBuf, sizeof(gearBuf), "D%d", car->currentGear);
     }
-    DrawRectangleRounded({rx + 148.0f, ry + 30.0f, 36.0f, 22.0f}, 0.30f, 4, Color{26, 34, 48, 240});
+    const bool shiftFlash = (car->shiftCutTimer > 0.0f || car->backfireTimer > 0.08f);
+    DrawRectangleRounded({rx + 148.0f, ry + 30.0f, 36.0f, 22.0f}, 0.30f, 4,
+                         shiftFlash ? Color{255, 118, 38, 235} : Color{26, 34, 48, 240});
     drawUiText(gearBuf, rx + 155.0f, ry + 33.0f, 15.5f,
-               car->airborne ? Color{255, 214, 68, 255} : toRayColor(themeRgba, 255));
+               shiftFlash ? Color{255, 252, 235, 255}
+                          : (car->airborne ? Color{255, 214, 68, 255} : toRayColor(themeRgba, 255)));
 
     if (car->engineUpgradeLevel > 0 || car->armorUpgradeLevel > 0) {
         char tuneBuf[48];
@@ -1188,24 +1191,30 @@ void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, i
     }
 
     // RPM Tachometer Bar (driven by Rust powertrain simulation, 880..8150 RPM)
-    drawUiText("RPM", rx + 14.0f, ry + 68.0f, 13.5f, Color{255, 168, 92, 255});
-    DrawRectangleRounded({rx + 70.0f, ry + 71.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
+    drawUiText("RPM", rx + 14.0f, ry + 66.0f, 13.5f, Color{255, 168, 92, 255});
+    DrawRectangleRounded({rx + 70.0f, ry + 69.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
     const float rpmFrac = clampf((car->engineRpm - 850.0f) / 7300.0f, 0.08f, 1.0f);
     const Color rpmCol = (rpmFrac > 0.86f) ? Color{255, 68, 72, 255} : Color{255, 184, 68, 255};
-    DrawRectangleRounded({rx + 70.0f, ry + 71.0f, 148.0f * rpmFrac, 7.5f}, 0.4f, 4, rpmCol);
+    DrawRectangleRounded({rx + 70.0f, ry + 69.0f, 148.0f * rpmFrac, 7.5f}, 0.4f, 4, rpmCol);
 
+    // Live Turbocharger Boost Spool Bar (v1.2.0 Drivetrain)
+    drawUiText("TURBO", rx + 14.0f, ry + 82.0f, 13.5f, Color{255, 206, 86, 255});
+    DrawRectangleRounded({rx + 70.0f, ry + 85.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
+    const float spoolFrac = clampf(car->turboSpool, 0.0f, 1.0f);
+    const Color spoolCol = (spoolFrac > 0.78f) ? Color{255, 132, 44, 255} : Color{255, 208, 72, 255};
+    DrawRectangleRounded({rx + 70.0f, ry + 85.0f, 148.0f * spoolFrac, 7.5f}, 0.4f, 4, spoolCol);
 
     // Nitro & Vehicle Integrity bars
-    drawUiText("NITRO", rx + 14.0f, ry + 84.0f, 13.5f, Color{118, 212, 255, 255});
-    DrawRectangleRounded({rx + 70.0f, ry + 87.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
-    DrawRectangleRounded({rx + 70.0f, ry + 87.0f, 148.0f * clampf(car->nitroCharge, 0.0f, 1.0f), 7.5f},
+    drawUiText("NITRO", rx + 14.0f, ry + 98.0f, 13.5f, Color{118, 212, 255, 255});
+    DrawRectangleRounded({rx + 70.0f, ry + 101.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
+    DrawRectangleRounded({rx + 70.0f, ry + 101.0f, 148.0f * clampf(car->nitroCharge, 0.0f, 1.0f), 7.5f},
                          0.4f, 4, Color{68, 205, 255, 255});
 
-    drawUiText("BODY", rx + 14.0f, ry + 100.0f, 13.5f, Color{235, 196, 98, 255});
-    DrawRectangleRounded({rx + 70.0f, ry + 103.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
+    drawUiText("BODY", rx + 14.0f, ry + 114.0f, 13.5f, Color{235, 196, 98, 255});
+    DrawRectangleRounded({rx + 70.0f, ry + 117.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
     const float hpFrac = clampf(car->health / car->maxHealth, 0.0f, 1.0f);
     const Color hpCol = (hpFrac < 0.35f) ? Color{245, 76, 68, 255} : Color{98, 232, 132, 255};
-    DrawRectangleRounded({rx + 70.0f, ry + 103.0f, 148.0f * hpFrac, 7.5f}, 0.4f, 4, hpCol);
+    DrawRectangleRounded({rx + 70.0f, ry + 117.0f, 148.0f * hpFrac, 7.5f}, 0.4f, 4, hpCol);
 
     // Live Drift Combo Meter
     if (world.player().activeDriftScore > 8.0f) {
@@ -2502,7 +2511,7 @@ void HudRenderer::drawHelpOverlay(const GameWorld& world, int screenW, int scree
 
     DrawRectangleRounded({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, Color{10, 15, 24, 198});
     DrawRectangleRoundedLinesEx({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, 1.2f, toRayColor(themeRgba, 125));
-    drawUiText(pickText("OPEN CITY C++ + RUST v1.1.0 - CONTROLS", "OPEN CITY C++ + RUST v1.1.0 - 조작 안내"),
+    drawUiText(pickText("OPEN CITY C++ + RUST v1.2.0 - CONTROLS", "OPEN CITY C++ + RUST v1.2.0 - 조작 안내"),
                30.0f, 24.0f, 18.5f, toRayColor(themeRgba, 255));
 
     const char* linesEn[11] = {

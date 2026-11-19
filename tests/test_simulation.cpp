@@ -1,10 +1,12 @@
 #include "gameplay/GameWorld.hpp"
+#include "physics/PhysicsBridge.hpp"
 #include "render/GeneratedRealisticAssets.hpp"
 
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 #include <iostream>
+#include <set>
 
 namespace {
 
@@ -1732,6 +1734,308 @@ void testUltraDetailV100ParticlesAndEffects() {
 }
 
 
+void testV120TorqueCurveAccelerationAndBackfire() {
+    // 1. Confirm physics kernel version 1200 (Rust FFI & C++20 fallback parity)
+    ASSERT_TRUE(oc_rs_physics_version() == 1200);
+
+    oc::GameWorld world(20261201ULL);
+    world.player().cash = 250000;
+    ASSERT_TRUE(world.buyOrSummonVehicle(oc::VehicleKind::Hypercar));
+    oc::Vehicle* car = world.findVehicleMutable(world.player().activePersonalVehicleId);
+    ASSERT_TRUE(car != nullptr);
+
+    // Clear traffic along straight +X boulevard for clean launch test
+    for (auto& v : world.vehicles()) {
+        if (v.id != car->id && std::abs(v.pos.z) < 12.0f) {
+            v.pos.z += 40.0f;
+        }
+    }
+    car->pos = {-150.0f, 0.0f};
+    car->posY = world.surfaceHeightAt(car->pos);
+    car->heading = 0.0f;
+    car->velocity = {0.0f, 0.0f};
+    car->isPlayerDriving = true;
+    car->isParked = false;
+    world.player().drivingVehicleId = car->id;
+    world.player().pos = car->pos;
+
+    // 2. Full-throttle launch through 1st -> 2nd/3rd gear: verify wheelspin, turbo spool, upshift backfire!
+    oc::PlayerInput launchIn{};
+    launchIn.moveForward = 1.0f;
+    float maxWheelSlip = 0.0f;
+    float maxTurboSpool = 0.0f;
+    int maxGearReached = 1;
+    bool sawBackfire = false;
+
+    for (int f = 0; f < 180; ++f) {
+        world.update(1.0f / 60.0f, launchIn);
+        car = world.findVehicleMutable(world.player().activePersonalVehicleId);
+        ASSERT_TRUE(car != nullptr);
+        maxWheelSlip = std::max(maxWheelSlip, car->wheelSlip);
+        maxTurboSpool = std::max(maxTurboSpool, car->turboSpool);
+        maxGearReached = std::max(maxGearReached, car->currentGear);
+        if (car->backfireTimer > 0.0f) {
+            sawBackfire = true;
+        }
+    }
+    ASSERT_TRUE(maxWheelSlip > 0.05f);
+    ASSERT_TRUE(maxTurboSpool > 0.45f);
+    ASSERT_TRUE(maxGearReached >= 2);
+    ASSERT_TRUE(sawBackfire);
+
+    // 3. Heavy braking from speed: verify ABS deceleration & thermal brake rotor glow buildup!
+    oc::PlayerInput brakeIn{};
+    brakeIn.moveForward = -1.0f;
+    float peakBrakeHeat = 0.0f;
+    for (int f = 0; f < 60; ++f) {
+        world.update(1.0f / 60.0f, brakeIn);
+        car = world.findVehicleMutable(world.player().activePersonalVehicleId);
+        ASSERT_TRUE(car != nullptr);
+        peakBrakeHeat = std::max(peakBrakeHeat, car->brakeHeat);
+    }
+    ASSERT_TRUE(peakBrakeHeat > 0.12f);
+
+    ++gTestsPassed;
+}
+
+void testV120FourCornerCurbSuspensionAndCollisionFriction() {
+    // 1. Asymmetric 4-corner wheel curb elevation produces left-vs-right suspension & body roll!
+    RsVehicleSpecParams sp{};
+    sp.mass = 1550.0f;
+    sp.max_forward_speed = 38.0f;
+    sp.max_reverse_speed = 11.0f;
+    sp.acceleration = 14.0f;
+    sp.braking = 22.0f;
+    sp.turn_rate = 2.4f;
+    sp.normal_grip = 7.0f;
+    sp.drift_grip = 2.6f;
+    sp.half_length = 2.25f;
+    sp.half_width = 0.96f;
+    sp.chassis_height = 1.32f;
+
+    RsVehiclePhysicsState st{};
+    st.vel_x = 12.0f;
+    st.current_gear = 2;
+    st.engine_rpm = 3400.0f;
+
+    RsVehicleControlInput in{};
+    in.throttle = 0.4f;
+    in.upgrade_mult = 1.0f;
+    in.nitro_recharge_rate = 0.08f;
+    in.ground_height = 0.0f;
+    // Left wheels (FL=0, RL=2) ride up a 22cm sidewalk curb while right wheels stay at 0.0m!
+    in.wheel_ground_h[0] = 0.22f;
+    in.wheel_ground_h[1] = 0.00f;
+    in.wheel_ground_h[2] = 0.22f;
+    in.wheel_ground_h[3] = 0.00f;
+
+    for (int i = 0; i < 20; ++i) {
+        oc_rs_step_vehicle_dynamics(1.0f / 60.0f, &st, &sp, &in);
+    }
+    ASSERT_TRUE(std::isfinite(st.body_roll) && std::isfinite(st.wheel_comp[0]));
+    ASSERT_TRUE(st.wheel_comp[0] > st.wheel_comp[1] + 0.03f);
+    ASSERT_TRUE(st.wheel_comp[2] > st.wheel_comp[3] + 0.03f);
+    ASSERT_TRUE(std::abs(st.body_roll) > 0.005f);
+
+    // 2. Glancing vehicle collision applies Coulomb tangential friction impulse & angular spin cleanly!
+    RsRigidBody2D a{};
+    a.pos_x = 0.0f;
+    a.pos_z = 0.0f;
+    a.vel_x = 16.0f;
+    a.vel_z = 6.0f; // Strong tangential glide along +Z while normal is +X!
+    a.heading = 0.0f;
+    a.mass = 1500.0f;
+    a.half_length = 2.2f;
+    a.half_width = 0.95f;
+
+    RsRigidBody2D b{};
+    b.pos_x = 4.2f;
+    b.pos_z = 0.4f;
+    b.vel_x = 0.0f;
+    b.vel_z = 0.0f;
+    b.heading = 0.0f;
+    b.mass = 1500.0f;
+    b.half_length = 2.2f;
+    b.half_width = 0.95f;
+
+    const float impact = oc_rs_resolve_rigid_collision_2d(
+        &a, &b, -1.0f, 0.0f, 0.25f, 2.1f, 0.35f, 0.22f);
+    ASSERT_TRUE(impact > 10.0f);
+    // Coulomb tangential friction MUST transfer +Z velocity from A to B and decelerate A's Z glide!
+    ASSERT_TRUE(b.vel_z > 0.25f);
+    ASSERT_TRUE(a.vel_z < 5.75f);
+    ASSERT_TRUE(std::isfinite(a.angular_velocity) && std::isfinite(b.angular_velocity));
+
+    ++gTestsPassed;
+}
+
+void testV120LivingNpcDiversityRainUmbrellasAndDodge() {
+    oc::GameWorld world(20261202ULL);
+
+    // 1. Verify rich civilian diversity across archetypes, held props, hair styles, and height variation
+    std::set<int> archetypes;
+    std::set<int> props;
+    std::set<int> hairStyles;
+    float minH = 9.0f;
+    float maxH = 0.0f;
+    for (const auto& n : world.npcs()) {
+        if (!n.alive || n.role != oc::NpcRole::Civilian) continue;
+        archetypes.insert(static_cast<int>(n.archetype));
+        props.insert(static_cast<int>(n.heldProp));
+        hairStyles.insert(n.hairStyle);
+        minH = std::min(minH, n.heightScale);
+        maxH = std::max(maxH, n.heightScale);
+    }
+    ASSERT_TRUE(archetypes.size() >= 4);
+    ASSERT_TRUE(props.size() >= 3);
+    ASSERT_TRUE(hairStyles.size() >= 3);
+    ASSERT_TRUE(maxH - minH > 0.06f);
+
+    // 2. Enabling rain weather prompts calm pedestrians to open colorful 3D umbrellas!
+    world.setRainWeather(true);
+    for (int f = 0; f < 20; ++f) {
+        world.update(1.0f / 60.0f, {});
+    }
+    int umbrellaCount = 0;
+    for (const auto& n : world.npcs()) {
+        if (n.alive && n.role == oc::NpcRole::Civilian && n.holdingUmbrella) {
+            ++umbrellaCount;
+        }
+    }
+    ASSERT_TRUE(umbrellaCount >= 3);
+
+    // 3. Fast oncoming car triggers sideways dodge, and impact produces momentum knockback + smooth fallProgress!
+    oc::NpcCharacter* targetNpc = nullptr;
+    for (auto& n : world.npcs()) {
+        if (n.alive && n.role == oc::NpcRole::Civilian) {
+            targetNpc = &n;
+            break;
+        }
+    }
+    ASSERT_TRUE(targetNpc != nullptr);
+    const int targetId = targetNpc->id;
+    targetNpc->pos = {10.0f, 0.0f};
+    targetNpc->velocity = {0.0f, 0.0f};
+    targetNpc->dodgeCooldown = 0.0f;
+    targetNpc->behavior = oc::NpcBehavior::Stroll;
+
+    // Stage a moving car heading straight toward the NPC at 14 m/s from 6m away
+    oc::Vehicle& car = world.vehicles()[0];
+    car.destroyed = false;
+    car.pos = {4.0f, 0.0f};
+    car.posY = world.surfaceHeightAt(car.pos);
+    car.heading = 0.0f;
+    car.velocity = {14.0f, 0.0f};
+    car.hasNpcDriver = false;
+    car.isParked = false;
+
+    for (int f = 0; f < 5; ++f) {
+        world.update(1.0f / 60.0f, {});
+    }
+    bool dodged = false;
+    for (const auto& n : world.npcs()) {
+        if (n.id == targetId && (n.dodgeCooldown > 0.0f || std::abs(n.pos.z) > 0.15f)) {
+            dodged = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(dodged);
+
+    // Now place NPC right in front of fast car to verify momentum knockback + smooth fallProgress animation
+    for (auto& n : world.npcs()) {
+        if (n.id == targetId) {
+            n.alive = true;
+            n.health = 20.0f;
+            n.pos = {car.pos.x + 1.2f, car.pos.z};
+            n.fallProgress = 0.0f;
+            break;
+        }
+    }
+    car.velocity = {20.0f, 0.0f};
+    world.update(1.0f / 60.0f, {});
+    float earlyFall = -1.0f;
+    for (const auto& n : world.npcs()) {
+        if (n.id == targetId) {
+            ASSERT_TRUE(!n.alive);
+            ASSERT_TRUE(n.knockbackVel.length() > 1.0f);
+            earlyFall = n.fallProgress;
+            ASSERT_TRUE(earlyFall < 0.85f);
+            break;
+        }
+    }
+    ASSERT_TRUE(earlyFall >= 0.0f);
+    for (int f = 0; f < 45; ++f) {
+        world.update(1.0f / 60.0f, {});
+    }
+    for (const auto& n : world.npcs()) {
+        if (n.id == targetId) {
+            ASSERT_TRUE(n.fallProgress > earlyFall && n.fallProgress >= 0.99f);
+            break;
+        }
+    }
+
+    ++gTestsPassed;
+}
+
+void testV120GunpointHandsUpReaction() {
+    oc::GameWorld world(20261203ULL);
+    world.setRainWeather(true);
+    world.player().pos = {0.0f, 0.0f};
+    world.player().posY = 0.0f;
+    world.player().drivingVehicleId = -1;
+    world.player().currentWeapon = oc::WeaponId::Pistol;
+    auto& pistol = world.player().weapons[static_cast<std::size_t>(oc::WeaponId::Pistol)];
+    pistol.owned = true;
+    pistol.magAmmo = 12;
+
+    // Clear vehicles along +X and stage a calm civilian with an open umbrella 6.5m ahead
+    for (auto& v : world.vehicles()) {
+        if (std::abs(v.pos.z) < 8.0f && v.pos.x > -4.0f && v.pos.x < 16.0f) {
+            v.pos.z += 25.0f;
+        }
+    }
+    int civId = -1;
+    for (auto& n : world.npcs()) {
+        if (n.alive && n.role == oc::NpcRole::Civilian) {
+            civId = n.id;
+            n.pos = {6.5f, 0.0f};
+            n.velocity = {0.0f, 0.0f};
+            n.behavior = oc::NpcBehavior::Stroll;
+            n.activity = oc::NpcActivity::None;
+            n.holdingUmbrella = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(civId >= 0);
+
+    // Aim weapon at civilian WITHOUT firing -> civilian raises hands in surrender & drops umbrella!
+    oc::PlayerInput aimIn{};
+    aimIn.firstPerson = true;
+    aimIn.aimHeld = true;
+    aimIn.fireHeld = false;
+    aimIn.cameraYaw = 0.0f;
+    aimIn.aimYaw = 0.0f;
+    aimIn.aimPitch = 0.0f;
+    for (int f = 0; f < 10; ++f) {
+        world.update(1.0f / 60.0f, aimIn);
+    }
+
+    bool handsUp = false;
+    bool droppedUmbrella = false;
+    for (const auto& n : world.npcs()) {
+        if (n.id == civId) {
+            handsUp = (n.activity == oc::NpcActivity::HandsUp);
+            droppedUmbrella = !n.holdingUmbrella;
+            break;
+        }
+    }
+    ASSERT_TRUE(handsUp);
+    ASSERT_TRUE(droppedUmbrella);
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -1753,6 +2057,10 @@ int main() {
     testRustPhysicsEngineStuntJumpsAndRealisticWorld();
     testBugfixRegressionsV091();
     testUltraDetailV100ParticlesAndEffects();
+    testV120TorqueCurveAccelerationAndBackfire();
+    testV120FourCornerCurbSuspensionAndCollisionFriction();
+    testV120LivingNpcDiversityRainUmbrellasAndDodge();
+    testV120GunpointHandsUpReaction();
 
     std::cout << "[PASS] All " << gTestsPassed << " Open City C++ simulation test suites succeeded!\n";
     return 0;

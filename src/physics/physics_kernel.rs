@@ -1,5 +1,6 @@
 // ============================================================================
-// Open City C++ v0.9.0 — Native Rust Rigid-Body, Gearbox & Suspension Kernel
+// Open City C++ v1.2.0 — Native Rust Rigid-Body, Torque-Curve Gearbox,
+// Pacejka Tire, 4-Corner Suspension & Tangential-Friction Collision Kernel
 // ============================================================================
 // Compiled via `rustc --crate-type=lib --emit=obj -C opt-level=3 -C panic=abort`
 // Zero external crate dependencies (`#![no_std]`) for deterministic C-ABI FFI
@@ -93,6 +94,7 @@ pub struct RsVehicleControlInput {
     pub ground_height: f32,
     pub ramp_slope_pitch: f32,
     pub wet_road_factor: f32,
+    pub wheel_ground_h: [f32; 4], // FL, FR, RL, RR surface elevation for 4-corner curb suspension
 }
 
 #[repr(C)]
@@ -122,6 +124,11 @@ pub struct RsVehiclePhysicsState {
     pub air_time: f32,
     pub landed_air_time: f32,
     pub landed_impact_speed: f32,
+    pub turbo_spool: f32,
+    pub wheel_slip: f32,
+    pub shift_cut_timer: f32,
+    pub shift_backfire: i32,
+    pub brake_heat: f32,
 }
 
 #[repr(C)]
@@ -143,7 +150,7 @@ pub struct RsRigidBody2D {
 
 #[no_mangle]
 pub extern "C" fn oc_rs_physics_version() -> i32 {
-    900 // v0.9.0 Rust Physics Kernel
+    1200 // v1.2.0 Next-Gen Rust Physics Kernel
 }
 
 #[no_mangle]
@@ -164,12 +171,18 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
     st.landed_impact_speed = 0.0;
     st.braking_visual = 0;
     st.nitro_active = 0;
+    st.shift_backfire = 0;
+
+    if st.shift_cut_timer > 0.0 {
+        st.shift_cut_timer = maxf(0.0, st.shift_cut_timer - dt);
+    }
 
     let throttle = clampf(inp.throttle, -1.0, 1.0);
     let steer = clampf(inp.steer, -1.0, 1.0);
     let handbrake = inp.handbrake != 0;
     let nitro = inp.nitro != 0;
-    let wet_grip_scale = 1.0 - 0.14 * clampf(inp.wet_road_factor, 0.0, 1.0);
+    let wet_f = clampf(inp.wet_road_factor, 0.0, 1.0);
+    let wet_grip_scale = 1.0 - 0.16 * wet_f;
 
     let mut fwd_x = cosf(st.heading);
     let mut fwd_z = sinf(st.heading);
@@ -180,38 +193,92 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
     let mut forward_spd = prev_fwd_spd;
     let mut lateral_spd = st.vel_x * right_x + st.vel_z * right_z;
 
-    let max_fwd = sp.max_forward_speed * inp.upgrade_mult * (if nitro && st.nitro_charge > 0.03 { 1.32 } else { 1.0 });
-
-    // 1. Longitudinal Drivetrain Force (only when tires have ground contact or slight air control)
     let on_ground = st.airborne == 0;
+    let top_ref = maxf(18.0, sp.max_forward_speed * inp.upgrade_mult);
+    let nitro_ready = nitro && st.nitro_charge > 0.03;
+    let max_fwd = top_ref * (if nitro_ready { 1.32 } else { 1.0 });
+
+    // 1. Multi-Gear Torque Curve, Turbo Boost Spool, Launch Wheelspin & Continuous Aero Drag
+    let cur_gear = if st.current_gear >= 1 && st.current_gear <= 6 {
+        st.current_gear
+    } else {
+        1
+    };
+    let gear_torque_mul = match cur_gear {
+        1 => 1.38, // Strong 1st-gear low-end launch punch
+        2 => 1.18, // Brisk 2nd-gear mid-speed pull
+        3 => 1.02,
+        4 => 0.88,
+        5 => 0.76,
+        _ => 0.66, // Tall 6th-gear highway overdrive
+    };
+
+    let rpm_norm = clampf((st.engine_rpm - 880.0) / 7270.0, 0.0, 1.0);
+    // Authentic bell-shaped engine torque curve peaking between 4,600 and 6,500 RPM
+    let torque_curve = 0.78 + 0.34 * sinf(clampf(rpm_norm * 1.10, 0.0, 1.0) * PI);
+
+    // Progressive turbo / supercharger spool under load (+ lift-off exhaust pop!)
+    let prev_spool = st.turbo_spool;
+    if throttle > 0.25 && forward_spd >= -0.4 {
+        let spool_rate = 1.65 + 0.55 * inp.upgrade_mult + (if nitro_ready { 1.2 } else { 0.0 });
+        let spool_target = clampf(throttle * (0.45 + 0.65 * rpm_norm), 0.0, 1.0);
+        st.turbo_spool = lerpf(st.turbo_spool, spool_target, dt * spool_rate);
+    } else {
+        st.turbo_spool = maxf(0.0, st.turbo_spool - dt * 2.8);
+        if prev_spool > 0.68 && st.engine_rpm > 4700.0 && throttle <= 0.05 && on_ground {
+            st.shift_backfire = 1; // Turbo overrun lift-off exhaust pop!
+        }
+    }
+    let boost_mul = 1.0 + 0.18 * st.turbo_spool;
+
+    let mut target_slip: f32 = 0.0;
     if throttle > 0.05 {
         if forward_spd < -0.5 {
-            forward_spd = minf(0.0, forward_spd + sp.braking * dt);
+            // Forward pressed while rolling backward: progressive ABS hydraulic braking
+            let brake_force = sp.braking * (1.06 + 0.006 * absf(forward_spd)) * (1.0 - 0.12 * wet_f);
+            forward_spd = minf(0.0, forward_spd + brake_force * dt);
             st.braking_visual = 1;
         } else {
-            let mut accel = sp.acceleration * inp.upgrade_mult * throttle;
-            if nitro && st.nitro_charge > 0.03 {
-                accel *= 1.65;
-                st.nitro_charge = maxf(0.0, st.nitro_charge - dt * 0.38);
+            let clutch_mul = if st.shift_cut_timer > 0.0 { 0.32 } else { 1.0 };
+            let mut accel = sp.acceleration * inp.upgrade_mult * throttle * gear_torque_mul * torque_curve * boost_mul * clutch_mul;
+            if nitro_ready {
+                accel *= 1.58;
+                st.nitro_charge = maxf(0.0, st.nitro_charge - dt * 0.36);
                 st.nitro_active = 1;
             }
-            if !on_ground {
-                accel *= 0.18;
+            // High-torque launch wheelspin & traction limit at low speed (especially on wet roads or muscle/supercars)
+            if on_ground && forward_spd < 11.5 && throttle > 0.60 {
+                let traction_limit = (20.5 + sp.normal_grip * 1.45) * wet_grip_scale;
+                if accel > traction_limit {
+                    let excess = (accel - traction_limit) / maxf(traction_limit, 1.0);
+                    target_slip = clampf(excess * 1.35 + (if nitro_ready { 0.25 } else { 0.0 }), 0.0, 1.0);
+                    // Slight traction loss during wheelspin while still surging strongly forward
+                    accel = traction_limit + (accel - traction_limit) * 0.62;
+                }
             }
-            forward_spd = minf(max_fwd, forward_spd + accel * dt);
+            if !on_ground {
+                accel *= 0.16;
+            }
+            // Continuous rolling resistance + quadratic aerodynamic drag even under full throttle
+            let aero_drag = (0.55 + 0.00052 * forward_spd * forward_spd) * (if on_ground { 1.0 } else { 0.35 });
+            let net_accel = accel - aero_drag;
+            forward_spd = minf(max_fwd, maxf(0.0, forward_spd + net_accel * dt));
         }
     } else if throttle < -0.05 {
         if forward_spd > 1.2 {
-            forward_spd = maxf(0.0, forward_spd - sp.braking * (-throttle) * dt);
+            // Progressive high-speed hydraulic braking with ABS modulation
+            let abs_pulse = 1.0 + 0.03 * sinf(st.wheel_spin * 9.0);
+            let brake_force = sp.braking * (1.08 + 0.007 * forward_spd) * (-throttle) * (1.0 - 0.14 * wet_f) * abs_pulse;
+            forward_spd = maxf(0.0, forward_spd - brake_force * dt);
             st.braking_visual = 1;
         } else {
-            let rev_accel = sp.acceleration * 0.68 * throttle * (if on_ground { 1.0 } else { 0.18 });
+            let rev_accel = sp.acceleration * 0.72 * throttle * (if on_ground { 1.0 } else { 0.16 });
             forward_spd = maxf(-sp.max_reverse_speed, forward_spd + rev_accel * dt);
         }
     } else if on_ground {
-        // Natural rolling resistance + aerodynamic quadratic drag
-        let aero_drag = 0.0018 * forward_spd * absf(forward_spd);
-        let drag = (4.2 + aero_drag) * dt;
+        // Natural engine braking + rolling resistance + aerodynamic quadratic drag
+        let aero_drag = 0.0017 * forward_spd * absf(forward_spd);
+        let drag = (3.4 + aero_drag) * dt;
         if absf(forward_spd) <= drag {
             forward_spd = 0.0;
         } else {
@@ -219,13 +286,15 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
         }
     }
 
+    st.wheel_slip = lerpf(st.wheel_slip, target_slip, dt * 11.0);
+
     if st.nitro_active == 0 {
         st.nitro_charge = minf(1.0, st.nitro_charge + dt * inp.nitro_recharge_rate);
     }
 
     if handbrake && on_ground {
         st.braking_visual = 1;
-        let hb_decel = 11.5 * dt;
+        let hb_decel = (12.2 - 1.5 * wet_f) * dt;
         if absf(forward_spd) <= hb_decel {
             forward_spd = 0.0;
         } else {
@@ -233,67 +302,109 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
         }
     }
 
-    // 2. 6-Speed Automatic Sports Gearbox & Engine RPM Simulation
+    // Brake rotor thermal glow buildup & airflow cooling
+    if st.braking_visual != 0 && absf(prev_fwd_spd) > 9.0 && on_ground {
+        let heat_add = clampf((absf(prev_fwd_spd) - 7.0) / 24.0, 0.20, 1.55) * dt * 1.45;
+        st.brake_heat = minf(1.0, st.brake_heat + heat_add);
+    } else {
+        let cool_rate = 0.36 + 0.012 * absf(forward_spd);
+        st.brake_heat *= expf(-cool_rate * dt);
+        if st.brake_heat < 0.01 {
+            st.brake_heat = 0.0;
+        }
+    }
+
+    // 2. 6-Speed Dual-Clutch Sports Gearbox & Hysteresis RPM Simulation
     let abs_fwd = absf(forward_spd);
     let prev_gear = st.current_gear;
     if forward_spd < -0.55 {
         st.current_gear = 0; // Reverse ('R')
         let rev_ratio = clampf(abs_fwd / maxf(1.0, sp.max_reverse_speed), 0.0, 1.0);
-        let target_rpm = 1050.0 + rev_ratio * 5200.0 + absf(throttle) * 650.0;
+        let target_rpm = 1050.0 + rev_ratio * 5200.0 + absf(throttle) * 680.0;
         st.engine_rpm = lerpf(st.engine_rpm, target_rpm, dt * 12.0);
     } else {
-        let top_ref = maxf(18.0, sp.max_forward_speed * inp.upgrade_mult);
-        let norm_spd = clampf(abs_fwd / top_ref, 0.0, 1.15);
-        let gear = if abs_fwd < 0.35 {
+        let norm_spd = clampf(abs_fwd / top_ref, 0.0, 1.20);
+        // Distinct 6-speed shift points with subtle downshift hysteresis to avoid gear hunting
+        let up_thresholds: [f32; 5] = [0.18, 0.35, 0.53, 0.72, 0.90];
+        let mut gear = if abs_fwd < 0.35 {
             1
-        } else if norm_spd < 0.17 {
+        } else if norm_spd < up_thresholds[0] {
             1
-        } else if norm_spd < 0.34 {
+        } else if norm_spd < up_thresholds[1] {
             2
-        } else if norm_spd < 0.52 {
+        } else if norm_spd < up_thresholds[2] {
             3
-        } else if norm_spd < 0.71 {
+        } else if norm_spd < up_thresholds[3] {
             4
-        } else if norm_spd < 0.90 {
+        } else if norm_spd < up_thresholds[4] {
             5
         } else {
             6
         };
+        if prev_gear >= 2 && prev_gear <= 6 && gear == prev_gear - 1 {
+            let hyst = up_thresholds[(prev_gear - 2) as usize] - 0.030;
+            if norm_spd > hyst {
+                gear = prev_gear;
+            }
+        }
         st.current_gear = gear;
+
         let gear_low = (gear - 1) as f32 * 0.165;
         let gear_span = 0.21;
-        let in_gear = clampf((norm_spd - gear_low) / gear_span, 0.0, 1.05);
+        let in_gear = clampf((norm_spd - gear_low) / gear_span, 0.0, 1.06);
         let idle_rpm = 880.0;
-        let target_rpm = idle_rpm + in_gear * 6150.0 + maxf(0.0, throttle) * 780.0 + (if st.nitro_active != 0 { 450.0 } else { 0.0 });
-        st.engine_rpm = lerpf(st.engine_rpm, clampf(target_rpm, idle_rpm, 8150.0), dt * 14.0);
-        // Subtle transmission shift-kick pitch impulse on upshift under throttle!
-        if gear > prev_gear && prev_gear >= 1 && throttle > 0.4 {
-            st.pitch_vel -= 0.18;
+        let slip_rev_boost = st.wheel_slip * 1350.0;
+        let target_rpm = idle_rpm
+            + in_gear * 6100.0
+            + maxf(0.0, throttle) * 760.0
+            + slip_rev_boost
+            + (if st.nitro_active != 0 { 480.0 } else { 0.0 });
+        st.engine_rpm = lerpf(st.engine_rpm, clampf(target_rpm, idle_rpm, 8150.0), dt * 15.0);
+
+        // Dual-clutch upshift kick + brief torque cut + twin exhaust backfire flash!
+        if gear > prev_gear && prev_gear >= 1 && throttle > 0.40 {
+            st.shift_cut_timer = 0.055;
+            st.shift_backfire = 1;
+            st.pitch_vel -= 0.26;
         }
     }
 
-    // 3. Speed-Sensitive Ackermann Steering + Angular Momentum Integration
-    st.steer_visual = lerpf(st.steer_visual, steer, dt * 10.0);
-    if abs_fwd > 0.45 && on_ground {
-        let low_speed_factor = clampf(abs_fwd / 6.5, 0.0, 1.0);
-        let high_speed_damp = 1.0 / (1.0 + abs_fwd * 0.018);
+    // 3. Weight-Transfer Ackermann Steering, Aero Downforce & Pacejka Non-Linear Lateral Grip
+    let long_accel = clampf((forward_spd - prev_fwd_spd) / maxf(dt, 0.004), -32.0, 32.0);
+    // Trail-braking transfers weight to front tires (+18% turn-in bite); hard acceleration lightens front slightly
+    let front_weight_transfer = clampf(1.0 - long_accel * 0.011, 0.84, 1.22);
+    // Speed-squared aerodynamic downforce plants sports/hypercars at highway speeds
+    let downforce_grip = 1.0 + clampf(abs_fwd * abs_fwd * 0.00022 * inp.aero_grip_bonus, 0.0, 0.36);
+
+    st.steer_visual = lerpf(st.steer_visual, steer, dt * 11.5);
+    let mut applied_yaw_rate: f32 = 0.0;
+    if abs_fwd > 0.40 && on_ground {
+        let low_speed_factor = clampf(abs_fwd / 5.8, 0.0, 1.0);
+        let high_speed_damp = 1.0 / (1.0 + abs_fwd * 0.017);
         let dir_sign = if forward_spd >= 0.0 { 1.0 } else { -1.0 };
-        let drift_boost = if handbrake { 1.38 } else { 1.0 };
-        let steer_yaw_rate = steer * sp.turn_rate * low_speed_factor * high_speed_damp * drift_boost * dir_sign;
+        let drift_boost = if handbrake { 1.42 } else { 1.0 };
+        let steer_yaw_rate = steer
+            * sp.turn_rate
+            * low_speed_factor
+            * high_speed_damp
+            * drift_boost
+            * front_weight_transfer
+            * dir_sign;
+        applied_yaw_rate = steer_yaw_rate;
         st.heading = wrap_angle(st.heading + steer_yaw_rate * dt);
     }
 
     // Integrate external collision angular velocity (PIT maneuvers & off-center crashes)
     if absf(st.angular_velocity) > 0.001 {
         st.heading = wrap_angle(st.heading + st.angular_velocity * dt);
-        let ang_damp = if on_ground { 4.8 } else { 0.8 };
+        let ang_damp = if on_ground { 4.6 * wet_grip_scale } else { 0.8 };
         st.angular_velocity *= expf(-ang_damp * dt);
         if absf(st.angular_velocity) < 0.01 {
             st.angular_velocity = 0.0;
         }
     }
 
-    // Reproject velocity onto updated heading + Pacejka-inspired cornering slip
+    // Reproject velocity onto updated heading + Pacejka-inspired progressive cornering slip
     fwd_x = cosf(st.heading);
     fwd_z = sinf(st.heading);
     right_x = -sinf(st.heading);
@@ -302,10 +413,14 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
     let prev_world_vx = st.vel_x;
     let prev_world_vz = st.vel_z;
     let prev_speed_sq = prev_world_vx * prev_world_vx + prev_world_vz * prev_world_vz;
-    if on_ground && prev_speed_sq > 0.2 && absf(steer) > 0.05 {
+    if on_ground && prev_speed_sq > 0.2 && absf(steer) > 0.04 {
         let rot_vx = fwd_x * forward_spd + right_x * lateral_spd;
         let rot_vz = fwd_z * forward_spd + right_z * lateral_spd;
-        let slip_blend = if handbrake { 0.68 } else { 0.24 };
+        let slip_blend = if handbrake {
+            0.70
+        } else {
+            clampf(0.20 + st.wheel_slip * 0.22 + wet_f * 0.08, 0.18, 0.48)
+        };
         let mix_vx = rot_vx * (1.0 - slip_blend) + prev_world_vx * slip_blend;
         let mix_vz = rot_vz * (1.0 - slip_blend) + prev_world_vz * slip_blend;
         forward_spd = mix_vx * fwd_x + mix_vz * fwd_z;
@@ -314,15 +429,20 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
 
     if on_ground {
         let base_grip = if handbrake { sp.drift_grip } else { sp.normal_grip };
-        let grip = base_grip * inp.aero_grip_bonus * wet_grip_scale;
-        lateral_spd *= maxf(0.0, 1.0 - grip * dt);
+        // Non-linear Pacejka-style saturation: crisp high grip at small slip angles, smooth progressive drift breakaway
+        let slip_ratio = absf(lateral_spd) / maxf(abs_fwd, 3.0);
+        let pacejka_sat = 1.0 / (1.0 + slip_ratio * (if handbrake { 2.2 } else { 0.95 }));
+        let grip = base_grip * inp.aero_grip_bonus * downforce_grip * wet_grip_scale * (0.45 + 0.55 * pacejka_sat);
+        lateral_spd *= expf(-grip * dt);
     }
 
     st.vel_x = fwd_x * forward_spd + right_x * lateral_spd;
     st.vel_z = fwd_z * forward_spd + right_z * lateral_spd;
     st.pos_x += st.vel_x * dt;
     st.pos_z += st.vel_z * dt;
-    st.wheel_spin = fmodf(st.wheel_spin + forward_spd * dt * 2.4, TWO_PI);
+    // Extra rear-wheel visual spin when launching with wheelspin!
+    let spin_rate = forward_spd * (1.0 + st.wheel_slip * 1.15);
+    st.wheel_spin = fmodf(st.wheel_spin + spin_rate * dt * 2.4, TWO_PI);
 
     // 4. 3D Vertical Ramp Launch, Parabolic Flight & Ground Contact Physics
     let prev_y = st.pos_y;
@@ -346,9 +466,8 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
 
     if st.airborne != 0 {
         st.air_time += dt;
-        st.vel_y -= 17.8 * dt; // Realistic gravity
+        st.vel_y -= 17.8 * dt;
         st.pos_y += st.vel_y * dt;
-        // Landing check
         if st.pos_y <= ground_y {
             st.landed_air_time = st.air_time;
             st.landed_impact_speed = -st.vel_y;
@@ -356,60 +475,74 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
             st.vel_y = 0.0;
             st.airborne = 0;
             st.air_time = 0.0;
-            // Compress all 4 suspension struts & excite pitch spring on touchdown!
-            let impact_comp = clampf(st.landed_impact_speed * 0.016, 0.04, 0.14);
+            let impact_comp = clampf(st.landed_impact_speed * 0.017, 0.04, 0.14);
             st.wheel_comp[0] = impact_comp;
             st.wheel_comp[1] = impact_comp;
             st.wheel_comp[2] = impact_comp;
             st.wheel_comp[3] = impact_comp;
-            st.pitch_vel += clampf(st.landed_impact_speed * 0.06, 0.10, 0.55);
+            st.pitch_vel += clampf(st.landed_impact_speed * 0.065, 0.10, 0.58);
         }
     }
 
-    // 5. Under-Damped Spring-Damper Chassis Pitch, Roll & 4-Wheel Suspension Compression
-    let long_accel = clampf((forward_spd - prev_fwd_spd) / maxf(dt, 0.004), -28.0, 28.0);
+    // 5. 4-Corner Independent Curb/Bump Suspension + Under-Damped Spring-Damper Chassis Pitch & Roll
+    let dh0 = clampf(inp.wheel_ground_h[0] - ground_y, -0.14, 0.14); // FL
+    let dh1 = clampf(inp.wheel_ground_h[1] - ground_y, -0.14, 0.14); // FR
+    let dh2 = clampf(inp.wheel_ground_h[2] - ground_y, -0.14, 0.14); // RL
+    let dh3 = clampf(inp.wheel_ground_h[3] - ground_y, -0.14, 0.14); // RR
+    let curb_roll = ((dh1 + dh3) - (dh0 + dh2)) * 0.24;
+    let curb_pitch = ((dh0 + dh1) - (dh2 + dh3)) * 0.12;
+    let road_ripple = sinf(st.pos_x * 0.72 + st.pos_z * 0.58) * 0.007 * clampf(abs_fwd / 26.0, 0.0, 1.0);
+    let lat_g = clampf(forward_spd * applied_yaw_rate, -24.0, 24.0);
+
     let target_pitch = if st.airborne != 0 {
         clampf(-st.vel_y * 0.022, -0.22, 0.22)
     } else {
-        inp.ramp_slope_pitch + clampf(-long_accel * 0.0024 - throttle * 0.022 + (if st.braking_visual != 0 { 0.036 } else { 0.0 }), -0.09, 0.09)
+        inp.ramp_slope_pitch
+            + curb_pitch
+            + clampf(
+                -long_accel * 0.0028 - throttle * 0.026 - st.wheel_slip * 0.018 + (if st.braking_visual != 0 { 0.044 } else { 0.0 }),
+                -0.11,
+                0.11,
+            )
     };
     let target_roll = if st.airborne != 0 {
         clampf(steer * 0.08, -0.16, 0.16)
     } else {
-        clampf(-lateral_spd * 0.0155, -0.12, 0.12)
+        clampf(-lat_g * 0.0046 - lateral_spd * 0.012 + curb_roll, -0.14, 0.14)
     };
 
-    let spring_k = 58.0;
-    let damper_c = 11.5;
+    let spring_k = 60.0;
+    let damper_c = 11.2;
     let pitch_acc = (target_pitch - st.body_pitch) * spring_k - st.pitch_vel * damper_c;
     let roll_acc = (target_roll - st.body_roll) * spring_k - st.roll_vel * damper_c;
     st.pitch_vel += pitch_acc * dt;
     st.roll_vel += roll_acc * dt;
     st.body_pitch = clampf(st.body_pitch + st.pitch_vel * dt, -0.28, 0.28);
-    st.body_roll = clampf(st.body_roll + st.roll_vel * dt, -0.22, 0.22);
+    st.body_roll = clampf(st.body_roll + st.roll_vel * dt, -0.24, 0.24);
 
-    // Individual 4-wheel strut deflection (FL=0, FR=1, RL=2, RR=3)
+    // Individual 4-wheel strut deflection (FL=0, FR=1, RL=2, RR=3) combining pitch, roll, curb bump & road texture
     if st.airborne != 0 {
-        // Wheels droop downward when airborne
         for i in 0..4 {
-            st.wheel_comp[i] = lerpf(st.wheel_comp[i], -0.055, dt * 8.0);
+            st.wheel_comp[i] = lerpf(st.wheel_comp[i], -0.058, dt * 8.0);
         }
     } else {
-        let p_def = st.body_pitch * 0.65;
-        let r_def = st.body_roll * 0.65;
+        let p_def = st.body_pitch * 0.68;
+        let r_def = st.body_roll * 0.68;
         let targets = [
-            clampf( p_def - r_def, -0.07, 0.12), // FL
-            clampf( p_def + r_def, -0.07, 0.12), // FR
-            clampf(-p_def - r_def, -0.07, 0.12), // RL
-            clampf(-p_def + r_def, -0.07, 0.12), // RR
+            clampf( p_def - r_def + dh0 * 0.65 + road_ripple, -0.075, 0.13), // FL
+            clampf( p_def + r_def + dh1 * 0.65 - road_ripple, -0.075, 0.13), // FR
+            clampf(-p_def - r_def + dh2 * 0.65 - road_ripple, -0.075, 0.13), // RL
+            clampf(-p_def + r_def + dh3 * 0.65 + road_ripple, -0.075, 0.13), // RR
         ];
         for i in 0..4 {
-            st.wheel_comp[i] = lerpf(st.wheel_comp[i], targets[i], dt * 14.0);
+            st.wheel_comp[i] = lerpf(st.wheel_comp[i], targets[i], dt * 15.0);
         }
     }
 
     let speed = sqrtf(st.vel_x * st.vel_x + st.vel_z * st.vel_z);
-    let drifting = on_ground && (speed > 7.5) && (absf(lateral_spd) > 3.1 || (handbrake && absf(steer) > 0.35 && speed > 9.0));
+    let drifting = on_ground
+        && (speed > 7.2)
+        && (absf(lateral_spd) > 2.9 || (handbrake && absf(steer) > 0.32 && speed > 8.5));
     st.is_drifting = if drifting { 1 } else { 0 };
 }
 
@@ -443,11 +576,12 @@ pub unsafe extern "C" fn oc_rs_resolve_rigid_collision_2d(
     let inv_mb = 1.0 / mb;
     let inv_total = 1.0 / (ma + mb);
 
-    // 1. Positional MTV separation weighted by inverse mass
-    a.pos_x += nx * penetration * (mb * inv_total);
-    a.pos_z += nz * penetration * (mb * inv_total);
-    b.pos_x -= nx * penetration * (ma * inv_total);
-    b.pos_z -= nz * penetration * (ma * inv_total);
+    // 1. Positional MTV separation weighted by inverse mass (with subtle slop for multi-car stability)
+    let corr = maxf(0.0, penetration - 0.004) * 0.92;
+    a.pos_x += nx * corr * (mb * inv_total);
+    a.pos_z += nz * corr * (mb * inv_total);
+    b.pos_x -= nx * corr * (ma * inv_total);
+    b.pos_z -= nz * corr * (ma * inv_total);
 
     // 2. Contact lever arms rA, rB and 2D rotational moments of inertia IA, IB
     let ra_x = contact_x - a.pos_x;
@@ -480,19 +614,33 @@ pub unsafe extern "C" fn oc_rs_resolve_rigid_collision_2d(
     let denom = inv_ma + inv_mb + (ra_cross_n * ra_cross_n) * inv_ia + (rb_cross_n * rb_cross_n) * inv_ib;
     let j_impulse = -(1.0 + clampf(restitution, 0.1, 0.8)) * sep_vel / maxf(denom, 1e-4);
 
-    let ix = nx * j_impulse;
-    let iz = nz * j_impulse;
+    let mut ix = nx * j_impulse;
+    let mut iz = nz * j_impulse;
+
+    // 2.5 Coulomb Tangential Friction Impulse (realistic fender-rubbing resistance & PIT torque!)
+    let tx = -nz;
+    let tz = nx;
+    let rel_vt = rel_vx * tx + rel_vz * tz;
+    let ra_cross_t = ra_x * tz - ra_z * tx;
+    let rb_cross_t = rb_x * tz - rb_z * tx;
+    let denom_t = inv_ma + inv_mb + (ra_cross_t * ra_cross_t) * inv_ia + (rb_cross_t * rb_cross_t) * inv_ib;
+    let raw_jt = -rel_vt / maxf(denom_t, 1e-4);
+    let max_jt = j_impulse * 0.28; // Steel-on-steel Coulomb friction coefficient mu = 0.28
+    let jt = clampf(raw_jt, -max_jt, max_jt);
+
+    ix += tx * jt;
+    iz += tz * jt;
 
     a.vel_x += ix * inv_ma;
     a.vel_z += iz * inv_ma;
     b.vel_x -= ix * inv_mb;
     b.vel_z -= iz * inv_mb;
 
-    // Torque impulse: r x J (induces authentic PIT maneuver spin-outs!)
+    // Combined Normal + Friction Torque Impulse: r x (J_n + J_t)
     let torque_a = (ra_x * iz - ra_z * ix) * inv_ia;
     let torque_b = -(rb_x * iz - rb_z * ix) * inv_ib;
-    a.angular_velocity = clampf(a.angular_velocity + torque_a * 0.65, -4.2, 4.2);
-    b.angular_velocity = clampf(b.angular_velocity + torque_b * 0.65, -4.2, 4.2);
+    a.angular_velocity = clampf(a.angular_velocity + torque_a * 0.68, -4.5, 4.5);
+    b.angular_velocity = clampf(b.angular_velocity + torque_b * 0.68, -4.5, 4.5);
 
     // 3. Accumulate localized 4-quadrant chassis crumple deformation on heavy impacts
     let impact_speed = -sep_vel;

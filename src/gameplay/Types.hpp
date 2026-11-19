@@ -124,6 +124,14 @@ struct Vehicle {
     float leftDamage = 0.0f;     // [0..1] Left side door/fender dent deformation
     float rightDamage = 0.0f;    // [0..1] Right side door/fender dent deformation
 
+    // v1.2.0 Next-Gen Drivetrain, Brake Thermal, Exhaust Backfire & Turn Signal state
+    float turboSpool = 0.0f;     // [0..1] Live turbo/supercharger boost spool pressure
+    float wheelSlip = 0.0f;      // [0..1] Launch/burnout rear tire slip ratio
+    float shiftCutTimer = 0.0f;  // [0..0.06s] Dual-clutch upshift torque-cut window
+    float backfireTimer = 0.0f;  // >0 renders twin exhaust upshift/lift-off backfire flash
+    float brakeHeat = 0.0f;      // [0..1] Front/rear brake rotor cherry-red thermal glow
+    float turnSignalPhase = 0.0f;// Live amber blinker clock when steering/turning
+
     // Traffic AI lane-following state
     bool aiHorizontalRoad = true;
     int aiRoadIndex = 4;
@@ -408,6 +416,30 @@ enum class NpcBehavior {
     CombatEngage
 };
 
+enum class NpcArchetype : std::uint8_t {
+    Casual = 0,
+    Business = 1,
+    Jogger = 2,
+    Tourist = 3,
+    StreetTech = 4,
+    Worker = 5
+};
+
+enum class NpcHeldProp : std::uint8_t {
+    None = 0,
+    Smartphone = 1,
+    Briefcase = 2,
+    CoffeeCup = 3,
+    ShoppingBag = 4
+};
+
+enum class NpcActivity : std::uint8_t {
+    None = 0,
+    CheckingPhone = 1,
+    LookingAround = 2,
+    HandsUp = 3
+};
+
 struct NpcCharacter {
     int id = 0;
     NpcRole role = NpcRole::Civilian;
@@ -430,6 +462,24 @@ struct NpcCharacter {
     bool alive = true;
     float corpseTimer = 0.0f;
     bool missionTarget = false;
+
+    // v1.2.0 Living NPC Diversity, Activities, Umbrellas & Physics Knockback
+    NpcArchetype archetype = NpcArchetype::Casual;
+    NpcHeldProp heldProp = NpcHeldProp::None;
+    NpcActivity activity = NpcActivity::None;
+    float activityTimer = 0.0f;
+    int hairStyle = 0;           // 0=Short, 1=Pompadour, 2=Mohawk, 3=Snapback Cap
+    int hairColorIdx = 0;        // 0..5 natural & stylish hair tones
+    int glassesStyle = 0;        // 0=None, 1=Shades, 2=Gold Aviator
+    int backGearStyle = 0;       // 0=None, 1=Backpack
+    OutfitId outfitStyle = OutfitId::StreetCasual;
+    float heightScale = 1.0f;    // [0.93..1.07] organic build variation
+    float headLookYaw = 0.0f;    // Relative head turn [-0.85..+0.85 rad]
+    ColorRGBA umbrellaColor{48, 132, 236, 255};
+    bool holdingUmbrella = false;
+    Vec2 knockbackVel{0.0f, 0.0f};
+    float fallProgress = 0.0f;   // [0..1] smooth ragdoll-like collapse animation
+    float dodgeCooldown = 0.0f;
 
     // Sidewalk & crosswalk lattice navigation / turf patrol state
     int navFromU = 8;

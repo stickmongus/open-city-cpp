@@ -1113,19 +1113,124 @@ void GameWorld::maintainCivilianPopulation() {
         npc.navFromV = fromV;
         npc.navToU = toU;
         npc.navToV = toV;
-        npc.walkSpeed = rng_.range(1.38f, 1.92f);
-        npc.outfitTop = {
-            static_cast<std::uint8_t>(rng_.rangeInt(70, 235)),
-            static_cast<std::uint8_t>(rng_.rangeInt(70, 235)),
-            static_cast<std::uint8_t>(rng_.rangeInt(85, 240)),
-            255
-        };
-        npc.outfitBottom = {
-            static_cast<std::uint8_t>(rng_.rangeInt(32, 90)),
-            static_cast<std::uint8_t>(rng_.rangeInt(36, 95)),
-            static_cast<std::uint8_t>(rng_.rangeInt(45, 115)),
-            255
-        };
+
+        // 5 natural skin tones matching getPlayerSkinColor palette
+        static constexpr std::array<ColorRGBA, 5> kNpcSkinTones = {{
+            {242, 212, 188, 255},
+            {232, 192, 158, 255},
+            {210, 162, 118, 255},
+            {174, 126,  86, 255},
+            {122,  82,  56, 255}
+        }};
+        static constexpr std::array<ColorRGBA, 6> kUmbrellaPalette = {{
+            { 42, 134, 236, 255}, // Ocean Blue
+            {226,  52,  66, 255}, // Crimson Red
+            {242, 192,  46, 255}, // Sunny Yellow
+            { 38, 178, 136, 255}, // Emerald Teal
+            {148,  74, 224, 255}, // Violet
+            { 36,  40,  50, 255}  // Classic Executive Black
+        }};
+        npc.skinColor = kNpcSkinTones[static_cast<std::size_t>(rng_.rangeInt(0, 4))];
+        npc.umbrellaColor = kUmbrellaPalette[static_cast<std::size_t>(rng_.rangeInt(0, 5))];
+        npc.heightScale = rng_.range(0.93f, 1.07f);
+        npc.hairColorIdx = rng_.chance(0.76f) ? rng_.rangeInt(0, 2) : rng_.rangeInt(0, 5);
+
+        const float archRoll = rng_.range(0.0f, 1.0f);
+        if (archRoll < 0.22f) {
+            // Downtown Executive / Business Commuter
+            npc.archetype = NpcArchetype::Business;
+            npc.outfitStyle = rng_.chance(0.32f) ? OutfitId::ViceWhiteSuit : OutfitId::MidnightTuxedo;
+            npc.outfitTop = (npc.outfitStyle == OutfitId::ViceWhiteSuit)
+                                ? ColorRGBA{232, 235, 242, 255}
+                                : (rng_.chance(0.55f) ? ColorRGBA{28, 32, 42, 255} : ColorRGBA{42, 52, 74, 255});
+            npc.outfitBottom = (npc.outfitStyle == OutfitId::ViceWhiteSuit)
+                                   ? ColorRGBA{218, 222, 232, 255}
+                                   : ColorRGBA{24, 26, 34, 255};
+            npc.hairStyle = rng_.chance(0.5f) ? 1 : 0;
+            npc.glassesStyle = rng_.chance(0.38f) ? 2 : (rng_.chance(0.25f) ? 1 : 0);
+            npc.heldProp = rng_.chance(0.60f) ? NpcHeldProp::Briefcase : NpcHeldProp::CoffeeCup;
+            npc.walkSpeed = rng_.range(1.62f, 2.02f);
+        } else if (archRoll < 0.36f) {
+            // Park & Sunset Beach Fitness Jogger
+            npc.archetype = NpcArchetype::Jogger;
+            npc.outfitStyle = OutfitId::StreetCasual;
+            static constexpr std::array<ColorRGBA, 4> kSportTops = {{
+                { 42, 206, 148, 255}, {244, 108,  46, 255},
+                { 54, 152, 246, 255}, {238,  64, 134, 255}
+            }};
+            npc.outfitTop = kSportTops[static_cast<std::size_t>(rng_.rangeInt(0, 3))];
+            npc.outfitBottom = {28, 32, 40, 255};
+            npc.hairStyle = rng_.chance(0.45f) ? 3 : 0;
+            npc.glassesStyle = rng_.chance(0.30f) ? 1 : 0;
+            npc.heldProp = NpcHeldProp::None;
+            npc.walkSpeed = rng_.range(2.95f, 3.55f);
+        } else if (archRoll < 0.52f) {
+            // Coastal Tourist / Boutique Shopper
+            npc.archetype = NpcArchetype::Tourist;
+            npc.outfitStyle = OutfitId::StreetCasual;
+            npc.outfitTop = {
+                static_cast<std::uint8_t>(rng_.rangeInt(145, 245)),
+                static_cast<std::uint8_t>(rng_.rangeInt(115, 235)),
+                static_cast<std::uint8_t>(rng_.rangeInt(80, 220)),
+                255
+            };
+            npc.outfitBottom = {
+                static_cast<std::uint8_t>(rng_.rangeInt(165, 215)),
+                static_cast<std::uint8_t>(rng_.rangeInt(148, 196)),
+                static_cast<std::uint8_t>(rng_.rangeInt(115, 165)),
+                255
+            };
+            npc.hairStyle = rng_.chance(0.55f) ? 3 : 1;
+            npc.glassesStyle = rng_.chance(0.65f) ? 1 : 2;
+            npc.backGearStyle = rng_.chance(0.42f) ? 1 : 0;
+            npc.heldProp = rng_.chance(0.55f) ? NpcHeldProp::ShoppingBag : NpcHeldProp::CoffeeCup;
+            npc.walkSpeed = rng_.range(1.26f, 1.66f);
+        } else if (archRoll < 0.68f) {
+            // Street Style / Smartphone Tech Commuter
+            npc.archetype = NpcArchetype::StreetTech;
+            npc.outfitStyle = rng_.chance(0.42f) ? OutfitId::RacerLeather : OutfitId::StreetCasual;
+            npc.outfitTop = rng_.chance(0.5f) ? ColorRGBA{44, 48, 62, 255} : ColorRGBA{176, 46, 62, 255};
+            npc.outfitBottom = {32, 36, 46, 255};
+            npc.hairStyle = rng_.chance(0.35f) ? 2 : (rng_.chance(0.5f) ? 3 : 1);
+            npc.glassesStyle = rng_.chance(0.35f) ? 1 : 0;
+            npc.backGearStyle = rng_.chance(0.50f) ? 1 : 0;
+            npc.heldProp = NpcHeldProp::Smartphone;
+            npc.walkSpeed = rng_.range(1.42f, 1.82f);
+        } else if (archRoll < 0.80f) {
+            // City Crew / High-Vis Worker
+            npc.archetype = NpcArchetype::Worker;
+            npc.outfitStyle = OutfitId::StreetCasual;
+            npc.outfitTop = rng_.chance(0.55f) ? ColorRGBA{236, 178, 38, 255} : ColorRGBA{226, 118, 38, 255};
+            npc.outfitBottom = {44, 52, 68, 255};
+            npc.hairStyle = rng_.chance(0.65f) ? 3 : 0;
+            npc.glassesStyle = rng_.chance(0.25f) ? 1 : 0;
+            npc.heldProp = rng_.chance(0.35f) ? NpcHeldProp::CoffeeCup : NpcHeldProp::None;
+            npc.walkSpeed = rng_.range(1.48f, 1.86f);
+        } else {
+            // Classic Sunset Bay Casual Pedestrian
+            npc.archetype = NpcArchetype::Casual;
+            npc.outfitStyle = OutfitId::StreetCasual;
+            npc.outfitTop = {
+                static_cast<std::uint8_t>(rng_.rangeInt(68, 232)),
+                static_cast<std::uint8_t>(rng_.rangeInt(68, 232)),
+                static_cast<std::uint8_t>(rng_.rangeInt(82, 238)),
+                255
+            };
+            npc.outfitBottom = {
+                static_cast<std::uint8_t>(rng_.rangeInt(34, 88)),
+                static_cast<std::uint8_t>(rng_.rangeInt(38, 96)),
+                static_cast<std::uint8_t>(rng_.rangeInt(48, 118)),
+                255
+            };
+            npc.hairStyle = rng_.rangeInt(0, 1);
+            npc.glassesStyle = rng_.chance(0.22f) ? 1 : 0;
+            npc.backGearStyle = rng_.chance(0.20f) ? 1 : 0;
+            npc.heldProp = rng_.chance(0.32f) ? NpcHeldProp::Smartphone
+                         : (rng_.chance(0.28f) ? NpcHeldProp::CoffeeCup : NpcHeldProp::None);
+            npc.walkSpeed = rng_.range(1.38f, 1.92f);
+        }
+
+        npc.holdingUmbrella = rainWeather_ && (npc.archetype != NpcArchetype::Jogger);
         npcs_.push_back(npc);
         ++civCount;
     }
@@ -3209,19 +3314,19 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
             player_.aimPitch = clampf(std::asin(clampf(fromShoulder.y, -0.98f, 0.98f)), -1.15f, 1.20f);
         }
 
-        // Brandishing / aiming a firearm at civilians or traffic drivers causes immediate panic!
+        // Brandishing / aiming a firearm at civilians or traffic drivers causes immediate gunpoint surrender or panic!
         if (input.aimHeld && player_.currentWeapon != WeaponId::Fists) {
-            const Vec2 aimFwd = forwardFromHeading(player_.facingYaw);
-            for (const auto& n : npcs_) {
-                if (!n.alive || n.role != NpcRole::Civilian) continue;
-                const Vec2 dn = n.pos - player_.pos;
-                if (dn.lengthSq() < 11.5f * 11.5f && dn.dot(aimFwd) > 0.5f) {
-                    triggerCivilianPanicNear(player_.pos, 12.5f);
-                    break;
-                }
-            }
             if (crosshairHit.kind == RayHit3D::Kind::Npc && crosshairHit.npc && crosshairHit.dist < 34.0f) {
                 if (crosshairHit.npc->role == NpcRole::Civilian) {
+                    if (crosshairHit.dist < 11.5f &&
+                        (crosshairHit.npc->behavior != NpcBehavior::PanicFlee ||
+                         crosshairHit.npc->activity == NpcActivity::HandsUp)) {
+                        crosshairHit.npc->activity = NpcActivity::HandsUp;
+                        crosshairHit.npc->activityTimer = 0.32f;
+                        crosshairHit.npc->holdingUmbrella = false;
+                        crosshairHit.npc->facingYaw = std::atan2(player_.pos.z - crosshairHit.npc->pos.z,
+                                                                 player_.pos.x - crosshairHit.npc->pos.x);
+                    }
                     triggerCivilianPanicNear(crosshairHit.npc->pos, 13.0f);
                 } else if (crosshairHit.npc->role == NpcRole::Police && crosshairHit.dist < 18.0f) {
                     reportCrime(1.1f, 1, player_.pos, true);
@@ -3231,6 +3336,15 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
                        crosshairHit.dist < 28.0f) {
                 crosshairHit.vehicle->driverPanicked = true;
                 crosshairHit.vehicle->driverPanicTimer = 9.0f;
+            }
+            const Vec2 aimFwd = forwardFromHeading(player_.facingYaw);
+            for (const auto& n : npcs_) {
+                if (!n.alive || n.role != NpcRole::Civilian) continue;
+                const Vec2 dn = n.pos - player_.pos;
+                if (dn.lengthSq() < 11.5f * 11.5f && dn.dot(aimFwd) > 0.5f) {
+                    triggerCivilianPanicNear(player_.pos, 12.5f);
+                    break;
+                }
             }
         }
     } else {
@@ -3560,17 +3674,32 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
 
     const Vec2 prevPos = v.pos;
     const Vec2 fwdBefore = forwardFromHeading(v.heading);
+    const Vec2 rightBefore = rightFromHeading(v.heading);
     const Vec2 lookPos = v.pos + v.velocity * dt;
 
+    auto samplePointGroundH = [&](const Vec2& p, float* outSlope) -> float {
+        const float rH = evaluateStuntRampHeight(p, outSlope, &fwdBefore);
+        float baseH = 0.0f;
+        if (p.x < -345.0f) {
+            baseH = (std::abs(p.z) < 7.6f) ? 0.24f : 0.02f;
+        } else {
+            baseH = city_.isOnRoad(p, 0.1f) ? 0.0f : 0.08f;
+        }
+        return (rH > 0.001f) ? (baseH + rH) : baseH;
+    };
+
     float rampSlopePitch = 0.0f;
-    const float rampH = evaluateStuntRampHeight(lookPos, &rampSlopePitch, &fwdBefore);
-    float baseGroundH = 0.0f;
-    if (lookPos.x < -345.0f) {
-        baseGroundH = (std::abs(lookPos.z) < 7.6f) ? 0.24f : 0.02f;
-    } else {
-        baseGroundH = city_.isOnRoad(lookPos, 0.1f) ? 0.0f : 0.08f;
-    }
-    const float groundH = (rampH > 0.001f) ? (baseGroundH + rampH) : baseGroundH;
+    const float groundH = samplePointGroundH(lookPos, &rampSlopePitch);
+
+    // Sample all 4 wheel contact patches (FL, FR, RL, RR) for true independent curb/ramp suspension!
+    const float axleX = spec.halfLength * 0.63f;
+    const float axleZ = spec.halfWidth * 0.86f;
+    const Vec2 wheelWorld[4] = {
+        lookPos + fwdBefore * axleX - rightBefore * axleZ, // FL
+        lookPos + fwdBefore * axleX + rightBefore * axleZ, // FR
+        lookPos - fwdBefore * axleX - rightBefore * axleZ, // RL
+        lookPos - fwdBefore * axleX + rightBefore * axleZ  // RR
+    };
 
     RsVehicleSpecParams rsSpec{};
     rsSpec.mass = spec.mass;
@@ -3596,6 +3725,9 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
     rsInput.ground_height = groundH;
     rsInput.ramp_slope_pitch = rampSlopePitch;
     rsInput.wet_road_factor = rainWeather_ ? 1.0f : 0.0f;
+    for (int w = 0; w < 4; ++w) {
+        rsInput.wheel_ground_h[w] = samplePointGroundH(wheelWorld[w], nullptr);
+    }
 
     RsVehiclePhysicsState rsState{};
     rsState.pos_x = v.pos.x;
@@ -3625,8 +3757,13 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
     rsState.air_time = v.airTime;
     rsState.landed_air_time = 0.0f;
     rsState.landed_impact_speed = 0.0f;
+    rsState.turbo_spool = v.turboSpool;
+    rsState.wheel_slip = v.wheelSlip;
+    rsState.shift_cut_timer = v.shiftCutTimer;
+    rsState.shift_backfire = 0;
+    rsState.brake_heat = v.brakeHeat;
 
-    // Call into the native Rust physics kernel!
+    // Call into the native v1.2.0 Rust physics kernel!
     oc_rs_step_vehicle_dynamics(dt, &rsState, &rsSpec, &rsInput);
 
     v.pos = {rsState.pos_x, rsState.pos_z};
@@ -3652,9 +3789,29 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
     v.isDrifting = (rsState.is_drifting != 0);
     v.airborne = (rsState.airborne != 0);
     v.airTime = rsState.air_time;
+    v.turboSpool = rsState.turbo_spool;
+    v.wheelSlip = rsState.wheel_slip;
+    v.shiftCutTimer = rsState.shift_cut_timer;
+    v.brakeHeat = rsState.brake_heat;
+    v.backfireTimer = std::max(0.0f, v.backfireTimer - dt);
+    v.turnSignalPhase = std::fmod(v.turnSignalPhase + dt * 3.4f, 1.0f);
 
     const Vec2 fwd = forwardFromHeading(v.heading);
     const Vec2 right = rightFromHeading(v.heading);
+
+    // High-RPM upshift / turbo lift-off twin-exhaust backfire flash & ember pop!
+    if (rsState.shift_backfire != 0 && !v.destroyed &&
+        (spec.maxForwardSpeed >= 38.0f || v.engineUpgradeLevel >= 1)) {
+        v.backfireTimer = 0.14f;
+        const float exZ = (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype)
+                              ? (spec.halfWidth * 0.20f)
+                              : (spec.halfWidth * 0.54f);
+        const Vec2 rearCenter = v.pos - fwd * (spec.halfLength + 0.08f);
+        for (int s = -1; s <= 1; s += 2) {
+            const Vec2 tip = rearCenter + right * (static_cast<float>(s) * exZ);
+            emitParticles({tip.x, v.posY + 0.30f, tip.z}, 2, {255, 162, 54, 255}, 3.6f, 0.13f, 0.16f);
+        }
+    }
 
     // 3D Stunt Jump Touchdown Sparks & Cash Bonus!
     if (rsState.landed_air_time >= 0.36f) {
@@ -3676,16 +3833,21 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
         }
     }
 
-    if (v.isDrifting) {
+    // Tire skid marks & smoke for drifting OR high-torque 1st-gear launch wheelspin!
+    if (v.isDrifting || (v.wheelSlip > 0.28f && !v.airborne && !v.destroyed)) {
         const Vec2 rearAxlePrev = prevPos - fwd * (spec.halfLength * 0.72f);
         const Vec2 rearAxleNow = v.pos - fwd * (spec.halfLength * 0.72f);
         const Vec2 wheelOff = right * (spec.halfWidth * 0.82f);
-        pushSkidMark(rearAxlePrev - wheelOff, rearAxleNow - wheelOff, 0.58f);
-        pushSkidMark(rearAxlePrev + wheelOff, rearAxleNow + wheelOff, 0.58f);
+        const float skidAlpha = v.isDrifting ? 0.60f : clampf(v.wheelSlip * 0.52f, 0.18f, 0.48f);
+        if ((rearAxleNow - rearAxlePrev).lengthSq() > 0.002f) {
+            pushSkidMark(rearAxlePrev - wheelOff, rearAxleNow - wheelOff, skidAlpha);
+            pushSkidMark(rearAxlePrev + wheelOff, rearAxleNow + wheelOff, skidAlpha);
+        }
 
-        if (rng_.chance(v.driftSmokeColorIdx > 0 ? 0.82f : 0.65f)) {
+        const float smokeProb = v.isDrifting ? (v.driftSmokeColorIdx > 0 ? 0.82f : 0.65f) : (v.wheelSlip * 0.58f);
+        if (rng_.chance(smokeProb)) {
             const ColorRGBA smokeCol = getDriftSmokeColorRGBA(v.driftSmokeColorIdx);
-            const float smokeSize = (v.driftSmokeColorIdx > 0) ? 0.42f : 0.34f;
+            const float smokeSize = (v.driftSmokeColorIdx > 0) ? 0.42f : (v.isDrifting ? 0.34f : 0.27f);
             emitParticles({rearAxleNow.x - wheelOff.x, v.posY + 0.18f, rearAxleNow.z - wheelOff.z},
                           1, smokeCol, 1.85f, smokeSize, 0.48f);
             emitParticles({rearAxleNow.x + wheelOff.x, v.posY + 0.18f, rearAxleNow.z + wheelOff.z},
@@ -4087,77 +4249,98 @@ void GameWorld::resolveVehicleCollisions(float dt) {
         return v.pos + fwd * lx + right * lz;
     };
 
-    // 2. Vehicle vs Vehicle OBB collisions via Native Rust Rotational Impulse Solver
-    for (std::size_t i = 0; i < vehicles_.size(); ++i) {
-        for (std::size_t j = i + 1; j < vehicles_.size(); ++j) {
-            Vehicle& a = vehicles_[i];
-            Vehicle& b = vehicles_[j];
-            if ((a.pos - b.pos).lengthSq() > 42.0f) continue;
-            if (std::abs(a.posY - b.posY) > 1.85f) continue;
+    // 2. Vehicle vs Vehicle OBB collisions via Native Rust 2-Pass Rotational + Tangential Friction Solver
+    for (int iter = 0; iter < 2; ++iter) {
+        for (std::size_t i = 0; i < vehicles_.size(); ++i) {
+            for (std::size_t j = i + 1; j < vehicles_.size(); ++j) {
+                Vehicle& a = vehicles_[i];
+                Vehicle& b = vehicles_[j];
+                if ((a.pos - b.pos).lengthSq() > 42.0f) continue;
+                if (std::abs(a.posY - b.posY) > 1.85f) continue;
 
-            Vec2 mtv{};
-            if (!intersectOBB(a.obb(), b.obb(), mtv)) continue;
+                Vec2 mtv{};
+                if (!intersectOBB(a.obb(), b.obb(), mtv)) continue;
 
-            const auto& specA = getVehicleSpec(a.kind);
-            const auto& specB = getVehicleSpec(b.kind);
-            const float pen = mtv.length();
-            const Vec2 n = (pen > 1e-5f) ? (mtv / pen) : Vec2{1.0f, 0.0f};
-            const Vec2 contactPt = (closestPointOnVehicleOBB(a, b.pos) + closestPointOnVehicleOBB(b, a.pos)) * 0.5f;
+                const auto& specA = getVehicleSpec(a.kind);
+                const auto& specB = getVehicleSpec(b.kind);
+                const float pen = mtv.length();
+                const Vec2 n = (pen > 1e-5f) ? (mtv / pen) : Vec2{1.0f, 0.0f};
+                const Vec2 contactPt = (closestPointOnVehicleOBB(a, b.pos) + closestPointOnVehicleOBB(b, a.pos)) * 0.5f;
 
-            RsRigidBody2D rbA{
-                a.pos.x, a.pos.z, a.velocity.x, a.velocity.z,
-                a.heading, a.angularVelocity, specA.mass, specA.halfLength, specA.halfWidth,
-                a.frontDamage, a.rearDamage, a.leftDamage, a.rightDamage
-            };
-            RsRigidBody2D rbB{
-                b.pos.x, b.pos.z, b.velocity.x, b.velocity.z,
-                b.heading, b.angularVelocity, specB.mass, specB.halfLength, specB.halfWidth,
-                b.frontDamage, b.rearDamage, b.leftDamage, b.rightDamage
-            };
+                RsRigidBody2D rbA{
+                    a.pos.x, a.pos.z, a.velocity.x, a.velocity.z,
+                    a.heading, a.angularVelocity, specA.mass, specA.halfLength, specA.halfWidth,
+                    a.frontDamage, a.rearDamage, a.leftDamage, a.rightDamage
+                };
+                RsRigidBody2D rbB{
+                    b.pos.x, b.pos.z, b.velocity.x, b.velocity.z,
+                    b.heading, b.angularVelocity, specB.mass, specB.halfLength, specB.halfWidth,
+                    b.frontDamage, b.rearDamage, b.leftDamage, b.rightDamage
+                };
 
-            const float impactSpeed = oc_rs_resolve_rigid_collision_2d(
-                &rbA, &rbB, n.x, n.z, pen, contactPt.x, contactPt.z, 0.35f);
+                const float impactSpeed = oc_rs_resolve_rigid_collision_2d(
+                    &rbA, &rbB, n.x, n.z, pen, contactPt.x, contactPt.z, 0.35f);
 
-            a.pos = {rbA.pos_x, rbA.pos_z};
-            b.pos = {rbB.pos_x, rbB.pos_z};
-            a.velocity = {rbA.vel_x, rbA.vel_z};
-            b.velocity = {rbB.vel_x, rbB.vel_z};
-            a.angularVelocity = rbA.angular_velocity;
-            b.angularVelocity = rbB.angular_velocity;
-            a.frontDamage = rbA.front_damage;
-            a.rearDamage = rbA.rear_damage;
-            a.leftDamage = rbA.left_damage;
-            a.rightDamage = rbA.right_damage;
-            b.frontDamage = rbB.front_damage;
-            b.rearDamage = rbB.rear_damage;
-            b.leftDamage = rbB.left_damage;
-            b.rightDamage = rbB.right_damage;
+                a.pos = {rbA.pos_x, rbA.pos_z};
+                b.pos = {rbB.pos_x, rbB.pos_z};
+                a.velocity = {rbA.vel_x, rbA.vel_z};
+                b.velocity = {rbB.vel_x, rbB.vel_z};
+                a.angularVelocity = rbA.angular_velocity;
+                b.angularVelocity = rbB.angular_velocity;
+                a.frontDamage = rbA.front_damage;
+                a.rearDamage = rbA.rear_damage;
+                a.leftDamage = rbA.left_damage;
+                a.rightDamage = rbA.right_damage;
+                b.frontDamage = rbB.front_damage;
+                b.rearDamage = rbB.rear_damage;
+                b.leftDamage = rbB.left_damage;
+                b.rightDamage = rbB.right_damage;
 
-            if (impactSpeed > 0.01f) {
-                a.isParked = false;
-                b.isParked = false;
+                if (iter == 0 && impactSpeed > 0.01f) {
+                    a.isParked = false;
+                    b.isParked = false;
 
-                if (impactSpeed > 7.5f) {
-                    const float dmg = (impactSpeed - 6.0f) * 1.15f;
-                    a.health -= dmg / (1.0f + 0.28f * static_cast<float>(a.armorUpgradeLevel));
-                    b.health -= dmg / (1.0f + 0.28f * static_cast<float>(b.armorUpgradeLevel));
-                    emitParticles({contactPt.x, std::max(a.posY, b.posY) + 0.7f, contactPt.z},
-                                  8, {255, 206, 84, 255}, 6.0f, 0.16f, 0.32f);
-                    if (a.isPlayerDriving || b.isPlayerDriving) {
-                        pushAudio(AudioEventType::CarCrash, clampf(impactSpeed / 22.0f, 0.3f, 1.0f));
-                        Vehicle& other = a.isPlayerDriving ? b : a;
-                        if (other.isPolice && !other.isPlayerDriving && impactSpeed > 8.5f && player_.wantedLevel == 0) {
-                            reportCrime(2.4f, 2, other.pos, true);
-                        } else if (other.hasNpcDriver && !other.isPolice && impactSpeed > 11.5f) {
-                            other.driverPanicked = true;
-                            other.driverPanicTimer = 8.5f;
-                            if (impactSpeed > 18.0f) {
-                                reportCrime(1.05f, 1, other.pos, false);
+                    // Excite realistic chassis suspension pitch/roll recoil on collisions
+                    if (impactSpeed > 2.5f) {
+                        const float shock = clampf(impactSpeed * 0.025f, 0.04f, 0.48f);
+                        const Vec2 fwdA = forwardFromHeading(a.heading);
+                        const Vec2 rgtA = rightFromHeading(a.heading);
+                        a.pitchVel = clampf(a.pitchVel - n.dot(fwdA) * shock, -1.6f, 1.6f);
+                        a.rollVel  = clampf(a.rollVel  - n.dot(rgtA) * shock, -1.6f, 1.6f);
+                        const Vec2 fwdB = forwardFromHeading(b.heading);
+                        const Vec2 rgtB = rightFromHeading(b.heading);
+                        b.pitchVel = clampf(b.pitchVel + n.dot(fwdB) * shock, -1.6f, 1.6f);
+                        b.rollVel  = clampf(b.rollVel  + n.dot(rgtB) * shock, -1.6f, 1.6f);
+                    }
+
+                    // Metallic fender-scrape sparks even on moderate side-swipes
+                    if (impactSpeed > 4.2f && impactSpeed <= 7.5f) {
+                        emitParticles({contactPt.x, std::max(a.posY, b.posY) + 0.58f, contactPt.z},
+                                      4, {255, 214, 108, 255}, 4.5f, 0.12f, 0.22f);
+                    }
+
+                    if (impactSpeed > 7.5f) {
+                        const float dmg = (impactSpeed - 6.0f) * 1.15f;
+                        a.health -= dmg / (1.0f + 0.28f * static_cast<float>(a.armorUpgradeLevel));
+                        b.health -= dmg / (1.0f + 0.28f * static_cast<float>(b.armorUpgradeLevel));
+                        emitParticles({contactPt.x, std::max(a.posY, b.posY) + 0.7f, contactPt.z},
+                                      9, {255, 206, 84, 255}, 6.2f, 0.16f, 0.34f);
+                        if (a.isPlayerDriving || b.isPlayerDriving) {
+                            pushAudio(AudioEventType::CarCrash, clampf(impactSpeed / 22.0f, 0.3f, 1.0f));
+                            Vehicle& other = a.isPlayerDriving ? b : a;
+                            if (other.isPolice && !other.isPlayerDriving && impactSpeed > 8.5f && player_.wantedLevel == 0) {
+                                reportCrime(2.4f, 2, other.pos, true);
+                            } else if (other.hasNpcDriver && !other.isPolice && impactSpeed > 11.5f) {
+                                other.driverPanicked = true;
+                                other.driverPanicTimer = 8.5f;
+                                if (impactSpeed > 18.0f) {
+                                    reportCrime(1.05f, 1, other.pos, false);
+                                }
                             }
                         }
+                        if (!a.destroyed && a.health <= 0.0f) explodeVehicle(a);
+                        if (!b.destroyed && b.health <= 0.0f) explodeVehicle(b);
                     }
-                    if (!a.destroyed && a.health <= 0.0f) explodeVehicle(a);
-                    if (!b.destroyed && b.health <= 0.0f) explodeVehicle(b);
                 }
             }
         }
@@ -4383,7 +4566,12 @@ void GameWorld::triggerCivilianPanicNear(const Vec2& origin, float radius) {
 void GameWorld::damageNpc(NpcCharacter& npc, float dmg, const Vec2& hitDir) {
     if (!npc.alive) return;
     npc.health -= dmg;
-    npc.pos += hitDir * 0.25f;
+    npc.holdingUmbrella = false;
+    npc.activity = NpcActivity::None;
+    npc.activityTimer = 0.0f;
+    const float kbMag = clampf(dmg * 0.085f, 1.4f, 11.5f);
+    npc.knockbackVel += hitDir * kbMag;
+    npc.pos += hitDir * 0.18f;
     city_.resolveCircleWorld(npc.pos, 0.42f);
 
     if (npc.role == NpcRole::Gangster || npc.role == NpcRole::Police) {
@@ -4404,6 +4592,7 @@ void GameWorld::damageNpc(NpcCharacter& npc, float dmg, const Vec2& hitDir) {
         npc.alive = false;
         npc.health = 0.0f;
         npc.corpseTimer = 0.0f;
+        npc.fallProgress = 0.05f;
         int dropCash = rng_.rangeInt(20, 55);
         if (npc.role == NpcRole::Gangster) {
             dropCash = rng_.rangeInt(90, 190);
@@ -4424,18 +4613,71 @@ void GameWorld::updateNpcs(float dt) {
         auto& npc = npcs_[idx];
         if (!npc.alive) {
             npc.corpseTimer += dt;
+            npc.fallProgress = std::min(1.0f, npc.fallProgress + dt * 3.4f);
+            if (npc.knockbackVel.lengthSq() > 0.02f) {
+                npc.pos += npc.knockbackVel * dt;
+                npc.knockbackVel *= std::exp(-6.5f * dt);
+                city_.resolveCircleWorld(npc.pos, 0.42f);
+            }
             continue;
         }
         if (npc.muzzleFlashTimer > 0.0f) {
             npc.muzzleFlashTimer = std::max(0.0f, npc.muzzleFlashTimer - dt);
         }
+        if (npc.dodgeCooldown > 0.0f) {
+            npc.dodgeCooldown = std::max(0.0f, npc.dodgeCooldown - dt);
+        }
+        if (npc.knockbackVel.lengthSq() > 0.02f) {
+            npc.pos += npc.knockbackVel * dt;
+            npc.knockbackVel *= std::exp(-8.5f * dt);
+            city_.resolveCircleWorld(npc.pos, 0.42f);
+        }
 
-        // Vehicle run-over check (only when vehicle is within vertical height of the NPC)
+        // Rain weather umbrella auto-open for calm non-jogger civilians; fold/drop when panicking!
+        if (npc.role == NpcRole::Civilian) {
+            const bool wantUmbrella = rainWeather_ && (npc.behavior == NpcBehavior::Stroll) &&
+                                      (npc.activity != NpcActivity::HandsUp) &&
+                                      (npc.archetype != NpcArchetype::Jogger);
+            npc.holdingUmbrella = wantUmbrella;
+        } else {
+            npc.holdingUmbrella = false;
+        }
+
+        // Vehicle run-over check + smart oncoming vehicle side-step dodge for alert civilians!
         for (const auto& v : vehicles_) {
-            if (v.speed() < 6.5f) continue;
+            const float vSpd = v.speed();
+            if (vSpd < 5.5f) continue;
             if (v.isPolice && !v.isPlayerDriving && npc.role == NpcRole::Police) continue;
-            if ((v.pos - npc.pos).lengthSq() > 14.0f) continue;
+            const Vec2 fromCar = npc.pos - v.pos;
+            const float dSq = fromCar.lengthSq();
+            if (dSq > 135.0f) continue;
             if (v.posY - surfaceHeightAt(npc.pos) > 1.75f) continue;
+
+            // Early danger dodge: if a fast vehicle is barreling right toward a calm civilian, dive sideways!
+            if (npc.role == NpcRole::Civilian && npc.dodgeCooldown <= 0.0f && dSq > 4.0f && dSq < 121.0f) {
+                const Vec2 vDir = v.velocity / vSpd;
+                const float ahead = fromCar.dot(vDir);
+                const float lat = fromCar.dot(Vec2{-vDir.z, vDir.x});
+                const auto& vSpec = getVehicleSpec(v.kind);
+                if (ahead > 1.5f && ahead < 11.0f && std::abs(lat) < vSpec.halfWidth + 1.15f) {
+                    const float sideSign = (lat >= 0.0f) ? 1.0f : -1.0f;
+                    const Vec2 dodgeDir = Vec2{-vDir.z, vDir.x} * sideSign;
+                    npc.knockbackVel += dodgeDir * 5.8f;
+                    npc.facingYaw = std::atan2(dodgeDir.z, dodgeDir.x);
+                    npc.behavior = NpcBehavior::PanicFlee;
+                    npc.stateTimer = std::max(npc.stateTimer, 4.5f);
+                    npc.panicOrigin = v.pos;
+                    npc.holdingUmbrella = false;
+                    npc.activity = NpcActivity::None;
+                    npc.dodgeCooldown = 1.8f;
+                    if (panicScreamCooldown_ <= 0.0f) {
+                        pushAudio(AudioEventType::NpcScream, 0.55f);
+                        panicScreamCooldown_ = 1.6f;
+                    }
+                }
+            }
+
+            if (vSpd < 6.5f || dSq > 14.0f) continue;
             const OBB2D npcBox{npc.pos, {0.42f, 0.42f}, 0.0f};
             Vec2 mtv{};
             if (intersectOBB(npcBox, v.obb(), mtv)) {
@@ -4446,13 +4688,28 @@ void GameWorld::updateNpcs(float dt) {
                         reportCrime(1.65f, 1, npc.pos, false);
                     }
                 }
-                damageNpc(npc, v.speed() * 5.2f, v.velocity.normalized());
+                const Vec2 hitDir = v.velocity.normalized();
+                npc.knockbackVel += hitDir * clampf(vSpd * 0.65f, 5.0f, 16.0f);
+                damageNpc(npc, vSpd * 5.2f, hitDir);
                 emitParticles({npc.pos.x, 1.0f, npc.pos.z}, 6, {225, 52, 52, 255}, 5.0f, 0.16f, 0.35f);
                 triggerCivilianPanicNear(npc.pos, 22.0f);
                 break;
             }
         }
         if (!npc.alive) continue;
+
+        // Brief close-range gunpoint Hands-Up surrender freeze before sprinting away
+        if (npc.role == NpcRole::Civilian && npc.activity == NpcActivity::HandsUp) {
+            npc.activityTimer -= dt;
+            npc.velocity = {0.0f, 0.0f};
+            npc.headLookYaw = lerpf(npc.headLookYaw, 0.0f, dt * 8.0f);
+            npc.animPhase = lerpf(npc.animPhase, 0.0f, dt * 10.0f);
+            if (npc.activityTimer <= 0.0f) {
+                npc.activity = NpcActivity::None;
+            } else {
+                continue;
+            }
+        }
 
         // 1. SBPD Police & SWAT Officers (Active Pursuit Combat when Wanted, Sidewalk Beat Patrol when Calm)
         if (npc.role == NpcRole::Police && player_.wantedLevel > 0) {
@@ -4789,7 +5046,28 @@ void GameWorld::updateNpcs(float dt) {
                     } else if (!curIsCrosswalk && npc.idlePauseTimer > 0.0f) {
                         npc.idlePauseTimer = std::max(0.0f, npc.idlePauseTimer - dt);
                         npc.velocity = {0.0f, 0.0f};
+                        if (npc.role == NpcRole::Civilian && npc.activity == NpcActivity::None) {
+                            npc.activity = (npc.heldProp == NpcHeldProp::Smartphone || rng_.chance(0.45f))
+                                               ? NpcActivity::CheckingPhone
+                                               : NpcActivity::LookingAround;
+                            npc.activityTimer = npc.idlePauseTimer;
+                        }
+                        if (npc.idlePauseTimer <= 0.0f) {
+                            npc.activity = NpcActivity::None;
+                        }
                     } else {
+                        if (npc.role == NpcRole::Civilian && npc.activity != NpcActivity::HandsUp) {
+                            if (npc.activityTimer > 0.0f) {
+                                npc.activityTimer = std::max(0.0f, npc.activityTimer - dt);
+                                if (npc.activityTimer <= 0.0f) npc.activity = NpcActivity::None;
+                            } else if (!curIsCrosswalk && npc.heldProp == NpcHeldProp::Smartphone &&
+                                       npc.archetype != NpcArchetype::Jogger && rng_.chance(dt * 0.14f)) {
+                                // StreetTech & casual pedestrians occasionally glance down at their smartphone while walking!
+                                npc.activity = NpcActivity::CheckingPhone;
+                                npc.activityTimer = rng_.range(2.2f, 4.5f);
+                            }
+                        }
+
                         const float clampedS = clampf(curProgress, 0.0f, curLen);
                         const float lookS = std::min(curLen, clampedS + 2.2f);
                         const Vec2 steerPoint = curLaneStart + curDir * lookS;
@@ -4798,6 +5076,8 @@ void GameWorld::updateNpcs(float dt) {
                         float moveSpd = npc.walkSpeed;
                         if (curIsCrosswalk) {
                             moveSpd = npc.walkSpeed * 1.28f; // Brisk crosswalk pace
+                        } else if (npc.activity == NpcActivity::CheckingPhone) {
+                            moveSpd = npc.walkSpeed * 0.72f; // Slower pace while texting
                         }
 
                         const float targetYaw = (desiredDir.lengthSq() > 0.01f)
@@ -4824,9 +5104,33 @@ void GameWorld::updateNpcs(float dt) {
             }
         }
 
+        // Natural head-turning curiosity (look at nearby player/supercar, or check traffic at crosswalks!)
+        float targetHeadYaw = 0.0f;
+        if (npc.behavior == NpcBehavior::Stroll) {
+            const Vec2 toPlayer = pPos - npc.pos;
+            const float pDistSq = toPlayer.lengthSq();
+            if (pDistSq > 1.2f && pDistSq < 11.5f * 11.5f) {
+                const float relYaw = wrapAngle(std::atan2(toPlayer.z, toPlayer.x) - npc.facingYaw);
+                if (std::abs(relYaw) < 1.35f) {
+                    targetHeadYaw = clampf(relYaw * 0.72f, -0.78f, 0.78f);
+                }
+            } else if (npc.waitingAtCrosswalk || npc.activity == NpcActivity::LookingAround) {
+                targetHeadYaw = std::sin(trafficSignalTimer_ * (kTwoPi / 4.0f) + static_cast<float>(npc.id) * 1.7f) * 0.58f;
+            }
+        } else if (npc.behavior == NpcBehavior::PanicFlee) {
+            // Brief fearful glance back over shoulder while sprinting away
+            const Vec2 toThreat = npc.panicOrigin - npc.pos;
+            if (toThreat.lengthSq() > 1.0f) {
+                const float relYaw = wrapAngle(std::atan2(toThreat.z, toThreat.x) - npc.facingYaw);
+                targetHeadYaw = clampf(relYaw * 0.35f, -0.65f, 0.65f);
+            }
+        }
+        npc.headLookYaw = lerpf(npc.headLookYaw, targetHeadYaw, dt * 6.5f);
+
         const float spd = npc.velocity.length();
         if (spd > 0.2f) {
-            const float phaseScale = (npc.behavior == NpcBehavior::PanicFlee) ? 2.55f : 2.2f;
+            const float phaseScale = (npc.behavior == NpcBehavior::PanicFlee) ? 2.55f
+                                   : ((npc.archetype == NpcArchetype::Jogger) ? 2.40f : 2.2f);
             npc.animPhase = std::fmod(npc.animPhase + dt * spd * phaseScale, kTwoPi);
         } else {
             npc.animPhase = lerpf(npc.animPhase, 0.0f, dt * 8.0f);

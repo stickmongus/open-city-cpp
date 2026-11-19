@@ -113,10 +113,10 @@ int main(int argc, char** argv) {
 
 #if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
     SetConfigFlags(FLAG_VSYNC_HINT);
-    InitWindow(0, 0, "Open City v1.1.0");
+    InitWindow(0, 0, "Open City v1.2.0");
 #else
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1440, 860, "Open City C++ + Rust v1.1.0 - 3D Open-World Sandbox");
+    InitWindow(1440, 860, "Open City C++ + Rust v1.2.0 - 3D Open-World Sandbox");
 #endif
     SetExitKey(KEY_NULL); // Keep ESC / Android Back free for closing modals instead of instant quit
     SetTargetFPS(60);
@@ -964,7 +964,9 @@ int main(int argc, char** argv) {
                 car->posY + stanceOffsetY + y2,
                 car->pos.z + carFwd.z * x2 + carRight.z * z2
             };
-            targetFov = 65.0f + oc::clampf(car->speed() * 0.22f, 0.0f, 9.0f) + (car->nitroActive ? 3.5f : 0.0f);
+            targetFov = 65.0f + oc::clampf(car->speed() * 0.22f, 0.0f, 9.0f) +
+                        car->turboSpool * 2.4f - car->shiftCutTimer * 7.5f +
+                        (car->nitroActive ? 3.5f : 0.0f);
             if (!camInitialized) {
                 smoothedFov = targetFov;
                 camInitialized = true;
@@ -1051,8 +1053,10 @@ int main(int argc, char** argv) {
 
             if (const oc::Vehicle* car = world.playerVehicle()) {
                 rawAnchor = {car->pos.x, 1.48f + car->posY, car->pos.z};
-                desiredDist = 7.8f + oc::clampf(car->speed() * 0.065f, 0.0f, 2.6f);
-                targetFov = 58.0f + oc::clampf(car->speed() * 0.28f, 0.0f, 12.0f) + (car->nitroActive ? 4.0f : 0.0f);
+                desiredDist = 7.8f + oc::clampf(car->speed() * 0.065f, 0.0f, 2.6f) + car->turboSpool * 0.35f;
+                targetFov = 58.0f + oc::clampf(car->speed() * 0.28f, 0.0f, 12.0f) +
+                            car->turboSpool * 2.8f - car->shiftCutTimer * 8.0f +
+                            (car->nitroActive ? 4.0f : 0.0f);
             } else {
                 const auto& pl = world.player();
                 const float footElev = std::max(0.0f, pl.posY - 0.08f) * 0.92f;

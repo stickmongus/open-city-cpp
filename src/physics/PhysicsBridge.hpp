@@ -31,6 +31,7 @@ struct RsVehicleControlInput {
     float ground_height;
     float ramp_slope_pitch;
     float wet_road_factor;
+    float wheel_ground_h[4]; // FL, FR, RL, RR surface elevation for 4-corner curb suspension
 };
 
 struct RsVehiclePhysicsState {
@@ -59,6 +60,11 @@ struct RsVehiclePhysicsState {
     float air_time;
     float landed_air_time;
     float landed_impact_speed;
+    float turbo_spool;
+    float wheel_slip;
+    float shift_cut_timer;
+    std::int32_t shift_backfire;
+    float brake_heat;
 };
 
 struct RsRigidBody2D {
@@ -92,7 +98,7 @@ float oc_rs_resolve_rigid_collision_2d(RsRigidBody2D* body_a,
                                        float contact_z,
                                        float restitution);
 #else
-inline std::int32_t oc_rs_physics_version() { return 900; }
+inline std::int32_t oc_rs_physics_version() { return 1200; }
 
 inline void oc_rs_step_vehicle_dynamics(float dt,
                                         RsVehiclePhysicsState* st,
@@ -113,12 +119,17 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
     st->landed_impact_speed = 0.0f;
     st->braking_visual = 0;
     st->nitro_active = 0;
+    st->shift_backfire = 0;
+    if (st->shift_cut_timer > 0.0f) {
+        st->shift_cut_timer = std::max(0.0f, st->shift_cut_timer - dt);
+    }
 
     const float throttle = clampf(inp->throttle, -1.0f, 1.0f);
     const float steer = clampf(inp->steer, -1.0f, 1.0f);
     const bool handbrake = (inp->handbrake != 0);
     const bool nitro = (inp->nitro != 0);
-    const float wetGripScale = 1.0f - 0.14f * clampf(inp->wet_road_factor, 0.0f, 1.0f);
+    const float wetF = clampf(inp->wet_road_factor, 0.0f, 1.0f);
+    const float wetGripScale = 1.0f - 0.16f * wetF;
 
     float fwdX = std::cos(st->heading), fwdZ = std::sin(st->heading);
     float rightX = -std::sin(st->heading), rightZ = std::cos(st->heading);
@@ -127,46 +138,93 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
     float forwardSpd = prevFwdSpd;
     float lateralSpd = st->vel_x * rightX + st->vel_z * rightZ;
 
-    const float maxFwd = sp->max_forward_speed * inp->upgrade_mult * ((nitro && st->nitro_charge > 0.03f) ? 1.32f : 1.0f);
     const bool onGround = (st->airborne == 0);
+    const float topRef = std::max(18.0f, sp->max_forward_speed * inp->upgrade_mult);
+    const bool nitroReady = (nitro && st->nitro_charge > 0.03f);
+    const float maxFwd = topRef * (nitroReady ? 1.32f : 1.0f);
 
+    const int curGear = (st->current_gear >= 1 && st->current_gear <= 6) ? st->current_gear : 1;
+    static constexpr float kGearTorque[6] = {1.38f, 1.18f, 1.02f, 0.88f, 0.76f, 0.66f};
+    const float gearTorqueMul = kGearTorque[curGear - 1];
+
+    const float rpmNorm = clampf((st->engine_rpm - 880.0f) / 7270.0f, 0.0f, 1.0f);
+    const float torqueCurve = 0.78f + 0.34f * std::sin(clampf(rpmNorm * 1.10f, 0.0f, 1.0f) * kPi);
+
+    const float prevSpool = st->turbo_spool;
+    if (throttle > 0.25f && forwardSpd >= -0.4f) {
+        const float spoolRate = 1.65f + 0.55f * inp->upgrade_mult + (nitroReady ? 1.2f : 0.0f);
+        const float spoolTarget = clampf(throttle * (0.45f + 0.65f * rpmNorm), 0.0f, 1.0f);
+        st->turbo_spool = lerpf(st->turbo_spool, spoolTarget, dt * spoolRate);
+    } else {
+        st->turbo_spool = std::max(0.0f, st->turbo_spool - dt * 2.8f);
+        if (prevSpool > 0.68f && st->engine_rpm > 4700.0f && throttle <= 0.05f && onGround) {
+            st->shift_backfire = 1;
+        }
+    }
+    const float boostMul = 1.0f + 0.18f * st->turbo_spool;
+
+    float targetSlip = 0.0f;
     if (throttle > 0.05f) {
         if (forwardSpd < -0.5f) {
-            forwardSpd = std::min(0.0f, forwardSpd + sp->braking * dt);
+            const float brakeForce = sp->braking * (1.06f + 0.006f * std::abs(forwardSpd)) * (1.0f - 0.12f * wetF);
+            forwardSpd = std::min(0.0f, forwardSpd + brakeForce * dt);
             st->braking_visual = 1;
         } else {
-            float accel = sp->acceleration * inp->upgrade_mult * throttle;
-            if (nitro && st->nitro_charge > 0.03f) {
-                accel *= 1.65f;
-                st->nitro_charge = std::max(0.0f, st->nitro_charge - dt * 0.38f);
+            const float clutchMul = (st->shift_cut_timer > 0.0f) ? 0.32f : 1.0f;
+            float accel = sp->acceleration * inp->upgrade_mult * throttle * gearTorqueMul * torqueCurve * boostMul * clutchMul;
+            if (nitroReady) {
+                accel *= 1.58f;
+                st->nitro_charge = std::max(0.0f, st->nitro_charge - dt * 0.36f);
                 st->nitro_active = 1;
             }
-            if (!onGround) accel *= 0.18f;
-            forwardSpd = std::min(maxFwd, forwardSpd + accel * dt);
+            if (onGround && forwardSpd < 11.5f && throttle > 0.60f) {
+                const float tractionLimit = (20.5f + sp->normal_grip * 1.45f) * wetGripScale;
+                if (accel > tractionLimit) {
+                    const float excess = (accel - tractionLimit) / std::max(tractionLimit, 1.0f);
+                    targetSlip = clampf(excess * 1.35f + (nitroReady ? 0.25f : 0.0f), 0.0f, 1.0f);
+                    accel = tractionLimit + (accel - tractionLimit) * 0.62f;
+                }
+            }
+            if (!onGround) accel *= 0.16f;
+            const float aeroDrag = (0.55f + 0.00052f * forwardSpd * forwardSpd) * (onGround ? 1.0f : 0.35f);
+            forwardSpd = std::min(maxFwd, std::max(0.0f, forwardSpd + (accel - aeroDrag) * dt));
         }
     } else if (throttle < -0.05f) {
         if (forwardSpd > 1.2f) {
-            forwardSpd = std::max(0.0f, forwardSpd - sp->braking * (-throttle) * dt);
+            const float absPulse = 1.0f + 0.03f * std::sin(st->wheel_spin * 9.0f);
+            const float brakeForce = sp->braking * (1.08f + 0.007f * forwardSpd) * (-throttle) * (1.0f - 0.14f * wetF) * absPulse;
+            forwardSpd = std::max(0.0f, forwardSpd - brakeForce * dt);
             st->braking_visual = 1;
         } else {
-            const float revAccel = sp->acceleration * 0.68f * throttle * (onGround ? 1.0f : 0.18f);
+            const float revAccel = sp->acceleration * 0.72f * throttle * (onGround ? 1.0f : 0.16f);
             forwardSpd = std::max(-sp->max_reverse_speed, forwardSpd + revAccel * dt);
         }
     } else if (onGround) {
-        const float aeroDrag = 0.0018f * forwardSpd * std::abs(forwardSpd);
-        const float drag = (4.2f + aeroDrag) * dt;
+        const float aeroDrag = 0.0017f * forwardSpd * std::abs(forwardSpd);
+        const float drag = (3.4f + aeroDrag) * dt;
         if (std::abs(forwardSpd) <= drag) forwardSpd = 0.0f;
         else forwardSpd -= (forwardSpd > 0.0f ? drag : -drag);
     }
+
+    st->wheel_slip = lerpf(st->wheel_slip, targetSlip, dt * 11.0f);
 
     if (st->nitro_active == 0) {
         st->nitro_charge = std::min(1.0f, st->nitro_charge + dt * inp->nitro_recharge_rate);
     }
     if (handbrake && onGround) {
         st->braking_visual = 1;
-        const float hbDecel = 11.5f * dt;
+        const float hbDecel = (12.2f - 1.5f * wetF) * dt;
         if (std::abs(forwardSpd) <= hbDecel) forwardSpd = 0.0f;
         else forwardSpd -= (forwardSpd > 0.0f ? hbDecel : -hbDecel);
+    }
+
+    if (st->braking_visual != 0 && std::abs(prevFwdSpd) > 9.0f && onGround) {
+        const float heatAdd = clampf((std::abs(prevFwdSpd) - 7.0f) / 24.0f, 0.20f, 1.55f) * dt * 1.45f;
+        st->brake_heat = std::min(1.0f, st->brake_heat + heatAdd);
+    } else {
+        const float coolRate = 0.36f + 0.012f * std::abs(forwardSpd);
+        st->brake_heat *= std::exp(-coolRate * dt);
+        if (st->brake_heat < 0.01f) st->brake_heat = 0.0f;
     }
 
     const float absFwd = std::abs(forwardSpd);
@@ -174,37 +232,49 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
     if (forwardSpd < -0.55f) {
         st->current_gear = 0;
         const float revRatio = clampf(absFwd / std::max(1.0f, sp->max_reverse_speed), 0.0f, 1.0f);
-        st->engine_rpm = lerpf(st->engine_rpm, 1050.0f + revRatio * 5200.0f + std::abs(throttle) * 650.0f, dt * 12.0f);
+        st->engine_rpm = lerpf(st->engine_rpm, 1050.0f + revRatio * 5200.0f + std::abs(throttle) * 680.0f, dt * 12.0f);
     } else {
-        const float topRef = std::max(18.0f, sp->max_forward_speed * inp->upgrade_mult);
-        const float normSpd = clampf(absFwd / topRef, 0.0f, 1.15f);
-        const int gear = (absFwd < 0.35f || normSpd < 0.17f) ? 1
-                       : (normSpd < 0.34f) ? 2
-                       : (normSpd < 0.52f) ? 3
-                       : (normSpd < 0.71f) ? 4
-                       : (normSpd < 0.90f) ? 5 : 6;
+        const float normSpd = clampf(absFwd / topRef, 0.0f, 1.20f);
+        static constexpr float kUpThresh[5] = {0.18f, 0.35f, 0.53f, 0.72f, 0.90f};
+        int gear = (absFwd < 0.35f || normSpd < kUpThresh[0]) ? 1
+                 : (normSpd < kUpThresh[1]) ? 2
+                 : (normSpd < kUpThresh[2]) ? 3
+                 : (normSpd < kUpThresh[3]) ? 4
+                 : (normSpd < kUpThresh[4]) ? 5 : 6;
+        if (prevGear >= 2 && prevGear <= 6 && gear == prevGear - 1) {
+            if (normSpd > kUpThresh[prevGear - 2] - 0.030f) gear = prevGear;
+        }
         st->current_gear = gear;
         const float gearLow = static_cast<float>(gear - 1) * 0.165f;
-        const float inGear = clampf((normSpd - gearLow) / 0.21f, 0.0f, 1.05f);
-        const float targetRpm = 880.0f + inGear * 6150.0f + std::max(0.0f, throttle) * 780.0f + (st->nitro_active ? 450.0f : 0.0f);
-        st->engine_rpm = lerpf(st->engine_rpm, clampf(targetRpm, 880.0f, 8150.0f), dt * 14.0f);
-        if (gear > prevGear && prevGear >= 1 && throttle > 0.4f) {
-            st->pitch_vel -= 0.18f;
+        const float inGear = clampf((normSpd - gearLow) / 0.21f, 0.0f, 1.06f);
+        const float targetRpm = 880.0f + inGear * 6100.0f + std::max(0.0f, throttle) * 760.0f
+                              + st->wheel_slip * 1350.0f + (st->nitro_active ? 480.0f : 0.0f);
+        st->engine_rpm = lerpf(st->engine_rpm, clampf(targetRpm, 880.0f, 8150.0f), dt * 15.0f);
+        if (gear > prevGear && prevGear >= 1 && throttle > 0.40f) {
+            st->shift_cut_timer = 0.055f;
+            st->shift_backfire = 1;
+            st->pitch_vel -= 0.26f;
         }
     }
 
-    st->steer_visual = lerpf(st->steer_visual, steer, dt * 10.0f);
-    if (absFwd > 0.45f && onGround) {
-        const float lowSpeedFactor = clampf(absFwd / 6.5f, 0.0f, 1.0f);
-        const float highSpeedDamp = 1.0f / (1.0f + absFwd * 0.018f);
+    const float longAccel = clampf((forwardSpd - prevFwdSpd) / std::max(dt, 0.004f), -32.0f, 32.0f);
+    const float frontWeightTransfer = clampf(1.0f - longAccel * 0.011f, 0.84f, 1.22f);
+    const float downforceGrip = 1.0f + clampf(absFwd * absFwd * 0.00022f * inp->aero_grip_bonus, 0.0f, 0.36f);
+
+    st->steer_visual = lerpf(st->steer_visual, steer, dt * 11.5f);
+    float appliedYawRate = 0.0f;
+    if (absFwd > 0.40f && onGround) {
+        const float lowSpeedFactor = clampf(absFwd / 5.8f, 0.0f, 1.0f);
+        const float highSpeedDamp = 1.0f / (1.0f + absFwd * 0.017f);
         const float dirSign = (forwardSpd >= 0.0f) ? 1.0f : -1.0f;
-        const float driftBoost = handbrake ? 1.38f : 1.0f;
-        st->heading = wrapAngle(st->heading + steer * sp->turn_rate * lowSpeedFactor * highSpeedDamp * driftBoost * dirSign * dt);
+        const float driftBoost = handbrake ? 1.42f : 1.0f;
+        appliedYawRate = steer * sp->turn_rate * lowSpeedFactor * highSpeedDamp * driftBoost * frontWeightTransfer * dirSign;
+        st->heading = wrapAngle(st->heading + appliedYawRate * dt);
     }
 
     if (std::abs(st->angular_velocity) > 0.001f) {
         st->heading = wrapAngle(st->heading + st->angular_velocity * dt);
-        st->angular_velocity *= std::exp(-(onGround ? 4.8f : 0.8f) * dt);
+        st->angular_velocity *= std::exp(-(onGround ? (4.6f * wetGripScale) : 0.8f) * dt);
         if (std::abs(st->angular_velocity) < 0.01f) st->angular_velocity = 0.0f;
     }
 
@@ -212,10 +282,10 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
     rightX = -std::sin(st->heading); rightZ = std::cos(st->heading);
 
     const float prevVx = st->vel_x, prevVz = st->vel_z;
-    if (onGround && (prevVx * prevVx + prevVz * prevVz) > 0.2f && std::abs(steer) > 0.05f) {
+    if (onGround && (prevVx * prevVx + prevVz * prevVz) > 0.2f && std::abs(steer) > 0.04f) {
         const float rotVx = fwdX * forwardSpd + rightX * lateralSpd;
         const float rotVz = fwdZ * forwardSpd + rightZ * lateralSpd;
-        const float slipBlend = handbrake ? 0.68f : 0.24f;
+        const float slipBlend = handbrake ? 0.70f : clampf(0.20f + st->wheel_slip * 0.22f + wetF * 0.08f, 0.18f, 0.48f);
         const float mixVx = rotVx * (1.0f - slipBlend) + prevVx * slipBlend;
         const float mixVz = rotVz * (1.0f - slipBlend) + prevVz * slipBlend;
         forwardSpd = mixVx * fwdX + mixVz * fwdZ;
@@ -223,15 +293,18 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
     }
 
     if (onGround) {
-        const float grip = (handbrake ? sp->drift_grip : sp->normal_grip) * inp->aero_grip_bonus * wetGripScale;
-        lateralSpd *= std::max(0.0f, 1.0f - grip * dt);
+        const float baseGrip = handbrake ? sp->drift_grip : sp->normal_grip;
+        const float slipRatio = std::abs(lateralSpd) / std::max(absFwd, 3.0f);
+        const float pacejkaSat = 1.0f / (1.0f + slipRatio * (handbrake ? 2.2f : 0.95f));
+        const float grip = baseGrip * inp->aero_grip_bonus * downforceGrip * wetGripScale * (0.45f + 0.55f * pacejkaSat);
+        lateralSpd *= std::exp(-grip * dt);
     }
 
     st->vel_x = fwdX * forwardSpd + rightX * lateralSpd;
     st->vel_z = fwdZ * forwardSpd + rightZ * lateralSpd;
     st->pos_x += st->vel_x * dt;
     st->pos_z += st->vel_z * dt;
-    st->wheel_spin = std::fmod(st->wheel_spin + forwardSpd * dt * 2.4f, kTwoPi);
+    st->wheel_spin = std::fmod(st->wheel_spin + forwardSpd * (1.0f + st->wheel_slip * 1.15f) * dt * 2.4f, kTwoPi);
 
     const float prevY = st->pos_y;
     const float groundY = inp->ground_height;
@@ -260,40 +333,49 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
             st->vel_y = 0.0f;
             st->airborne = 0;
             st->air_time = 0.0f;
-            const float comp = clampf(st->landed_impact_speed * 0.016f, 0.04f, 0.14f);
+            const float comp = clampf(st->landed_impact_speed * 0.017f, 0.04f, 0.14f);
             for (int i = 0; i < 4; ++i) st->wheel_comp[i] = comp;
-            st->pitch_vel += clampf(st->landed_impact_speed * 0.06f, 0.10f, 0.55f);
+            st->pitch_vel += clampf(st->landed_impact_speed * 0.065f, 0.10f, 0.58f);
         }
     }
 
-    const float longAccel = clampf((forwardSpd - prevFwdSpd) / std::max(dt, 0.004f), -28.0f, 28.0f);
+    const float dh0 = clampf(inp->wheel_ground_h[0] - groundY, -0.14f, 0.14f);
+    const float dh1 = clampf(inp->wheel_ground_h[1] - groundY, -0.14f, 0.14f);
+    const float dh2 = clampf(inp->wheel_ground_h[2] - groundY, -0.14f, 0.14f);
+    const float dh3 = clampf(inp->wheel_ground_h[3] - groundY, -0.14f, 0.14f);
+    const float curbRoll = ((dh1 + dh3) - (dh0 + dh2)) * 0.24f;
+    const float curbPitch = ((dh0 + dh1) - (dh2 + dh3)) * 0.12f;
+    const float roadRipple = std::sin(st->pos_x * 0.72f + st->pos_z * 0.58f) * 0.007f * clampf(absFwd / 26.0f, 0.0f, 1.0f);
+    const float latG = clampf(forwardSpd * appliedYawRate, -24.0f, 24.0f);
+
     const float targetPitch = (st->airborne != 0)
         ? clampf(-st->vel_y * 0.022f, -0.22f, 0.22f)
-        : (inp->ramp_slope_pitch + clampf(-longAccel * 0.0024f - throttle * 0.022f + (st->braking_visual ? 0.036f : 0.0f), -0.09f, 0.09f));
+        : (inp->ramp_slope_pitch + curbPitch +
+           clampf(-longAccel * 0.0028f - throttle * 0.026f - st->wheel_slip * 0.018f + (st->braking_visual ? 0.044f : 0.0f), -0.11f, 0.11f));
     const float targetRoll = (st->airborne != 0)
         ? clampf(steer * 0.08f, -0.16f, 0.16f)
-        : clampf(-lateralSpd * 0.0155f, -0.12f, 0.12f);
+        : clampf(-latG * 0.0046f - lateralSpd * 0.012f + curbRoll, -0.14f, 0.14f);
 
-    st->pitch_vel += ((targetPitch - st->body_pitch) * 58.0f - st->pitch_vel * 11.5f) * dt;
-    st->roll_vel  += ((targetRoll  - st->body_roll)  * 58.0f - st->roll_vel  * 11.5f) * dt;
+    st->pitch_vel += ((targetPitch - st->body_pitch) * 60.0f - st->pitch_vel * 11.2f) * dt;
+    st->roll_vel  += ((targetRoll  - st->body_roll)  * 60.0f - st->roll_vel  * 11.2f) * dt;
     st->body_pitch = clampf(st->body_pitch + st->pitch_vel * dt, -0.28f, 0.28f);
-    st->body_roll  = clampf(st->body_roll  + st->roll_vel  * dt, -0.22f, 0.22f);
+    st->body_roll  = clampf(st->body_roll  + st->roll_vel  * dt, -0.24f, 0.24f);
 
     if (st->airborne != 0) {
-        for (int i = 0; i < 4; ++i) st->wheel_comp[i] = lerpf(st->wheel_comp[i], -0.055f, dt * 8.0f);
+        for (int i = 0; i < 4; ++i) st->wheel_comp[i] = lerpf(st->wheel_comp[i], -0.058f, dt * 8.0f);
     } else {
-        const float pDef = st->body_pitch * 0.65f, rDef = st->body_roll * 0.65f;
+        const float pDef = st->body_pitch * 0.68f, rDef = st->body_roll * 0.68f;
         const float targets[4] = {
-            clampf( pDef - rDef, -0.07f, 0.12f),
-            clampf( pDef + rDef, -0.07f, 0.12f),
-            clampf(-pDef - rDef, -0.07f, 0.12f),
-            clampf(-pDef + rDef, -0.07f, 0.12f)
+            clampf( pDef - rDef + dh0 * 0.65f + roadRipple, -0.075f, 0.13f),
+            clampf( pDef + rDef + dh1 * 0.65f - roadRipple, -0.075f, 0.13f),
+            clampf(-pDef - rDef + dh2 * 0.65f - roadRipple, -0.075f, 0.13f),
+            clampf(-pDef + rDef + dh3 * 0.65f + roadRipple, -0.075f, 0.13f)
         };
-        for (int i = 0; i < 4; ++i) st->wheel_comp[i] = lerpf(st->wheel_comp[i], targets[i], dt * 14.0f);
+        for (int i = 0; i < 4; ++i) st->wheel_comp[i] = lerpf(st->wheel_comp[i], targets[i], dt * 15.0f);
     }
 
     const float speed = std::sqrt(st->vel_x * st->vel_x + st->vel_z * st->vel_z);
-    st->is_drifting = (onGround && speed > 7.5f && (std::abs(lateralSpd) > 3.1f || (handbrake && std::abs(steer) > 0.35f && speed > 9.0f))) ? 1 : 0;
+    st->is_drifting = (onGround && speed > 7.2f && (std::abs(lateralSpd) > 2.9f || (handbrake && std::abs(steer) > 0.32f && speed > 8.5f))) ? 1 : 0;
 }
 
 inline float oc_rs_resolve_rigid_collision_2d(RsRigidBody2D* a,
@@ -313,10 +395,11 @@ inline float oc_rs_resolve_rigid_collision_2d(RsRigidBody2D* a,
     const float ma = std::max(250.0f, a->mass), mb = std::max(250.0f, b->mass);
     const float invMa = 1.0f / ma, invMb = 1.0f / mb, invTotal = 1.0f / (ma + mb);
 
-    a->pos_x += nx * penetration * (mb * invTotal);
-    a->pos_z += nz * penetration * (mb * invTotal);
-    b->pos_x -= nx * penetration * (ma * invTotal);
-    b->pos_z -= nz * penetration * (ma * invTotal);
+    const float corr = std::max(0.0f, penetration - 0.004f) * 0.92f;
+    a->pos_x += nx * corr * (mb * invTotal);
+    a->pos_z += nz * corr * (mb * invTotal);
+    b->pos_x -= nx * corr * (ma * invTotal);
+    b->pos_z -= nz * corr * (ma * invTotal);
 
     const float raX = contact_x - a->pos_x, raZ = contact_z - a->pos_z;
     const float rbX = contact_x - b->pos_x, rbZ = contact_z - b->pos_z;
@@ -330,7 +413,9 @@ inline float oc_rs_resolve_rigid_collision_2d(RsRigidBody2D* a,
     const float vbpX = b->vel_x - b->angular_velocity * rbZ;
     const float vbpZ = b->vel_z + b->angular_velocity * rbX;
 
-    const float sepVel = (vapX - vbpX) * nx + (vapZ - vbpZ) * nz;
+    const float relVx = vapX - vbpX;
+    const float relVz = vapZ - vbpZ;
+    const float sepVel = relVx * nx + relVz * nz;
     if (sepVel >= 0.0f) return 0.0f;
 
     const float raCrossN = raX * nz - raZ * nx;
@@ -338,12 +423,24 @@ inline float oc_rs_resolve_rigid_collision_2d(RsRigidBody2D* a,
     const float denom = invMa + invMb + (raCrossN * raCrossN) * invIa + (rbCrossN * rbCrossN) * invIb;
     const float jImpulse = -(1.0f + clampf(restitution, 0.1f, 0.8f)) * sepVel / std::max(denom, 1e-4f);
 
-    const float ix = nx * jImpulse, iz = nz * jImpulse;
+    float ix = nx * jImpulse, iz = nz * jImpulse;
+
+    // Coulomb Tangential Friction Impulse (mu = 0.28)
+    const float tx = -nz, tz = nx;
+    const float relVt = relVx * tx + relVz * tz;
+    const float raCrossT = raX * tz - raZ * tx;
+    const float rbCrossT = rbX * tz - rbZ * tx;
+    const float denomT = invMa + invMb + (raCrossT * raCrossT) * invIa + (rbCrossT * rbCrossT) * invIb;
+    const float maxJt = jImpulse * 0.28f;
+    const float jt = clampf(-relVt / std::max(denomT, 1e-4f), -maxJt, maxJt);
+    ix += tx * jt;
+    iz += tz * jt;
+
     a->vel_x += ix * invMa; a->vel_z += iz * invMa;
     b->vel_x -= ix * invMb; b->vel_z -= iz * invMb;
 
-    a->angular_velocity = clampf(a->angular_velocity + (raX * iz - raZ * ix) * invIa * 0.65f, -4.2f, 4.2f);
-    b->angular_velocity = clampf(b->angular_velocity - (rbX * iz - rbZ * ix) * invIb * 0.65f, -4.2f, 4.2f);
+    a->angular_velocity = clampf(a->angular_velocity + (raX * iz - raZ * ix) * invIa * 0.68f, -4.5f, 4.5f);
+    b->angular_velocity = clampf(b->angular_velocity - (rbX * iz - rbZ * ix) * invIb * 0.68f, -4.5f, 4.5f);
 
     const float impactSpeed = -sepVel;
     if (impactSpeed > 5.5f) {
