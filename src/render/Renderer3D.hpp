@@ -47,7 +47,11 @@ private:
         CarClearcoat = 7,
         CarGlass = 8,
         EmissiveGlow = 9,
-        FoliageGrass = 10
+        FoliageGrass = 10,
+        FabricCloth = 11,
+        SkinOrganics = 12,
+        BarkWood = 13,
+        BeachSand = 14
     };
 
     void ensureSceneRenderTarget(int width, int height);
@@ -92,7 +96,8 @@ private:
                          bool panicking = false, bool isPolice = false, bool isSwat = false,
                          const CharacterCustomState* customChar = nullptr,
                          const WeaponSlotState* customWep = nullptr,
-                         const NpcVisualExtra* npcExtra = nullptr);
+                         const NpcVisualExtra* npcExtra = nullptr,
+                         bool aimingOrFiring = false);
     void drawPoisAndPickups(const GameWorld& world);
     void drawSkidsTracersParticles(const GameWorld& world);
     void drawGpsOverheadArrow(const GameWorld& world);
@@ -130,6 +135,7 @@ private:
     RenderTexture2D shadowMap_{};
     bool shadowMapValid_ = false;
     bool shadowPassActive_ = false;
+    bool shadowsActive_ = false;
 
     // 3) Procedural atmospheric sky dome + solar corona + volumetric-style FBM clouds + stars
     Shader skyShader_{};
@@ -155,10 +161,15 @@ private:
     Model cylModel_{};
     Model coneModel_{};
     Model sphereModel_{};
+    Model foliageClusterModel_{};
+    Model cypressModel_{};
+    Model hipRoofModel_{};
     Model skyDomeModel_{};
     Model wheelModel_{};
     Model sportRimModel_{};
+    Model ringModel_{};
     std::array<CarModelSet, static_cast<std::size_t>(VehicleKind::Count)> carModels_{};
+    mutable std::vector<int> visIdxBuf_;
 };
 
 } // namespace oc

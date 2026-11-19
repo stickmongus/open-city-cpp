@@ -127,13 +127,13 @@ void main() {
     float golden = clamp(dawn + dusk, 0.0, 1.0);
     float night = clamp(1.0 - dayFactor * 1.15, 0.0, 1.0);
 
-    // Linear atmospheric palette
-    vec3 dayZenith   = vec3(0.045, 0.175, 0.580);
-    vec3 dayHorizon  = vec3(0.320, 0.580, 0.880);
-    vec3 goldZenith  = vec3(0.065, 0.095, 0.280);
-    vec3 goldHorizon = vec3(0.950, 0.310, 0.110);
-    vec3 nightZenith = vec3(0.004, 0.008, 0.026);
-    vec3 nightHoriz  = vec3(0.016, 0.028, 0.068);
+    // Physically grounded atmospheric palette (deep coastal sky + realistic overcast rain)
+    vec3 dayZenith   = vec3(0.036, 0.142, 0.455);
+    vec3 dayHorizon  = vec3(0.320, 0.505, 0.720);
+    vec3 goldZenith  = vec3(0.058, 0.086, 0.255);
+    vec3 goldHorizon = vec3(0.880, 0.300, 0.115);
+    vec3 nightZenith = vec3(0.004, 0.008, 0.024);
+    vec3 nightHoriz  = vec3(0.014, 0.026, 0.062);
 
     vec3 zenithCol = mix(nightZenith, dayZenith, dayFactor);
     zenithCol = mix(zenithCol, goldZenith, golden * 0.72);
@@ -142,29 +142,29 @@ void main() {
     horizCol = mix(horizCol, goldHorizon, golden * 0.88);
 
     if (wetWeather > 0.01) {
-        vec3 stormZenith = mix(vec3(0.008, 0.014, 0.032), vec3(0.075, 0.110, 0.175), dayFactor);
-        vec3 stormHoriz  = mix(vec3(0.024, 0.038, 0.072), vec3(0.180, 0.235, 0.310), dayFactor);
-        zenithCol = mix(zenithCol, stormZenith, wetWeather * 0.65);
-        horizCol  = mix(horizCol, stormHoriz, wetWeather * 0.55);
+        vec3 stormZenith = mix(vec3(0.008, 0.013, 0.026), vec3(0.072, 0.090, 0.118), dayFactor);
+        vec3 stormHoriz  = mix(vec3(0.022, 0.032, 0.056), vec3(0.178, 0.205, 0.242), dayFactor);
+        zenithCol = mix(zenithCol, stormZenith, wetWeather * 0.82);
+        horizCol  = mix(horizCol, stormHoriz, wetWeather * 0.76);
     }
 
-    float skyGrad = pow(1.0 - upPos, 2.35);
+    float skyGrad = pow(1.0 - upPos, 2.45);
     vec3 sky = mix(zenithCol, horizCol, skyGrad);
 
     // Warm directional Mie scattering around the sun / sunset glow
     float sunCos = max(dot(dir, S), 0.0);
-    vec3 mieTint = mix(vec3(1.0, 0.86, 0.62), vec3(1.0, 0.42, 0.14), golden);
+    vec3 mieTint = mix(vec3(1.0, 0.88, 0.68), vec3(1.0, 0.44, 0.16), golden);
     if (night > 0.55) {
-        mieTint = vec3(0.25, 0.40, 0.68);
+        mieTint = vec3(0.24, 0.38, 0.66);
     }
-    sky += mieTint * pow(sunCos, 6.0) * (0.28 + 0.45 * golden) * (1.0 - night * 0.65) * (1.0 - wetWeather * 0.45);
-    sky += mieTint * pow(sunCos, 42.0) * (0.45 + 0.35 * golden) * (1.0 - night * 0.55) * (1.0 - wetWeather * 0.55);
+    sky += mieTint * pow(sunCos, 6.0) * (0.22 + 0.42 * golden) * (1.0 - night * 0.65) * (1.0 - wetWeather * 0.75);
+    sky += mieTint * pow(sunCos, 46.0) * (0.38 + 0.32 * golden) * (1.0 - night * 0.55) * (1.0 - wetWeather * 0.82);
 
     // Crisp Solar / Lunar Disc
     if (dir.y > -0.02) {
-        float sunDisc = smoothstep(0.99915, 0.99972, dot(dir, S));
-        vec3 discCol = (night > 0.6) ? vec3(1.8, 2.1, 2.6) : mix(vec3(6.5, 5.6, 4.2), vec3(7.0, 2.8, 0.9), golden);
-        sky += discCol * sunDisc * (1.0 - wetWeather * 0.65);
+        float sunDisc = smoothstep(0.99920, 0.99975, dot(dir, S));
+        vec3 discCol = (night > 0.6) ? vec3(1.7, 2.0, 2.5) : mix(vec3(5.8, 5.1, 3.9), vec3(6.4, 2.6, 0.9), golden);
+        sky += discCol * sunDisc * (1.0 - wetWeather * 0.88);
     }
 
     // Twinkling stars on clear upper sky at night
@@ -176,32 +176,36 @@ void main() {
         if (rnd > 0.968) {
             float d = length(f);
             float twinkle = 0.65 + 0.35 * sin(animTime * 2.7 + rnd * 91.0);
-            float star = smoothstep(0.22, 0.02, d) * twinkle * night * smoothstep(0.04, 0.28, dir.y);
-            sky += vec3(0.75, 0.86, 1.0) * star * 1.4 * (1.0 - wetWeather * 0.75);
+            float star = (1.0 - smoothstep(0.02, 0.22, d)) * twinkle * night * smoothstep(0.04, 0.28, dir.y);
+            sky += vec3(0.75, 0.86, 1.0) * star * 1.4 * (1.0 - wetWeather * 0.85);
         }
     }
 
-    // Volumetric-style 2-layer drifting FBM clouds
+    // Volumetric-style 2-layer drifting FBM cumulus / storm overcast clouds
     if (dir.y > 0.015) {
         vec2 cloudUv = dir.xz / (dir.y + 0.19) * 1.35;
         vec2 wind = vec2(animTime * 0.014, animTime * 0.007);
         float n1 = fbmClouds(cloudUv + wind);
         float n2 = fbmClouds(cloudUv * 2.15 - wind * 1.4 + vec2(4.2, -2.8));
-        float lowThresh = mix(0.49, 0.32, wetWeather);
-        float density = smoothstep(lowThresh, 0.80, n1 * 0.72 + n2 * 0.28);
+        float lowThresh = mix(0.50, 0.22, wetWeather);
+        float density = smoothstep(lowThresh, mix(0.80, 0.66, wetWeather), n1 * 0.72 + n2 * 0.28);
         float horizonFade = smoothstep(0.015, 0.20, dir.y);
         density *= horizonFade;
 
-        // Cloud self-shadowing & sunlit silver lining
-        float detailLight = clamp(0.45 + 0.55 * n2 + 0.35 * pow(sunCos, 3.0), 0.0, 1.35);
-        vec3 cloudLit = mix(vec3(0.95, 0.97, 1.02), vec3(1.18, 0.56, 0.28), golden * 0.85);
-        vec3 cloudShade = mix(vec3(0.32, 0.42, 0.58), vec3(0.26, 0.16, 0.30), golden * 0.80);
+        // Cloud self-shadowing, silver lining & moody storm underbelly
+        float detailLight = clamp(0.44 + 0.54 * n2 + 0.30 * pow(sunCos, 3.0) * (1.0 - wetWeather * 0.75), 0.0, 1.25);
+        vec3 cloudLit = mix(vec3(0.92, 0.94, 0.98), vec3(1.12, 0.54, 0.28), golden * 0.85);
+        vec3 cloudShade = mix(vec3(0.28, 0.36, 0.50), vec3(0.24, 0.15, 0.28), golden * 0.80);
+        if (wetWeather > 0.01) {
+            cloudLit = mix(cloudLit, vec3(0.32, 0.36, 0.42), wetWeather * 0.78);
+            cloudShade = mix(cloudShade, vec3(0.10, 0.12, 0.16), wetWeather * 0.82);
+        }
         if (night > 0.4) {
-            cloudLit = mix(cloudLit, vec3(0.08, 0.11, 0.18), night);
-            cloudShade = mix(cloudShade, vec3(0.02, 0.03, 0.06), night);
+            cloudLit = mix(cloudLit, vec3(0.07, 0.10, 0.16), night);
+            cloudShade = mix(cloudShade, vec3(0.02, 0.03, 0.05), night);
         }
         vec3 cloudCol = mix(cloudShade, cloudLit, clamp(detailLight, 0.0, 1.0));
-        sky = mix(sky, cloudCol, density * (0.82 + 0.12 * wetWeather));
+        sky = mix(sky, cloudCol, density * (0.80 + 0.16 * wetWeather));
     }
 
     // Distant coastal mountain range silhouette along the bay horizon
@@ -210,24 +214,24 @@ void main() {
                     + 0.010 * sin(azimuth * 7.0 - 1.4)
                     + 0.005 * sin(azimuth * 17.0);
     if (dir.y > -0.04 && dir.y < mtnHeight) {
-        float ridge = smoothstep(mtnHeight, mtnHeight - 0.004, dir.y);
-        vec3 mtnCol = mix(horizCol * 0.42, zenithCol * 0.55, 0.35);
+        float ridge = 1.0 - smoothstep(mtnHeight - 0.004, mtnHeight, dir.y);
+        vec3 mtnCol = mix(horizCol * 0.44, zenithCol * 0.55, 0.35);
         sky = mix(sky, mtnCol, ridge * 0.78);
     }
 
     // Below horizon fallback matches ocean haze
     if (dir.y < 0.0) {
-        sky = mix(sky, horizCol * 0.48, clamp(-dir.y * 6.0, 0.0, 1.0));
+        sky = mix(sky, horizCol * 0.46, clamp(-dir.y * 6.0, 0.0, 1.0));
     }
 
-    vec3 mapped = pow(acesTonemap(sky * 1.12), vec3(1.0 / 2.2));
+    vec3 mapped = pow(acesTonemap(sky * 1.02), vec3(1.0 / 2.2));
     finalColor = vec4(mapped, 1.0);
 }
 )GLSL";
 
 // ---------------------------------------------------------------------------
 // 3) Unified Cook-Torrance GGX PBR + 16-Tap Poisson Soft Shadow +
-//    3D Raycasted Interior Mapping + Wet-Road Mirror Puddle Shader
+//    3D Raycasted Interior Mapping + Organic Wet-Road Puddle & Material Shader
 // ---------------------------------------------------------------------------
 const char* kWorldVertShader = OC_GLSL_VERT_HEADER R"GLSL(
 in vec3 vertexPosition;
@@ -318,6 +322,15 @@ float valueNoise(vec2 p) {
                mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
 }
 
+// Rotated 2-octave fBM eliminates visible axis-aligned square noise cells on puddles & lawns
+float fbm2(vec2 p) {
+    mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+    float v = valueNoise(p) * 0.62;
+    p = rot * p * 2.13 + vec2(17.3, 9.1);
+    v += valueNoise(p) * 0.38;
+    return v;
+}
+
 vec3 acesTonemap(vec3 x) {
     const float a = 2.51;
     const float b = 0.03;
@@ -331,10 +344,10 @@ float computeSoftShadow(vec3 worldPos, vec3 N, vec3 L) {
     if (enableShadows == 0) return 0.0;
 
     float ndotl = max(dot(N, L), 0.0);
-    if (ndotl <= 0.025) return 0.0; // Grazing/back-facing surfaces are already self-shadowed by N·L
+    if (ndotl <= 0.025) return 0.0;
 
     // Tight slope-scaled normal offset prevents shadow acne while eliminating tire/foot Peter-Panning
-    float normalOffset = mix(0.032, 0.140, 1.0 - ndotl);
+    float normalOffset = mix(0.030, 0.135, 1.0 - ndotl);
     vec4 lightClip = lightVP * vec4(worldPos + N * normalOffset, 1.0);
     vec3 proj = lightClip.xyz / max(lightClip.w, 0.0001);
     proj = proj * 0.5 + 0.5;
@@ -346,16 +359,16 @@ float computeSoftShadow(vec3 worldPos, vec3 N, vec3 L) {
     vec2 edgeDist = min(proj.xy, 1.0 - proj.xy);
     float edgeFade = smoothstep(0.008, 0.085, min(edgeDist.x, edgeDist.y));
 
-    float bias = max(0.00145 * (1.0 - ndotl), 0.00032);
+    float bias = max(0.00140 * (1.0 - ndotl), 0.00030);
 
-    // Screen-space Interleaved Gradient Noise eliminates blocky world-space dithering patterns!
+    // Screen-space Interleaved Gradient Noise eliminates blocky world-space dithering patterns
     float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     float rotAng = ign * 6.2831853;
     float cs = cos(rotAng);
     float sn = sin(rotAng);
     mat2 rot = mat2(cs, -sn, sn, cs);
 
-    // Lightweight blocker-depth probe for contact-hardening penumbra (crisp under tires/feet, softer from tall towers)
+    // Contact-hardening penumbra (crisp under tires/feet, softer from tall towers)
     float centerDepth = texture(shadowMap, proj.xy).r;
     float blockerGap = clamp((proj.z - bias - centerDepth) * 18.0, 0.0, 1.0);
     float filterRadius = shadowTexelSize * mix(1.05, 2.35, blockerGap);
@@ -374,48 +387,59 @@ float aaBand(float distFromCenter, float halfWidth) {
     return 1.0 - smoothstep(halfWidth - fw, halfWidth + fw, distFromCenter);
 }
 
-// Procedural 360-degree 3D City Skyline, Neon Sign & Sky Environment Map for reflections
+// Physically grounded 360-degree Environment Reflection Map:
+// Dark asphalt ground hemisphere (R.y < 0) + crisp horizon reflection band + city skyline + sky dome (R.y > 0)
 vec3 sampleCityEnvMap(vec3 R, vec3 worldPos, float rough, float nightF) {
-    float up = clamp(R.y * 0.5 + 0.5, 0.0, 1.0);
-    vec3 skyEnv = mix(pow(horizonColor, vec3(2.2)) * 0.96, skyAmbient * 2.25, pow(up, 1.30));
+    vec3 horizLin = pow(clamp(horizonColor, 0.0, 1.0), vec3(2.2));
+    vec3 skyUp = mix(horizLin * 0.92, skyAmbient * 1.92, pow(clamp(R.y, 0.0, 1.0), 0.65));
+    // Dark grounded asphalt / earth bounce below horizon gives curved car fenders photographic depth!
+    vec3 darkGround = groundAmbient * mix(0.46, 0.16, clamp(-R.y * 2.4, 0.0, 1.0));
+    float horizBlend = smoothstep(-0.045 - rough * 0.22, 0.055 + rough * 0.22, R.y);
+    vec3 envCol = mix(darkGround, skyUp, horizBlend);
 
-    // Attenuate synthetic downtown skyline whenever the reflection ray points out toward open ocean!
+    // Subtle crisp atmospheric glow right along the horizon reflection crease
+    float horizonCrease = exp(-abs(R.y - 0.012) * mix(16.0, 5.5, rough));
+    envCol += horizLin * horizonCrease * mix(0.28, 0.06, rough) * (1.0 - nightF * 0.45);
+
+    // Attenuate synthetic downtown skyline whenever the reflection ray points out toward open ocean
     vec2 horizDir = normalize(R.xz + vec2(0.0001));
     vec2 farPos = worldPos.xz + horizDir * 120.0;
-    float cityMask = smoothstep(425.0, 310.0, max(abs(farPos.x), abs(farPos.y)));
+    float cityMask = 1.0 - smoothstep(620.0, 780.0, max(abs(farPos.x), abs(farPos.y)));
     if (cityMask <= 0.01) {
-        return skyEnv;
+        return envCol;
     }
 
-    // Synthetic city skyline silhouette + illuminated office windows & neon reflections near the horizon
+    // Softened architectural skyline silhouette & illuminated windows near the horizon
     float az = atan(R.z, R.x);
-    float bldColIdx = floor((az + kPi) / (2.0 * kPi) * 64.0);
+    float bldColIdx = floor((az + kPi) / (2.0 * kPi) * 48.0);
     float bldRnd = hash12(vec2(bldColIdx, 3.7));
-    float skylineH = (0.04 + 0.24 * pow(bldRnd, 1.5)) * (1.0 - rough * 0.55);
+    float skylineH = (0.03 + 0.19 * pow(bldRnd, 1.5)) * (1.0 - rough * 0.60);
 
-    if (R.y > -0.06 && R.y < skylineH) {
-        vec3 bldSil = mix(groundAmbient * 0.45, skyAmbient * 0.34, 0.45);
-        float uFreq = (az + kPi) * 32.0;
-        float vFreq = R.y * 44.0;
-        float detailFade = 1.0 - smoothstep(0.18, 0.72, max(fwidth(uFreq), fwidth(vFreq)) + rough * 1.35);
+    if (R.y > -0.02 && R.y < skylineH) {
+        vec3 bldSil = mix(groundAmbient * 0.36, skyAmbient * 0.28, 0.42);
+        // Subtle warm city horizon glow bounce in wet puddles & clearcoat at night
+        bldSil += vec3(0.24, 0.17, 0.10) * nightF * (1.0 - clamp(R.y / max(skylineH, 0.01), 0.0, 1.0));
+        float uFreq = (az + kPi) * 28.0;
+        float vFreq = R.y * 22.0;
+        float detailFade = 1.0 - smoothstep(0.16, 0.66, max(fwidth(uFreq), fwidth(vFreq)) + rough * 1.55);
         if (detailFade > 0.02) {
             float winU = fract(uFreq);
             float winV = fract(vFreq);
-            float softEdge = clamp(0.12 + rough * 0.55, 0.12, 0.34);
-            float paneMask = smoothstep(0.16, 0.16 + softEdge, winU) * smoothstep(0.84, 0.84 - softEdge, winU) *
-                             smoothstep(0.18, 0.18 + softEdge, winV) * smoothstep(0.82, 0.82 - softEdge, winV);
+            float softEdge = clamp(0.24 + rough * 0.65, 0.24, 0.42);
+            float paneMask = smoothstep(0.14, 0.14 + softEdge, winU) * (1.0 - smoothstep(0.86 - softEdge, 0.86, winU)) *
+                             smoothstep(0.12, 0.12 + softEdge, winV) * (1.0 - smoothstep(0.88 - softEdge, 0.88, winV));
             float winHash = hash12(vec2(bldColIdx * 3.1 + floor(winU * 4.0), floor(vFreq)));
-            if (winHash > (0.62 - nightF * 0.30)) {
-                vec3 neonPalette = (winHash > 0.88)
-                                       ? vec3(0.22, 0.82, 1.25)
-                                       : ((winHash > 0.76) ? vec3(1.15, 0.34, 0.88) : vec3(1.22, 0.88, 0.42));
-                bldSil += neonPalette * (0.045 + nightF * 1.15) * paneMask * detailFade;
+            if (winHash > (0.64 - nightF * 0.28)) {
+                vec3 winPalette = (winHash > 0.88)
+                                      ? vec3(0.46, 0.74, 0.98)
+                                      : ((winHash > 0.76) ? vec3(0.96, 0.72, 0.44) : vec3(1.06, 0.82, 0.52));
+                bldSil += winPalette * (0.016 + nightF * 0.62) * paneMask * detailFade;
             }
         }
-        float mask = smoothstep(skylineH, skylineH - 0.020, R.y) * smoothstep(-0.06, 0.0, R.y);
-        skyEnv = mix(skyEnv, bldSil, mask * 0.76 * cityMask);
+        float mask = (1.0 - smoothstep(skylineH - 0.030, skylineH, R.y)) * smoothstep(-0.02, 0.025, R.y);
+        envCol = mix(envCol, bldSil, mask * 0.64 * cityMask);
     }
-    return skyEnv;
+    return envCol;
 }
 
 // True 3D Raycasted Interior Mapping inside building windows (virtual 3D rooms with ceiling lights, walls & blinds)
@@ -423,11 +447,10 @@ vec3 sampleInteriorRoom3D(vec2 paneUv, vec3 V, vec3 N, float roomSeed, bool isLo
     vec3 T = (abs(N.x) > 0.5) ? vec3(0.0, 0.0, sign(N.x)) : vec3(-sign(N.z), 0.0, 0.0);
     vec3 B = vec3(0.0, 1.0, 0.0);
 
-    // View ray entering the room in local room coordinates: x in [0,1], y in [0,1], z in [0, roomDepth]
     vec3 I = normalize(-V);
     float rx = dot(I, T);
     float ry = dot(I, B);
-    float rz = max(dot(I, -N), 0.06); // Depth into the building interior
+    float rz = max(dot(I, -N), 0.06);
 
     float roomDepth = isLobby ? 1.15 : 0.78;
     float tx = (rx > 0.0) ? ((1.0 - paneUv.x) / max(rx, 0.001)) : ((-paneUv.x) / min(rx, -0.001));
@@ -438,45 +461,41 @@ vec3 sampleInteriorRoom3D(vec2 paneUv, vec3 V, vec3 N, float roomSeed, bool isLo
     vec3 hitPos = vec3(paneUv, 0.0) + vec3(rx, ry, rz) * tHit;
     float depthFade = 1.0 - clamp(hitPos.z / (roomDepth * 1.15), 0.0, 0.75);
 
-    vec3 warmTone = pow(vec3(1.00, 0.78, 0.44), vec3(2.2));
-    vec3 coolTone = pow(vec3(0.52, 0.84, 1.00), vec3(2.2));
-    vec3 corpTone = pow(vec3(0.95, 0.92, 0.82), vec3(2.2));
-    vec3 suiteTint = (roomSeed > 0.78) ? coolTone : ((roomSeed > 0.44) ? corpTone : warmTone);
+    vec3 warmTone = pow(vec3(0.96, 0.78, 0.52), vec3(2.2));
+    vec3 coolTone = pow(vec3(0.62, 0.80, 0.94), vec3(2.2));
+    vec3 corpTone = pow(vec3(0.90, 0.88, 0.82), vec3(2.2));
+    vec3 suiteTint = (roomSeed > 0.76) ? coolTone : ((roomSeed > 0.42) ? corpTone : warmTone);
 
-    vec3 surfaceCol = suiteTint * 0.42;
+    vec3 surfaceCol = suiteTint * 0.36;
     if (abs(tHit - ty) < 0.002) {
         if (ry > 0.0) {
-            // Ceiling with glowing recessed LED office light panels!
             float stripX = smoothstep(0.18, 0.24, abs(fract(hitPos.x * 2.0) - 0.5));
             float stripZ = smoothstep(0.15, 0.28, abs(fract(hitPos.z * 2.2) - 0.5));
             float lightPanel = (1.0 - stripX) * (1.0 - stripZ);
-            surfaceCol = mix(suiteTint * 0.55, suiteTint * 2.35, lightPanel);
+            surfaceCol = mix(suiteTint * 0.48, suiteTint * 2.15, lightPanel);
         } else {
-            // Hardwood / carpeted floor with desk silhouette
             float tile = 0.85 + 0.15 * sin(hitPos.x * 18.0) * sin(hitPos.z * 18.0);
-            surfaceCol = suiteTint * 0.24 * tile;
+            surfaceCol = suiteTint * 0.22 * tile;
         }
     } else if (abs(tHit - tz) < 0.002) {
-        // Back wall with framed artwork / monitor screen / bookshelves
         float shelf = smoothstep(0.35, 0.45, abs(sin(hitPos.y * 12.0)));
         bool monitorGlow = (hitPos.x > 0.34 && hitPos.x < 0.66 && hitPos.y > 0.30 && hitPos.y < 0.58);
-        surfaceCol = suiteTint * (0.48 + 0.18 * shelf);
+        surfaceCol = suiteTint * (0.42 + 0.16 * shelf);
         if (monitorGlow && fract(roomSeed * 13.7) > 0.35) {
-            surfaceCol = mix(surfaceCol, coolTone * 1.45, 0.75);
+            surfaceCol = mix(surfaceCol, coolTone * 1.35, 0.70);
         }
     } else {
-        // Side partition walls
-        surfaceCol = suiteTint * 0.38;
+        surfaceCol = suiteTint * 0.32;
     }
 
-    // Venetian blinds partially drawn in upper portion of random offices
     float blindCoverage = fract(roomSeed * 7.9) * 0.52;
     if (!isLobby && paneUv.y > (1.0 - blindCoverage)) {
         float slat = 0.58 + 0.42 * sin(paneUv.y * 52.0);
         surfaceCol *= slat * 0.78;
     }
 
-    float baseBrightness = mix(0.45, 1.32, nightF);
+    // Subtle shadowed interior depth in bright daylight; warmly illuminated rooms at dusk & night!
+    float baseBrightness = mix(0.24, 1.32, nightF);
     return surfaceCol * depthFade * baseBrightness;
 }
 
@@ -495,44 +514,70 @@ void main() {
     vec3 L = normalize(-lightDir);
     vec3 emissiveColor = albedo;
     float puddleMask = 0.0;
+    float wetRoadSurface = 0.0;
 
     // -----------------------------------------------------------------------
-    // Procedural World-Space Material Detail & Normal Perturbation
+    // Procedural World-Space Material Detail & Micro-Normal Perturbation
     // -----------------------------------------------------------------------
     if (matId == 1) {
-        // MAT 1: Normal-Mapped Asphalt Road Network + Wet-Road Mirror Puddles + Lane Markings
-        float g1 = valueNoise(fragPosition.xz * 3.5);
-        float g2 = valueNoise(fragPosition.xz * 18.0);
-        float grain = g1 * 0.14 + g2 * 0.08;
-        albedo = vec3(0.028 + grain * 0.055, 0.031 + grain * 0.055, 0.038 + grain * 0.065);
-        roughness = 0.44 - grain * 0.16;
-
-        // Micro-aggregate asphalt normal perturbation
-        float nx = valueNoise(fragPosition.xz * 22.0 + vec2(0.15, 0.0)) - g2;
-        float nz = valueNoise(fragPosition.xz * 22.0 + vec2(0.0, 0.15)) - g2;
-        N = normalize(vec3(N.x + nx * 0.16, N.y, N.z + nz * 0.16));
-
+        // MAT 1: Weathered Mineral Asphalt + Tire Tracks + Tar Cracks + Organic Curved Rain Puddles
         vec2 p = fragPosition.xz;
-        float rx = clamp(round(p.x / 84.0), -4.0, 4.0) * 84.0;
-        float rz = clamp(round(p.y / 84.0), -4.0, 4.0) * 84.0;
+        float distFade = 1.0 - smoothstep(22.0, 95.0, length(viewPos - fragPosition));
+        float patchVar = fbm2(p * 0.24);
+        float g1 = valueNoise(p * 3.8);
+        float g2 = valueNoise(p * 19.5);
+        float g3 = valueNoise(p * 48.0);
+        float stoneSpeck = g1 * 0.45 + g2 * 0.35 + g3 * 0.20;
+
+        // Authentic weathered urban charcoal-slate asphalt (not pitch-black plastic!)
+        albedo = vec3(0.056, 0.059, 0.064) * mix(0.76, 1.34, patchVar * 0.55 + stoneSpeck * 0.45);
+        // Occasional pale crushed-granite aggregate glint specks
+        albedo += vec3(0.022, 0.022, 0.024) * smoothstep(0.76, 0.95, g3) * distFade;
+        roughness = mix(0.68, 0.46, stoneSpeck);
+
+        // Subtle dark bitumen tar-sealed repair crack lines
+        float crackWave = abs(fbm2(p * 0.42 + vec2(4.7, 9.2)) - 0.50);
+        float tarCrack = (1.0 - smoothstep(0.004, 0.016, crackWave)) * smoothstep(0.42, 0.68, patchVar);
+        albedo *= (1.0 - 0.34 * tarCrack);
+        roughness = mix(roughness, 0.22, tarCrack * 0.75);
+
+        // Distance-attenuated aggregate normal perturbation (crisp close-up, zero far shimmer)
+        float nx = (valueNoise(p * 24.0 + vec2(0.12, 0.0)) - g2) * distFade;
+        float nz = (valueNoise(p * 24.0 + vec2(0.0, 0.12)) - g2) * distFade;
+        N = normalize(vec3(N.x + nx * 0.22, N.y, N.z + nz * 0.22));
+
+        float rx = clamp(round(p.x / 84.0), -8.0, 8.0) * 84.0;
+        float rz = clamp(round(p.y / 84.0), -8.0, 8.0) * 84.0;
         float dx = abs(p.x - rx);
         float dz = abs(p.y - rz);
-        bool onVert  = (dx <= 9.02) && (abs(p.y) <= 345.05);
-        bool onHoriz = (dz <= 9.02) && (abs(p.x) <= 345.05);
-
-        // Subtle polished tire wear tracks along travel lanes (+-4.2m)
-        if (onVert && !onHoriz) {
-            float wear = exp(-pow((abs(dx - 4.2) - 0.85) / 0.55, 2.0));
-            albedo *= (1.0 - 0.16 * wear);
-            roughness = mix(roughness, 0.24, wear * 0.60);
-        } else if (onHoriz && !onVert) {
-            float wear = exp(-pow((abs(dz - 4.2) - 0.85) / 0.55, 2.0));
-            albedo *= (1.0 - 0.16 * wear);
-            roughness = mix(roughness, 0.24, wear * 0.60);
+        bool onBridge = (abs(p.x) <= 9.02) && (p.y >= 680.5) && (p.y <= 896.0);
+        bool onVert  = ((dx <= 9.02) && (abs(p.y) <= 681.05)) || onBridge;
+        bool onHoriz = (dz <= 9.02) && (abs(p.x) <= 681.05);
+        if (onBridge) {
+            dx = abs(p.x);
+            dz = 28.0;
+            onHoriz = false;
         }
 
-        vec3 yellowPaint = pow(vec3(0.93, 0.72, 0.16), vec3(2.2));
-        vec3 whitePaint  = pow(vec3(0.88, 0.90, 0.93), vec3(2.2));
+        // Worn darkened tire tracks along travel lanes (+-4.2m) + subtle curb gutter darkening
+        if (onVert && !onHoriz) {
+            float wear = exp(-pow((abs(dx - 4.2) - 0.85) / 0.62, 2.0));
+            albedo *= (1.0 - 0.20 * wear);
+            roughness = mix(roughness, 0.30, wear * 0.55);
+            float gutter = smoothstep(7.7, 9.0, dx);
+            albedo *= (1.0 - 0.24 * gutter);
+        } else if (onHoriz && !onVert) {
+            float wear = exp(-pow((abs(dz - 4.2) - 0.85) / 0.62, 2.0));
+            albedo *= (1.0 - 0.20 * wear);
+            roughness = mix(roughness, 0.30, wear * 0.55);
+            float gutter = smoothstep(7.7, 9.0, dz);
+            albedo *= (1.0 - 0.24 * gutter);
+        }
+
+        // Slightly scuffed realistic thermoplastic road paint (shows asphalt grain underneath!)
+        vec3 yellowPaint = pow(vec3(0.84, 0.63, 0.16), vec3(2.2));
+        vec3 whitePaint  = pow(vec3(0.78, 0.79, 0.81), vec3(2.2));
+        float paintWear  = mix(0.76, 1.0, smoothstep(0.18, 0.68, g1 * 0.5 + g2 * 0.5));
         float yellowMask = 0.0;
         float whiteMask  = 0.0;
 
@@ -542,14 +587,14 @@ void main() {
                 whiteMask = max(whiteMask, aaBand(stripe, 0.42));
             }
             if (dz >= 12.45 && dz <= 12.90 && dx < 8.4) {
-                whiteMask = max(whiteMask, 0.95);
+                whiteMask = max(whiteMask, 0.92);
             }
             if (dz > 13.15) {
                 yellowMask = max(yellowMask, aaBand(abs(dx - 0.18), 0.075));
                 if (fract(p.y / 9.0) < 0.38) {
                     whiteMask = max(whiteMask, aaBand(abs(dx - 4.35), 0.075));
                 }
-                whiteMask = max(whiteMask, aaBand(abs(dx - 8.55), 0.07) * 0.65);
+                whiteMask = max(whiteMask, aaBand(abs(dx - 8.55), 0.07) * 0.62);
             }
         } else if (onHoriz && !onVert) {
             if (dx >= 9.35 && dx <= 12.05 && dz < 7.9) {
@@ -557,65 +602,90 @@ void main() {
                 whiteMask = max(whiteMask, aaBand(stripe, 0.42));
             }
             if (dx >= 12.45 && dx <= 12.90 && dz < 8.4) {
-                whiteMask = max(whiteMask, 0.95);
+                whiteMask = max(whiteMask, 0.92);
             }
             if (dx > 13.15) {
                 yellowMask = max(yellowMask, aaBand(abs(dz - 0.18), 0.075));
                 if (fract(p.x / 9.0) < 0.38) {
                     whiteMask = max(whiteMask, aaBand(abs(dz - 4.35), 0.075));
                 }
-                whiteMask = max(whiteMask, aaBand(abs(dz - 8.55), 0.07) * 0.65);
+                whiteMask = max(whiteMask, aaBand(abs(dz - 8.55), 0.07) * 0.62);
             }
         } else if (onVert && onHoriz) {
             float mh = length(vec2(dx, dz));
-            if (mh < 0.68) {
-                albedo = vec3(0.055, 0.052, 0.050);
-                roughness = 0.32;
-                metallic = 0.62;
+            if (mh < 0.38) {
+                float rimGroove = 1.0 - smoothstep(0.012, 0.028, abs(mh - 0.32));
+                float hatch = 0.92 + 0.08 * sin(p.x * 58.0) * sin(p.y * 58.0);
+                albedo = vec3(0.044, 0.045, 0.048) * hatch * (1.0 - 0.35 * rimGroove);
+                roughness = 0.44;
+                metallic = 0.56;
             }
         }
 
-        albedo = mix(albedo, whitePaint, clamp(whiteMask, 0.0, 1.0) * 0.90);
-        albedo = mix(albedo, yellowPaint, clamp(yellowMask, 0.0, 1.0) * 0.94);
+        float wPaintA = clamp(whiteMask, 0.0, 1.0) * 0.86 * paintWear;
+        float yPaintA = clamp(yellowMask, 0.0, 1.0) * 0.90 * paintWear;
+        albedo = mix(albedo, whitePaint, wPaintA);
+        albedo = mix(albedo, yellowPaint, yPaintA);
+        roughness = mix(roughness, 0.52, max(wPaintA, yPaintA) * 0.55);
 
-        // Dynamic Rain / Wet-Road Mirror Puddles ([U] toggle or twilight dampness)
-        float wetAmt = clamp(wetRoadFactor + nightFactor * 0.22, 0.0, 1.0);
+        // Organic Domain-Warped Curved Rain Puddles (ZERO square noise tiles or hard edge cutoffs!)
+        float wetAmt = clamp(wetRoadFactor + nightFactor * 0.18, 0.0, 1.0);
+        wetRoadSurface = wetAmt;
         if (wetAmt > 0.02) {
-            float pNoise = valueNoise(p * 0.16) * 0.65 + valueNoise(p * 0.52) * 0.35;
-            puddleMask = smoothstep(0.56 - wetAmt * 0.20, 0.72 - wetAmt * 0.14, pNoise) * wetAmt;
-            albedo *= (1.0 - wetAmt * 0.28 - puddleMask * 0.25);
-            roughness = mix(roughness, 0.045, clamp(wetAmt * 0.45 + puddleMask * 0.85, 0.0, 0.96));
-            if (wetRoadFactor > 0.1 && puddleMask > 0.25) {
-                // Expanding raindrop ring ripples on puddles
-                vec2 ripCell = floor(p * 1.8);
-                vec2 ripUv = fract(p * 1.8) - 0.5;
-                float ripPhase = fract(animTime * 1.9 + hash12(ripCell));
-                float ring = sin((length(ripUv) - ripPhase * 0.45) * 48.0) * exp(-length(ripUv) * 6.0) * (1.0 - ripPhase);
-                N = normalize(vec3(ripUv.x * ring * 0.12, 1.0, ripUv.y * ring * 0.12));
-            } else {
-                N = normalize(mix(N, vec3(0.0, 1.0, 0.0), puddleMask * 0.85));
+            vec2 warp = vec2(fbm2(p * 0.085 + vec2(3.1, 7.4)), fbm2(p * 0.085 + vec2(11.7, 2.3)));
+            float pNoise = fbm2(p * 0.145 + warp * 1.45) * 0.72 + valueNoise(p * 0.52) * 0.28;
+            float gutterBias = 0.0;
+            if (onVert && !onHoriz) gutterBias = smoothstep(5.8, 8.7, dx) * 0.14;
+            else if (onHoriz && !onVert) gutterBias = smoothstep(5.8, 8.7, dz) * 0.14;
+            puddleMask = smoothstep(0.55 - wetAmt * 0.17, 0.77 - wetAmt * 0.10, pNoise + gutterBias) * wetAmt;
+
+            // Wet porous asphalt darkens realistically; pooled water becomes smooth mirror
+            albedo *= (1.0 - wetAmt * 0.34 - puddleMask * 0.24);
+            roughness = mix(roughness, 0.22, wetAmt * 0.72);
+            roughness = mix(roughness, 0.055, puddleMask * 0.92);
+
+            // Smooth raindrop ring ripples faded continuously across puddle edges
+            float ripBlend = smoothstep(0.14, 0.58, puddleMask) * smoothstep(0.05, 0.35, wetRoadFactor) * distFade;
+            if (ripBlend > 0.01) {
+                vec2 ripCell = floor(p * 1.65);
+                vec2 ripUv = fract(p * 1.65) - 0.5;
+                float ripPhase = fract(animTime * 1.85 + hash12(ripCell));
+                float ring = sin((length(ripUv) - ripPhase * 0.44) * 44.0) * exp(-length(ripUv) * 6.5) * (1.0 - ripPhase);
+                vec3 ripN = normalize(vec3(ripUv.x * ring * 0.09, 1.0, ripUv.y * ring * 0.09));
+                N = normalize(mix(N, ripN, ripBlend));
             }
+            N = normalize(mix(N, vec3(0.0, 1.0, 0.0), puddleMask * 0.80));
         }
     }
     else if (matId == 2) {
-        // MAT 2: Bevelled Concrete Sidewalk Pavers & Plazas
-        vec2 tileUv = fragPosition.xz / 1.75;
+        // MAT 2: Weathered Concrete Sidewalk Pavers & Stone Plazas
+        vec2 p = fragPosition.xz;
+        float distFade = 1.0 - smoothstep(20.0, 85.0, length(viewPos - fragPosition));
+        vec2 tileUv = p / 1.75;
         vec2 cell = floor(tileUv);
         vec2 g = abs(fract(tileUv) - 0.5);
         float seamDist = 0.5 - max(g.x, g.y);
-        float seam = 1.0 - smoothstep(0.0, max(fwidth(seamDist), 0.015) * 1.4, seamDist - 0.018);
-        float slabTint = 0.93 + 0.12 * hash12(cell) + 0.05 * valueNoise(fragPosition.xz * 6.0);
+        float seam = 1.0 - smoothstep(0.0, max(fwidth(seamDist), 0.015) * 1.4, seamDist - 0.016);
+        float fineGrain = valueNoise(p * 14.0);
+        float weatherPatch = fbm2(p * 0.35);
+        float slabTint = 0.88 + 0.11 * hash12(cell) + 0.08 * (weatherPatch - 0.5) + 0.05 * (fineGrain - 0.5);
         albedo *= slabTint;
-        albedo = mix(albedo, albedo * 0.54, seam * 0.72);
-        roughness = mix(0.74, 0.18, wetRoadFactor * 0.75);
-        puddleMask = wetRoadFactor * 0.42 * (1.0 - seam);
+        albedo = mix(albedo, albedo * 0.50, seam * 0.78);
+        albedo *= (1.0 - wetRoadFactor * 0.30);
+
+        float nx = (valueNoise(p * 18.0 + vec2(0.10, 0.0)) - fineGrain) * distFade;
+        float nz = (valueNoise(p * 18.0 + vec2(0.0, 0.10)) - fineGrain) * distFade;
+        N = normalize(vec3(N.x + nx * 0.11, N.y, N.z + nz * 0.11));
+
+        roughness = mix(0.84, 0.24, wetRoadFactor * 0.72);
+        puddleMask = wetRoadFactor * smoothstep(0.45, 0.78, fbm2(p * 0.22)) * 0.42 * (1.0 - seam);
     }
     else if (matId == 3) {
-        // MAT 3: Architectural Glass Curtain-Wall Skyscraper with 3D Raycasted Interior Mapping!
+        // MAT 3: Architectural Glass Curtain-Wall Skyscraper with 3D Raycasted Interior Mapping
         if (abs(N.y) > 0.55) {
-            float roofNoise = valueNoise(fragPosition.xz * 2.5);
-            albedo = mix(vec3(0.09, 0.10, 0.12), vec3(0.16, 0.17, 0.19), roofNoise);
-            roughness = 0.82;
+            float roofNoise = fbm2(fragPosition.xz * 1.4);
+            albedo = mix(vec3(0.075, 0.080, 0.092), vec3(0.145, 0.150, 0.162), roofNoise);
+            roughness = 0.86;
         } else {
             float uCoord = (abs(N.x) > 0.5) ? fragPosition.z : fragPosition.x;
             float vCoord = fragPosition.y;
@@ -632,38 +702,40 @@ void main() {
             bool isSpandrel = isGroundLobby ? (vCoord > 3.72) : (vFrac < 0.13 || vFrac > 0.89);
 
             if (isMullion || isSpandrel) {
-                // Anodized aluminum / brushed steel structural mullion & spandrel frame with 3D bevel normal
-                albedo *= 0.30;
-                roughness = 0.34;
-                metallic = 0.78;
+                albedo *= 0.28;
+                roughness = 0.36;
+                metallic = 0.74;
                 float bevelX = (uFrac < 0.070) ? -0.22 : ((uFrac > 0.930) ? 0.22 : 0.0);
                 float bevelY = (vFrac < 0.13) ? -0.22 : ((vFrac > 0.89) ? 0.22 : 0.0);
                 N = normalize(N + vec3(bevelX * N.z, bevelY, -bevelX * N.x));
             } else {
-                // 3D Raycasted Interior Mapping inside each skyscraper window bay!
                 vec2 paneUv = vec2((uFrac - 0.070) / 0.860,
                                    isGroundLobby ? clamp(vCoord / 3.72, 0.0, 1.0) : ((vFrac - 0.13) / 0.76));
                 vec2 bldSeed = floor(fragPosition.xz / 14.0);
                 float roomRnd = hash12(vec2(uCell * 1.37 + bldSeed.x * 7.1, vCell * 2.19 + bldSeed.y * 11.3));
                 vec3 room3D = sampleInteriorRoom3D(paneUv, V, N, roomRnd, isGroundLobby, nightFactor);
 
-                albedo = mix(albedo * 0.32, room3D, 0.74);
+                // Dark tinted architectural glass in sunlight; warm luminous rooms at dusk/night!
+                vec3 glassBase = albedo * 0.22;
+                albedo = mix(glassBase, room3D, mix(0.38, 0.84, nightFactor));
                 roughness = 0.06;
-                metallic = 0.22;
+                metallic = 0.20;
 
-                float litThreshold = isGroundLobby ? 0.18 : 0.44;
+                float litThreshold = isGroundLobby ? 0.20 : 0.46;
                 if (roomRnd > litThreshold) {
                     emissiveColor = room3D;
-                    emissive = mix(0.26, isGroundLobby ? 1.28 : 1.02, nightFactor);
+                    emissive = mix(0.05, isGroundLobby ? 1.25 : 1.02, nightFactor);
                 }
             }
+            // Ground-level urban base splash/weathering AO
+            albedo *= mix(0.76, 1.0, smoothstep(0.0, 2.2, vCoord));
         }
     }
     else if (matId == 4) {
-        // MAT 4: Modern Office / Precast Stone & Masonry Facade with Recessed 3D Interior Windows
+        // MAT 4: Precast Stone & Brick Masonry Facade with Realistic Reflective Glass & 3D Interiors
         if (abs(N.y) > 0.55) {
-            albedo = vec3(0.14, 0.14, 0.15) * (0.85 + 0.25 * valueNoise(fragPosition.xz * 2.2));
-            roughness = 0.84;
+            albedo = vec3(0.11, 0.11, 0.12) * (0.85 + 0.24 * fbm2(fragPosition.xz * 1.8));
+            roughness = 0.86;
         } else {
             float uCoord = (abs(N.x) > 0.5) ? fragPosition.z : fragPosition.x;
             float vCoord = fragPosition.y;
@@ -677,9 +749,9 @@ void main() {
             bool groundShop = (vCoord > 0.35 && vCoord < 2.95) && (uFrac > 0.12 && uFrac < 0.88);
 
             if (inSill) {
-                albedo *= 1.38;
-                roughness = 0.64;
-                N = normalize(N + vec3(0.0, 0.32, 0.0));
+                albedo *= 1.18;
+                roughness = 0.72;
+                N = normalize(N + vec3(0.0, 0.28, 0.0));
             } else if (inWindow || groundShop) {
                 vec2 paneUv = groundShop
                                   ? vec2((uFrac - 0.12) / 0.76, (vCoord - 0.35) / 2.60)
@@ -688,20 +760,26 @@ void main() {
                 float rnd = hash12(vec2(uCell + seed.x * 5.7, vCell + seed.y * 9.3));
                 vec3 room3D = sampleInteriorRoom3D(paneUv, V, N, rnd, groundShop, nightFactor);
 
-                albedo = room3D * 0.68;
-                roughness = 0.08;
+                // Realistic deep architectural window panes in daylight, glowing cozy interiors at night!
+                vec3 dayPane = vec3(0.025, 0.036, 0.048);
+                albedo = mix(dayPane, room3D * 0.72, mix(0.32, 0.86, nightFactor));
+                roughness = 0.07;
                 metallic = 0.16;
-                if (rnd > (groundShop ? 0.24 : 0.48)) {
+                if (rnd > (groundShop ? 0.26 : 0.50)) {
                     emissiveColor = room3D;
-                    emissive = mix(0.22, 0.96, nightFactor);
+                    emissive = mix(0.04, 0.96, nightFactor);
                 }
             } else {
-                // Architectural rusticated masonry joints + subtle vertical pilaster fluting
+                // Weathered architectural stone/brick courses + subtle micro-relief normal
                 float hJoint = smoothstep(0.91, 0.98, abs(sin(vCoord * 9.5)));
                 float vJoint = smoothstep(0.94, 0.99, abs(sin(uCoord * 4.4)));
                 float joint = max(hJoint, vJoint * 0.75);
-                albedo *= (0.95 - 0.16 * joint + 0.08 * valueNoise(vec2(uCoord, vCoord) * 2.2));
-                roughness = 0.76;
+                float stoneVar = fbm2(vec2(uCoord, vCoord) * 1.15);
+                float microGrain = valueNoise(vec2(uCoord, vCoord) * 9.0);
+                albedo *= (0.94 - 0.18 * joint + 0.10 * (stoneVar - 0.5) + 0.05 * (microGrain - 0.5));
+                albedo *= mix(0.72, 1.0, smoothstep(0.0, 2.4, vCoord));
+                N = normalize(N + vec3(0.0, (cos(vCoord * 9.5) * hJoint) * 0.14, 0.0));
+                roughness = 0.82;
             }
         }
     }
@@ -711,57 +789,150 @@ void main() {
         if (abs(N.y) < 0.5) {
             float rib = sin(uCoord * 16.0);
             float ribGrad = cos(uCoord * 16.0);
-            albedo *= (0.90 + 0.14 * rib);
+            float grime = fbm2(vec2(uCoord, fragPosition.y) * 0.85);
+            albedo *= (0.88 + 0.12 * rib) * mix(0.84, 1.08, grime);
             N = normalize(N + vec3(N.z * ribGrad * 0.18, 0.0, -N.x * ribGrad * 0.18));
         }
-        roughness = 0.38;
-        metallic = 0.55;
+        roughness = 0.44;
+        metallic = 0.52;
     }
     else if (matId == 6) {
-        // MAT 6: Animated Multi-Wave Coastal Ocean Water with Fresnel Reflection, Sun Glitter & Surf Foam
+        // MAT 6: Animated Multi-Wave Coastal Ocean Water & Calm Grand Central Park Lake
         vec2 wp = fragPosition.xz;
-        float w1 = sin(wp.x * 0.22 + animTime * 1.55 + cos(wp.y * 0.14) * 1.2);
-        float w2 = cos(wp.y * 0.29 - animTime * 1.25 + sin(wp.x * 0.19));
-        float w3 = sin((wp.x + wp.y) * 0.55 + animTime * 2.35) * 0.5;
-        float w4 = cos((wp.x * 0.9 - wp.y * 0.7) + animTime * 3.1) * 0.28;
-        vec2 grad = vec2(w1 * 0.055 + w3 * 0.04 + w4 * 0.025, w2 * 0.055 + w3 * 0.04 - w4 * 0.025);
-        N = normalize(vec3(-grad.x, 1.0, -grad.y));
+        bool inParkLake = (fragPosition.y > -0.15) && (abs(wp.x) < 220.0) && (abs(wp.y) < 220.0);
+        if (inParkLake) {
+            // Calm reflective emerald-blue inland lake / fountain basin with gentle micro-ripples
+            float r1 = sin(wp.x * 1.45 + animTime * 1.85 + cos(wp.y * 1.15));
+            float r2 = cos(wp.y * 1.75 - animTime * 1.55 + sin(wp.x * 1.30));
+            N = normalize(vec3(-(r1 + r2) * 0.018, 1.0, -(r2 - r1) * 0.018));
+            albedo = mix(vec3(0.014, 0.068, 0.088), vec3(0.005, 0.020, 0.032), nightFactor);
+            roughness = 0.045;
+            metallic = 0.06;
+        } else {
+            float w1 = sin(wp.x * 0.18 + animTime * 1.45 + cos(wp.y * 0.12) * 1.2);
+            float w2 = cos(wp.y * 0.24 - animTime * 1.15 + sin(wp.x * 0.16));
+            float w3 = sin((wp.x + wp.y) * 0.48 + animTime * 2.15) * 0.5;
+            float w4 = cos((wp.x * 0.82 - wp.y * 0.68) + animTime * 2.85) * 0.26;
+            vec2 grad = vec2(w1 * 0.052 + w3 * 0.036 + w4 * 0.022, w2 * 0.052 + w3 * 0.036 - w4 * 0.022);
+            N = normalize(vec3(-grad.x, 1.0, -grad.y));
 
-        vec3 deepWater = mix(vec3(0.008, 0.065, 0.145), vec3(0.003, 0.012, 0.032), nightFactor);
-        vec3 shallowTurquoise = mix(vec3(0.025, 0.220, 0.285), vec3(0.008, 0.035, 0.065), nightFactor);
+            vec3 deepWater = mix(vec3(0.007, 0.048, 0.112), vec3(0.003, 0.010, 0.025), nightFactor);
+            vec3 shallowTurquoise = mix(vec3(0.020, 0.155, 0.205), vec3(0.007, 0.028, 0.052), nightFactor);
 
-        float eastNorthSouthDist = max(wp.x - 375.0, abs(wp.y) - 375.0);
-        float westBeachEdge = (abs(wp.y) < 352.0) ? (-392.0 - wp.x) : (-375.0 - wp.x);
-        float islandDist = max(eastNorthSouthDist, westBeachEdge);
-        float shoreProx = 1.0 - clamp(islandDist / 46.0, 0.0, 1.0);
-        albedo = mix(deepWater, shallowTurquoise, shoreProx * 0.80);
+            float eastNorthSouthDist = max(wp.x - 716.0, abs(wp.y) - 716.0);
+            float westBeachEdge = (abs(wp.y) < 684.0) ? (-746.0 - wp.x) : (-716.0 - wp.x);
+            float mainIslandDist = max(eastNorthSouthDist, westBeachEdge);
+            float penDist = max(abs(wp.x) - 130.0, max(815.0 - wp.y, wp.y - 954.0));
+            float islandDist = min(mainIslandDist, penDist);
 
-        if (islandDist > -7.0 && islandDist < 18.0) {
-            float surfWave = sin(islandDist * 0.82 - animTime * 2.7 + valueNoise(wp * 0.25) * 3.0);
-            float foam = smoothstep(0.52, 0.92, surfWave) * (1.0 - clamp(islandDist / 18.0, 0.0, 1.0));
-            albedo = mix(albedo, vec3(0.82, 0.88, 0.92), foam * 0.80);
+            float shoreProx = 1.0 - clamp(islandDist / 52.0, 0.0, 1.0);
+            albedo = mix(deepWater, shallowTurquoise, shoreProx * 0.76);
+
+            if (islandDist > -7.0 && islandDist < 20.0) {
+                float surfWave = sin(islandDist * 0.78 - animTime * 2.5 + valueNoise(wp * 0.22) * 3.0);
+                float foam = smoothstep(0.54, 0.92, surfWave) * (1.0 - clamp(islandDist / 20.0, 0.0, 1.0));
+                albedo = mix(albedo, vec3(0.76, 0.82, 0.86), foam * 0.74);
+            }
+            roughness = 0.065;
+            metallic = 0.06;
         }
-        roughness = 0.07;
-        metallic = 0.06;
     }
     else if (matId == 10) {
-        // MAT 10: Lush Multi-Tone Park Lawn & Subsurface-Lit Foliage
-        float patchNoise = valueNoise(fragPosition.xz * 0.45);
-        float bladeNoise = valueNoise(fragPosition.xz * 7.5 + vec2(fragPosition.y * 3.0));
-        albedo *= mix(0.80, 1.22, patchNoise * 0.65 + bladeNoise * 0.35);
-        roughness = 0.66;
+        // MAT 10: Natural Multi-Tone Park Lawn (ground) & Dappled Botanical Tree Foliage (canopies)
+        float distFade = 1.0 - smoothstep(24.0, 95.0, length(viewPos - fragPosition));
+        if (fragPosition.y < 0.35) {
+            vec2 p = fragPosition.xz;
+            float macro = fbm2(p * 0.22);
+            float micro = valueNoise(p * 9.5);
+            float blades = valueNoise(p * 28.0);
+            // Subtle park turf mowing bands + organic moss/clover/dry-straw variation
+            float mowBand = 0.95 + 0.05 * sin(p.x * 1.15);
+            vec3 lushTint = mix(vec3(0.84, 0.94, 0.78), vec3(1.16, 1.06, 0.76), macro);
+            albedo *= lushTint * mowBand * mix(0.86, 1.12, micro * 0.6 + blades * 0.4);
+            albedo *= (1.0 - wetRoadFactor * 0.22);
+
+            float gx = (valueNoise(p * 22.0 + vec2(0.12, 0.0)) - blades) * distFade;
+            float gz = (valueNoise(p * 22.0 + vec2(0.0, 0.12)) - blades) * distFade;
+            N = normalize(vec3(N.x + gx * 0.24, N.y, N.z + gz * 0.24));
+            roughness = mix(0.88, 0.56, wetRoadFactor * 0.65);
+        } else {
+            // Tree canopy leaves: high-frequency dappled cluster normal bump + shaded interior depth
+            vec2 leafUv = fragPosition.xz * 4.8 + vec2(fragPosition.y * 3.9, -fragPosition.y * 2.7);
+            float leafCluster = fbm2(leafUv);
+            float leafFine = valueNoise(leafUv * 3.1);
+            float canopyDepth = mix(0.72, 1.18, clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
+            albedo *= canopyDepth * mix(0.78, 1.24, leafCluster * 0.65 + leafFine * 0.35);
+
+            float lx = (valueNoise(leafUv * 2.4 + vec2(0.18, 0.0)) - leafFine) * distFade;
+            float lz = (valueNoise(leafUv * 2.4 + vec2(0.0, 0.18)) - leafFine) * distFade;
+            N = normalize(N + vec3(lx * 0.36, (leafCluster - 0.5) * 0.28 * distFade, lz * 0.36));
+            roughness = mix(0.80, 0.48, wetRoadFactor * 0.55);
+        }
+    }
+    else if (matId == 11) {
+        // MAT 11: Woven Fabric & Tailored Clothing (micro-weave grain + subtle garment folds)
+        vec2 weaveUv = vec2((fragPosition.x + fragPosition.z) * 28.0, fragPosition.y * 28.0);
+        float weave = 0.94 + 0.10 * (valueNoise(weaveUv) - 0.5);
+        float fold = 0.95 + 0.07 * sin(fragPosition.y * 18.0 + (fragPosition.x - fragPosition.z) * 14.0);
+        albedo *= weave * fold;
+        roughness = max(roughness, 0.72);
+    }
+    else if (matId == 12) {
+        // MAT 12: Organic Human Skin (soft matte micro-surface + warm subsurface wrap below)
+        float toneVar = 0.97 + 0.05 * valueNoise(fragPosition.xz * 18.0 + vec2(fragPosition.y * 18.0));
+        albedo *= toneVar;
+        roughness = clamp(roughness, 0.52, 0.70);
+    }
+    else if (matId == 13) {
+        // MAT 13: Horizontal Weathered Timber Boardwalk Planks OR Vertical Fissured Natural Tree Bark
+        if (abs(N.y) > 0.65) {
+            // Crisp coastal timber deck planking (staggered planks, dark seam grooves & wood grain)
+            float plankX = fragPosition.x * 2.85;
+            float plankId = floor(plankX);
+            float plankU = fract(plankX);
+            float seamX = 1.0 - smoothstep(0.025, 0.065, min(plankU, 1.0 - plankU));
+            float jointZ = fract(fragPosition.z * 0.28 + hash12(vec2(plankId, 3.7)) * 4.0);
+            float seamZ = 1.0 - smoothstep(0.008, 0.022, min(jointZ, 1.0 - jointZ));
+            float plankVar = 0.86 + 0.24 * hash12(vec2(plankId, floor(fragPosition.z * 0.28)));
+            float grain = 0.93 + 0.14 * valueNoise(vec2(fragPosition.x * 26.0, fragPosition.z * 3.8));
+            albedo *= plankVar * grain * (1.0 - max(seamX, seamZ * 0.8) * 0.42);
+            roughness = mix(0.84, 0.46, wetRoadFactor * 0.55);
+        } else {
+            // Vertical fissured natural tree bark & weathered wood grain
+            float barkCoord = (fragPosition.x + fragPosition.z) * 5.2 + atan(N.z, N.x) * 3.5;
+            float ridge = fbm2(vec2(barkCoord, fragPosition.y * 2.4));
+            float fissure = sin(barkCoord * 4.2 + ridge * 5.2);
+            albedo *= mix(0.68, 1.12, 0.5 + 0.30 * fissure + 0.22 * (ridge - 0.5));
+            N = normalize(N + vec3(-N.z * fissure * 0.22, 0.0, N.x * fissure * 0.22));
+            roughness = 0.89;
+        }
+    }
+    else if (matId == 14) {
+        // MAT 14: Coastal California Beach Sand (windblown micro-ripples, quartz grain & damp tide edge)
+        vec2 p = fragPosition.xz;
+        float distFade = 1.0 - smoothstep(20.0, 90.0, length(viewPos - fragPosition));
+        float duneMacro = fbm2(p * 0.12);
+        float sandGrain = valueNoise(p * 26.0);
+        float windRip = sin(p.x * 5.2 + fbm2(p * 0.65) * 4.5);
+        float dampShore = 1.0 - smoothstep(-746.0, -731.0, p.x);
+        albedo *= mix(0.88, 1.12, duneMacro * 0.65 + sandGrain * 0.35);
+        albedo *= mix(1.0, 0.64, max(dampShore, wetRoadFactor * 0.42));
+        albedo += vec3(0.032, 0.030, 0.024) * smoothstep(0.84, 0.98, valueNoise(p * 52.0)) * distFade * (1.0 - dampShore);
+        N = normalize(vec3(N.x + windRip * 0.085 * distFade, N.y, N.z + (sandGrain - 0.5) * 0.075 * distFade));
+        roughness = mix(0.88, 0.22, max(dampShore, wetRoadFactor * 0.40));
     }
 
     // -----------------------------------------------------------------------
     // Pure Emissive Bypass (Headlights, Taillights, Neon Signs, Traffic Signals, Coronas)
     // -----------------------------------------------------------------------
     if (matId == 9) {
-        vec3 glow = albedo * (1.35 + emissive * 1.45);
+        vec3 glow = albedo * (1.28 + emissive * 1.38);
         float dist = length(viewPos - fragPosition);
-        float fogF = clamp(1.0 - exp(-max(0.0, dist - 110.0) * 0.0028), 0.0, 0.85);
+        float fogStart = mix(110.0, 52.0, wetRoadFactor);
+        float fogF = clamp(1.0 - exp(-max(0.0, dist - fogStart) * 0.0028), 0.0, 0.85);
         vec3 hdrOut = mix(glow, pow(fogColor, vec3(2.2)), fogF * 0.55);
         vec3 mapped = pow(acesTonemap(hdrOut), vec3(1.0 / 2.2));
-        mapped = max(mapped, clamp(srgbBase.rgb * (0.92 + colSpecular.z * 0.25), 0.0, 1.0));
+        mapped = max(mapped, clamp(srgbBase.rgb * (0.90 + colSpecular.z * 0.22), 0.0, 1.0));
         finalColor = vec4(mapped, srgbBase.a);
         return;
     }
@@ -769,9 +940,10 @@ void main() {
     // -----------------------------------------------------------------------
     // Cook-Torrance GGX Microfacet BRDF + Dual-Layer Clearcoat + City Env Reflections
     // -----------------------------------------------------------------------
-    float ndotl = max(dot(N, L), 0.0);
+    float rawNdotL = dot(N, L);
+    float ndotl = max(rawNdotL, 0.0);
     if (matId == 10) {
-        ndotl = max(dot(N, L) * 0.68 + 0.32, 0.0);
+        ndotl = max(rawNdotL * 0.72 + 0.28, 0.0);
     }
 
     float shadow = computeSoftShadow(fragPosition, N, L);
@@ -779,9 +951,9 @@ void main() {
 
     float hemi = 0.5 + 0.5 * N.y;
     vec3 ambient = mix(groundAmbient, skyAmbient, hemi);
-    // Subtle atmospheric sky-blue tint inside cast shadows for crisp sunlit-vs-shade contrast
-    ambient = mix(ambient, ambient * vec3(0.76, 0.85, 1.06), shadow * 0.42);
-    float contactAo = mix(0.68, 1.0, clamp(fragPosition.y / 1.7, 0.0, 1.0));
+    // Natural cool sky fill inside cast shadows for crisp sunlit-vs-shade contrast
+    ambient = mix(ambient, ambient * vec3(0.76, 0.86, 1.08), shadow * 0.44);
+    float contactAo = mix(0.64, 1.0, clamp(fragPosition.y / 1.7, 0.0, 1.0));
     if (N.y > 0.75) contactAo = 1.0;
 
     vec3 H = normalize(L + V);
@@ -789,13 +961,13 @@ void main() {
     float ndotv = max(dot(N, V), 0.001);
     float vdoth = max(dot(V, H), 0.0);
 
-    // Subtle metallic paint grazing-angle color flop on automotive body panels (adds sculptural 3D curve depth!)
+    // Metallic paint grazing-angle color flop on automotive body panels
     if (matId == 7) {
-        float flop = pow(1.0 - ndotv, 1.75);
-        albedo *= mix(vec3(1.04), vec3(0.64, 0.68, 0.76), flop * (1.0 - roughness * 0.60));
+        float flop = pow(1.0 - ndotv, 1.70);
+        albedo *= mix(vec3(1.02), vec3(0.58, 0.62, 0.70), flop * (1.0 - roughness * 0.60));
     } else if (matId == 8) {
-        // Deep luxury smoked automotive glass tint (preserves dark mirror contrast instead of milky grey!)
-        albedo *= 0.28;
+        // Deep luxury smoked automotive glass tint
+        albedo *= 0.24;
         roughness = 0.04;
     }
 
@@ -816,60 +988,74 @@ void main() {
     vec3 specBrdf = (D_ggx * G_smith * F_schlick) / max(4.0 * ndotv * ndotl, 0.001);
     vec3 kD = (vec3(1.0) - F_schlick) * (1.0 - metallic * 0.86);
 
-    vec3 directLit = (kD * albedo / kPi + specBrdf * 0.44) * sunColor * ndotl * sunVis * 2.55;
+    vec3 directLit = (kD * albedo / kPi + specBrdf * 0.44) * sunColor * ndotl * sunVis * 2.35;
     vec3 envLit    = albedo * ambient * contactAo;
 
-    // 360-Degree City Skyline & Neon Reflections on Glass (3,4), Ocean (6), Car Clearcoat (7), Car Glass (8), and Wet Puddles!
-    bool reflectiveMat = (matId == 3 || matId == 4 || matId == 6 || matId == 7 || matId == 8 || puddleMask > 0.05);
+    // Organic material response: fabric grazing sheen, skin warm subsurface wrap, backlit tree leaves
+    if (matId == 11) {
+        float clothSheen = pow(1.0 - ndotv, 3.0) * 0.14;
+        envLit += (albedo * 0.55 + vec3(0.08)) * skyAmbient * clothSheen;
+    } else if (matId == 12) {
+        float sssWrap = clamp((rawNdotL + 0.45) / 1.45, 0.0, 1.0) * (1.0 - ndotl);
+        directLit += albedo * vec3(0.42, 0.13, 0.06) * sssWrap * sunColor * sunVis * 0.85;
+    } else if (matId == 10 && fragPosition.y >= 0.35) {
+        float leafBacklit = pow(clamp(dot(V, -L), 0.0, 1.0), 3.0) * 0.24;
+        directLit += albedo * vec3(0.95, 1.12, 0.42) * leafBacklit * sunColor * sunVis;
+    }
+
+    // 360-Degree Physically Grounded Environment Reflections on Glass, Ocean, Car Paint, and Wet Pavements
+    bool reflectiveMat = (matId == 3 || matId == 4 || matId == 6 || matId == 7 || matId == 8 || puddleMask > 0.04 || wetRoadSurface > 0.15);
     if (reflectiveMat) {
         vec3 R = reflect(-V, N);
         vec3 envRefl = sampleCityEnvMap(R, fragPosition, roughness, nightFactor);
 
         float specExp = (matId == 6) ? 210.0 : ((matId == 8) ? 260.0 : ((matId == 7) ? mix(220.0, 28.0, clamp(roughness * 1.5, 0.0, 1.0)) : 140.0));
         float sunRefl = pow(max(dot(R, L), 0.0), specExp);
-        envRefl += sunColor * sunRefl * sunVis * ((matId == 6) ? 2.8 : ((matId == 8) ? 2.4 : ((matId == 7) ? 1.65 : 1.60)));
+        envRefl += sunColor * sunRefl * sunVis * ((matId == 6) ? 2.6 : ((matId == 8) ? 2.2 : ((matId == 7) ? 1.55 : 1.35)));
 
-        float coatStrength = (matId == 6) ? 0.90
-                           : ((matId == 8) ? 0.68
-                           : ((matId == 7) ? 0.68
-                           : ((matId == 3) ? 0.56
-                           : ((matId == 4) ? (0.35 * (1.0 - step(0.3, roughness))) : (puddleMask * 0.82)))));
+        float wetCoat = puddleMask * 0.62 + wetRoadSurface * 0.14;
+        float coatStrength = (matId == 6) ? 0.88
+                           : ((matId == 8) ? 0.72
+                           : ((matId == 7) ? 0.74
+                           : ((matId == 3) ? 0.62
+                           : ((matId == 4) ? (0.44 * (1.0 - step(0.3, roughness))) : wetCoat))));
         if (matId == 7) {
-            // Dual-lobe showroom polyurethane clearcoat + sparkling metallic basecoat flake + subtle horizon sheen
+            // Dual-lobe showroom clearcoat + subtle metallic basecoat flake + photographic horizon reflection band
             float coatMask = 1.0 - smoothstep(0.20, 0.50, roughness) * 0.78;
             float flake = valueNoise(fragPosition.xz * 92.0 + vec2(fragPosition.y * 74.0));
             float ccAlpha2 = 0.00018;
             float ccDen = (ndoth * ndoth * (ccAlpha2 - 1.0) + 1.0);
             float ccD = ccAlpha2 / max(kPi * ccDen * ccDen, 0.0001);
             float ccF = 0.04 + 0.96 * pow(1.0 - vdoth, 5.0);
-            directLit += vec3(min(ccD * ccF * 0.012, 1.9)) * sunColor * ndotl * sunVis * coatMask;
-            envLit += albedo * pow(ndoth, 28.0) * (0.14 + 0.34 * flake) * (1.0 - roughness) * sunVis;
-            // Subtle sculptural horizon reflection band along curved body flanks & fenders
-            float horizLine = exp(-abs(R.y - 0.03) * 16.0);
-            envRefl += mix(horizonColor * 0.55, vec3(0.92, 0.96, 1.02), 0.40) * horizLine * 0.20 * (1.0 - nightFactor * 0.55) * coatMask;
+            directLit += vec3(min(ccD * ccF * 0.012, 1.85)) * sunColor * ndotl * sunVis * coatMask;
+            envLit += albedo * pow(ndoth, 28.0) * (0.12 + 0.28 * flake) * (1.0 - roughness) * sunVis;
+            float horizLine = exp(-abs(R.y - 0.025) * 18.0);
+            envRefl += mix(horizonColor * 0.55, vec3(0.95, 0.98, 1.04), 0.42) * horizLine * 0.26 * (1.0 - nightFactor * 0.50) * coatMask;
             coatStrength *= coatMask;
         }
         float coatFresnel = (matId == 8)
-                                ? (0.10 + 0.84 * pow(1.0 - ndotv, 4.2))
-                                : (0.07 + 0.90 * pow(1.0 - ndotv, 4.0));
+                                ? (0.12 + 0.84 * pow(1.0 - ndotv, 4.0))
+                                : (0.06 + 0.90 * pow(1.0 - ndotv, 4.2));
         envLit += envRefl * coatFresnel * coatStrength;
     }
 
     vec3 totalLinear = envLit + directLit + emissiveColor * emissive;
 
-    // Smooth exponential coastal aerial perspective (atmospheric haze)
+    // Exponential coastal aerial perspective + closer rain mist when storm weather is active
     float dist = length(viewPos - fragPosition);
-    float fogFactor = clamp(1.0 - exp(-max(0.0, dist - 95.0) * 0.0030), 0.0, 0.88);
+    float fogStart = mix(95.0, 40.0, wetRoadFactor);
+    float fogDens  = mix(0.0028, 0.0046, wetRoadFactor);
+    float fogFactor = clamp(1.0 - exp(-max(0.0, dist - fogStart) * fogDens), 0.0, 0.88);
     vec3 linearFog = pow(fogColor, vec3(2.2));
     vec3 fogged = mix(totalLinear, linearFog, fogFactor);
 
-    vec3 mapped = pow(acesTonemap(fogged * 1.14), vec3(1.0 / 2.2));
+    vec3 mapped = pow(acesTonemap(fogged * 1.02), vec3(1.0 / 2.2));
     finalColor = vec4(mapped, srgbBase.a);
 }
 )GLSL";
 
 // ---------------------------------------------------------------------------
-// 4) Full-Screen Multi-Ring HDR-Threshold Bloom + Cinematic Color Polish Shader
+// 4) Full-Screen Multi-Ring HDR-Threshold Bloom + Cinematic Film Color Grade
 // ---------------------------------------------------------------------------
 const char* kPostVertShader = OC_GLSL_VERT_HEADER R"GLSL(
 in vec3 vertexPosition;
@@ -901,9 +1087,10 @@ uniform int enableBloom;
 
 out vec4 finalColor;
 
+// Selective high threshold so only true emissives, headlights & sun glints bloom (never daytime sidewalks!)
 vec3 extractBright(vec3 c) {
     float peak = max(c.r, max(c.g, c.b));
-    float weight = smoothstep(0.76, 0.99, peak);
+    float weight = smoothstep(0.88, 1.04, peak);
     return c * weight;
 }
 
@@ -911,7 +1098,7 @@ void main() {
     vec2 uv = fragTexCoord;
     vec2 texel = 1.0 / max(resolution, vec2(1.0));
 
-    // Subtle edge radial chromatic speed polish during Nitrous boost!
+    // Subtle edge radial chromatic speed polish during Nitrous boost
     vec2 centerVec = uv - vec2(0.5);
     float edgeDist = length(centerVec);
     vec3 baseCol;
@@ -926,7 +1113,6 @@ void main() {
 
     vec3 bloom = vec3(0.0);
     if (enableBloom == 1) {
-        // 12-tap dual-ring optical bloom around bright lights, neon signs, sun corona & brake lamps
         const vec2 dirs[6] = vec2[6](
             vec2( 1.000,  0.000),
             vec2( 0.500,  0.866),
@@ -946,13 +1132,20 @@ void main() {
         bloom = (acc / wSum) * bloomStrength;
     }
 
-    vec3 col = baseCol * exposure + bloom;
+    vec3 col = clamp(baseCol * exposure + bloom, 0.0, 1.0);
 
-    // Crisp cinematic S-curve contrast & subtle lens vignette
-    col = clamp(col, 0.0, 1.0);
-    col = mix(col, col * col * (3.0 - 2.0 * col), 0.16);
-    float vignette = 1.0 - smoothstep(0.42, 0.96, edgeDist) * 0.14;
+    // Subtle cinema color grade (grounded cool shadow depth + gentle warm highlight lift) & natural contrast
+    float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    vec3 shadowGrade = vec3(0.97, 0.99, 1.03);
+    vec3 highGrade   = vec3(1.02, 1.00, 0.98);
+    col *= mix(shadowGrade, highGrade, smoothstep(0.15, 0.85, luma));
+    col = mix(col, col * col * (3.0 - 2.0 * col), 0.14);
+
+    // Subtle optical lens vignette + 1/255 IGN anti-banding dither for silk-smooth sky gradients
+    float vignette = 1.0 - smoothstep(0.45, 0.98, edgeDist) * 0.11;
     col *= vignette;
+    float dither = (fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5) / 255.0;
+    col += vec3(dither);
 
     finalColor = vec4(clamp(col, 0.0, 1.0), 1.0) * fragColor;
 }
@@ -1101,9 +1294,18 @@ struct SmoothMeshBuilder {
     }
 };
 
-// Builds a smooth 24-segment rounded-shoulder tire cylinder along Z (radius=1, z in [-0.5, +0.5])
+// Builds a HOLLOW 24-segment rounded-shoulder rubber tire (radius=1, z in [-0.5, +0.5], inner bead r=0.64)
+// Leaving the center rim cavity open so concave 3D alloy spokes, rotors & Brembo calipers are 100% visible!
 Mesh buildCenteredWheelMesh(int slices) {
     SmoothMeshBuilder b;
+    const float rOuter = 1.00f;
+    const float rSide  = 0.93f;
+    const float rBead  = 0.65f;
+    const float rInner = 0.62f;
+    const float zTread = 0.38f;
+    const float zSide  = 0.50f;
+    const float zBead  = 0.45f;
+
     for (int i = 0; i < slices; ++i) {
         const float a0 = (static_cast<float>(i) / static_cast<float>(slices)) * kTwoPi;
         const float a1 = (static_cast<float>(i + 1) / static_cast<float>(slices)) * kTwoPi;
@@ -1111,35 +1313,37 @@ Mesh buildCenteredWheelMesh(int slices) {
         const float c1 = std::cos(a1), s1 = std::sin(a1);
         const float cm = std::cos((a0 + a1) * 0.5f), sm = std::sin((a0 + a1) * 0.5f);
 
-        // Bevelled tire tread & sidewall shoulder rings for authentic round rubber tire profile!
-        const float rOuter = 1.00f;
-        const float rSide  = 0.91f;
-        const float zTread = 0.38f;
-        const float zSide  = 0.50f;
-
+        // Outer rubber contact tread + curved shoulder transitions
         b.addQuadOutward({c0 * rOuter, s0 * rOuter, -zTread}, {c1 * rOuter, s1 * rOuter, -zTread},
                          {c1 * rOuter, s1 * rOuter,  zTread}, {c0 * rOuter, s0 * rOuter,  zTread}, {cm, sm, 0.0f});
         b.addQuadOutward({c0 * rOuter, s0 * rOuter,  zTread}, {c1 * rOuter, s1 * rOuter,  zTread},
-                         {c1 * rSide,  s1 * rSide,   zSide},  {c0 * rSide,  s0 * rSide,   zSide},  {cm, sm, 0.5f});
+                         {c1 * rSide,  s1 * rSide,   zSide},  {c0 * rSide,  s0 * rSide,   zSide},  {cm, sm, 0.55f});
         b.addQuadOutward({c0 * rSide,  s0 * rSide,  -zSide},  {c1 * rSide,  s1 * rSide,  -zSide},
-                         {c1 * rOuter, s1 * rOuter, -zTread}, {c0 * rOuter, s0 * rOuter, -zTread}, {cm, sm, -0.5f});
+                         {c1 * rOuter, s1 * rOuter, -zTread}, {c0 * rOuter, s0 * rOuter, -zTread}, {cm, sm, -0.55f});
 
-        b.addTriOutward({0.0f, 0.0f,  zSide}, {c0 * rSide, s0 * rSide,  zSide}, {c1 * rSide, s1 * rSide,  zSide}, {0.0f, 0.0f,  1.0f});
-        b.addTriOutward({0.0f, 0.0f, -zSide}, {c1 * rSide, s1 * rSide, -zSide}, {c0 * rSide, s0 * rSide, -zSide}, {0.0f, 0.0f, -1.0f});
+        // Open annular rubber sidewalls (+Z and -Z) sloping gently into the wheel rim bead!
+        b.addQuadOutward({c0 * rSide, s0 * rSide,  zSide}, {c1 * rSide, s1 * rSide,  zSide},
+                         {c1 * rBead, s1 * rBead,  zBead}, {c0 * rBead, s0 * rBead,  zBead}, {0.0f, 0.0f, 1.0f});
+        b.addQuadOutward({c0 * rBead, s0 * rBead, -zBead}, {c1 * rBead, s1 * rBead, -zBead},
+                         {c1 * rSide, s1 * rSide, -zSide}, {c0 * rSide, s0 * rSide, -zSide}, {0.0f, 0.0f, -1.0f});
+
+        // Inner dark barrel wall lining the wheel well cavity
+        b.addQuadOutward({c0 * rInner, s0 * rInner,  zBead}, {c1 * rInner, s1 * rInner,  zBead},
+                         {c1 * rInner, s1 * rInner, -zBead}, {c0 * rInner, s0 * rInner, -zBead}, {-cm, -sm, 0.0f});
     }
     return b.uploadSmooth(55.0f);
 }
 
-// Builds a concave 5-twin-spoke alloy sport wheel rim (radius=1, outer face at +Z)
+// Builds a dimensional 3D deep-concave 5-twin-spoke forged alloy rim (both +Z and -Z faces!)
 Mesh buildSportRimMesh() {
     SmoothMeshBuilder b;
-    constexpr int kRimSegs = 20;
-    const float rLipOuter = 0.72f;
-    const float rLipInner = 0.63f;
-    const float zFace = 0.505f;
-    const float zHub  = 0.435f;
+    constexpr int kRimSegs = 24;
+    const float rLipOuter = 0.695f;
+    const float rLipInner = 0.605f;
+    const float zFace = 0.485f;
+    const float zBarrel = 0.34f;
+    const float zHub  = 0.275f;
 
-    // Outer machined alloy barrel lip ring (both +Z and -Z so left & right wheels both face outward!)
     for (int side = -1; side <= 1; side += 2) {
         const float sZ = static_cast<float>(side);
         for (int i = 0; i < kRimSegs; ++i) {
@@ -1147,35 +1351,201 @@ Mesh buildSportRimMesh() {
             const float a1 = (static_cast<float>(i + 1) / kRimSegs) * kTwoPi;
             const float c0 = std::cos(a0), s0 = std::sin(a0);
             const float c1 = std::cos(a1), s1 = std::sin(a1);
-            b.addQuadOutward({c0 * rLipInner, s0 * rLipInner, sZ * zFace},
-                             {c1 * rLipInner, s1 * rLipInner, sZ * zFace},
+            const float cm = std::cos((a0 + a1) * 0.5f), sm = std::sin((a0 + a1) * 0.5f);
+
+            // Machined outer lip rim face + deep stepped inner barrel bevel
+            b.addQuadOutward({c0 * rLipInner, s0 * rLipInner, sZ * (zFace - 0.015f)},
+                             {c1 * rLipInner, s1 * rLipInner, sZ * (zFace - 0.015f)},
                              {c1 * rLipOuter, s1 * rLipOuter, sZ * (zFace + 0.015f)},
                              {c0 * rLipOuter, s0 * rLipOuter, sZ * (zFace + 0.015f)},
                              {0.0f, 0.0f, sZ});
-            // Center hub cap pentagon/circle
-            b.addTriOutward({0.0f, 0.0f, sZ * (zHub + 0.02f)},
-                            {c0 * 0.21f, s0 * 0.21f, sZ * zHub},
-                            {c1 * 0.21f, s1 * 0.21f, sZ * zHub},
+            b.addQuadOutward({c0 * rLipInner, s0 * rLipInner, sZ * zBarrel},
+                             {c1 * rLipInner, s1 * rLipInner, sZ * zBarrel},
+                             {c1 * rLipInner, s1 * rLipInner, sZ * (zFace - 0.015f)},
+                             {c0 * rLipInner, s0 * rLipInner, sZ * (zFace - 0.015f)},
+                             {-cm, -sm, sZ * 0.25f});
+            // Recessed forged center hub disc + outer flange
+            b.addTriOutward({0.0f, 0.0f, sZ * (zHub + 0.032f)},
+                            {c0 * 0.21f, s0 * 0.21f, sZ * (zHub + 0.012f)},
+                            {c1 * 0.21f, s1 * 0.21f, sZ * (zHub + 0.012f)},
                             {0.0f, 0.0f, sZ});
         }
 
-        // 5 Twin-Spoke Star Alloy Arms sloping from concave center hub out to rim lip!
+        // 5 Dimensional 3D Twin-Spoke Star Alloy Arms sloping deeply from hub to rim lip!
         for (int sp = 0; sp < 5; ++sp) {
             const float baseAng = (static_cast<float>(sp) / 5.0f) * kTwoPi;
-            for (int twin = -1; twin <= 1; twin += 2) {
-                const float ang = baseAng + static_cast<float>(twin) * 0.145f;
-                const float ca = std::cos(ang), sa = std::sin(ang);
-                const float px = -sa * 0.042f, py = ca * 0.042f;
+            // Raised lug bolt boss on center hub
+            const float la = baseAng + (kTwoPi / 10.0f);
+            b.addBox({std::cos(la) * 0.135f, std::sin(la) * 0.135f, sZ * (zHub + 0.025f)},
+                     {0.032f, 0.032f, 0.030f});
 
-                const Vector3 iA{ca * 0.17f - px, sa * 0.17f - py, sZ * zHub};
-                const Vector3 iB{ca * 0.17f + px, sa * 0.17f + py, sZ * zHub};
-                const Vector3 oB{ca * 0.65f + px * 0.78f, sa * 0.65f + py * 0.78f, sZ * (zFace + 0.010f)};
-                const Vector3 oA{ca * 0.65f - px * 0.78f, sa * 0.65f - py * 0.78f, sZ * (zFace + 0.010f)};
+            for (int twin = -1; twin <= 1; twin += 2) {
+                const float ang = baseAng + static_cast<float>(twin) * 0.155f;
+                const float ca = std::cos(ang), sa = std::sin(ang);
+                const float px = -sa * 0.044f, py = ca * 0.044f;
+                const float depth = 0.062f;
+
+                const Vector3 iA{ca * 0.16f - px, sa * 0.16f - py, sZ * (zHub + 0.014f)};
+                const Vector3 iB{ca * 0.16f + px, sa * 0.16f + py, sZ * (zHub + 0.014f)};
+                const Vector3 oB{ca * 0.625f + px * 0.72f, sa * 0.625f + py * 0.72f, sZ * (zFace - 0.008f)};
+                const Vector3 oA{ca * 0.625f - px * 0.72f, sa * 0.625f - py * 0.72f, sZ * (zFace - 0.008f)};
+
+                const Vector3 iAb{iA.x, iA.y, iA.z - sZ * depth};
+                const Vector3 iBb{iB.x, iB.y, iB.z - sZ * depth};
+                const Vector3 oBb{oB.x, oB.y, oB.z - sZ * depth};
+                const Vector3 oAb{oA.x, oA.y, oA.z - sZ * depth};
+
+                // Front machined spoke face + two 3D extruded bevel side flanks
                 b.addQuadOutward(iA, iB, oB, oA, {0.0f, 0.0f, sZ});
+                b.addQuadOutward(iAb, iA, oA, oAb, {-px, -py, 0.0f});
+                b.addQuadOutward(iB, iBb, oBb, oB, {px, py, 0.0f});
             }
         }
     }
-    return b.uploadSmooth(38.0f);
+    return b.uploadSmooth(35.0f);
+}
+
+// Builds an organic multi-lobe bumpy botanical foliage cluster (replaces smooth plastic sphere trees!)
+Mesh buildFoliageClusterMesh() {
+    SmoothMeshBuilder b;
+    constexpr int kRings = 12;
+    constexpr int kSlices = 18;
+
+    auto evalPoint = [](int r, int s) -> Vector3 {
+        const float phi = (static_cast<float>(r) / static_cast<float>(kRings)) * kPi;
+        const float th  = (static_cast<float>(s) / static_cast<float>(kSlices)) * kTwoPi;
+        const float sp = std::sin(phi);
+        const float cp = std::cos(phi);
+        const float dx = sp * std::cos(th);
+        const float dy = cp;
+        const float dz = sp * std::sin(th);
+        // Multi-harmonic organic botanical clump displacement (flat bottom slightly tucked, irregular outer leafy tufts)
+        const float bump1 = 0.14f * std::sin(dx * 4.3f + 0.7f) * std::cos(dz * 4.1f - 0.5f);
+        const float bump2 = 0.10f * std::sin(dy * 5.2f + dx * 3.6f) * std::cos(dz * 5.4f + 1.1f);
+        const float bump3 = 0.06f * std::sin((dx + dy + dz) * 8.5f);
+        const float bottomFlat = (dy < -0.25f) ? (1.0f + (dy + 0.25f) * 0.24f) : 1.0f;
+        const float rad = (0.94f + bump1 + bump2 + bump3) * bottomFlat;
+        return {dx * rad, dy * rad, dz * rad};
+    };
+
+    for (int r = 0; r < kRings; ++r) {
+        for (int s = 0; s < kSlices; ++s) {
+            const Vector3 p00 = evalPoint(r, s);
+            const Vector3 p10 = evalPoint(r + 1, s);
+            const Vector3 p11 = evalPoint(r + 1, s + 1);
+            const Vector3 p01 = evalPoint(r, s + 1);
+            const Vector3 hint{
+                0.25f * (p00.x + p10.x + p11.x + p01.x),
+                0.25f * (p00.y + p10.y + p11.y + p01.y),
+                0.25f * (p00.z + p10.z + p11.z + p01.z)
+            };
+            if (r == 0) {
+                b.addTriOutward(p00, p10, p11, hint);
+            } else if (r == kRings - 1) {
+                b.addTriOutward(p00, p10, p01, hint);
+            } else {
+                b.addQuadOutward(p00, p10, p11, p01, hint);
+            }
+        }
+    }
+    return b.uploadSmooth(68.0f);
+}
+
+// Builds an organic multi-lobe slender tapered Mediterranean Cypress evergreen spire (y in [0, 1])
+Mesh buildCypressMesh() {
+    SmoothMeshBuilder b;
+    constexpr int kRings = 16;
+    constexpr int kSlices = 14;
+
+    auto evalPoint = [](int r, int s) -> Vector3 {
+        const float u = static_cast<float>(r) / static_cast<float>(kRings); // 0 = base, 1 = tip
+        const float th = (static_cast<float>(s) / static_cast<float>(kSlices)) * kTwoPi;
+        // Graceful botanical cypress spindle silhouette: full lower swell tapering smoothly to a fine spire
+        float env = 0.0f;
+        if (r == 0 || r == kRings) {
+            env = 0.0f;
+        } else {
+            const float lt = clampf(u / 0.18f, 0.0f, 1.0f);
+            const float lower = lt * lt * (3.0f - 2.0f * lt);
+            const float taper = std::pow(1.0f - u, 0.72f);
+            const float tierWave = 1.0f + 0.13f * std::sin(u * 26.0f + th * 2.0f)
+                                        + 0.09f * std::cos(th * 5.0f + u * 11.0f);
+            env = std::max(0.04f, lower * taper * 1.12f * tierWave);
+        }
+        return {std::cos(th) * env, u, std::sin(th) * env};
+    };
+
+    const float du = 1.0f / static_cast<float>(kRings);
+    for (int r = 0; r < kRings; ++r) {
+        for (int s = 0; s < kSlices; ++s) {
+            const Vector3 p00 = evalPoint(r, s);
+            const Vector3 p10 = evalPoint(r + 1, s);
+            const Vector3 p11 = evalPoint(r + 1, s + 1);
+            const Vector3 p01 = evalPoint(r, s + 1);
+            const float rad0 = 0.5f * (std::hypot(p00.x, p00.z) + std::hypot(p01.x, p01.z));
+            const float rad1 = 0.5f * (std::hypot(p10.x, p10.z) + std::hypot(p11.x, p11.z));
+            const float midTh = ((static_cast<float>(s) + 0.5f) / static_cast<float>(kSlices)) * kTwoPi;
+            const Vector3 hint{
+                std::cos(midTh) * du,
+                -(rad1 - rad0),
+                std::sin(midTh) * du
+            };
+            if (r == 0) {
+                b.addTriOutward(p00, p10, p11, hint);
+            } else if (r == kRings - 1) {
+                b.addTriOutward(p00, p10, p01, hint);
+            } else {
+                b.addQuadOutward(p00, p10, p11, p01, hint);
+            }
+        }
+    }
+    return b.uploadSmooth(62.0f);
+}
+
+// Builds a true architectural 4-sided pitched hip roof (unit footprint [-0.5, +0.5] x [-0.5, +0.5], height [0, 1])
+Mesh buildHipRoofMesh() {
+    SmoothMeshBuilder b;
+    const Vector3 fl{-0.5f, 0.0f, -0.5f};
+    const Vector3 fr{ 0.5f, 0.0f, -0.5f};
+    const Vector3 br{ 0.5f, 0.0f,  0.5f};
+    const Vector3 bl{-0.5f, 0.0f,  0.5f};
+    const Vector3 rl{-0.26f, 1.0f, 0.0f};
+    const Vector3 rr{ 0.26f, 1.0f, 0.0f};
+
+    // North & South main sloped roof pitches
+    b.addQuadOutward(fl, fr, rr, rl, {0.0f, 0.7f, -0.7f});
+    b.addQuadOutward(br, bl, rl, rr, {0.0f, 0.7f,  0.7f});
+    // West & East triangular hip slopes
+    b.addTriOutward(bl, fl, rl, {-0.8f, 0.6f, 0.0f});
+    b.addTriOutward(fr, br, rr, { 0.8f, 0.6f, 0.0f});
+    // Soffit underside cap
+    b.addQuadOutward(fl, bl, br, fr, {0.0f, -1.0f, 0.0f});
+    return b.uploadSmooth(15.0f);
+}
+
+// Builds a sleek flat architectural hollow ground ring (Y-up, outer radius 1.0, inner radius innerRatio, y in [0, 1])
+Mesh buildHollowRingMesh(int slices = 32, float innerRatio = 0.87f) {
+    SmoothMeshBuilder b;
+    const float rOut = 1.00f;
+    const float rIn  = innerRatio;
+    for (int i = 0; i < slices; ++i) {
+        const float a0 = (static_cast<float>(i) / static_cast<float>(slices)) * kTwoPi;
+        const float a1 = (static_cast<float>(i + 1) / static_cast<float>(slices)) * kTwoPi;
+        const float c0 = std::cos(a0), s0 = std::sin(a0);
+        const float c1 = std::cos(a1), s1 = std::sin(a1);
+        const float cm = std::cos((a0 + a1) * 0.5f), sm = std::sin((a0 + a1) * 0.5f);
+
+        // Top annular face (y = 1.0)
+        b.addQuadOutward({c0 * rIn,  1.0f, s0 * rIn},  {c1 * rIn,  1.0f, s1 * rIn},
+                         {c1 * rOut, 1.0f, s1 * rOut}, {c0 * rOut, 1.0f, s0 * rOut}, {0.0f, 1.0f, 0.0f});
+        // Outer rim wall
+        b.addQuadOutward({c0 * rOut, 0.0f, s0 * rOut}, {c1 * rOut, 0.0f, s1 * rOut},
+                         {c1 * rOut, 1.0f, s1 * rOut}, {c0 * rOut, 1.0f, s0 * rOut}, {cm, 0.0f, sm});
+        // Inner rim wall
+        b.addQuadOutward({c1 * rIn,  0.0f, s1 * rIn},  {c0 * rIn,  0.0f, s0 * rIn},
+                         {c0 * rIn,  1.0f, s0 * rIn},  {c1 * rIn,  1.0f, s1 * rIn},  {-cm, 0.0f, -sm});
+    }
+    return b.uploadSmooth(35.0f);
 }
 
 // Builds a complete sculpted smooth-normal automotive body, framed curved glass, wheel-well/aero trim, and curved stripes
@@ -1365,7 +1735,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         StationEval st{};
         st.x = s * halfL;
 
-        // 1) Plan-view width curve: aerodynamic curved nose/tail taper + muscular fender flares over wheels!
+        // 1) Plan-view width curve: aerodynamic curved nose/tail taper + muscular fender flares over wheels
         float taper = 1.0f;
         if (s > 0.68f) {
             const float u = (s - 0.68f) / 0.32f;
@@ -1380,14 +1750,14 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         const float waist  = waistPinch * std::exp(-std::pow(s / 0.34f, 2.0f));
         const float wMax   = std::max(0.32f, halfW * taper + flare - waist);
 
-        // 2) Underbody diffuser/splitter curve + full-clearance semicircular 3D wheel-arch cutout!
+        // 2) Underbody diffuser/splitter curve + full-clearance semicircular 3D wheel-arch cutout
         float yBot = groundClear;
         if (s < -0.74f) {
             const float u = (-0.74f - s) / 0.26f;
-            yBot += 0.13f * u * u; // Rear diffuser upsweep
+            yBot += 0.13f * u * u;
         } else if (s > 0.78f) {
             const float u = (s - 0.78f) / 0.22f;
-            yBot += 0.05f * u * u; // Front chin clearance
+            yBot += 0.05f * u * u;
         }
 
         float archLift = 0.0f;
@@ -1406,7 +1776,6 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         float beltY = beltMidY;
         if (s >= sFrontBase) {
             const float u = (s - sFrontBase) / std::max(0.05f, 1.0f - sFrontBase);
-            // Smooth curved aerodynamic hood sloping into front grille
             beltY = lerpf(hoodBaseY, noseTipY, std::pow(clampf(u, 0.0f, 1.0f), 1.35f));
         } else if (s >= 0.0f) {
             const float u = s / std::max(0.05f, sFrontBase);
@@ -1416,10 +1785,9 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             beltY = lerpf(beltMidY, tailDeckY, smooth01(u * 1.15f));
             if (s < -0.86f) {
                 const float tu = (-0.86f - s) / 0.14f;
-                beltY -= 0.07f * tu * tu; // Rounded rear deck lip
+                beltY -= 0.07f * tu * tu;
             }
         }
-        // Subtle muscular fender haunch crest over front & rear wheels
         beltY += flare * 0.12f;
 
         // 4) Greenhouse cabin elevation (smooth windshield & fastback curves)
@@ -1431,7 +1799,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
                 const float roofMid = 0.5f * (sRearTop + sFrontTop);
                 const float halfSpan = std::max(0.05f, 0.5f * (sFrontTop - sRearTop));
                 const float ru = (s - roofMid) / halfSpan;
-                cabinFrac = 1.0f + 0.025f * (1.0f - ru * ru); // Subtle longitudinal roof arch!
+                cabinFrac = 1.0f + 0.025f * (1.0f - ru * ru);
             } else {
                 cabinFrac = smooth01((sFrontBase - s) / std::max(0.04f, sFrontBase - sFrontTop));
             }
@@ -1459,7 +1827,6 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         st.yCrownSide = deckOrRoofSideY;
         st.yTopCenter = std::max(deckOrRoofSideY + 0.014f, deckOrRoofTopY);
 
-        // Open-top convertible cockpit tub (ClassicRoadster) & recessed 4x4 cargo pickup bed (OffroadPickup)
         if (kind == VehicleKind::ClassicRoadster && s > -0.36f && s < 0.07f) {
             st.yCrownSide = finalBeltY + 0.015f;
             st.yTopCenter = finalBeltY - 0.15f;
@@ -1469,7 +1836,6 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         }
 
         const float roofNarrow = lerpf(0.86f, tumblehome, clampf(cabinFrac, 0.0f, 1.0f));
-        // Pull inner underbody floor rail cleanly behind inner tire sidewall inside every wheel arch!
         const float archFrac = clampf(archLift / std::max(0.08f, wheelR * 0.95f), 0.0f, 1.0f);
         st.wUnder     = lerpf(wMax * 0.76f, wMax * 0.50f, smooth01(archFrac));
         st.wSill      = wMax * 0.93f;
@@ -1480,10 +1846,10 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         return st;
     };
 
-    // Build dense station list capturing bumpers, semicircular wheel arches, windshield base, roof rails, and decklid
+    // High-density 44-station longitudinal loft for silky-smooth wheel arches, pillars, hood & roofline
     std::vector<float> sList;
-    for (int i = 0; i <= 32; ++i) {
-        sList.push_back(-1.0f + 2.0f * (static_cast<float>(i) / 32.0f));
+    for (int i = 0; i <= 44; ++i) {
+        sList.push_back(-1.0f + 2.0f * (static_cast<float>(i) / 44.0f));
     }
     const float keyS[] = {
         sRearBase, sRearTop, sFrontTop, sFrontBase,
@@ -1499,7 +1865,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
     std::sort(sList.begin(), sList.end());
     std::vector<float> stations;
     for (float sv : sList) {
-        if (stations.empty() || (sv - stations.back()) > 0.014f) {
+        if (stations.empty() || (sv - stations.back()) > 0.011f) {
             stations.push_back(sv);
         }
     }
@@ -1579,18 +1945,18 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
     // 2) Framed Curved 3D Windshields & Side Windows (leaves painted A/B/C pillars & painted roof!)
     // Front curved windshield
     {
-        constexpr int kWsRows = 4;
+        constexpr int kWsRows = 5;
         constexpr int kWsCols = 6;
         const float s0 = sFrontTop + 0.025f;
-        const float s1 = sFrontBase - 0.022f;
+        const float s1 = sFrontBase - 0.024f;
         auto wsPoint = [&](float uRow, float vCol) -> Vector3 {
             const float s = lerpf(s0, s1, uRow);
             const StationEval e = evalStation(s);
-            const float zFrac = -0.84f + 1.68f * vCol; // Leaves painted A-pillars at +-0.84..1.0!
+            const float zFrac = -0.82f + 1.64f * vCol; // Leaves crisp painted A-pillars!
             const float absZ = std::abs(zFrac);
-            const float z = zFrac * lerpf(e.wCrownSide * 1.03f, e.wUpper * 0.96f, uRow);
+            const float z = zFrac * lerpf(e.wCrownSide * 1.01f, e.wUpper * 0.94f, uRow);
             const float yCurve = lerpf(e.yTopCenter, e.yCrownSide, absZ * absZ);
-            return {e.x + 0.010f, yCurve + 0.009f, z};
+            return {e.x + 0.009f, yCurve + 0.008f, z};
         };
         for (int r = 0; r < kWsRows; ++r) {
             for (int c = 0; c < kWsCols; ++c) {
@@ -1609,18 +1975,18 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         kind != VehicleKind::Ambulance &&
         kind != VehicleKind::FireTruck &&
         kind != VehicleKind::ClassicRoadster) {
-        constexpr int kRwRows = 3;
+        constexpr int kRwRows = 4;
         constexpr int kRwCols = 6;
-        const float s0 = sRearBase + 0.028f;
-        const float s1 = sRearTop - 0.022f;
+        const float s0 = sRearBase + 0.030f;
+        const float s1 = sRearTop - 0.024f;
         auto rwPoint = [&](float uRow, float vCol) -> Vector3 {
             const float s = lerpf(s0, s1, uRow);
             const StationEval e = evalStation(s);
-            const float zFrac = -0.80f + 1.60f * vCol; // Leaves painted C-pillars / flying buttresses!
+            const float zFrac = -0.78f + 1.56f * vCol; // Leaves painted C-pillars / flying buttresses!
             const float absZ = std::abs(zFrac);
-            const float z = zFrac * lerpf(e.wUpper * 0.94f, e.wCrownSide * 1.02f, uRow);
+            const float z = zFrac * lerpf(e.wUpper * 0.92f, e.wCrownSide * 1.00f, uRow);
             const float yCurve = lerpf(e.yTopCenter, e.yCrownSide, absZ * absZ);
-            return {e.x - 0.010f, yCurve + 0.009f, z};
+            return {e.x - 0.009f, yCurve + 0.008f, z};
         };
         for (int r = 0; r < kRwRows; ++r) {
             for (int c = 0; c < kRwCols; ++c) {
@@ -1634,42 +2000,49 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         }
     }
 
-    // Left & Right Side Windows (framed below roof rail and above shoulder beltline!)
+    // Left & Right Side Windows (strictly inset inside painted A/C pillars — zero corner poke-out!)
     if (kind != VehicleKind::ClassicRoadster) {
         const float swStart = (kind == VehicleKind::FireTruck) ? 0.34f
-                            : ((kind == VehicleKind::DeliveryVan || kind == VehicleKind::Ambulance) ? 0.14f : (sRearBase + 0.08f));
-        const float swEnd   = sFrontBase - 0.06f;
+                            : ((kind == VehicleKind::DeliveryVan || kind == VehicleKind::Ambulance) ? 0.14f : (sRearBase + 0.11f));
+        const float swEnd   = sFrontBase - 0.11f;
         const float bPillarS = 0.5f * (swStart + swEnd) + 0.03f;
-        constexpr int kSideSegs = 8;
+        constexpr int kSideSegs = 10;
 
         for (int side = -1; side <= 1; side += 2) {
             const float sgn = static_cast<float>(side);
             for (int seg = 0; seg < kSideSegs; ++seg) {
                 const float sa = lerpf(swStart, swEnd, static_cast<float>(seg) / kSideSegs);
                 const float sb = lerpf(swStart, swEnd, static_cast<float>(seg + 1) / kSideSegs);
-                // Leave a crisp painted B-pillar gap on 4-door Sedans & SUVs!
+                // Leave a crisp painted B-pillar gap on 4-door Sedans & SUVs
                 if (!isCoupeGlass &&
                     kind != VehicleKind::DeliveryVan &&
                     kind != VehicleKind::Ambulance &&
                     kind != VehicleKind::FireTruck &&
-                    std::abs(0.5f * (sa + sb) - bPillarS) < (swEnd - swStart) * 0.065f) {
+                    std::abs(0.5f * (sa + sb) - bPillarS) < (swEnd - swStart) * 0.060f) {
                     continue;
                 }
                 const StationEval ea = evalStation(sa);
                 const StationEval eb = evalStation(sb);
-                if (ea.yCrownSide - ea.yBelt < 0.09f && eb.yCrownSide - eb.yBelt < 0.09f) continue;
+                if ((ea.yCrownSide - ea.yBelt) < 0.12f || (eb.yCrownSide - eb.yBelt) < 0.12f) continue;
 
-                const float yaMid = lerpf(ea.yBelt, ea.yCrownSide, 0.55f);
-                const float ybMid = lerpf(eb.yBelt, eb.yCrownSide, 0.55f);
+                const float yaMid = lerpf(ea.yBelt, ea.yCrownSide, 0.54f);
+                const float ybMid = lerpf(eb.yBelt, eb.yCrownSide, 0.54f);
 
-                const Vector3 aBot{ea.x, ea.yBelt + 0.036f,      sgn * (lerpf(ea.wBelt, ea.wUpper, 0.08f) + 0.018f)};
-                const Vector3 bBot{eb.x, eb.yBelt + 0.036f,      sgn * (lerpf(eb.wBelt, eb.wUpper, 0.08f) + 0.018f)};
-                const Vector3 aMid{ea.x, yaMid,                  sgn * (ea.wUpper + 0.018f)};
-                const Vector3 bMid{eb.x, ybMid,                  sgn * (eb.wUpper + 0.018f)};
-                const Vector3 bTop{eb.x, eb.yCrownSide - 0.032f, sgn * (lerpf(eb.wCrownSide, eb.wUpper, 0.10f) + 0.018f)};
-                const Vector3 aTop{ea.x, ea.yCrownSide - 0.032f, sgn * (lerpf(ea.wCrownSide, ea.wUpper, 0.10f) + 0.018f)};
+                const Vector3 aBot{ea.x, ea.yBelt + 0.038f,      sgn * (lerpf(ea.wBelt, ea.wUpper, 0.10f) + 0.011f)};
+                const Vector3 bBot{eb.x, eb.yBelt + 0.038f,      sgn * (lerpf(eb.wBelt, eb.wUpper, 0.10f) + 0.011f)};
+                const Vector3 aMid{ea.x, yaMid,                  sgn * (ea.wUpper + 0.011f)};
+                const Vector3 bMid{eb.x, ybMid,                  sgn * (eb.wUpper + 0.011f)};
+                const Vector3 bTop{eb.x, eb.yCrownSide - 0.036f, sgn * (lerpf(eb.wCrownSide, eb.wUpper, 0.12f) + 0.011f)};
+                const Vector3 aTop{ea.x, ea.yCrownSide - 0.036f, sgn * (lerpf(ea.wCrownSide, ea.wUpper, 0.12f) + 0.011f)};
                 glassB.addQuadOutward(aBot, bBot, bMid, aMid, {0.0f, 0.25f, sgn});
                 glassB.addQuadOutward(aMid, bMid, bTop, aTop, {0.0f, 0.45f, sgn});
+
+                // Crisp dark rubber lower window beltline weather-strip trim conforming to station width!
+                const Vector3 tBotA{ea.x, ea.yBelt + 0.014f, sgn * (lerpf(ea.wBelt, ea.wUpper, 0.04f) + 0.013f)};
+                const Vector3 tBotB{eb.x, eb.yBelt + 0.014f, sgn * (lerpf(eb.wBelt, eb.wUpper, 0.04f) + 0.013f)};
+                const Vector3 tTopB{eb.x, ea.yBelt + 0.040f, sgn * (lerpf(eb.wBelt, eb.wUpper, 0.10f) + 0.013f)};
+                const Vector3 tTopA{ea.x, ea.yBelt + 0.040f, sgn * (lerpf(ea.wBelt, ea.wUpper, 0.10f) + 0.013f)};
+                trimB.addQuadOutward(tBotA, tBotB, tTopB, tTopA, {0.0f, 0.15f, sgn});
             }
         }
     }
@@ -1683,10 +2056,10 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             const StationEval eb = evalStation(lerpf(p0, p1, static_cast<float>(r + 1) / 3.0f));
             const float wa = ea.wCrownSide * 0.60f;
             const float wb = eb.wCrownSide * 0.60f;
-            glassB.addQuadOutward({ea.x, ea.yTopCenter + 0.018f, -wa},
-                                  {eb.x, eb.yTopCenter + 0.018f, -wb},
-                                  {eb.x, eb.yTopCenter + 0.018f,  wb},
-                                  {ea.x, ea.yTopCenter + 0.018f,  wa},
+            glassB.addQuadOutward({ea.x, ea.yTopCenter + 0.016f, -wa},
+                                  {eb.x, eb.yTopCenter + 0.016f, -wb},
+                                  {eb.x, eb.yTopCenter + 0.016f,  wb},
+                                  {ea.x, ea.yTopCenter + 0.016f,  wa},
                                   {0.0f, 1.0f, 0.0f});
         }
     }
@@ -1724,16 +2097,13 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             }
         };
 
-        // Hood stripes (all passenger/performance cars; vans/fire engines have ultra-short noses)
         if (kind != VehicleKind::DeliveryVan && kind != VehicleKind::Ambulance && kind != VehicleKind::FireTruck) {
             addStripeStrip(sFrontBase + 0.025f, 0.94f, 0.011f, 10);
         }
-        // Roof stripes (skip open-top roadster & roof-lightbar emergency vehicles)
         if (kind != VehicleKind::ClassicRoadster && kind != VehicleKind::PoliceCruiser &&
             kind != VehicleKind::Ambulance && kind != VehicleKind::FireTruck) {
             addStripeStrip(sRearTop + 0.025f, sFrontTop - 0.025f, hasPanoRoof ? 0.024f : 0.011f, 8);
         }
-        // Rear deck / trunk stripes (sedans, coupes, hypercars, roadster tonneau)
         if (kind == VehicleKind::ClassicRoadster) {
             addStripeStrip(-0.94f, -0.39f, 0.011f, 8);
         } else if (kind != VehicleKind::OffroadPickup && sRearBase > -0.86f) {
@@ -1741,7 +2111,7 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         }
     }
 
-    // 3) Dark Wheel-House Liners (clamped strictly inside sculpted fender openings!), Splitter, Grille, Side Skirts & Diffuser
+    // 3) Dark Wheel-House Liners, Contour-Matched Side Fender Brake Vents, Splitter, Grille, Skirts & Diffuser
     constexpr int kArchSegs = 12;
     for (int side = -1; side <= 1; side += 2) {
         const float sgn = static_cast<float>(side);
@@ -1761,17 +2131,36 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
                 const float zInner0 = std::min(halfW * 0.48f, e0.wUnder);
                 const float zInner1 = std::min(halfW * 0.48f, e1.wUnder);
 
-                // Cylindrical wheel-well arch liner tucked cleanly beneath painted fender lip
                 trimB.addQuadOutward({x0, y0, sgn * zInner0}, {x1, y1, sgn * zInner1},
                                      {x1, y1, sgn * zOuter1}, {x0, y0, sgn * zOuter0},
                                      {ax - 0.5f * (x0 + x1), wheelR - 0.5f * (y0 + y1), sgn * 0.25f});
-                // Dark inner chassis backing wall behind tire so there is zero see-through gap!
                 const float zBack = 0.5f * (zInner0 + zInner1);
                 trimB.addTriOutward({ax, wheelR * 0.65f, sgn * zBack},
                                     {x0, y0, sgn * zInner0},
                                     {x1, y1, sgn * zInner1},
                                     {0.0f, 0.0f, sgn});
             }
+        }
+
+        // Contour-hugging flush front-fender aero vent behind front wheel arch (ZERO Z-fighting!)
+        if (kind == VehicleKind::Hypercar || kind == VehicleKind::TrackPrototype ||
+            kind == VehicleKind::SportsCoupe || kind == VehicleKind::JdmTuner ||
+            kind == VehicleKind::MuscleCar || kind == VehicleKind::ClassicRoadster) {
+            const float sVent0 = 0.17f;
+            const float sVent1 = 0.30f;
+            const StationEval ev0 = evalStation(sVent0);
+            const StationEval ev1 = evalStation(sVent1);
+            const float yLo0 = lerpf(ev0.ySill, ev0.yBelly, 0.55f);
+            const float yHi0 = lerpf(ev0.yBelly, ev0.yBelt, 0.35f);
+            const float yLo1 = lerpf(ev1.ySill, ev1.yBelly, 0.55f);
+            const float yHi1 = lerpf(ev1.yBelly, ev1.yBelt, 0.35f);
+            const float zLo0 = lerpf(ev0.wSill, ev0.wBelly, 0.55f) + 0.011f;
+            const float zHi0 = lerpf(ev0.wBelly, ev0.wBelt, 0.35f) + 0.011f;
+            const float zLo1 = lerpf(ev1.wSill, ev1.wBelly, 0.55f) + 0.011f;
+            const float zHi1 = lerpf(ev1.wBelly, ev1.wBelt, 0.35f) + 0.011f;
+            trimB.addQuadOutward({ev0.x, yLo0, sgn * zLo0}, {ev1.x, yLo1, sgn * zLo1},
+                                 {ev1.x, yHi1, sgn * zHi1}, {ev0.x, yHi0, sgn * zHi0},
+                                 {0.0f, 0.0f, sgn});
         }
 
         // Sculpted carbon/satin side rocker skirt between front & rear wheel arches
@@ -1790,7 +2179,6 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
         trimB.addBox({halfL * 0.985f, ef.yUnder + 0.15f, 0.0f}, {0.06f, 0.19f, ef.wBelly * 1.12f});
         trimB.addBox({-halfL * 0.975f, er.yUnder + 0.06f, 0.0f}, {0.12f, 0.13f, er.wBelly * 1.48f});
 
-        // Diffuser vertical strakes on performance cars
         if (kind == VehicleKind::TrackPrototype || kind == VehicleKind::Hypercar ||
             kind == VehicleKind::SportsCoupe || kind == VehicleKind::JdmTuner ||
             kind == VehicleKind::ClassicRoadster || kind == VehicleKind::MuscleCar) {
@@ -1800,22 +2188,25 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
                              {0.10f, 0.12f, 0.025f});
             }
         }
-        // MuscleCar supercharger intake scoop
         if (kind == VehicleKind::MuscleCar) {
             const StationEval em = evalStation(0.62f);
             trimB.addBox({em.x, em.yTopCenter + 0.05f, 0.0f}, {0.68f, 0.11f, 0.46f});
         }
-        // Hypercar & TrackPrototype side mid-engine air intakes behind doors
         if (kind == VehicleKind::Hypercar || kind == VehicleKind::TrackPrototype) {
             const StationEval eh = evalStation(-0.22f);
             trimB.addBox({eh.x, eh.yBelly + 0.12f,  eh.wBelly * 0.96f}, {0.56f, 0.22f, 0.08f});
             trimB.addBox({eh.x, eh.yBelly + 0.12f, -eh.wBelly * 0.96f}, {0.56f, 0.22f, 0.08f});
         }
-        // ArmoredSuv & OffroadPickup heavy steel bullbars, PoliceCruiser push-bumper
         if (kind == VehicleKind::ArmoredSuv) {
             trimB.addBox({halfL + 0.07f, 0.56f, 0.0f}, {0.10f, 0.44f, halfW * 1.45f});
-            trimB.addBox({-0.25f, roofPeakY + 0.055f,  halfW * 0.72f}, {halfL * 1.18f, 0.06f, 0.07f});
-            trimB.addBox({-0.25f, roofPeakY + 0.055f, -halfW * 0.72f}, {halfL * 1.18f, 0.06f, 0.07f});
+            const float rMidX = 0.5f * (sRearTop + sFrontTop) * halfL;
+            const float rLen  = (sFrontTop - sRearTop) * halfL * 0.82f;
+            for (int side = -1; side <= 1; side += 2) {
+                const float rz = static_cast<float>(side) * (halfW * 0.58f);
+                trimB.addBox({rMidX, roofPeakY + 0.045f, rz}, {rLen, 0.042f, 0.052f});
+                trimB.addBox({rMidX - rLen * 0.42f, roofPeakY + 0.015f, rz}, {0.08f, 0.055f, 0.052f});
+                trimB.addBox({rMidX + rLen * 0.42f, roofPeakY + 0.015f, rz}, {0.08f, 0.055f, 0.052f});
+            }
         } else if (kind == VehicleKind::OffroadPickup) {
             trimB.addBox({halfL + 0.07f, 0.58f, 0.0f}, {0.10f, 0.42f, halfW * 1.38f});
             trimB.addBox({halfL + 0.08f, 0.74f,  0.38f}, {0.09f, 0.36f, 0.065f});
@@ -1826,8 +2217,14 @@ BuiltCarMeshes buildSculptedCarMeshes(VehicleKind kind) {
             trimB.addBox({halfL + 0.075f, 0.58f,  0.0f},  {0.09f, 0.055f, 0.98f});
             trimB.addBox({halfL + 0.075f, 0.37f,  0.0f},  {0.09f, 0.055f, 0.98f});
         } else if (kind == VehicleKind::SUV) {
-            trimB.addBox({-0.22f, roofPeakY + 0.04f,  halfW * 0.68f}, {halfL * 1.10f, 0.045f, 0.05f});
-            trimB.addBox({-0.22f, roofPeakY + 0.04f, -halfW * 0.68f}, {halfL * 1.10f, 0.045f, 0.05f});
+            const float rMidX = 0.5f * (sRearTop + sFrontTop) * halfL;
+            const float rLen  = (sFrontTop - sRearTop) * halfL * 0.80f;
+            for (int side = -1; side <= 1; side += 2) {
+                const float rz = static_cast<float>(side) * (halfW * 0.56f);
+                trimB.addBox({rMidX, roofPeakY + 0.036f, rz}, {rLen, 0.038f, 0.044f});
+                trimB.addBox({rMidX - rLen * 0.42f, roofPeakY + 0.010f, rz}, {0.075f, 0.050f, 0.044f});
+                trimB.addBox({rMidX + rLen * 0.42f, roofPeakY + 0.010f, rz}, {0.075f, 0.050f, 0.044f});
+            }
         }
     }
 
@@ -1923,14 +2320,18 @@ void Renderer3D::init() {
     locPostNitro_         = GetShaderLocation(postShader_, "nitroStrength");
     locPostEnableBloom_   = GetShaderLocation(postShader_, "enableBloom");
 
-    // 5) Shared GPU-resident primitive & 16 sculpted smooth-normal automotive vehicle models
-    cubeModel_     = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
-    cylModel_      = LoadModelFromMesh(GenMeshCylinder(1.0f, 1.0f, 16));
-    coneModel_     = LoadModelFromMesh(GenMeshCone(1.0f, 1.0f, 16));
-    sphereModel_   = LoadModelFromMesh(GenMeshSphere(1.0f, 14, 16));
-    skyDomeModel_  = LoadModelFromMesh(GenMeshSphere(1.0f, 24, 32));
-    wheelModel_    = LoadModelFromMesh(buildCenteredWheelMesh(24));
-    sportRimModel_ = LoadModelFromMesh(buildSportRimMesh());
+    // 5) Shared GPU-resident primitive, botanical foliage cluster & 16 sculpted smooth-normal automotive models
+    cubeModel_           = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
+    cylModel_            = LoadModelFromMesh(GenMeshCylinder(1.0f, 1.0f, 16));
+    coneModel_           = LoadModelFromMesh(GenMeshCone(1.0f, 1.0f, 16));
+    sphereModel_         = LoadModelFromMesh(GenMeshSphere(1.0f, 14, 16));
+    foliageClusterModel_ = LoadModelFromMesh(buildFoliageClusterMesh());
+    cypressModel_        = LoadModelFromMesh(buildCypressMesh());
+    hipRoofModel_        = LoadModelFromMesh(buildHipRoofMesh());
+    skyDomeModel_        = LoadModelFromMesh(GenMeshSphere(1.0f, 24, 32));
+    wheelModel_          = LoadModelFromMesh(buildCenteredWheelMesh(24));
+    sportRimModel_       = LoadModelFromMesh(buildSportRimMesh());
+    ringModel_           = LoadModelFromMesh(buildHollowRingMesh(32, 0.87f));
 
     for (std::size_t i = 0; i < carModels_.size(); ++i) {
         const BuiltCarMeshes cm = buildSculptedCarMeshes(static_cast<VehicleKind>(i));
@@ -1957,9 +2358,13 @@ void Renderer3D::shutdown() {
     UnloadModel(cylModel_);
     UnloadModel(coneModel_);
     UnloadModel(sphereModel_);
+    UnloadModel(foliageClusterModel_);
+    UnloadModel(cypressModel_);
+    UnloadModel(hipRoofModel_);
     UnloadModel(skyDomeModel_);
     UnloadModel(wheelModel_);
     UnloadModel(sportRimModel_);
+    UnloadModel(ringModel_);
     for (auto& cm : carModels_) {
         UnloadModel(cm.body);
         UnloadModel(cm.glass);
@@ -2027,12 +2432,16 @@ void Renderer3D::ensureSceneRenderTarget(int width, int height) {
 }
 
 void Renderer3D::setAllModelsShader(const Shader& shader) {
-    cubeModel_.materials[0].shader     = shader;
-    cylModel_.materials[0].shader      = shader;
-    coneModel_.materials[0].shader     = shader;
-    sphereModel_.materials[0].shader   = shader;
-    wheelModel_.materials[0].shader    = shader;
-    sportRimModel_.materials[0].shader = shader;
+    cubeModel_.materials[0].shader           = shader;
+    cylModel_.materials[0].shader            = shader;
+    coneModel_.materials[0].shader           = shader;
+    sphereModel_.materials[0].shader         = shader;
+    foliageClusterModel_.materials[0].shader = shader;
+    cypressModel_.materials[0].shader        = shader;
+    hipRoofModel_.materials[0].shader        = shader;
+    wheelModel_.materials[0].shader          = shader;
+    sportRimModel_.materials[0].shader       = shader;
+    ringModel_.materials[0].shader           = shader;
     for (auto& cm : carModels_) {
         cm.body.materials[0].shader  = shader;
         cm.glass.materials[0].shader = shader;
@@ -2060,38 +2469,47 @@ void Renderer3D::drawModelStyled(Model& model, Vector3 pos, Vector3 rotAxis, flo
 
 Color Renderer3D::computeSkyColor(const GameWorld& world) const {
     const float h = world.timeOfDayHours();
+    Color base{18, 26, 44, 255};
     if (h >= 7.5f && h < 16.8f) {
-        return Color{114, 176, 238, 255};
-    }
-    if (h >= 16.8f && h < 19.5f) {
+        base = Color{138, 174, 212, 255};
+    } else if (h >= 16.8f && h < 19.5f) {
         const float t = (h - 16.8f) / 2.7f;
         if (t < 0.5f) {
             const float k = t * 2.0f;
-            return Color{
-                static_cast<unsigned char>(lerpf(114.0f, 238.0f, k)),
-                static_cast<unsigned char>(lerpf(176.0f, 122.0f, k)),
-                static_cast<unsigned char>(lerpf(238.0f, 96.0f, k)),
+            base = Color{
+                static_cast<unsigned char>(lerpf(138.0f, 224.0f, k)),
+                static_cast<unsigned char>(lerpf(174.0f, 128.0f, k)),
+                static_cast<unsigned char>(lerpf(212.0f, 94.0f, k)),
+                255
+            };
+        } else {
+            const float k = (t - 0.5f) * 2.0f;
+            base = Color{
+                static_cast<unsigned char>(lerpf(224.0f, 20.0f, k)),
+                static_cast<unsigned char>(lerpf(128.0f, 26.0f, k)),
+                static_cast<unsigned char>(lerpf(94.0f, 44.0f, k)),
                 255
             };
         }
-        const float k = (t - 0.5f) * 2.0f;
-        return Color{
-            static_cast<unsigned char>(lerpf(238.0f, 22.0f, k)),
-            static_cast<unsigned char>(lerpf(122.0f, 28.0f, k)),
-            static_cast<unsigned char>(lerpf(96.0f, 54.0f, k)),
-            255
-        };
-    }
-    if (h >= 5.2f && h < 7.5f) {
+    } else if (h >= 5.2f && h < 7.5f) {
         const float k = (h - 5.2f) / 2.3f;
-        return Color{
-            static_cast<unsigned char>(lerpf(22.0f, 114.0f, k)),
-            static_cast<unsigned char>(lerpf(28.0f, 176.0f, k)),
-            static_cast<unsigned char>(lerpf(54.0f, 238.0f, k)),
+        base = Color{
+            static_cast<unsigned char>(lerpf(20.0f, 138.0f, k)),
+            static_cast<unsigned char>(lerpf(26.0f, 174.0f, k)),
+            static_cast<unsigned char>(lerpf(44.0f, 212.0f, k)),
             255
         };
     }
-    return Color{18, 26, 48, 255};
+    if (world.isRainWeather()) {
+        const float day = world.daylightFactor();
+        const float stormR = lerpf(24.0f, 114.0f, day);
+        const float stormG = lerpf(30.0f, 124.0f, day);
+        const float stormB = lerpf(42.0f, 138.0f, day);
+        base.r = static_cast<unsigned char>(lerpf(static_cast<float>(base.r), stormR, 0.78f));
+        base.g = static_cast<unsigned char>(lerpf(static_cast<float>(base.g), stormG, 0.78f));
+        base.b = static_cast<unsigned char>(lerpf(static_cast<float>(base.b), stormB, 0.78f));
+    }
+    return base;
 }
 
 Vector3 Renderer3D::computeSunDirection(const GameWorld& world) const {
@@ -2141,33 +2559,47 @@ Camera3D Renderer3D::computeLightCamera(const Vector3& lightDir, const Vec2& foc
 void Renderer3D::updateShaderUniforms(const GameWorld& world, const Camera3D& camera,
                                       Color skyCol, const Vector3& lightDir,
                                       const Matrix& lightVP, bool shadowsActive) {
+    shadowsActive_ = shadowsActive;
     const float day = world.daylightFactor();
     const float h = world.timeOfDayHours();
+    const float wetF = world.isRainWeather() ? 1.0f : 0.0f;
     const float golden = clampf(
         std::exp(-std::pow((h - 6.4f) / 1.1f, 2.0f)) +
-        std::exp(-std::pow((h - 18.0f) / 1.3f, 2.0f)), 0.0f, 1.0f);
+        std::exp(-std::pow((h - 18.0f) / 1.3f, 2.0f)), 0.0f, 1.0f) * (1.0f - wetF * 0.65f);
     const float nightFactor = clampf(1.0f - day * 1.18f, 0.0f, 1.0f);
 
+    // Physically grounded sunlight & atmospheric hemisphere fill (with overcast storm attenuation in rain!)
     float sunCol[3] = {
-        lerpf(0.18f, 1.48f, day),
-        lerpf(0.24f, 1.38f, day),
-        lerpf(0.42f, 1.24f, day)
+        lerpf(0.16f, 1.24f, day),
+        lerpf(0.21f, 1.18f, day),
+        lerpf(0.36f, 1.07f, day)
     };
     if (golden > 0.05f) {
-        sunCol[0] = lerpf(sunCol[0], 1.72f, golden * 0.85f);
-        sunCol[1] = lerpf(sunCol[1], 0.82f, golden * 0.85f);
-        sunCol[2] = lerpf(sunCol[2], 0.36f, golden * 0.85f);
+        sunCol[0] = lerpf(sunCol[0], 1.56f, golden * 0.85f);
+        sunCol[1] = lerpf(sunCol[1], 0.78f, golden * 0.85f);
+        sunCol[2] = lerpf(sunCol[2], 0.34f, golden * 0.85f);
+    }
+    if (wetF > 0.01f) {
+        // Thick rain clouds diffuse direct sunlight by ~52% and cool the beam
+        sunCol[0] *= lerpf(1.0f, 0.44f, wetF);
+        sunCol[1] *= lerpf(1.0f, 0.48f, wetF);
+        sunCol[2] *= lerpf(1.0f, 0.56f, wetF);
     }
 
-    const float skyAmb[3] = {
-        lerpf(0.055f, 0.28f, day) + golden * 0.08f,
-        lerpf(0.075f, 0.36f, day),
-        lerpf(0.150f, 0.52f, day)
+    float skyAmb[3] = {
+        lerpf(0.050f, 0.25f, day) + golden * 0.07f,
+        lerpf(0.068f, 0.32f, day),
+        lerpf(0.130f, 0.45f, day)
     };
+    if (wetF > 0.01f) {
+        skyAmb[0] = lerpf(skyAmb[0], lerpf(0.055f, 0.30f, day), wetF * 0.75f);
+        skyAmb[1] = lerpf(skyAmb[1], lerpf(0.068f, 0.34f, day), wetF * 0.75f);
+        skyAmb[2] = lerpf(skyAmb[2], lerpf(0.105f, 0.40f, day), wetF * 0.75f);
+    }
     const float gndAmb[3] = {
-        lerpf(0.030f, 0.16f, day),
-        lerpf(0.035f, 0.16f, day),
-        lerpf(0.055f, 0.17f, day)
+        lerpf(0.028f, 0.145f, day) * lerpf(1.0f, 0.82f, wetF),
+        lerpf(0.032f, 0.145f, day) * lerpf(1.0f, 0.85f, wetF),
+        lerpf(0.048f, 0.155f, day) * lerpf(1.0f, 0.90f, wetF)
     };
     const float fogCol[3] = {
         static_cast<float>(skyCol.r) / 255.0f,
@@ -2175,15 +2607,14 @@ void Renderer3D::updateShaderUniforms(const GameWorld& world, const Camera3D& ca
         static_cast<float>(skyCol.b) / 255.0f
     };
     const float horizCol[3] = {
-        clampf(fogCol[0] * 1.08f + golden * 0.18f, 0.0f, 1.0f),
+        clampf(fogCol[0] * 1.06f + golden * 0.16f, 0.0f, 1.0f),
         clampf(fogCol[1] * 1.02f, 0.0f, 1.0f),
-        clampf(fogCol[2] * 1.02f, 0.0f, 1.0f)
+        clampf(fogCol[2] * 1.01f, 0.0f, 1.0f)
     };
 
     const float ldir[3] = {lightDir.x, lightDir.y, lightDir.z};
     const float viewPos[3] = {camera.position.x, camera.position.y, camera.position.z};
     const float animT = static_cast<float>(GetTime());
-    const float wetF  = world.isRainWeather() ? 1.0f : 0.0f;
     const int shadowsInt = shadowsActive ? 1 : 0;
 
     SetShaderValue(worldShader_, locLightDir_, ldir, SHADER_UNIFORM_VEC3);
@@ -2208,7 +2639,6 @@ void Renderer3D::drawSkyDome(const GameWorld& world, const Camera3D& camera, con
     const float animT = static_cast<float>(GetTime());
     const float wetF  = world.isRainWeather() ? 1.0f : 0.0f;
 
-
     SetShaderValue(skyShader_, locSkySunDir_, sdir, SHADER_UNIFORM_VEC3);
     SetShaderValue(skyShader_, locSkyTimeHours_, &hours, SHADER_UNIFORM_FLOAT);
     SetShaderValue(skyShader_, locSkyDayFactor_, &dayF, SHADER_UNIFORM_FLOAT);
@@ -2218,7 +2648,7 @@ void Renderer3D::drawSkyDome(const GameWorld& world, const Camera3D& camera, con
     rlDisableBackfaceCulling();
     rlDisableDepthMask();
     DrawModelEx(skyDomeModel_, camera.position, {0.0f, 1.0f, 0.0f}, 0.0f,
-                {950.0f, 950.0f, 950.0f}, WHITE);
+                {1650.0f, 1650.0f, 1650.0f}, WHITE);
     rlEnableDepthMask();
     rlEnableBackfaceCulling();
 }
@@ -2285,7 +2715,7 @@ void Renderer3D::renderFrame(const GameWorld& world, const Camera3D& camera,
     }
 
     ClearBackground(skyCol);
-    rlSetClipPlanes(0.16, 1750.0);
+    rlSetClipPlanes(0.16, 2450.0);
 
     updateShaderUniforms(world, camera, skyCol, lightDir, lightVP, useShadows);
 
@@ -2320,8 +2750,8 @@ void Renderer3D::renderFrame(const GameWorld& world, const Camera3D& camera,
         EndTextureMode();
 
         const float res[2] = {static_cast<float>(sw), static_cast<float>(sh)};
-        const float nightBoost = world.isNightTime() ? 0.56f : 0.34f;
-        const float exposure = 1.02f;
+        const float nightBoost = world.isNightTime() ? 0.50f : 0.24f;
+        const float exposure = 1.00f;
         const float nitro = (world.playerVehicle() != nullptr && world.playerVehicle()->nitroActive) ? 1.0f : 0.0f;
         const int enableBloom = (quality_ == GraphicsQuality::Ultra) ? 1 : 0;
 
@@ -2364,7 +2794,7 @@ void Renderer3D::drawSceneGeometry(const GameWorld& world, const Camera3D& camer
     drawTreesAndProps(world, focus, camPos, shadowPass);
 
     // Vehicles (in 1st-person driving, draw sculpted exterior hood + lights without blocking cabin shell)
-    const float vehCull = shadowPass ? (135.0f * 135.0f) : (275.0f * 275.0f);
+    const float vehCull = shadowPass ? (135.0f * 135.0f) : (290.0f * 290.0f);
     for (const auto& v : world.vehicles()) {
         if ((v.pos - focus).lengthSq() > vehCull) continue;
         const bool fpCockpitCar = hidePlayerForFps && !shadowPass && v.isPlayerDriving;
@@ -2377,6 +2807,7 @@ void Renderer3D::drawSceneGeometry(const GameWorld& world, const Camera3D& camer
         const float surfY = world.surfaceHeightAt(pl.pos);
         const float baseY = std::max(surfY, pl.posY);
         const auto& wSlot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
+        const bool playerAimOrFire = pl.aiming || pl.muzzleFlashTimer > 0.0f;
         drawCharacter3D(pl.pos, baseY, pl.facingYaw, pl.walkAnimPhase,
                         getPlayerTopColor(pl.currentOutfit, pl.characterCustom.customTopColorIdx),
                         getPlayerBottomColor(pl.currentOutfit, pl.characterCustom.customBottomColorIdx),
@@ -2385,11 +2816,11 @@ void Renderer3D::drawSceneGeometry(const GameWorld& world, const Camera3D& camer
                         pl.currentWeapon, pl.muzzleFlashTimer, pl.aimPitch,
                         pl.characterCustom.glassesStyle > 0, pl.currentOutfit, shadowPass,
                         surfY, !pl.onGround, false, false, false,
-                        &pl.characterCustom, &wSlot);
+                        &pl.characterCustom, &wSlot, nullptr, playerAimOrFire);
 
-        // Live 3rd-person tactical laser sight beam + pinpoint world dot!
+        // Live 3rd-person tactical laser sight beam + pinpoint world dot when aiming or firing!
         if (!shadowPass && !pl.wasted && pl.currentWeapon != WeaponId::Fists &&
-            wSlot.laserSightColor > 0 && pl.reloadTimer <= 0.0f) {
+            playerAimOrFire && wSlot.laserSightColor > 0 && pl.reloadTimer <= 0.0f) {
             const float cy = std::cos(pl.facingYaw);
             const float sy = std::sin(pl.facingYaw);
             const float ca = std::cos(pl.aimPitch);
@@ -2421,6 +2852,7 @@ void Renderer3D::drawSceneGeometry(const GameWorld& world, const Camera3D& camer
         const float gY = world.surfaceHeightAt(npc.pos);
         const bool isCop = (npc.role == NpcRole::Police);
         const bool isArmed = (npc.role == NpcRole::Gangster || isCop);
+        const bool npcCombat = (npc.behavior == NpcBehavior::CombatEngage || npc.muzzleFlashTimer > 0.0f);
         const bool isPanicking = (npc.role == NpcRole::Civilian && npc.behavior == NpcBehavior::PanicFlee);
         CharacterCustomState npcCustom{};
         npcCustom.hairOrHatStyle = npc.hairStyle;
@@ -2444,7 +2876,7 @@ void Renderer3D::drawSceneGeometry(const GameWorld& world, const Camera3D& camer
                         0.0f, (npcCustom.glassesStyle > 0),
                         (npc.role == NpcRole::Civilian) ? npc.outfitStyle : OutfitId::StreetCasual,
                         shadowPass, gY, false, isPanicking, isCop, npc.isSwat,
-                        &npcCustom, nullptr, &extra);
+                        &npcCustom, nullptr, &extra, npcCombat);
     }
 
     if (!shadowPass) {
@@ -2457,102 +2889,141 @@ void Renderer3D::drawSceneGeometry(const GameWorld& world, const Camera3D& camer
 
 void Renderer3D::drawOceanAndGround(const GameWorld& world) {
     const bool night = world.isNightTime();
+    const float halfSpan = CityMap::kHalfCitySpan; // 702.0m
 
-    // Animated coastal ocean water plane (MatKind::OceanWater)
-    drawModelStyled(cubeModel_, {0.0f, -1.35f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {2200.0f, 1.0f, 2200.0f}, Color{24, 108, 162, 255},
-                    0.08f, 0.05f, 0.0f, MatKind::OceanWater);
+    // Animated coastal ocean water plane (MatKind::OceanWater, 5200m x 5200m)
+    drawModelStyled(cubeModel_, {0.0f, -1.35f, 120.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                    {5200.0f, 1.0f, 5200.0f}, Color{22, 92, 138, 255},
+                    0.07f, 0.05f, 0.0f, MatKind::OceanWater);
 
-    // Golden California sandy beach perimeter + expanded Western Sunset Beach shoreline!
+    // Coastal California sandy perimeter around the 16x16 metropolis (MatKind::BeachSand)
     drawModelStyled(cubeModel_, {0.0f, -0.52f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {CityMap::kHalfCitySpan * 2.08f, 0.88f, CityMap::kHalfCitySpan * 2.08f},
-                    Color{224, 204, 158, 255}, 0.88f, 0.0f, 0.0f, MatKind::Standard);
+                    {halfSpan * 2.04f, 0.88f, halfSpan * 2.04f},
+                    Color{202, 184, 144, 255}, 0.88f, 0.0f, 0.0f, MatKind::BeachSand);
 
-    // Wide walkable Western Sunset Beach sandbar (x in [-392, -344], z in [-348, 348])
-    drawModelStyled(cubeModel_, {-368.0f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {48.0f, 0.48f, 696.0f}, Color{234, 214, 168, 255},
-                    0.86f, 0.0f, 0.0f, MatKind::Standard);
-    // Damp shoreline wet sand strip meeting the rolling surf
-    drawModelStyled(cubeModel_, {-391.5f, -0.44f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {9.0f, 0.36f, 696.0f}, Color{186, 166, 126, 255},
-                    0.35f, 0.05f, 0.0f, MatKind::Standard);
+    // Wide walkable Western Sunset Beach sandbar (x in [-746, -686], z in [-684, 684])
+    drawModelStyled(cubeModel_, {-716.0f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                    {60.0f, 0.48f, 1368.0f}, Color{212, 194, 152, 255},
+                    0.86f, 0.0f, 0.0f, MatKind::BeachSand);
+    // Damp shoreline wet sand strip meeting the rolling Pacific surf
+    drawModelStyled(cubeModel_, {-745.5f, -0.44f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                    {11.0f, 0.36f, 1368.0f}, Color{162, 144, 110, 255},
+                    0.30f, 0.05f, 0.0f, MatKind::BeachSand);
 
     // Coastal promenade concrete seawall apron
     drawModelStyled(cubeModel_, {0.0f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {CityMap::kHalfCitySpan * 1.97f, 0.42f, CityMap::kHalfCitySpan * 1.97f},
-                    Color{166, 170, 176, 255}, 0.78f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+                    {halfSpan * 1.98f, 0.42f, halfSpan * 1.98f},
+                    Color{136, 138, 140, 255}, 0.82f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
 
-    // Iconic California Blue-and-Wood Lifeguard Tower on South Sunset Beach (cleanly clear of Ferris Wheel)
-    {
-        const float lx = -372.0f;
-        const float lz = 26.0f;
+    // 3 Iconic California Blue-and-Timber Lifeguard Towers spaced cleanly along Sunset Beach
+    const float lgZs[3] = {34.0f, -240.0f, 260.0f};
+    for (float lz : lgZs) {
+        const float lx = -718.0f;
         for (int sx = -1; sx <= 1; sx += 2) {
             for (int sz = -1; sz <= 1; sz += 2) {
                 drawModelStyled(cubeModel_, {lx + sx * 1.25f, 1.05f, lz + sz * 1.25f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.18f, 2.10f, 0.18f}, Color{198, 214, 228, 255}, 0.65f, 0.0f, 0.0f, MatKind::Standard);
+                                {0.18f, 2.10f, 0.18f}, Color{154, 126, 94, 255}, 0.82f, 0.0f, 0.0f, MatKind::BarkWood);
             }
         }
         drawModelStyled(cubeModel_, {lx, 2.15f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {3.6f, 0.18f, 3.6f}, Color{186, 152, 108, 255}, 0.75f, 0.0f, 0.0f, MatKind::Standard);
+                        {3.6f, 0.18f, 3.6f}, Color{162, 130, 92, 255}, 0.80f, 0.0f, 0.0f, MatKind::BarkWood);
         drawModelStyled(cubeModel_, {lx, 3.25f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {2.75f, 2.10f, 2.75f}, Color{84, 162, 214, 255}, 0.58f, 0.0f, 0.0f, MatKind::Standard);
+                        {2.75f, 2.10f, 2.75f}, Color{68, 124, 166, 255}, 0.62f, 0.0f, 0.0f, MatKind::Standard);
         drawModelStyled(cubeModel_, {lx, 3.45f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {2.84f, 0.68f, 2.84f}, Color{24, 38, 56, 255}, 0.10f, 0.2f, 0.0f, MatKind::CarGlass);
+                        {2.84f, 0.68f, 2.84f}, Color{22, 34, 48, 255}, 0.08f, 0.2f, 0.0f, MatKind::CarGlass);
         drawModelStyled(cubeModel_, {lx, 4.42f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {3.45f, 0.24f, 3.45f}, Color{236, 240, 246, 255}, 0.55f, 0.0f, 0.0f, MatKind::Standard);
+                        {3.45f, 0.24f, 3.45f}, Color{216, 218, 222, 255}, 0.58f, 0.0f, 0.0f, MatKind::Standard);
     }
 
-    // Sunset Bay Wooden Ocean Pier (x in [-428, -344], z in [-7.6, +7.6])
+    // 110m Sunset Bay Weathered Timber Ocean Pier (x in [-796, -686], z in [-7.6, +7.6])
     {
-        const Color woodDeck{148, 108, 72, 255};
-        const Color woodBeam{108, 76, 48, 255};
-        const Color railWhite{232, 236, 242, 255};
+        const Color woodDeck{132, 102, 72, 255};
+        const Color woodBeam{88, 64, 44, 255};
+        const Color cedarPost{138, 108, 78, 255};
+        const Color steelCable{118, 126, 134, 255};
 
-        // Main timber plank deck + dark cross-beams
-        drawModelStyled(cubeModel_, {-386.0f, 0.14f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {84.0f, 0.22f, 15.2f}, woodDeck, 0.80f, 0.0f, 0.0f, MatKind::Standard);
-        drawModelStyled(cubeModel_, {-386.0f, -0.04f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {84.2f, 0.18f, 15.6f}, woodBeam, 0.85f, 0.0f, 0.0f, MatKind::Standard);
+        // Main weathered timber plank deck + heavy dark cross-beams
+        drawModelStyled(cubeModel_, {-741.0f, 0.14f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {110.0f, 0.22f, 15.2f}, woodDeck, 0.84f, 0.0f, 0.0f, MatKind::BarkWood);
+        drawModelStyled(cubeModel_, {-741.0f, -0.04f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {110.2f, 0.18f, 15.6f}, woodBeam, 0.88f, 0.0f, 0.0f, MatKind::BarkWood);
 
-        // Timber ocean pilings + balustrades + vintage pier globes
-        for (int p = 0; p < 10; ++p) {
-            const float px = -350.0f - static_cast<float>(p) * 8.4f;
+        // Timber ocean pilings + weathered cedar posts + vintage pier lanterns
+        for (int p = 0; p < 13; ++p) {
+            const float px = -692.0f - static_cast<float>(p) * 8.4f;
             for (int side = -1; side <= 1; side += 2) {
                 const float pz = static_cast<float>(side) * 7.1f;
                 drawModelStyled(cylModel_, {px, -1.55f, pz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.28f, 1.75f, 0.28f}, woodBeam, 0.88f, 0.0f, 0.0f, MatKind::Standard);
+                                {0.28f, 1.75f, 0.28f}, woodBeam, 0.90f, 0.0f, 0.0f, MatKind::BarkWood);
                 drawModelStyled(cubeModel_, {px, 0.72f, pz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.22f, 0.96f, 0.22f}, railWhite, 0.58f, 0.0f, 0.0f, MatKind::Standard);
+                                {0.20f, 0.96f, 0.20f}, cedarPost, 0.84f, 0.0f, 0.0f, MatKind::BarkWood);
 
                 if (p % 2 == 1) {
                     drawModelStyled(cylModel_, {px, 1.18f, pz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.08f, 2.25f, 0.08f}, Color{54, 58, 66, 255}, 0.35f, 0.7f, 0.0f, MatKind::Standard);
+                                    {0.075f, 2.25f, 0.075f}, Color{42, 46, 52, 255}, 0.38f, 0.72f, 0.0f, MatKind::Standard);
                     drawModelStyled(sphereModel_, {px, 3.52f, pz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.24f, 0.24f, 0.24f}, Color{255, 224, 156, 255},
-                                    0.15f, 0.0f, night ? 2.4f : 0.35f, MatKind::EmissiveGlow);
+                                    {0.22f, 0.22f, 0.22f},
+                                    night ? Color{255, 220, 152, 255} : Color{216, 218, 222, 255},
+                                    0.18f, 0.0f, night ? 2.2f : 0.0f,
+                                    night ? MatKind::EmissiveGlow : MatKind::Standard);
                 }
             }
         }
-        // Continuous north/south pier safety rails & west end rail
+        // Continuous weathered cedar top cap rail & galvanized steel mid safety cables
         for (int side = -1; side <= 1; side += 2) {
-            drawModelStyled(cubeModel_, {-386.0f, 1.12f, static_cast<float>(side) * 7.1f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {83.5f, 0.12f, 0.16f}, railWhite, 0.58f, 0.0f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {-386.0f, 0.72f, static_cast<float>(side) * 7.1f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {83.5f, 0.09f, 0.12f}, railWhite, 0.58f, 0.0f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {-741.0f, 1.12f, static_cast<float>(side) * 7.1f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {109.5f, 0.11f, 0.16f}, cedarPost, 0.82f, 0.0f, 0.0f, MatKind::BarkWood);
+            drawModelStyled(cubeModel_, {-741.0f, 0.72f, static_cast<float>(side) * 7.1f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {109.5f, 0.045f, 0.055f}, steelCable, 0.34f, 0.78f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {-741.0f, 0.44f, static_cast<float>(side) * 7.1f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {109.5f, 0.035f, 0.045f}, steelCable, 0.34f, 0.78f, 0.0f, MatKind::Standard);
         }
-        drawModelStyled(cubeModel_, {-427.6f, 1.12f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.16f, 0.12f, 14.4f}, railWhite, 0.58f, 0.0f, 0.0f, MatKind::Standard);
+        drawModelStyled(cubeModel_, {-795.6f, 1.12f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {0.16f, 0.12f, 14.4f}, cedarPost, 0.82f, 0.0f, 0.0f, MatKind::BarkWood);
 
         // Pier-end coastal sunset gazebo pavilion
-        const float gx = -421.0f;
+        const float gx = -788.0f;
         for (int sx = -1; sx <= 1; sx += 2) {
             for (int sz = -1; sz <= 1; sz += 2) {
                 drawModelStyled(cylModel_, {gx + sx * 3.4f, 0.24f, sz * 3.8f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.18f, 3.6f, 0.18f}, railWhite, 0.55f, 0.0f, 0.0f, MatKind::Standard);
+                                {0.17f, 3.6f, 0.17f}, cedarPost, 0.82f, 0.0f, 0.0f, MatKind::BarkWood);
             }
         }
         drawModelStyled(coneModel_, {gx, 3.84f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {6.4f, 2.2f, 6.4f}, Color{44, 138, 192, 255}, 0.52f, 0.1f, 0.0f, MatKind::Standard);
+                        {6.4f, 2.2f, 6.4f}, Color{56, 86, 108, 255}, 0.62f, 0.10f, 0.0f, MatKind::Standard);
+    }
+
+    // North Bay Lighthouse Peninsula Headland (x in [-130, +130], z in [815, 954])
+    {
+        const float penCenterZ = 884.5f;
+        // Sandy coastal shoal & granite rocky shoreline embankment
+        drawModelStyled(cubeModel_, {0.0f, -0.52f, penCenterZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {272.0f, 0.88f, 148.0f}, Color{198, 180, 140, 255},
+                        0.88f, 0.0f, 0.0f, MatKind::BeachSand);
+        drawModelStyled(cubeModel_, {0.0f, -0.18f, penCenterZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {258.0f, 0.48f, 138.0f}, Color{118, 120, 122, 255},
+                        0.84f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+        // Coastal headland meadow turf (top at y = +0.10m)
+        drawModelStyled(cubeModel_, {0.0f, 0.06f, penCenterZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {246.0f, 0.08f, 126.0f}, Color{68, 102, 54, 255},
+                        0.86f, 0.0f, 0.0f, MatKind::FoliageGrass);
+        // Scenic lighthouse coastal overlook promenade & stone plaza at north tip (z = 928)
+        drawModelStyled(cylModel_, {0.0f, 0.07f, 928.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {19.0f, 0.06f, 19.0f}, Color{148, 146, 140, 255},
+                        0.80f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+        drawModelStyled(cubeModel_, {0.0f, 0.10f, 912.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {5.4f, 0.04f, 18.0f}, Color{148, 146, 140, 255},
+                        0.80f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+        // Natural coastal granite boulder outcrops framing the northern rocky headland shore
+        const Color rockCol{102, 100, 96, 255};
+        for (int bi = -5; bi <= 5; ++bi) {
+            const float bx = static_cast<float>(bi) * 21.5f + std::sin(static_cast<float>(bi) * 2.1f) * 4.5f;
+            const float bz = 951.0f - std::abs(static_cast<float>(bi)) * 1.4f;
+            const float br = 3.2f + std::fmod(std::abs(static_cast<float>(bi) * 1.7f), 2.2f);
+            drawModelStyled(foliageClusterModel_, {bx, 0.25f, bz}, {0.0f, 1.0f, 0.0f},
+                            static_cast<float>(bi) * 52.0f, {br * 1.45f, br * 0.62f, br * 1.15f},
+                            rockCol, 0.88f, 0.04f, 0.0f, MatKind::SidewalkConcrete);
+        }
     }
 }
 
@@ -2562,12 +3033,12 @@ void Renderer3D::drawRoadNetwork(const GameWorld& world, const Vec2& focus) {
 
     // 1) Seamless city-wide asphalt roadbed at y = 0.00m (analytic markings & crosswalks rendered in shader!)
     drawModelStyled(cubeModel_, {0.0f, -0.04f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {roadOuterSpan, 0.08f, roadOuterSpan}, Color{54, 58, 66, 255},
-                    0.46f, 0.04f, 0.0f, MatKind::RoadAsphalt);
+                    {roadOuterSpan, 0.08f, roadOuterSpan}, Color{52, 55, 60, 255},
+                    0.50f, 0.04f, 0.0f, MatKind::RoadAsphalt);
 
-    // 2) 64 Raised City Block Sidewalk Plazas (8cm physical granite curb + tiled concrete sidewalk!)
-    const Color graniteCurb{124, 128, 136, 255};
-    const Color sidewalkTile{186, 190, 196, 255};
+    // 2) Raised City Block Sidewalk Plazas (8cm physical granite curb + weathered concrete sidewalk)
+    const Color graniteCurb{108, 110, 114, 255};
+    const Color sidewalkTile{142, 140, 134, 255};
     const float halfRoad = CityMap::kRoadWidth * 0.5f;
 
     for (int bz = 0; bz < CityMap::kBlockCount; ++bz) {
@@ -2577,33 +3048,98 @@ void Renderer3D::drawRoadNetwork(const GameWorld& world, const Vec2& focus) {
             const float z0 = city.roadCoord(bz) + halfRoad;
             const float z1 = city.roadCoord(bz + 1) - halfRoad;
             const Vec2 bc{(x0 + x1) * 0.5f, (z0 + z1) * 0.5f};
-            if ((bc - focus).lengthSq() > 380.0f * 380.0f) continue;
+            if ((bc - focus).lengthSq() > 410.0f * 410.0f) continue;
 
             const float bw = x1 - x0;
             const float bd = z1 - z0;
 
             // Bevelled granite curb rim
             drawModelStyled(cubeModel_, {bc.x, 0.035f, bc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {bw, 0.07f, bd}, graniteCurb, 0.68f, 0.05f, 0.0f, MatKind::Standard);
-            // Tiled concrete sidewalk surface (top at y = 0.08m)
+                            {bw, 0.07f, bd}, graniteCurb, 0.72f, 0.04f, 0.0f, MatKind::Standard);
+            // Weathered concrete sidewalk surface (top at y = 0.08m)
             drawModelStyled(cubeModel_, {bc.x, 0.045f, bc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {bw - 0.36f, 0.07f, bd - 0.36f}, sidewalkTile,
-                            0.76f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+                            0.82f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
         }
     }
 
-    // 3) Outer perimeter boulevard sidewalks along the 4 coastal ring roads
+    // 3) Outer perimeter boulevard sidewalks along the 4 coastal ring roads (split cleanly at North Bridge x in [-9, +9])
     const float ringEdge = roadOuterSpan * 0.5f;
     const float outerW = 7.5f;
     const float fullRing = roadOuterSpan + outerW * 2.0f;
+    // South outer sidewalk
     drawModelStyled(cubeModel_, {0.0f, 0.04f, -ringEdge - outerW * 0.5f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {fullRing, 0.08f, outerW}, sidewalkTile, 0.76f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
-    drawModelStyled(cubeModel_, {0.0f, 0.04f,  ringEdge + outerW * 0.5f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {fullRing, 0.08f, outerW}, sidewalkTile, 0.76f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+                    {fullRing, 0.08f, outerW}, sidewalkTile, 0.82f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+    // North outer sidewalk (left & right of Golden Bay Suspension Bridge road mouth!)
+    const float northHalfLen = (fullRing * 0.5f) - halfRoad;
+    const float northCenterOffset = halfRoad + northHalfLen * 0.5f;
+    drawModelStyled(cubeModel_, {-northCenterOffset, 0.04f, ringEdge + outerW * 0.5f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                    {northHalfLen, 0.08f, outerW}, sidewalkTile, 0.82f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+    drawModelStyled(cubeModel_, { northCenterOffset, 0.04f, ringEdge + outerW * 0.5f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                    {northHalfLen, 0.08f, outerW}, sidewalkTile, 0.82f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+    // West & East outer sidewalks
     drawModelStyled(cubeModel_, {-ringEdge - outerW * 0.5f, 0.04f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {outerW, 0.08f, roadOuterSpan}, sidewalkTile, 0.76f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+                    {outerW, 0.08f, roadOuterSpan}, sidewalkTile, 0.82f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
     drawModelStyled(cubeModel_, { ringEdge + outerW * 0.5f, 0.04f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {outerW, 0.08f, roadOuterSpan}, sidewalkTile, 0.76f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+                    {outerW, 0.08f, roadOuterSpan}, sidewalkTile, 0.82f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+
+    // 4) Golden Bay Suspension Bridge Arched Drivable Roadway (z = 681..815m) & North Bay Peninsula Road!
+    const Vec2 bridgeMid{0.0f, 748.0f};
+    if ((bridgeMid - focus).lengthSq() < 560.0f * 560.0f) {
+        constexpr int kBridgeSegs = 16;
+        const float zStart = CityMap::kBridgeStartZ;
+        const float zEnd   = CityMap::kBridgeEndZ;
+        const float stepZ  = (zEnd - zStart) / static_cast<float>(kBridgeSegs);
+        const Color steelBarrier{122, 128, 136, 255};
+        for (int i = 0; i < kBridgeSegs; ++i) {
+            const float z0 = zStart + static_cast<float>(i) * stepZ;
+            const float z1 = z0 + stepZ;
+            const float y0 = city.bridgeDeckElevationAt({0.0f, z0});
+            const float y1 = city.bridgeDeckElevationAt({0.0f, z1});
+            const float mz = 0.5f * (z0 + z1);
+            const float my = 0.5f * (y0 + y1);
+            const float dz = z1 - z0;
+            const float dy = y1 - y0;
+            const float segLen = std::sqrt(dz * dz + dy * dy);
+            const float pitchDeg = -std::atan2(dy, dz) * kRadToDeg;
+
+            rlPushMatrix();
+            rlTranslatef(0.0f, my, mz);
+            rlRotatef(pitchDeg, 1.0f, 0.0f, 0.0f);
+            // Smooth asphalt bridge roadway (top surface matches bridgeDeckElevationAt!)
+            drawModelStyled(cubeModel_, {0.0f, -0.09f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {18.0f, 0.18f, segLen + 0.16f}, Color{52, 55, 60, 255},
+                            0.50f, 0.04f, 0.0f, MatKind::RoadAsphalt);
+            // Raised concrete pedestrian walkways & outer steel crash barriers on both bridge flanks
+            for (int side = -1; side <= 1; side += 2) {
+                const float sgn = static_cast<float>(side);
+                drawModelStyled(cubeModel_, {sgn * 10.2f, 0.06f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {2.4f, 0.24f, segLen + 0.14f}, sidewalkTile,
+                                0.80f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+                drawModelStyled(cubeModel_, {sgn * 9.08f, 0.38f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.24f, 0.72f, segLen + 0.12f}, steelBarrier,
+                                0.52f, 0.35f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {sgn * 11.42f, 0.56f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.16f, 1.05f, segLen + 0.12f}, Color{168, 52, 40, 255},
+                                0.44f, 0.52f, 0.0f, MatKind::Standard);
+            }
+            rlPopMatrix();
+        }
+    }
+
+    // North Bay Peninsula Paved Lighthouse Approach Road & Scenic Roundabout (z = 815..896m)
+    const Vec2 penRoadMid{0.0f, 865.0f};
+    if ((penRoadMid - focus).lengthSq() < 520.0f * 520.0f) {
+        drawModelStyled(cubeModel_, {0.0f, 0.04f, 855.5f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {18.0f, 0.16f, 82.0f}, Color{52, 55, 60, 255},
+                        0.50f, 0.04f, 0.0f, MatKind::RoadAsphalt);
+        drawModelStyled(cylModel_, {0.0f, 0.03f, 896.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {15.5f, 0.10f, 15.5f}, Color{54, 57, 62, 255},
+                        0.52f, 0.04f, 0.0f, MatKind::RoadAsphalt);
+        drawModelStyled(cylModel_, {0.0f, 0.09f, 896.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {5.2f, 0.12f, 5.2f}, Color{72, 108, 56, 255},
+                        0.85f, 0.0f, 0.0f, MatKind::FoliageGrass);
+    }
 }
 
 void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus, bool shadowPass) {
@@ -2614,18 +3150,73 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
     if (!shadowPass) {
         for (const auto& park : city.parks()) {
             const Vec2 c = park.bounds.center();
-            if ((c - focus).lengthSq() > 330.0f * 330.0f) continue;
+            if ((c - focus).lengthSq() > 410.0f * 410.0f) continue;
             const Vec2 he = park.bounds.halfExtents();
             drawModelStyled(cubeModel_, {c.x, 0.09f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {he.x * 2.0f, 0.06f, he.z * 2.0f}, toRayColor(park.grassColor, 1.08f),
-                            0.68f, 0.0f, 0.0f, MatKind::FoliageGrass);
+                            {he.x * 2.0f, 0.06f, he.z * 2.0f}, toRayColor(park.grassColor),
+                            0.84f, 0.0f, 0.0f, MatKind::FoliageGrass);
         }
 
-        // Central Park Plaza: Crossed Stone Footpaths, Tiered Marble Fountain, Arcing Water Jets, Flowerbeds & Vintage Globes!
+        // Grand Central Park Reflective Lake(s) with Dressed Stone Embankment & Arched Footbridge!
+        for (const auto& lake : city.lakes()) {
+            const Vec2 lc = lake.bounds.center();
+            if ((lc - focus).lengthSq() > 360.0f * 360.0f) continue;
+            const Vec2 he = lake.bounds.halfExtents();
+            const Color wallStone{138, 136, 130, 255};
+            const Color timberWood{118, 86, 58, 255};
+
+            // Recessed calm reflective lake surface cleanly above park grass (top y=0.145m vs grass y=0.120m -> ZERO Z-fighting!)
+            drawModelStyled(cubeModel_, {lc.x, 0.095f, lc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {he.x * 2.0f, 0.10f, he.z * 2.0f}, Color{22, 66, 82, 255},
+                            0.05f, 0.06f, 0.0f, MatKind::OceanWater);
+            // Dressed limestone masonry retaining rim around the lake perimeter
+            drawModelStyled(cubeModel_, {lc.x, 0.17f, lake.bounds.min.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {he.x * 2.0f + 1.1f, 0.28f, 0.85f}, wallStone, 0.80f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+            drawModelStyled(cubeModel_, {lc.x, 0.17f, lake.bounds.max.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {he.x * 2.0f + 1.1f, 0.28f, 0.85f}, wallStone, 0.80f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+            drawModelStyled(cubeModel_, {lake.bounds.min.x, 0.17f, lc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.85f, 0.28f, he.z * 2.0f}, wallStone, 0.80f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+            drawModelStyled(cubeModel_, {lake.bounds.max.x, 0.17f, lc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.85f, 0.28f, he.z * 2.0f}, wallStone, 0.80f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+
+            // Arched timber & stone pedestrian footbridge spanning North-South across lake center (open architectural balustrade!)
+            const float spanZ = he.z * 2.0f + 2.4f;
+            for (int seg = 0; seg < 7; ++seg) {
+                const float u0 = static_cast<float>(seg) / 7.0f;
+                const float u1 = static_cast<float>(seg + 1) / 7.0f;
+                const float z0 = (lc.z - spanZ * 0.5f) + u0 * spanZ;
+                const float z1 = (lc.z - spanZ * 0.5f) + u1 * spanZ;
+                const float y0 = 0.26f + 1.18f * std::sin(u0 * kPi);
+                const float y1 = 0.26f + 1.18f * std::sin(u1 * kPi);
+                const float dz = z1 - z0;
+                const float dy = y1 - y0;
+                const float len = std::sqrt(dz * dz + dy * dy);
+                const float pitch = -std::atan2(dy, dz) * kRadToDeg;
+                rlPushMatrix();
+                rlTranslatef(lc.x, 0.5f * (y0 + y1), 0.5f * (z0 + z1));
+                rlRotatef(pitch, 1.0f, 0.0f, 0.0f);
+                drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {3.2f, 0.16f, len + 0.08f}, timberWood, 0.82f, 0.0f, 0.0f, MatKind::BarkWood);
+                for (int side = -1; side <= 1; side += 2) {
+                    const float sx = static_cast<float>(side) * 1.50f;
+                    // Open top handrail + mid rail + vertical timber posts (lets reflective lake shine through!)
+                    drawModelStyled(cubeModel_, {sx, 0.86f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.11f, 0.08f, len + 0.08f}, timberWood, 0.82f, 0.0f, 0.0f, MatKind::BarkWood);
+                    drawModelStyled(cubeModel_, {sx, 0.46f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.07f, 0.055f, len + 0.06f}, Color{86, 62, 42, 255}, 0.84f, 0.0f, 0.0f, MatKind::BarkWood);
+                    drawModelStyled(cubeModel_, {sx, 0.44f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.12f, 0.86f, 0.12f}, timberWood, 0.82f, 0.0f, 0.0f, MatKind::BarkWood);
+                }
+                rlPopMatrix();
+            }
+        }
+
+        // Grand Central Park Fountain Plaza (East Park Block around {-42, -42})
         const ParkPatch* centralPark = nullptr;
         for (const auto& park : city.parks()) {
+            const Vec2 pc = park.bounds.center();
             const Vec2 phe = park.bounds.halfExtents();
-            if (phe.x > 22.0f && phe.z > 22.0f) {
+            if (phe.x > 22.0f && phe.z > 22.0f && std::abs(pc.x + 42.0f) < 10.0f && std::abs(pc.z + 42.0f) < 10.0f) {
                 centralPark = &park;
                 break;
             }
@@ -2634,74 +3225,72 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
             const Vec2 fc = centralPark->bounds.center();
             const Vec2 he = centralPark->bounds.halfExtents();
             if ((fc - focus).lengthSq() < 260.0f * 260.0f) {
-                const Color stonePath{198, 194, 184, 255};
-                const Color marbleLight{224, 226, 232, 255};
-                const Color marbleMid{196, 200, 210, 255};
+                const Color stonePath{156, 152, 144, 255};
+                const Color marbleLight{192, 190, 184, 255};
+                const Color marbleMid{162, 160, 156, 255};
 
                 // Crossed crushed-stone park footpaths + circular stone plaza apron
                 drawModelStyled(cubeModel_, {fc.x, 0.115f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {he.x * 1.98f, 0.03f, 3.6f}, stonePath, 0.80f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+                                {he.x * 1.98f, 0.03f, 3.6f}, stonePath, 0.84f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
                 drawModelStyled(cubeModel_, {fc.x, 0.115f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {3.6f, 0.03f, he.z * 1.98f}, stonePath, 0.80f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+                                {3.6f, 0.03f, he.z * 1.98f}, stonePath, 0.84f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
                 drawModelStyled(cylModel_, {fc.x, 0.105f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {9.1f, 0.04f, 9.1f}, stonePath, 0.78f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+                                {9.1f, 0.04f, 9.1f}, stonePath, 0.82f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
 
-                // Multi-tiered Beaux-Arts marble fountain basin & upper pedestal bowl
+                // Multi-tiered Beaux-Arts carved limestone fountain basin & upper pedestal bowl
                 drawModelStyled(cylModel_, {fc.x, 0.12f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {5.85f, 0.56f, 5.85f}, marbleMid, 0.52f, 0.05f, 0.0f, MatKind::Standard);
+                                {5.85f, 0.56f, 5.85f}, marbleMid, 0.68f, 0.03f, 0.0f, MatKind::Standard);
                 drawModelStyled(cylModel_, {fc.x, 0.64f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {6.05f, 0.12f, 6.05f}, marbleLight, 0.45f, 0.05f, 0.0f, MatKind::Standard);
+                                {6.05f, 0.12f, 6.05f}, marbleLight, 0.62f, 0.03f, 0.0f, MatKind::Standard);
                 drawModelStyled(cylModel_, {fc.x, 0.56f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {5.15f, 0.16f, 5.15f}, Color{42, 186, 242, 255},
-                                0.08f, 0.05f, night ? 0.45f : 0.18f, MatKind::OceanWater);
-                // Center fluted pedestal + mid stone catch-basin + finial spire
+                                {5.15f, 0.16f, 5.15f}, Color{36, 118, 138, 255},
+                                0.05f, 0.06f, 0.0f, MatKind::OceanWater);
+                // Center fluted pedestal + mid stone catch-basin
                 drawModelStyled(cylModel_, {fc.x, 0.62f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {1.20f, 2.75f, 1.20f}, marbleLight, 0.40f, 0.10f, 0.0f, MatKind::Standard);
+                                {1.15f, 2.75f, 1.15f}, marbleLight, 0.62f, 0.04f, 0.0f, MatKind::Standard);
                 drawModelStyled(cylModel_, {fc.x, 2.05f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {2.35f, 0.24f, 2.35f}, marbleLight, 0.40f, 0.08f, 0.0f, MatKind::Standard);
+                                {2.35f, 0.24f, 2.35f}, marbleLight, 0.62f, 0.04f, 0.0f, MatKind::Standard);
                 drawModelStyled(cylModel_, {fc.x, 2.26f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {2.05f, 0.08f, 2.05f}, Color{88, 212, 252, 255},
-                                0.08f, 0.05f, night ? 0.75f : 0.25f, MatKind::EmissiveGlow);
+                                {2.05f, 0.08f, 2.05f}, Color{42, 126, 146, 255},
+                                0.06f, 0.06f, 0.0f, MatKind::OceanWater);
 
-                // Effervescent central vertical water plume
-                const float plumeH = 1.65f + 0.18f * std::sin(animT * 5.2f);
+                // Realistic subtle aerated water plume & parabolic droplets (non-emissive in daylight!)
+                const float plumeH = 1.45f + 0.15f * std::sin(animT * 5.2f);
+                const Color sprayCol{216, 228, 236, 200};
+                const MatKind sprayMat = night ? MatKind::EmissiveGlow : MatKind::Standard;
+                const float sprayEm = night ? 0.55f : 0.0f;
                 drawModelStyled(coneModel_, {fc.x, 3.28f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.42f, plumeH, 0.42f}, Color{178, 238, 255, 255},
-                                0.12f, 0.05f, night ? 1.45f : 0.42f, MatKind::EmissiveGlow);
+                                {0.26f, plumeH, 0.26f}, sprayCol, 0.22f, 0.05f, sprayEm, sprayMat);
                 drawModelStyled(sphereModel_, {fc.x, 3.30f + plumeH * 0.85f, fc.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.54f, 0.46f, 0.54f}, Color{212, 246, 255, 255},
-                                0.12f, 0.05f, night ? 1.35f : 0.38f, MatKind::EmissiveGlow);
+                                {0.34f, 0.30f, 0.34f}, sprayCol, 0.22f, 0.05f, sprayEm, sprayMat);
 
-                // 6 Animated Parabolic Water Jets arching cleanly from the mid basin into the lower pool!
                 for (int j = 0; j < 6; ++j) {
                     const float ang = static_cast<float>(j) * (kTwoPi / 6.0f);
                     const float ca = std::cos(ang);
                     const float sa = std::sin(ang);
                     for (int seg = 0; seg < 5; ++seg) {
                         const float t = std::fmod((static_cast<float>(seg) * 0.20f) + animT * 0.75f, 1.0f);
-                        const float r = 1.15f + t * 2.95f;
-                        const float y = 2.32f + 1.48f * t - 2.92f * t * t;
+                        const float r = 1.15f + t * 2.85f;
+                        const float y = 2.32f + 1.38f * t - 2.82f * t * t;
                         if (y < 0.74f) continue;
-                        const float sz = 0.14f + 0.06f * std::sin(t * kPi);
+                        const float sz = 0.09f + 0.04f * std::sin(t * kPi);
                         drawModelStyled(sphereModel_, {fc.x + ca * r, y, fc.z + sa * r},
                                         {0.0f, 1.0f, 0.0f}, 0.0f, {sz, sz * 1.15f, sz},
-                                        Color{184, 240, 255, 255}, 0.10f, 0.05f,
-                                        night ? 1.45f : 0.35f, MatKind::EmissiveGlow);
+                                        sprayCol, 0.18f, 0.05f, sprayEm, sprayMat);
                     }
-                    // Underwater aqua LED fountain accent lights glowing at night
                     if (night) {
                         drawModelStyled(sphereModel_, {fc.x + ca * 3.85f, 0.68f, fc.z + sa * 3.85f},
-                                        {0.0f, 1.0f, 0.0f}, 0.0f, {0.20f, 0.10f, 0.20f},
-                                        Color{68, 224, 255, 255}, 0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
+                                        {0.0f, 1.0f, 0.0f}, 0.0f, {0.18f, 0.08f, 0.18f},
+                                        Color{255, 220, 152, 255}, 0.1f, 0.0f, 1.6f, MatKind::EmissiveGlow);
                     }
                 }
 
-                // 4 Manicured Diagonal Ornamental Flowerbed Planters (cleanly clear of benches & trash bin!)
+                // 4 Manicured Diagonal Ornamental Flowerbed Planters (natural muted botanical hues)
                 static constexpr Color kFlowerColors[4] = {
-                    {246, 86, 118, 255},
-                    {252, 204, 58, 255},
-                    {198, 112, 248, 255},
-                    {252, 134, 62, 255}
+                    {174, 72, 82, 255},
+                    {194, 154, 62, 255},
+                    {128, 92, 148, 255},
+                    {188, 108, 62, 255}
                 };
                 int fbIdx = 0;
                 for (int sx = -1; sx <= 1; sx += 2) {
@@ -2709,16 +3298,16 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
                         const float fx = fc.x + static_cast<float>(sx) * 5.45f;
                         const float fz = fc.z + static_cast<float>(sz) * 5.45f;
                         drawModelStyled(cylModel_, {fx, 0.12f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                        {1.08f, 0.32f, 1.08f}, marbleMid, 0.65f, 0.05f, 0.0f, MatKind::Standard);
+                                        {1.08f, 0.32f, 1.08f}, marbleMid, 0.76f, 0.03f, 0.0f, MatKind::Standard);
                         drawModelStyled(cylModel_, {fx, 0.38f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                        {0.92f, 0.12f, 0.92f}, Color{48, 128, 56, 255}, 0.75f, 0.0f, 0.0f, MatKind::FoliageGrass);
+                                        {0.92f, 0.12f, 0.92f}, Color{54, 96, 52, 255}, 0.84f, 0.0f, 0.0f, MatKind::FoliageGrass);
                         const Color flCol = kFlowerColors[fbIdx++ % 4];
                         for (int b = 0; b < 5; ++b) {
                             const float ba = static_cast<float>(b) * (kTwoPi / 5.0f) + 0.4f;
                             const float br = (b == 0) ? 0.0f : 0.48f;
-                            drawModelStyled(sphereModel_, {fx + std::cos(ba) * br, 0.58f, fz + std::sin(ba) * br},
-                                            {0.0f, 1.0f, 0.0f}, 0.0f, {0.26f, 0.20f, 0.26f},
-                                            flCol, 0.58f, 0.0f, 0.0f, MatKind::Standard);
+                            drawModelStyled(foliageClusterModel_, {fx + std::cos(ba) * br, 0.56f, fz + std::sin(ba) * br},
+                                            {0.0f, 1.0f, 0.0f}, static_cast<float>(b) * 72.0f, {0.24f, 0.18f, 0.24f},
+                                            flCol, 0.72f, 0.0f, 0.0f, MatKind::FoliageGrass);
                         }
                     }
                 }
@@ -2729,12 +3318,12 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
                     const float lx = fc.x + lampOffsets[l][0];
                     const float lz = fc.z + lampOffsets[l][1];
                     drawModelStyled(cylModel_, {lx, 0.12f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.16f, 0.45f, 0.16f}, Color{36, 40, 46, 255}, 0.42f, 0.68f, 0.0f, MatKind::Standard);
+                                    {0.16f, 0.45f, 0.16f}, Color{36, 40, 44, 255}, 0.48f, 0.68f, 0.0f, MatKind::Standard);
                     drawModelStyled(cylModel_, {lx, 0.55f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.07f, 3.15f, 0.07f}, Color{40, 46, 54, 255}, 0.38f, 0.72f, 0.0f, MatKind::Standard);
+                                    {0.068f, 3.15f, 0.068f}, Color{40, 44, 50, 255}, 0.44f, 0.72f, 0.0f, MatKind::Standard);
                     drawModelStyled(sphereModel_, {lx, 3.82f, lz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.25f, 0.25f, 0.25f}, night ? Color{255, 232, 168, 255} : Color{238, 242, 248, 255},
-                                    0.12f, 0.0f, night ? 2.5f : 0.25f,
+                                    {0.23f, 0.23f, 0.23f}, night ? Color{255, 224, 158, 255} : Color{216, 220, 224, 255},
+                                    0.18f, 0.0f, night ? 2.2f : 0.0f,
                                     night ? MatKind::EmissiveGlow : MatKind::Standard);
                 }
             }
@@ -2744,64 +3333,67 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
     // Drive-through GLOBE OIL Gas Station Canopies (elevated roof, zero ground blocker!)
     for (const auto& can : city.canopies()) {
         const Vec2 cc = can.bounds.center();
-        if ((cc - focus).lengthSq() > 300.0f * 300.0f) continue;
+        if ((cc - focus).lengthSq() > 320.0f * 320.0f) continue;
         const Vec2 he = can.bounds.halfExtents();
         const float roofThick = 0.72f;
 
-        // 4 slender steel support columns aligned with pump islands (z = +-3.3m)
         for (int sx = -1; sx <= 1; sx += 2) {
             for (int sz = -1; sz <= 1; sz += 2) {
                 drawModelStyled(cylModel_, {cc.x + static_cast<float>(sx) * 5.2f, 0.08f, cc.z + static_cast<float>(sz) * 3.3f},
                                 {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.24f, can.clearanceHeight, 0.24f}, Color{210, 216, 224, 255},
-                                0.35f, 0.72f, 0.0f, MatKind::Standard);
+                                {0.24f, can.clearanceHeight, 0.24f}, Color{178, 182, 188, 255},
+                                0.40f, 0.68f, 0.0f, MatKind::Standard);
             }
         }
-        // Main overhead canopy roof deck
         drawModelStyled(cubeModel_, {cc.x, can.clearanceHeight + roofThick * 0.5f, cc.z},
                         {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {he.x * 2.0f, roofThick, he.z * 2.0f}, Color{236, 240, 246, 255},
-                        0.45f, 0.15f, 0.0f, MatKind::Standard);
+                        {he.x * 2.0f, roofThick, he.z * 2.0f}, Color{208, 210, 214, 255},
+                        0.50f, 0.14f, 0.0f, MatKind::Standard);
 
         if (!shadowPass) {
-            // Glowing crimson-orange perimeter brand fascia + under-canopy bright white LED bay lights!
             drawModelStyled(cubeModel_, {cc.x, can.clearanceHeight + roofThick * 0.52f, cc.z},
                             {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {he.x * 2.03f, roofThick * 0.44f, he.z * 2.03f}, Color{246, 76, 42, 255},
-                            0.15f, 0.0f, night ? 2.2f : 1.1f, MatKind::EmissiveGlow);
+                            {he.x * 2.03f, roofThick * 0.44f, he.z * 2.03f}, Color{196, 56, 36, 255},
+                            0.32f, 0.12f, night ? 1.6f : 0.0f,
+                            night ? MatKind::EmissiveGlow : MatKind::Standard);
             drawModelStyled(cubeModel_, {cc.x, can.clearanceHeight - 0.02f, cc.z},
                             {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {he.x * 1.65f, 0.05f, he.z * 1.55f}, Color{245, 250, 255, 255},
-                            0.10f, 0.0f, night ? 2.4f : 0.8f, MatKind::EmissiveGlow);
-            // Concrete pump island curbs (low 12cm raised islands at dz = +-3.3m)
+                            {he.x * 1.65f, 0.05f, he.z * 1.55f}, Color{240, 244, 248, 255},
+                            0.18f, 0.0f, night ? 1.9f : 0.0f,
+                            night ? MatKind::EmissiveGlow : MatKind::Standard);
             for (int sz = -1; sz <= 1; sz += 2) {
                 drawModelStyled(cubeModel_, {cc.x, 0.12f, cc.z + static_cast<float>(sz) * 3.3f},
                                 {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {12.6f, 0.12f, 1.35f}, Color{198, 202, 210, 255},
-                                0.72f, 0.0f, 0.0f, MatKind::Standard);
+                                {12.6f, 0.12f, 1.35f}, Color{156, 158, 162, 255},
+                                0.78f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
             }
         }
     }
 
-    const float bldCull = shadowPass ? (185.0f * 185.0f) : (375.0f * 375.0f);
+    // O(1) Spatial-Grid Accelerated Building Rendering across the 16x16 Metropolis!
+    const float bldRadius = shadowPass ? 185.0f : 420.0f;
+    const float bldCullSq = bldRadius * bldRadius;
+    city.queryBuildingsInRadius(focus, bldRadius, visIdxBuf_);
+    const auto& allBuildings = city.buildings();
 
-    for (const auto& b : city.buildings()) {
+    for (int idx : visIdxBuf_) {
+        const auto& b = allBuildings[static_cast<std::size_t>(idx)];
         const Vec2 c = b.footprint.center();
         const float distSq = (c - focus).lengthSq();
-        if (distSq > bldCull) continue;
+        if (distSq > bldCullSq) continue;
         const Vec2 he = b.footprint.halfExtents();
 
         MatKind facadeKind = MatKind::MasonryFacade;
-        float rough = 0.65f;
-        float metal = 0.08f;
+        float rough = 0.76f;
+        float metal = 0.06f;
         if (b.style == BuildingStyle::GlassTower || b.style == BuildingStyle::DealershipBuilding) {
             facadeKind = MatKind::GlassSkyscraper;
-            rough = 0.14f;
-            metal = 0.22f;
+            rough = 0.12f;
+            metal = 0.24f;
         } else if (b.style == BuildingStyle::Warehouse || b.style == BuildingStyle::ShippingStack) {
             facadeKind = MatKind::IndustrialMetal;
-            rough = 0.44f;
-            metal = 0.45f;
+            rough = 0.46f;
+            metal = 0.48f;
         }
 
         // Main architectural volume
@@ -2809,36 +3401,111 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
                         {he.x * 2.0f, b.height, he.z * 2.0f}, toRayColor(b.primaryColor),
                         rough, metal, 0.0f, facadeKind);
 
-        // Architectural ground podium base trim
-        if (!shadowPass && b.height > 14.0f) {
+        // Architectural ground granite podium base trim
+        if (!shadowPass && b.height > 12.0f) {
             drawModelStyled(cubeModel_, {c.x, 0.55f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {he.x * 2.03f, 0.95f, he.z * 2.03f}, Color{58, 62, 70, 255},
-                            0.52f, 0.25f, 0.0f, MatKind::Standard);
+                            {he.x * 2.03f, 0.95f, he.z * 2.03f}, Color{62, 64, 68, 255},
+                            0.62f, 0.16f, 0.0f, MatKind::Standard);
         }
 
-        // Crown cornice (glows softly as architectural LED trim on Downtown GlassTowers & Nightclub at night!)
-        const bool crownGlow = (!shadowPass && night &&
-                                (b.style == BuildingStyle::GlassTower || b.style == BuildingStyle::NightclubBuilding));
-        drawModelStyled(cubeModel_, {c.x, b.height + 0.30f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {he.x * 2.05f, 0.60f, he.z * 2.05f}, toRayColor(b.accentColor),
-                        0.35f, 0.30f, crownGlow ? 1.35f : 0.0f,
-                        crownGlow ? MatKind::EmissiveGlow : MatKind::Standard);
+        // Building Style Specific Crown & Architectural Details
+        if (b.style == BuildingStyle::VillaHouse) {
+            // Coastal Suburban Villa: True 4-Sided Pitched Terracotta Clay Hip Roof, Eaves, Chimney & Timber Porch!
+            const Color terracotta{152, 74, 50, 255};
+            const Color ridgeTile{126, 58, 38, 255};
+            const Color stuccoTrim{212, 206, 196, 255};
+            // Overhanging white soffit cornice eaves
+            drawModelStyled(cubeModel_, {c.x, b.height + 0.12f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {he.x * 2.24f, 0.24f, he.z * 2.24f}, stuccoTrim, 0.78f, 0.0f, 0.0f, MatKind::Standard);
+            // True sloped 4-sided hipped terracotta clay roof (rotated 90 deg when building is deeper along Z)
+            const float roofH = std::clamp(std::min(he.x, he.z) * 0.48f, 2.2f, 4.2f);
+            const bool rotateRoof = (he.z > he.x);
+            const float roofSpanX = rotateRoof ? (he.z * 2.30f) : (he.x * 2.30f);
+            const float roofSpanZ = rotateRoof ? (he.x * 2.30f) : (he.z * 2.30f);
+            drawModelStyled(hipRoofModel_, {c.x, b.height + 0.22f, c.z}, {0.0f, 1.0f, 0.0f},
+                            rotateRoof ? 90.0f : 0.0f,
+                            {roofSpanX, roofH, roofSpanZ}, terracotta, 0.76f, 0.04f, 0.0f, MatKind::Standard);
+            // Architectural ridge cap beam along top of pitched hip roof
+            drawModelStyled(cubeModel_, {c.x, b.height + 0.24f + roofH, c.z}, {0.0f, 1.0f, 0.0f},
+                            rotateRoof ? 90.0f : 0.0f,
+                            {roofSpanX * 0.54f, 0.20f, 0.28f}, ridgeTile, 0.80f, 0.04f, 0.0f, MatKind::Standard);
+            if (!shadowPass) {
+                // Masonry fireplace chimney + shaded entry porch with terracotta roof & timber posts
+                drawModelStyled(cubeModel_, {c.x + he.x * 0.36f, b.height + roofH * 0.78f + 0.65f, c.z - he.z * 0.22f},
+                                {0.0f, 1.0f, 0.0f}, 0.0f, {0.86f, 1.75f, 0.86f}, stuccoTrim, 0.80f, 0.0f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {c.x + he.x * 0.36f, b.height + roofH * 0.78f + 1.56f, c.z - he.z * 0.22f},
+                                {0.0f, 1.0f, 0.0f}, 0.0f, {1.02f, 0.14f, 1.02f}, ridgeTile, 0.76f, 0.04f, 0.0f, MatKind::Standard);
+                const float porchZ = b.footprint.min.z - 0.88f;
+                drawModelStyled(cubeModel_, {c.x, 3.05f, porchZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {std::min(he.x * 1.15f, 6.4f), 0.22f, 1.80f}, terracotta, 0.78f, 0.0f, 0.0f, MatKind::Standard);
+                for (int s = -1; s <= 1; s += 2) {
+                    drawModelStyled(cylModel_, {c.x + static_cast<float>(s) * std::min(he.x * 0.48f, 2.7f), 0.08f, porchZ - 0.64f},
+                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.11f, 2.95f, 0.11f},
+                                    Color{112, 82, 56, 255}, 0.82f, 0.0f, 0.0f, MatKind::BarkWood);
+                }
+            }
+        } else {
+            // Neutral architectural cornice (soft LED crown accent ONLY at night on glass towers/nightclub)
+            const bool crownGlow = (!shadowPass && night &&
+                                    (b.style == BuildingStyle::GlassTower || b.style == BuildingStyle::NightclubBuilding));
+            const Color corniceCol = crownGlow ? toRayColor(b.accentColor)
+                                               : Color{
+                                                     static_cast<unsigned char>(std::max(36, static_cast<int>(b.primaryColor.r) - 18)),
+                                                     static_cast<unsigned char>(std::max(38, static_cast<int>(b.primaryColor.g) - 18)),
+                                                     static_cast<unsigned char>(std::max(42, static_cast<int>(b.primaryColor.b) - 16)),
+                                                     255};
+            drawModelStyled(cubeModel_, {c.x, b.height + 0.30f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {he.x * 2.05f, 0.60f, he.z * 2.05f}, corniceCol,
+                            0.48f, (b.style == BuildingStyle::GlassTower) ? 0.50f : 0.15f,
+                            crownGlow ? 1.15f : 0.0f,
+                            crownGlow ? MatKind::EmissiveGlow : MatKind::Standard);
+        }
 
-        // Rich Architectural Rooftop Equipment: Water Towers on Stilts, Spinning HVAC Fan Banks, Satellite Dishes & Access Penthouses!
-        if (!shadowPass && distSq < 255.0f * 255.0f && b.upperTierHeight <= 0.5f && !b.hasHelipad && b.height > 10.5f && he.x > 5.2f) {
+        // Neoclassical Civic Landmarks (City Hall, SBPD HQ, Bay Medical Center, Courthouse)
+        if (!shadowPass && b.style == BuildingStyle::CivicLandmark && distSq < 280.0f * 280.0f) {
+            const Color limestone{194, 190, 180, 255};
+            const float fz = b.footprint.min.z - 0.55f;
+            const int cols = std::clamp(static_cast<int>(he.x / 2.2f), 4, 6);
+            // Grand granite entry steps & fluted classical portico columns
+            drawModelStyled(cubeModel_, {c.x, 0.34f, fz - 0.55f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {he.x * 1.55f, 0.52f, 2.2f}, Color{154, 152, 146, 255}, 0.80f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+            for (int k = 0; k < cols; ++k) {
+                const float frac = (cols > 1) ? (static_cast<float>(k) / static_cast<float>(cols - 1) - 0.5f) : 0.0f;
+                const float colX = c.x + frac * (he.x * 1.40f);
+                drawModelStyled(cylModel_, {colX, 0.55f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.34f, std::min(b.height - 1.2f, 11.5f), 0.34f},
+                                limestone, 0.72f, 0.04f, 0.0f, MatKind::Standard);
+            }
+            // Classical entablature lintel above colonnade
+            drawModelStyled(cubeModel_, {c.x, std::min(b.height - 0.6f, 12.2f), fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {he.x * 1.56f, 1.15f, 1.35f}, limestone, 0.74f, 0.04f, 0.0f, MatKind::Standard);
+            // Bay Medical Center Hospital Emblem (+)
+            if (c.x > 240.0f && c.z < -150.0f) {
+                const Color emsRed{192, 34, 38, 255};
+                drawModelStyled(cubeModel_, {c.x, b.height - 2.4f, b.footprint.min.z - 0.25f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {2.6f, 0.72f, 0.20f}, emsRed, 0.25f, 0.1f, night ? 1.5f : 0.0f,
+                                night ? MatKind::EmissiveGlow : MatKind::Standard);
+                drawModelStyled(cubeModel_, {c.x, b.height - 2.4f, b.footprint.min.z - 0.25f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.72f, 2.6f, 0.20f}, emsRed, 0.25f, 0.1f, night ? 1.5f : 0.0f,
+                                night ? MatKind::EmissiveGlow : MatKind::Standard);
+            }
+        }
+
+        // Rich Architectural Rooftop Equipment: Timber Water Towers, Spinning HVAC Banks, Satellite Dishes
+        if (!shadowPass && distSq < 255.0f * 255.0f && b.upperTierHeight <= 0.5f && !b.hasHelipad &&
+            b.style != BuildingStyle::VillaHouse && b.height > 10.5f && he.x > 5.2f) {
             const int roofHash = std::abs(static_cast<int>(c.x * 3.0f + c.z * 7.0f)) % 5;
-            const Color steelDark{72, 78, 88, 255};
-            const Color metalHvac{128, 134, 144, 255};
+            const Color steelDark{62, 66, 72, 255};
+            const Color metalHvac{118, 122, 128, 255};
 
-            // 1) Roof-access stairwell penthouse & twin HVAC fan bank with live spinning blades
             const float hx = c.x + he.x * 0.30f;
             const float hz = c.z - he.z * 0.26f;
             drawModelStyled(cubeModel_, {hx, b.height + 1.05f, hz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {3.4f, 1.55f, 2.5f}, metalHvac, 0.58f, 0.42f, 0.0f, MatKind::IndustrialMetal);
+                            {3.4f, 1.55f, 2.5f}, metalHvac, 0.62f, 0.42f, 0.0f, MatKind::IndustrialMetal);
             for (int f = -1; f <= 1; f += 2) {
                 const float fx = hx + static_cast<float>(f) * 0.85f;
                 drawModelStyled(cylModel_, {fx, b.height + 1.80f, hz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.68f, 0.22f, 0.68f}, steelDark, 0.45f, 0.65f, 0.0f, MatKind::Standard);
+                                {0.68f, 0.22f, 0.68f}, steelDark, 0.48f, 0.65f, 0.0f, MatKind::Standard);
                 rlPushMatrix();
                 rlTranslatef(fx, b.height + 1.98f, hz);
                 rlRotatef(animT * (210.0f + static_cast<float>(roofHash) * 28.0f), 0.0f, 1.0f, 0.0f);
@@ -2849,9 +3516,9 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
                 rlPopMatrix();
             }
 
-            // 2) Iconic Cylindrical Wooden Rooftop Water Tower on 4 Steel Stilts (Masonry/Brick Mid-Rises!)
             if (b.style != BuildingStyle::GlassTower && b.style != BuildingStyle::Warehouse &&
-                b.style != BuildingStyle::ShippingStack && (roofHash == 0 || roofHash == 2 || roofHash == 4) && he.z > 5.5f) {
+                b.style != BuildingStyle::ShippingStack && b.style != BuildingStyle::CivicLandmark &&
+                (roofHash == 0 || roofHash == 2 || roofHash == 4) && he.z > 5.5f) {
                 const float wx = c.x - he.x * 0.34f;
                 const float wz = c.z + he.z * 0.28f;
                 const float stiltH = 2.35f;
@@ -2859,41 +3526,39 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
                     for (int sz = -1; sz <= 1; sz += 2) {
                         drawModelStyled(cylModel_, {wx + sx * 0.92f, b.height + 0.30f, wz + sz * 0.92f},
                                         {0.0f, 1.0f, 0.0f}, 0.0f, {0.10f, stiltH, 0.10f},
-                                        steelDark, 0.45f, 0.72f, 0.0f, MatKind::Standard);
+                                        steelDark, 0.48f, 0.72f, 0.0f, MatKind::Standard);
                     }
                 }
-                // Cross tie deck + timber barrel tank + dark iron hoops + conical tin roof
                 drawModelStyled(cubeModel_, {wx, b.height + 0.30f + stiltH, wz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {2.35f, 0.16f, 2.35f}, steelDark, 0.50f, 0.65f, 0.0f, MatKind::Standard);
+                                {2.35f, 0.16f, 2.35f}, steelDark, 0.52f, 0.65f, 0.0f, MatKind::Standard);
                 drawModelStyled(cylModel_, {wx, b.height + 0.38f + stiltH, wz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {1.38f, 2.85f, 1.38f}, Color{138, 102, 68, 255}, 0.82f, 0.05f, 0.0f, MatKind::Standard);
+                                {1.38f, 2.85f, 1.38f}, Color{124, 92, 62, 255}, 0.86f, 0.0f, 0.0f, MatKind::BarkWood);
                 drawModelStyled(cylModel_, {wx, b.height + 1.15f + stiltH, wz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {1.41f, 0.10f, 1.41f}, Color{48, 52, 58, 255}, 0.45f, 0.75f, 0.0f, MatKind::Standard);
+                                {1.41f, 0.10f, 1.41f}, Color{46, 50, 54, 255}, 0.48f, 0.75f, 0.0f, MatKind::Standard);
                 drawModelStyled(cylModel_, {wx, b.height + 2.35f + stiltH, wz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {1.41f, 0.10f, 1.41f}, Color{48, 52, 58, 255}, 0.45f, 0.75f, 0.0f, MatKind::Standard);
+                                {1.41f, 0.10f, 1.41f}, Color{46, 50, 54, 255}, 0.48f, 0.75f, 0.0f, MatKind::Standard);
                 drawModelStyled(coneModel_, {wx, b.height + 3.22f + stiltH, wz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {1.62f, 1.35f, 1.62f}, Color{84, 90, 98, 255}, 0.55f, 0.45f, 0.0f, MatKind::Standard);
+                                {1.62f, 1.35f, 1.62f}, Color{80, 86, 92, 255}, 0.58f, 0.45f, 0.0f, MatKind::Standard);
             } else {
-                // Satellite Dish + Communications Lattice Antenna
                 const float dx = c.x - he.x * 0.32f;
                 const float dz = c.z + he.z * 0.25f;
                 drawModelStyled(cylModel_, {dx, b.height + 0.30f, dz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.11f, 1.45f, 0.11f}, steelDark, 0.42f, 0.75f, 0.0f, MatKind::Standard);
+                                {0.11f, 1.45f, 0.11f}, steelDark, 0.44f, 0.75f, 0.0f, MatKind::Standard);
                 rlPushMatrix();
                 rlTranslatef(dx, b.height + 1.85f, dz);
                 rlRotatef(static_cast<float>(roofHash) * 65.0f, 0.0f, 1.0f, 0.0f);
                 rlRotatef(38.0f, 0.0f, 0.0f, 1.0f);
                 drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.92f, 0.16f, 0.92f}, Color{226, 232, 240, 255}, 0.38f, 0.35f, 0.0f, MatKind::Standard);
+                                {0.92f, 0.16f, 0.92f}, Color{198, 202, 208, 255}, 0.42f, 0.32f, 0.0f, MatKind::Standard);
                 drawModelStyled(cylModel_, {0.0f, 0.14f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.05f, 0.65f, 0.05f}, steelDark, 0.40f, 0.70f, 0.0f, MatKind::Standard);
+                                {0.05f, 0.65f, 0.05f}, steelDark, 0.42f, 0.70f, 0.0f, MatKind::Standard);
                 rlPopMatrix();
             }
         }
 
         float roofTopY = b.height;
 
-        // Stepped upper skyscraper tier + spire antenna + blinking aviation beacon
+        // Stepped upper skyscraper tier + spire antenna + blinking FAA aviation beacon
         if (b.upperTierHeight > 0.5f) {
             const float uy = b.height + b.upperTierHeight * 0.5f;
             drawModelStyled(cubeModel_, {c.x, uy, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -2901,126 +3566,148 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
                             rough, metal, 0.0f, facadeKind);
 
             roofTopY = b.height + b.upperTierHeight;
+            const bool upperGlow = (!shadowPass && night && b.style == BuildingStyle::GlassTower);
             drawModelStyled(cubeModel_, {c.x, roofTopY + 0.22f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {he.x * 1.40f, 0.44f, he.z * 1.40f}, toRayColor(b.accentColor),
-                            0.35f, 0.30f, crownGlow ? 1.25f : 0.0f,
-                            crownGlow ? MatKind::EmissiveGlow : MatKind::Standard);
+                            {he.x * 1.40f, 0.44f, he.z * 1.40f},
+                            upperGlow ? toRayColor(b.accentColor) : Color{68, 72, 80, 255},
+                            0.38f, 0.42f, upperGlow ? 1.05f : 0.0f,
+                            upperGlow ? MatKind::EmissiveGlow : MatKind::Standard);
 
             if (!b.hasHelipad) {
                 drawModelStyled(cylModel_, {c.x, roofTopY, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.24f, 7.2f, 0.24f}, Color{205, 212, 224, 255},
-                                0.28f, 0.80f, 0.0f, MatKind::Standard);
+                                {0.22f, 7.6f, 0.22f}, Color{176, 182, 190, 255},
+                                0.30f, 0.80f, 0.0f, MatKind::Standard);
 
                 if (!shadowPass) {
                     const float blink = 0.5f + 0.5f * std::sin(animT * 3.4f + c.x * 0.13f);
                     if (blink > 0.35f) {
-                        drawModelStyled(sphereModel_, {c.x, roofTopY + 7.35f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                        {0.34f, 0.34f, 0.34f}, Color{255, 48, 42, 255},
-                                        0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
+                        drawModelStyled(sphereModel_, {c.x, roofTopY + 7.75f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                        {0.32f, 0.32f, 0.32f}, Color{246, 44, 40, 255},
+                                        0.1f, 0.0f, night ? 2.4f : 1.0f, MatKind::EmissiveGlow);
                     }
                 }
             }
         }
 
-        // Skyscraper VIP Rooftop Helipad (Concrete Pad + Yellow Ring + Geometric 'H' + Green Perimeter Beacons)
+        // Skyscraper & Hospital Rooftop Helipad
         if (!shadowPass && b.hasHelipad) {
             const float padR = std::min(he.x, he.z) * (b.upperTierHeight > 0.5f ? 0.56f : 0.68f);
             if (padR >= 3.2f) {
                 const float py = roofTopY + 0.52f;
                 drawModelStyled(cylModel_, {c.x, roofTopY + 0.25f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {padR, 0.32f, padR}, Color{64, 68, 76, 255}, 0.72f, 0.1f, 0.0f, MatKind::Standard);
+                                {padR, 0.32f, padR}, Color{62, 66, 72, 255}, 0.76f, 0.08f, 0.0f, MatKind::Standard);
                 drawModelStyled(cylModel_, {c.x, py, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {padR * 0.82f, 0.06f, padR * 0.82f}, Color{245, 202, 52, 255},
-                                0.35f, 0.0f, night ? 0.9f : 0.0f, night ? MatKind::EmissiveGlow : MatKind::Standard);
+                                {padR * 0.82f, 0.06f, padR * 0.82f}, Color{206, 168, 52, 255},
+                                0.45f, 0.0f, night ? 0.65f : 0.0f, night ? MatKind::EmissiveGlow : MatKind::Standard);
                 drawModelStyled(cylModel_, {c.x, py + 0.02f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {padR * 0.70f, 0.06f, padR * 0.70f}, Color{52, 56, 64, 255},
-                                0.72f, 0.1f, 0.0f, MatKind::Standard);
-                // Crisp geometric 'H' landing emblem (zero font glyphs!)
+                                {padR * 0.70f, 0.06f, padR * 0.70f}, Color{52, 56, 62, 255},
+                                0.76f, 0.08f, 0.0f, MatKind::Standard);
                 const float hSpan = padR * 0.36f;
+                const MatKind hMat = night ? MatKind::EmissiveGlow : MatKind::Standard;
+                const float hEm = night ? 0.7f : 0.0f;
                 drawModelStyled(cubeModel_, {c.x - hSpan * 0.55f, py + 0.07f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {hSpan * 0.28f, 0.04f, hSpan * 1.35f}, WHITE, 0.3f, 0.0f, 0.8f, MatKind::EmissiveGlow);
+                                {hSpan * 0.28f, 0.04f, hSpan * 1.35f}, Color{226, 228, 232, 255}, 0.4f, 0.0f, hEm, hMat);
                 drawModelStyled(cubeModel_, {c.x + hSpan * 0.55f, py + 0.07f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {hSpan * 0.28f, 0.04f, hSpan * 1.35f}, WHITE, 0.3f, 0.0f, 0.8f, MatKind::EmissiveGlow);
+                                {hSpan * 0.28f, 0.04f, hSpan * 1.35f}, Color{226, 228, 232, 255}, 0.4f, 0.0f, hEm, hMat);
                 drawModelStyled(cubeModel_, {c.x, py + 0.07f, c.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {hSpan * 1.15f, 0.04f, hSpan * 0.26f}, WHITE, 0.3f, 0.0f, 0.8f, MatKind::EmissiveGlow);
-                for (int k = 0; k < 8; ++k) {
-                    const float a = (static_cast<float>(k) / 8.0f) * kTwoPi;
-                    drawModelStyled(sphereModel_,
-                                    {c.x + std::cos(a) * (padR * 0.92f), py + 0.10f, c.z + std::sin(a) * (padR * 0.92f)},
-                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.16f, 0.16f, 0.16f},
-                                    Color{58, 252, 118, 255}, 0.1f, 0.0f, 2.0f, MatKind::EmissiveGlow);
+                                {hSpan * 1.15f, 0.04f, hSpan * 0.26f}, Color{226, 228, 232, 255}, 0.4f, 0.0f, hEm, hMat);
+                if (night) {
+                    for (int k = 0; k < 8; ++k) {
+                        const float a = (static_cast<float>(k) / 8.0f) * kTwoPi;
+                        drawModelStyled(sphereModel_,
+                                        {c.x + std::cos(a) * (padR * 0.92f), py + 0.10f, c.z + std::sin(a) * (padR * 0.92f)},
+                                        {0.0f, 1.0f, 0.0f}, 0.0f, {0.14f, 0.14f, 0.14f},
+                                        Color{58, 236, 112, 255}, 0.1f, 0.0f, 1.8f, MatKind::EmissiveGlow);
+                    }
                 }
             }
         }
 
-        // Realistic Street-Level Detail (within 215m so close & mid streets look richly alive!)
+        // Realistic Street-Level Detail (within 215m so close & mid streets look richly authentic!)
         if (!shadowPass && distSq < 215.0f * 215.0f) {
-            // 1) Ground-Floor Retail Storefronts (Display Glass, Lit Interior, Entry Doors & 3D Projecting Awnings)
-            if (b.hasStorefront && he.x >= 5.2f) {
+            // 1) Ground-Floor Retail Storefronts (Dark Bronze Frame, Multi-Pane Windows, Woven Fabric Awnings)
+            if (b.hasStorefront && he.x >= 5.2f &&
+                b.style != BuildingStyle::DealershipBuilding &&
+                b.style != BuildingStyle::BoutiqueBuilding) {
                 const Color awnCol = toRayColor(b.awningColor);
+                const Color frameCol{30, 32, 38, 255};
                 const float shopW = std::min(he.x * 1.62f, 13.5f);
                 for (int side = -1; side <= 1; side += 2) {
                     const float fz = (side < 0) ? (b.footprint.min.z - 0.06f) : (b.footprint.max.z + 0.06f);
                     const float outZ = static_cast<float>(side);
 
-                    // Dark anodized storefront frame + warm lit interior display window
                     drawModelStyled(cubeModel_, {c.x, 1.65f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {shopW + 0.36f, 3.05f, 0.14f}, Color{30, 34, 42, 255},
-                                    0.40f, 0.55f, 0.0f, MatKind::Standard);
+                                    {shopW + 0.36f, 3.05f, 0.14f}, frameCol,
+                                    0.44f, 0.50f, 0.0f, MatKind::Standard);
+                    // Subtle warm interior display light at night (below bloom clip threshold!) + reflective dark glass by day
                     drawModelStyled(cubeModel_, {c.x, 1.62f, fz + outZ * 0.05f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {shopW, 2.55f, 0.08f},
-                                    night ? Color{255, 218, 152, 255} : Color{32, 48, 66, 255},
-                                    0.10f, 0.20f, night ? 1.25f : 0.0f,
+                                    night ? Color{174, 132, 82, 255} : Color{24, 34, 44, 255},
+                                    0.08f, 0.18f, night ? 0.44f : 0.0f,
                                     night ? MatKind::EmissiveGlow : MatKind::CarGlass);
-                    // Framed double entrance door in center
+                    // Central entry doorway + dark bronze architectural mullions & upper transom bar
                     drawModelStyled(cubeModel_, {c.x, 1.22f, fz + outZ * 0.09f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {1.85f, 2.25f, 0.10f}, Color{24, 28, 34, 255},
-                                    0.35f, 0.65f, 0.0f, MatKind::Standard);
-                    // Sloped 3D fabric/metal shop awning + crisp white front valence stripe
+                                    {1.85f, 2.25f, 0.10f}, Color{24, 26, 32, 255},
+                                    0.38f, 0.60f, 0.0f, MatKind::Standard);
+                    drawModelStyled(cubeModel_, {c.x, 2.42f, fz + outZ * 0.10f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {shopW + 0.04f, 0.10f, 0.08f}, frameCol,
+                                    0.42f, 0.58f, 0.0f, MatKind::Standard);
+                    for (int m = -1; m <= 1; m += 2) {
+                        drawModelStyled(cubeModel_, {c.x + static_cast<float>(m) * (shopW * 0.28f), 1.62f, fz + outZ * 0.10f},
+                                        {0.0f, 1.0f, 0.0f}, 0.0f, {0.12f, 2.60f, 0.08f},
+                                        frameCol, 0.42f, 0.58f, 0.0f, MatKind::Standard);
+                    }
+                    // Woven canvas shop awning (MatKind::FabricCloth)
                     rlPushMatrix();
                     rlTranslatef(c.x, 3.22f, fz + outZ * 0.62f);
                     rlRotatef(outZ * 18.0f, 1.0f, 0.0f, 0.0f);
                     drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {shopW + 0.40f, 0.14f, 1.32f}, awnCol,
-                                    0.68f, 0.05f, 0.0f, MatKind::Standard);
+                                    {shopW + 0.40f, 0.12f, 1.32f}, awnCol,
+                                    0.82f, 0.0f, 0.0f, MatKind::FabricCloth);
                     rlPopMatrix();
                     drawModelStyled(cubeModel_, {c.x, 3.00f, fz + outZ * 1.24f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {shopW + 0.42f, 0.16f, 0.06f}, Color{242, 244, 248, 255},
-                                    0.55f, 0.0f, 0.0f, MatKind::Standard);
+                                    {shopW + 0.42f, 0.14f, 0.05f}, Color{218, 216, 210, 255},
+                                    0.78f, 0.0f, 0.0f, MatKind::FabricCloth);
                 }
 
-                // Vertical Illuminated Commercial Neon Blade Sign mounted on street-facing building corner!
+                // Architectural Commercial Blade Sign (grounded painted metal in daylight, illuminated at night!)
                 if (b.height >= 12.0f) {
                     const int signHash = std::abs(static_cast<int>(c.x * 5.0f + c.z * 11.0f)) % 4;
-                    static constexpr Color kBladeCols[4] = {
-                        {52, 226, 255, 255},
-                        {255, 76, 178, 255},
-                        {255, 198, 56, 255},
-                        {74, 246, 152, 255}
+                    static constexpr Color kBladeDayCols[4] = {
+                        {46, 86, 114, 255},
+                        {134, 52, 56, 255},
+                        {156, 122, 54, 255},
+                        {48, 94, 76, 255}
                     };
-                    const Color neonCol = kBladeCols[signHash];
+                    static constexpr Color kBladeNightCols[4] = {
+                        {92, 198, 242, 255},
+                        {246, 118, 92, 255},
+                        {248, 198, 92, 255},
+                        {96, 224, 158, 255}
+                    };
+                    const Color bladeCol = night ? kBladeNightCols[signHash] : kBladeDayCols[signHash];
                     const float cornerX = b.footprint.max.x + 0.72f;
                     const float cornerZ = (signHash % 2 == 0) ? (b.footprint.min.z + 1.4f) : (b.footprint.max.z - 1.4f);
-                    const float bladeH = std::min(5.2f, b.height * 0.34f);
+                    const float bladeH = std::min(4.8f, b.height * 0.32f);
                     const float bladeY = 4.6f + bladeH * 0.5f;
-                    // Twin dark steel wall mounting struts
                     drawModelStyled(cubeModel_, {b.footprint.max.x + 0.32f, bladeY + bladeH * 0.34f, cornerZ},
                                     {0.0f, 1.0f, 0.0f}, 0.0f, {0.72f, 0.09f, 0.09f},
-                                    Color{38, 42, 50, 255}, 0.40f, 0.72f, 0.0f, MatKind::Standard);
+                                    Color{38, 42, 48, 255}, 0.42f, 0.72f, 0.0f, MatKind::Standard);
                     drawModelStyled(cubeModel_, {b.footprint.max.x + 0.32f, bladeY - bladeH * 0.34f, cornerZ},
                                     {0.0f, 1.0f, 0.0f}, 0.0f, {0.72f, 0.09f, 0.09f},
-                                    Color{38, 42, 50, 255}, 0.40f, 0.72f, 0.0f, MatKind::Standard);
-                    // Vertical blade housing + double-sided emissive neon tube strips
+                                    Color{38, 42, 48, 255}, 0.42f, 0.72f, 0.0f, MatKind::Standard);
                     drawModelStyled(cubeModel_, {cornerX, bladeY, cornerZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.82f, bladeH, 0.20f}, Color{24, 28, 36, 255},
-                                    0.35f, 0.55f, 0.0f, MatKind::Standard);
+                                    {0.78f, bladeH, 0.20f}, Color{28, 30, 36, 255},
+                                    0.40f, 0.55f, 0.0f, MatKind::Standard);
                     drawModelStyled(cubeModel_, {cornerX, bladeY, cornerZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.62f, bladeH * 0.88f, 0.24f}, neonCol,
-                                    0.12f, 0.0f, night ? 2.5f : 0.72f, MatKind::EmissiveGlow);
+                                    {0.58f, bladeH * 0.86f, 0.24f}, bladeCol,
+                                    night ? 0.14f : 0.48f, night ? 0.0f : 0.18f,
+                                    night ? 1.85f : 0.0f,
+                                    night ? MatKind::EmissiveGlow : MatKind::Standard);
                 }
             }
 
-            // 2) 3D Residential Apartment Balconies (Concrete Slab + Smoked-Glass/Metal Railing per Floor)
+            // 2) 3D Residential Apartment Balconies (Weathered Concrete Slab + Smoked-Glass Railing)
             if (b.hasBalconies && b.height >= 12.0f && he.x >= 5.0f) {
                 const int maxFloors = std::min(7, static_cast<int>((b.height - 4.2f) / 3.4f));
                 const int cols = (he.x > 8.5f) ? 2 : 1;
@@ -3032,89 +3719,113 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
                         for (int col = 0; col < cols; ++col) {
                             const float bx = (cols == 1) ? c.x : (c.x + (col == 0 ? -he.x * 0.44f : he.x * 0.44f));
                             drawModelStyled(cubeModel_, {bx, fy, bz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                            {3.4f, 0.16f, 1.15f}, Color{196, 200, 208, 255},
-                                            0.68f, 0.05f, 0.0f, MatKind::Standard);
+                                            {3.4f, 0.16f, 1.15f}, Color{162, 160, 156, 255},
+                                            0.76f, 0.04f, 0.0f, MatKind::Standard);
                             drawModelStyled(cubeModel_, {bx, fy + 0.52f, railZ}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                            {3.4f, 0.86f, 0.07f}, Color{36, 48, 62, 255},
-                                            0.18f, 0.45f, 0.0f, MatKind::CarGlass);
+                                            {3.4f, 0.86f, 0.07f}, Color{34, 44, 54, 255},
+                                            0.14f, 0.45f, 0.0f, MatKind::CarGlass);
                         }
                     }
                 }
             }
         }
 
-        // 3) Signature Commercial Landmarks (AMMU-TECH, PAY 'N' TUNE, LUXURY AUTOS, MODA BOUTIQUE, PULSE NIGHTCLUB)
+        // 3) Signature Commercial Landmarks (Architectural Daylight Signage -> Illuminated at Night!)
         if (!shadowPass) {
             if (b.style == BuildingStyle::ShopBuilding || b.style == BuildingStyle::GarageBuilding) {
                 const Color signCol = (b.style == BuildingStyle::ShopBuilding)
-                                          ? Color{255, 78, 48, 255}
-                                          : Color{42, 218, 255, 255};
-                drawModelStyled(cubeModel_, {c.x, 5.3f, b.footprint.min.z - 0.28f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {he.x * 1.55f, 1.45f, 0.38f}, signCol,
-                                0.15f, 0.0f, 2.1f, MatKind::EmissiveGlow);
+                                          ? (night ? Color{238, 86, 54, 255} : Color{154, 52, 42, 255})
+                                          : (night ? Color{68, 198, 242, 255} : Color{44, 102, 134, 255});
+                drawModelStyled(cubeModel_, {c.x, 5.3f, b.footprint.min.z - 0.24f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {he.x * 1.58f, 1.56f, 0.30f}, Color{28, 30, 36, 255},
+                                0.42f, 0.55f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {c.x, 5.3f, b.footprint.min.z - 0.34f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {he.x * 1.48f, 1.24f, 0.16f}, signCol,
+                                night ? 0.16f : 0.44f, night ? 0.0f : 0.22f,
+                                night ? 1.85f : 0.0f,
+                                night ? MatKind::EmissiveGlow : MatKind::Standard);
                 drawModelStyled(cubeModel_, {c.x, 3.65f, b.footprint.min.z - 0.95f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {he.x * 1.62f, 0.24f, 1.8f}, Color{36, 40, 48, 255},
-                                0.45f, 0.40f, 0.0f, MatKind::Standard);
+                                {he.x * 1.62f, 0.24f, 1.8f}, Color{38, 42, 48, 255},
+                                0.46f, 0.42f, 0.0f, MatKind::Standard);
             } else if (b.style == BuildingStyle::DealershipBuilding) {
-                // LUXURY AUTOS Panoramic Glass Showroom Atrium + Brushed Titanium Canopy + Gold Neon Fascia
+                // LUXURY AUTOS Panoramic Glass Showroom Atrium + Brushed Titanium Canopy + Brass Fascia
                 drawModelStyled(cubeModel_, {c.x, 2.85f, b.footprint.min.z - 0.20f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {he.x * 1.86f, 5.4f, 0.32f}, Color{22, 36, 52, 255},
-                                0.06f, 0.25f, 0.0f, MatKind::CarGlass);
+                                {he.x * 1.86f, 5.4f, 0.32f}, Color{20, 30, 42, 255},
+                                0.06f, 0.24f, 0.0f, MatKind::CarGlass);
                 drawModelStyled(cubeModel_, {c.x, 5.85f, b.footprint.min.z - 1.35f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {he.x * 1.94f, 0.36f, 2.7f}, Color{215, 220, 228, 255},
-                                0.25f, 0.80f, 0.0f, MatKind::Standard);
+                                {he.x * 1.94f, 0.36f, 2.7f}, Color{186, 190, 196, 255},
+                                0.28f, 0.78f, 0.0f, MatKind::Standard);
                 drawModelStyled(cubeModel_, {c.x, 6.65f, b.footprint.min.z - 0.35f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {he.x * 1.72f, 1.15f, 0.42f}, Color{255, 198, 56, 255},
-                                0.12f, 0.0f, 2.3f, MatKind::EmissiveGlow);
-                // Illuminated circular VIP car turntable pad on the showroom forecourt
+                                {he.x * 1.72f, 1.05f, 0.36f},
+                                night ? Color{242, 194, 78, 255} : Color{176, 146, 82, 255},
+                                0.22f, night ? 0.0f : 0.75f, night ? 1.85f : 0.0f,
+                                night ? MatKind::EmissiveGlow : MatKind::Standard);
+                // Brushed slate turntable pad on showroom forecourt (subtle accent ring)
                 drawModelStyled(cylModel_, {c.x - 6.0f, 0.08f, b.footprint.min.z - 5.2f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {3.2f, 0.08f, 3.2f}, Color{42, 46, 56, 255}, 0.25f, 0.65f, 0.0f, MatKind::Standard);
+                                {3.2f, 0.08f, 3.2f}, Color{44, 48, 54, 255}, 0.32f, 0.58f, 0.0f, MatKind::Standard);
                 drawModelStyled(cylModel_, {c.x - 6.0f, 0.06f, b.footprint.min.z - 5.2f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {3.38f, 0.05f, 3.38f}, Color{255, 206, 72, 255}, 0.1f, 0.0f, 1.8f, MatKind::EmissiveGlow);
+                                {3.36f, 0.05f, 3.36f},
+                                night ? Color{246, 206, 98, 255} : Color{168, 152, 114, 255},
+                                0.24f, night ? 0.0f : 0.72f, night ? 1.4f : 0.0f,
+                                night ? MatKind::EmissiveGlow : MatKind::Standard);
             } else if (b.style == BuildingStyle::BoutiqueBuilding) {
-                // MODA BOUTIQUE Haute-Couture Rose-Gold Showcase & Illuminated Display Windows
-                drawModelStyled(cubeModel_, {c.x, 5.2f, b.footprint.max.z + 0.30f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {he.x * 1.58f, 1.15f, 0.36f}, Color{248, 108, 222, 255},
-                                0.12f, 0.0f, 2.2f, MatKind::EmissiveGlow);
+                // MODA BOUTIQUE Architectural Limestone & Champagne-Bronze Showcase
+                drawModelStyled(cubeModel_, {c.x, 5.2f, b.footprint.max.z + 0.26f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {he.x * 1.58f, 1.05f, 0.30f},
+                                night ? Color{242, 192, 162, 255} : Color{138, 112, 92, 255},
+                                0.26f, night ? 0.0f : 0.65f, night ? 1.65f : 0.0f,
+                                night ? MatKind::EmissiveGlow : MatKind::Standard);
                 drawModelStyled(cubeModel_, {c.x, 2.1f, b.footprint.max.z + 0.14f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {he.x * 1.66f, 3.6f, 0.18f}, Color{255, 232, 196, 255},
-                                0.15f, 0.10f, night ? 1.5f : 0.45f, MatKind::EmissiveGlow);
+                                {he.x * 1.66f, 3.6f, 0.18f},
+                                night ? Color{246, 224, 184, 255} : Color{28, 36, 46, 255},
+                                0.08f, 0.18f, night ? 1.25f : 0.0f,
+                                night ? MatKind::EmissiveGlow : MatKind::CarGlass);
             } else if (b.style == BuildingStyle::NightclubBuilding) {
-                // PULSE NIGHTCLUB Animated Neon Equalizer Bars + VIP Entrance + Night Sky Beams!
+                // PULSE NIGHTCLUB Brushed Charcoal Facade Louvers (subtle at day, animated LED equalizer at night!)
                 for (int bar = -3; bar <= 3; ++bar) {
-                    const float eqWave = 0.45f + 0.55f * std::abs(std::sin(animT * 3.8f + static_cast<float>(bar) * 0.9f));
+                    const float eqWave = night
+                                             ? (0.45f + 0.55f * std::abs(std::sin(animT * 3.8f + static_cast<float>(bar) * 0.9f)))
+                                             : 0.72f;
                     const float barH = (b.height - 3.5f) * eqWave;
-                    const Color eqCol = (std::abs(bar) % 2 == 0)
-                                            ? Color{192, 68, 255, 255}
-                                            : Color{52, 232, 255, 255};
+                    const Color eqCol = night
+                                            ? ((std::abs(bar) % 2 == 0) ? Color{176, 86, 232, 255} : Color{68, 198, 238, 255})
+                                            : Color{42, 46, 54, 255};
                     drawModelStyled(cubeModel_,
                                     {c.x + static_cast<float>(bar) * 2.15f, 3.2f + barH * 0.5f, b.footprint.max.z + 0.22f},
-                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.52f, barH, 0.24f},
-                                    eqCol, 0.10f, 0.0f, 2.6f, MatKind::EmissiveGlow);
+                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.48f, barH, 0.22f},
+                                    eqCol, night ? 0.12f : 0.36f, night ? 0.0f : 0.65f,
+                                    night ? 2.1f : 0.0f,
+                                    night ? MatKind::EmissiveGlow : MatKind::Standard);
                 }
                 drawModelStyled(cubeModel_, {c.x, 3.15f, b.footprint.max.z + 1.35f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {6.8f, 0.28f, 2.6f}, Color{22, 18, 32, 255}, 0.30f, 0.6f, 0.0f, MatKind::Standard);
+                                {6.8f, 0.28f, 2.6f}, Color{24, 26, 32, 255}, 0.36f, 0.6f, 0.0f, MatKind::Standard);
                 if (night) {
                     const float sweep = std::sin(animT * 1.15f) * 16.0f;
                     rlPushMatrix();
                     rlTranslatef(c.x - 4.5f, b.height + 0.4f, c.z);
                     rlRotatef(sweep, 0.0f, 0.0f, 1.0f);
-                    DrawCylinder({0.0f, 0.0f, 0.0f}, 3.6f, 0.35f, 34.0f, 12, Color{188, 78, 255, 34});
+                    DrawCylinder({0.0f, 0.0f, 0.0f}, 3.6f, 0.35f, 34.0f, 12, Color{176, 98, 236, 28});
                     rlPopMatrix();
                     rlPushMatrix();
                     rlTranslatef(c.x + 4.5f, b.height + 0.4f, c.z);
                     rlRotatef(-sweep, 0.0f, 0.0f, 1.0f);
-                    DrawCylinder({0.0f, 0.0f, 0.0f}, 3.6f, 0.35f, 34.0f, 12, Color{56, 228, 255, 34});
+                    DrawCylinder({0.0f, 0.0f, 0.0f}, 3.6f, 0.35f, 34.0f, 12, Color{68, 206, 240, 28});
                     rlPopMatrix();
                 }
             }
 
-            // 3D Vertical Corner Pilasters & Structural Facade Mullion Columns for Realistic Depth
-            if (b.height > 12.0f) {
+            // 3D Vertical Corner Pilasters (Neutral architectural stone/bronze derived from primaryColor — zero neon!)
+            if (b.height > 12.0f && b.style != BuildingStyle::VillaHouse) {
                 const bool isGlass = (b.style == BuildingStyle::GlassTower);
-                const Color pilasterCol = toRayColor(b.accentColor);
-                const float pilRough = isGlass ? 0.24f : 0.68f;
-                const float pilMetal = isGlass ? 0.72f : 0.18f;
+                const Color pilasterCol = isGlass
+                                              ? Color{46, 52, 60, 255}
+                                              : Color{
+                                                    static_cast<unsigned char>(std::max(40, static_cast<int>(b.primaryColor.r) * 82 / 100)),
+                                                    static_cast<unsigned char>(std::max(40, static_cast<int>(b.primaryColor.g) * 82 / 100)),
+                                                    static_cast<unsigned char>(std::max(42, static_cast<int>(b.primaryColor.b) * 82 / 100)),
+                                                    255};
+                const float pilRough = isGlass ? 0.28f : 0.74f;
+                const float pilMetal = isGlass ? 0.68f : 0.10f;
                 for (int sx = -1; sx <= 1; sx += 2) {
                     for (int sz = -1; sz <= 1; sz += 2) {
                         drawModelStyled(cubeModel_,
@@ -3134,165 +3845,233 @@ void Renderer3D::drawBuildingsAndParks(const GameWorld& world, const Vec2& focus
 
 
 void Renderer3D::drawLandmarkStructures(const GameWorld& world, const Vec2& focus, bool shadowPass) {
+    const auto& city = world.city();
     const bool night = world.isNightTime();
     const float animT = static_cast<float>(GetTime());
-    const float cullDistSq = shadowPass ? (190.0f * 190.0f) : (380.0f * 380.0f);
+    const float cullDistSq = shadowPass ? (210.0f * 210.0f) : (520.0f * 520.0f);
+    const Color steelGray{66, 70, 76, 255};
 
-    // 1. 6 City Stunt Jump Ramps (Generated via Python CAD pipeline -> generated::kCityStuntRamps)
-    const Color steelGray{62, 68, 78, 255};
-    const Color deckAsphalt{44, 48, 56, 255};
-    const Color hazardYellow{255, 204, 32, 255};
-    for (const auto& r : generated::kCityStuntRamps) {
-        const Vec2 rPos{r.centerX, r.centerZ};
-        if ((rPos - focus).lengthSq() > cullDistSq) continue;
+    // 1. Drivable 134m Golden Bay Suspension Bridge (North Bay Strait: x = 0, z = 681..815m)
+    const Vec2 bridgeCenter{0.0f, 748.0f};
+    if ((bridgeCenter - focus).lengthSq() <= cullDistSq * 1.45f) {
+        const Color bridgeOrange{174, 54, 40, 255};
+        const Color concretePier{136, 134, 128, 255};
+        const Color cableSteel{176, 182, 190, 255};
+        const float towerZ[2] = {710.0f, 786.0f};
+        const float towerHalfW = 11.4f;
+        const float towerH = 54.0f;
 
-        const float len = r.length;
-        const float wid = r.width;
-        const float halfLen = len * 0.5f;
-        const float halfWid = wid * 0.5f;
-        const float slopeRad = std::atan2(r.height, len);
-        const float slopeDeg = slopeRad * kRadToDeg;
-        const float deckLen = std::sqrt(len * len + r.height * r.height);
-        const float yawDeg = -std::atan2(r.dirZ, r.dirX) * kRadToDeg;
-
-        rlPushMatrix();
-        rlTranslatef(r.centerX, 0.02f, r.centerZ);
-        rlRotatef(yawDeg, 0.0f, 1.0f, 0.0f);
-
-        // Vertical steel support trusses under the elevated half of the ramp
-        for (int side = -1; side <= 1; side += 2) {
-            const float sz = static_cast<float>(side) * (halfWid - 0.22f);
-            drawModelStyled(cubeModel_, {halfLen * 0.88f, r.height * 0.48f, sz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.32f, r.height * 0.96f, 0.28f}, steelGray, 0.42f, 0.75f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {halfLen * 0.20f, r.height * 0.30f, sz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.28f, r.height * 0.60f, 0.24f}, steelGray, 0.42f, 0.75f, 0.0f, MatKind::Standard);
+        // Arched steel truss girder beneath the curved drivable roadway
+        for (int seg = 0; seg < 8; ++seg) {
+            const float z0 = CityMap::kBridgeStartZ + static_cast<float>(seg) * 16.75f;
+            const float z1 = z0 + 16.75f;
+            const float y0 = city.bridgeDeckElevationAt({0.0f, z0});
+            const float y1 = city.bridgeDeckElevationAt({0.0f, z1});
+            const float dz = z1 - z0;
+            const float dy = y1 - y0;
+            const float len = std::sqrt(dz * dz + dy * dy);
+            const float pitch = -std::atan2(dy, dz) * kRadToDeg;
+            rlPushMatrix();
+            rlTranslatef(0.0f, 0.5f * (y0 + y1) - 0.68f, 0.5f * (z0 + z1));
+            rlRotatef(pitch, 1.0f, 0.0f, 0.0f);
+            drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {23.2f, 1.05f, len + 0.14f}, steelGray, 0.54f, 0.62f, 0.0f, MatKind::IndustrialMetal);
+            rlPopMatrix();
         }
-        drawModelStyled(cubeModel_, {halfLen * 0.88f, r.height * 0.52f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.24f, 0.22f, wid - 0.20f}, steelGray, 0.42f, 0.75f, 0.0f, MatKind::Standard);
 
-        // Inclined structural steel deck + high-visibility chevron hazard rails
-        rlPushMatrix();
-        rlTranslatef(0.0f, r.height * 0.5f, 0.0f);
-        rlRotatef(slopeDeg, 0.0f, 0.0f, 1.0f);
-        drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {deckLen, 0.22f, wid}, deckAsphalt, 0.68f, 0.22f, 0.0f, MatKind::Standard);
-        for (int side = -1; side <= 1; side += 2) {
-            drawModelStyled(cubeModel_, {0.0f, 0.20f, static_cast<float>(side) * (halfWid - 0.12f)},
-                            {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {deckLen, 0.24f, 0.18f}, hazardYellow, 0.25f, 0.20f,
-                            night ? 1.4f : 0.35f, MatKind::EmissiveGlow);
-        }
-        if (!shadowPass) {
-            for (int st = -2; st <= 2; ++st) {
-                drawModelStyled(cubeModel_, {static_cast<float>(st) * (deckLen * 0.18f), 0.125f, 0.0f},
-                                {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.32f, 0.03f, wid * 0.76f}, Color{56, 232, 255, 255},
-                                0.15f, 0.0f, night ? 2.2f : 0.8f, MatKind::EmissiveGlow);
-            }
-        }
-        rlPopMatrix();
-        rlPopMatrix();
-    }
-
-    // 2. Golden Bay Suspension Bridge (North Bay Waterfront: x = 0, z = 342..396)
-    const Vec2 bridgeCenter{0.0f, 369.0f};
-    if ((bridgeCenter - focus).lengthSq() <= cullDistSq * 1.35f) {
-        const Color bridgeRed{194, 52, 42, 255};
-        const Color cableSteel{202, 210, 222, 255};
-        const float towerZ[2] = {352.0f, 386.0f};
-        const float towerHalfW = 10.6f;
-        const float towerH = 42.0f;
-
-        // Bridge deck truss under-structure
-        drawModelStyled(cubeModel_, {0.0f, 0.45f, 369.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {22.4f, 0.75f, 62.0f}, steelGray, 0.52f, 0.65f, 0.0f, MatKind::Standard);
-
-        // Twin 42m H-Frame Suspension Towers + 3 Horizontal Portal Struts each
+        // Twin 54m Art-Deco H-Frame Suspension Towers + Massive Concrete Marine Caisson Piers!
         for (int tz = 0; tz < 2; ++tz) {
             const float z = towerZ[tz];
+            // Concrete bay caisson pier base rising out of the water
+            drawModelStyled(cubeModel_, {0.0f, -0.55f, z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {28.5f, 3.2f, 6.2f}, concretePier, 0.84f, 0.04f, 0.0f, MatKind::SidewalkConcrete);
             for (int side = -1; side <= 1; side += 2) {
                 const float x = static_cast<float>(side) * towerHalfW;
-                drawModelStyled(cubeModel_, {x, towerH * 0.5f, z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {1.65f, towerH, 1.85f}, bridgeRed, 0.42f, 0.52f, 0.0f, MatKind::Standard);
+                // Stepped Art-Deco vertical steel tower leg
+                drawModelStyled(cubeModel_, {x, towerH * 0.30f, z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {2.10f, towerH * 0.60f, 2.35f}, bridgeOrange, 0.44f, 0.50f, 0.0f, MatKind::Standard);
+                drawModelStyled(cubeModel_, {x, towerH * 0.78f, z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {1.65f, towerH * 0.44f, 1.85f}, bridgeOrange, 0.44f, 0.50f, 0.0f, MatKind::Standard);
             }
-            for (int strut = 0; strut < 3; ++strut) {
-                const float sy = 15.0f + static_cast<float>(strut) * 12.0f;
+            for (int strut = 0; strut < 4; ++strut) {
+                const float sy = 15.0f + static_cast<float>(strut) * 11.8f;
                 drawModelStyled(cubeModel_, {0.0f, sy, z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {towerHalfW * 2.0f + 1.4f, 1.35f, 1.45f}, bridgeRed, 0.42f, 0.52f, 0.0f, MatKind::Standard);
+                                {towerHalfW * 2.0f + 1.6f, 1.45f, 1.55f}, bridgeOrange, 0.44f, 0.50f, 0.0f, MatKind::Standard);
             }
             if (!shadowPass) {
-                // FAA red aviation warning beacons atop each tower leg
                 for (int side = -1; side <= 1; side += 2) {
-                    drawModelStyled(sphereModel_, {static_cast<float>(side) * towerHalfW, towerH + 0.6f, z},
+                    drawModelStyled(sphereModel_, {static_cast<float>(side) * towerHalfW, towerH + 0.65f, z},
                                     {0.0f, 1.0f, 0.0f}, 0.0f, {0.42f, 0.42f, 0.42f},
-                                    Color{255, 42, 42, 255}, 0.1f, 0.0f, 3.2f, MatKind::EmissiveGlow);
+                                    Color{255, 42, 40, 255}, 0.1f, 0.0f, night ? 2.8f : 1.1f, MatKind::EmissiveGlow);
                 }
             }
         }
 
-        // Main Catenary Suspension Cables & Vertical Suspender Ropes (from generated::kSuspensionBridgeCatenary)
+        // Main Catenary Suspension Cables (between towers) + Side Approach Anchor Cables + Vertical Suspenders!
         const float spanMidZ = 0.5f * (towerZ[0] + towerZ[1]);
         const float spanHalfZ = 0.5f * (towerZ[1] - towerZ[0]);
         for (int side = -1; side <= 1; side += 2) {
             const float x = static_cast<float>(side) * towerHalfW;
+            // Center span catenary from Python CAD lookup table
             for (std::size_t s = 0; s + 1 < generated::kSuspensionBridgeCatenary.size(); ++s) {
                 const float z0 = spanMidZ + generated::kSuspensionBridgeCatenary[s].x * spanHalfZ;
                 const float z1 = spanMidZ + generated::kSuspensionBridgeCatenary[s + 1].x * spanHalfZ;
-                const float y0 = 14.5f + generated::kSuspensionBridgeCatenary[s].y * (towerH - 15.0f);
-                const float y1 = 14.5f + generated::kSuspensionBridgeCatenary[s + 1].y * (towerH - 15.0f);
-                const float midZ = 0.5f * (z0 + z1);
-                const float midY = 0.5f * (y0 + y1);
+                const float y0 = 14.5f + generated::kSuspensionBridgeCatenary[s].y * (towerH - 15.2f);
+                const float y1 = 14.5f + generated::kSuspensionBridgeCatenary[s + 1].y * (towerH - 15.2f);
                 const float dz = z1 - z0;
                 const float dy = y1 - y0;
                 const float segLen = std::sqrt(dz * dz + dy * dy);
                 const float pitchDeg = -std::atan2(dy, dz) * kRadToDeg;
 
                 rlPushMatrix();
-                rlTranslatef(x, midY, midZ);
+                rlTranslatef(x, 0.5f * (y0 + y1), 0.5f * (z0 + z1));
                 rlRotatef(pitchDeg, 1.0f, 0.0f, 0.0f);
                 drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.32f, 0.32f, segLen + 0.08f}, bridgeRed, 0.35f, 0.68f, 0.0f, MatKind::Standard);
+                                {0.36f, 0.36f, segLen + 0.10f}, bridgeOrange, 0.38f, 0.64f, 0.0f, MatKind::Standard);
                 rlPopMatrix();
 
                 if (!shadowPass && (s % 2 == 1)) {
-                    drawModelStyled(cylModel_, {x, 1.2f, z0}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.07f, y0 - 1.2f, 0.07f}, cableSteel, 0.30f, 0.82f, 0.0f, MatKind::Standard);
+                    const float deckY = city.bridgeDeckElevationAt({0.0f, z0});
+                    drawModelStyled(cylModel_, {x, deckY + 0.4f, z0}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.07f, std::max(0.5f, y0 - deckY - 0.4f), 0.07f},
+                                    cableSteel, 0.34f, 0.80f, 0.0f, MatKind::Standard);
+                }
+            }
+
+            // South & North Approach Backstay Cables anchoring towers cleanly down to shorelines!
+            const float anchorPairs[2][4] = {
+                {CityMap::kBridgeStartZ, 2.2f, towerZ[0], towerH - 0.8f},
+                {towerZ[1], towerH - 0.8f, CityMap::kBridgeEndZ, 2.2f}
+            };
+            for (int ap = 0; ap < 2; ++ap) {
+                const float az0 = anchorPairs[ap][0];
+                const float ay0 = anchorPairs[ap][1];
+                const float az1 = anchorPairs[ap][2];
+                const float ay1 = anchorPairs[ap][3];
+                const float dz = az1 - az0;
+                const float dy = ay1 - ay0;
+                const float len = std::sqrt(dz * dz + dy * dy);
+                const float pitch = -std::atan2(dy, dz) * kRadToDeg;
+                rlPushMatrix();
+                rlTranslatef(x, 0.5f * (ay0 + ay1), 0.5f * (az0 + az1));
+                rlRotatef(pitch, 1.0f, 0.0f, 0.0f);
+                drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.34f, 0.34f, len + 0.10f}, bridgeOrange, 0.38f, 0.64f, 0.0f, MatKind::Standard);
+                rlPopMatrix();
+            }
+
+            // Roadway Bridge Streetlamps along both pedestrian walkways
+            if (!shadowPass) {
+                for (int lp = 0; lp < 5; ++lp) {
+                    const float lz = 696.0f + static_cast<float>(lp) * 26.0f;
+                    const float dy = city.bridgeDeckElevationAt({0.0f, lz});
+                    drawModelStyled(cylModel_, {static_cast<float>(side) * 10.6f, dy + 0.20f, lz},
+                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.09f, 5.2f, 0.09f},
+                                    steelGray, 0.40f, 0.72f, 0.0f, MatKind::Standard);
+                    drawModelStyled(sphereModel_, {static_cast<float>(side) * 9.8f, dy + 5.45f, lz},
+                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.22f, 0.14f, 0.22f},
+                                    night ? Color{255, 222, 152, 255} : Color{210, 214, 220, 255},
+                                    0.18f, 0.0f, night ? 2.2f : 0.0f,
+                                    night ? MatKind::EmissiveGlow : MatKind::Standard);
                 }
             }
         }
     }
 
+    // 2. Sunset Bay Coastal Lighthouse & Keeper's Cottage (North Bay Peninsula: x = 0, z = 928m)
+    const Vec2 lhPos{0.0f, 928.0f};
+    if ((lhPos - focus).lengthSq() <= cullDistSq * 1.5f) {
+        const Color lhWhite{216, 214, 208, 255};
+        const Color lhCrimson{168, 46, 38, 255};
+        const Color ironDark{36, 40, 46, 255};
+        const Color patinatedCopper{68, 112, 96, 255};
 
-    // 3. Sunset Beach Illuminated Ferris Wheel (x = -370.0f, z = -22.0f — cleanly clear of Sunset Pier!)
-    const Vec2 ferrisPos{-370.0f, -22.0f};
+        // Dressed stone octagonal base & 5-band tapered cylindrical lighthouse tower (28m tall)
+        drawModelStyled(cylModel_, {lhPos.x, 0.10f, lhPos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {4.2f, 2.2f, 4.2f}, Color{134, 132, 126, 255}, 0.82f, 0.04f, 0.0f, MatKind::Standard);
+        const float bandH = 4.6f;
+        for (int b = 0; b < 5; ++b) {
+            const float r = 3.35f - static_cast<float>(b) * 0.26f;
+            const Color bCol = (b % 2 == 0) ? lhWhite : lhCrimson;
+            drawModelStyled(cylModel_, {lhPos.x, 2.2f + static_cast<float>(b) * bandH, lhPos.z},
+                            {0.0f, 1.0f, 0.0f}, 0.0f, {r, bandH + 0.08f, r},
+                            bCol, 0.68f, 0.05f, 0.0f, MatKind::Standard);
+        }
+        // Iron observation gallery deck, lantern glass room & patinated copper cupola dome
+        const float galY = 2.2f + 5.0f * bandH; // 25.2m
+        drawModelStyled(cylModel_, {lhPos.x, galY, lhPos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {2.75f, 0.38f, 2.75f}, ironDark, 0.45f, 0.72f, 0.0f, MatKind::Standard);
+        drawModelStyled(cylModel_, {lhPos.x, galY + 0.36f, lhPos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {1.85f, 2.45f, 1.85f},
+                        night ? Color{255, 228, 152, 255} : Color{32, 48, 64, 255},
+                        0.08f, 0.20f, night ? 2.6f : 0.0f,
+                        night ? MatKind::EmissiveGlow : MatKind::CarGlass);
+        drawModelStyled(coneModel_, {lhPos.x, galY + 2.80f, lhPos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {2.25f, 2.15f, 2.25f}, patinatedCopper, 0.46f, 0.52f, 0.0f, MatKind::Standard);
+
+        // Keeper's Stone Cottage beside the lighthouse with true sloped terracotta hip roof
+        drawModelStyled(cubeModel_, {lhPos.x - 11.5f, 2.25f, lhPos.z - 4.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {8.6f, 4.3f, 6.4f}, lhWhite, 0.78f, 0.04f, 0.0f, MatKind::MasonryFacade);
+        drawModelStyled(cubeModel_, {lhPos.x - 11.5f, 4.46f, lhPos.z - 4.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {9.2f, 0.18f, 7.0f}, lhWhite, 0.76f, 0.0f, 0.0f, MatKind::Standard);
+        drawModelStyled(hipRoofModel_, {lhPos.x - 11.5f, 4.54f, lhPos.z - 4.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {9.5f, 2.2f, 7.3f}, Color{150, 72, 48, 255}, 0.76f, 0.04f, 0.0f, MatKind::Standard);
+
+        // Slowly Rotating Fresnel Lighthouse Beam at Night!
+        if (!shadowPass && night) {
+            const float beamYaw = animT * 28.0f;
+            rlPushMatrix();
+            rlTranslatef(lhPos.x, galY + 1.55f, lhPos.z);
+            rlRotatef(beamYaw, 0.0f, 1.0f, 0.0f);
+            rlDrawRenderBatchActive();
+            rlSetTexture(0);
+            rlDisableDepthMask();
+            BeginBlendMode(BLEND_ADDITIVE);
+            for (int side = -1; side <= 1; side += 2) {
+                rlPushMatrix();
+                rlRotatef(static_cast<float>(side) * 90.0f, 0.0f, 0.0f, 1.0f);
+                DrawCylinder({0.0f, 1.4f, 0.0f}, 0.55f, 6.8f, 58.0f, 14, Color{255, 232, 162, 34});
+                rlPopMatrix();
+            }
+            rlDrawRenderBatchActive();
+            EndBlendMode();
+            rlEnableDepthMask();
+            rlPopMatrix();
+        }
+    }
+
+    // 3. Sunset Beach Coastal Ferris Wheel (x = -718.0f, z = -34.0f — classic architectural steel & warm night lamps)
+    const Vec2 ferrisPos{-718.0f, -34.0f};
     if ((ferrisPos - focus).lengthSq() <= cullDistSq) {
         const float hubY = 14.8f;
         const float wheelR = 11.2f;
-        const float wheelAngle = animT * 14.0f;
+        const float wheelAngle = animT * 11.0f;
 
-        // Compact wooden boarding platform (z in [-29.5, -14.5], 6.9m clear of Sunset Pier) & twin A-frame legs
-        drawModelStyled(cubeModel_, {ferrisPos.x, 0.68f, ferrisPos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {10.2f, 1.36f, 15.0f}, Color{132, 96, 66, 255}, 0.78f, 0.08f, 0.0f, MatKind::Standard);
+        // Architectural coastal concrete foundation plaza + weathered timber boardwalk deck cap
+        drawModelStyled(cubeModel_, {ferrisPos.x, 0.52f, ferrisPos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {10.4f, 1.04f, 15.2f}, Color{148, 146, 140, 255}, 0.82f, 0.04f, 0.0f, MatKind::SidewalkConcrete);
+        drawModelStyled(cubeModel_, {ferrisPos.x, 1.12f, ferrisPos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {10.8f, 0.16f, 15.6f}, Color{128, 100, 72, 255}, 0.84f, 0.0f, 0.0f, MatKind::BarkWood);
         for (int side = -1; side <= 1; side += 2) {
             const float lx = ferrisPos.x + static_cast<float>(side) * 2.2f;
             drawModelStyled(cubeModel_, {lx, hubY * 0.52f, ferrisPos.z - 3.6f}, {1.0f, 0.0f, 0.0f}, -15.0f,
-                            {0.42f, hubY * 1.04f, 0.42f}, Color{230, 236, 245, 255}, 0.32f, 0.78f, 0.0f, MatKind::Standard);
+                            {0.42f, hubY * 1.04f, 0.42f}, Color{208, 210, 214, 255}, 0.40f, 0.65f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {lx, hubY * 0.52f, ferrisPos.z + 3.6f}, {1.0f, 0.0f, 0.0f},  15.0f,
-                            {0.42f, hubY * 1.04f, 0.42f}, Color{230, 236, 245, 255}, 0.32f, 0.78f, 0.0f, MatKind::Standard);
+                            {0.42f, hubY * 1.04f, 0.42f}, Color{208, 210, 214, 255}, 0.40f, 0.65f, 0.0f, MatKind::Standard);
         }
 
-        // Smooth cylindrical central steel axle hub + glowing cyan end-cap rings
         drawModelStyled(cylModel_, {ferrisPos.x + 2.6f, hubY, ferrisPos.z}, {0.0f, 0.0f, 1.0f}, 90.0f,
-                        {0.62f, 5.2f, 0.62f}, Color{226, 232, 242, 255}, 0.24f, 0.84f, 0.0f, MatKind::Standard);
+                        {0.62f, 5.2f, 0.62f}, Color{198, 202, 208, 255}, 0.30f, 0.82f, 0.0f, MatKind::Standard);
         if (!shadowPass) {
             for (int side = -1; side <= 1; side += 2) {
                 drawModelStyled(sphereModel_, {ferrisPos.x + static_cast<float>(side) * 2.62f, hubY, ferrisPos.z},
-                                {0.0f, 1.0f, 0.0f}, 0.0f, {0.22f, 0.72f, 0.72f}, Color{56, 228, 255, 255},
-                                0.14f, 0.0f, night ? 2.6f : 0.85f, MatKind::EmissiveGlow);
+                                {0.0f, 1.0f, 0.0f}, 0.0f, {0.22f, 0.72f, 0.72f},
+                                night ? Color{255, 224, 152, 255} : Color{168, 48, 44, 255},
+                                0.34f, night ? 0.0f : 0.35f, night ? 2.0f : 0.0f,
+                                night ? MatKind::EmissiveGlow : MatKind::Standard);
             }
         }
 
-        // 12-Spoke Rotating Wheel (structural white steel spokes + glowing neon rim + windowed gondolas)
         for (int i = 0; i < 12; ++i) {
             const int next = (i + 1) % 12;
             const float rad = (static_cast<float>(i) * 30.0f + wheelAngle) * (3.14159265f / 180.0f);
@@ -3302,19 +4081,19 @@ void Renderer3D::drawLandmarkStructures(const GameWorld& world, const Vec2& focu
             const float nz = std::cos(nextRad) * wheelR;
             const float ny = std::sin(nextRad) * wheelR;
 
-            const Color neonCol = (i % 2 == 0) ? Color{56, 234, 255, 255} : Color{255, 72, 212, 255};
+            const Color rimCol = night
+                                     ? ((i % 2 == 0) ? Color{255, 224, 156, 255} : Color{242, 168, 92, 255})
+                                     : Color{196, 200, 206, 255};
             for (int side = -1; side <= 1; side += 2) {
                 const float rx = ferrisPos.x + static_cast<float>(side) * 1.65f;
-                // White structural steel radial spoke
                 rlPushMatrix();
                 rlTranslatef(rx, hubY + cy * 0.5f, ferrisPos.z + cz * 0.5f);
                 rlRotatef(-(static_cast<float>(i) * 30.0f + wheelAngle), 1.0f, 0.0f, 0.0f);
                 drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.13f, 0.13f, wheelR}, Color{235, 240, 248, 255}, 0.28f, 0.78f,
+                                {0.13f, 0.13f, wheelR}, Color{204, 208, 214, 255}, 0.36f, 0.74f,
                                 0.0f, MatKind::Standard);
                 rlPopMatrix();
 
-                // Neon outer rim chord segment
                 const float dz = nz - cz;
                 const float dy = ny - cy;
                 const float chordLen = std::sqrt(dz * dz + dy * dy);
@@ -3323,80 +4102,138 @@ void Renderer3D::drawLandmarkStructures(const GameWorld& world, const Vec2& focu
                 rlTranslatef(rx, hubY + 0.5f * (cy + ny), ferrisPos.z + 0.5f * (cz + nz));
                 rlRotatef(chordDeg, 1.0f, 0.0f, 0.0f);
                 drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.22f, 0.22f, chordLen + 0.1f}, neonCol, 0.12f, 0.0f,
-                                night ? 2.8f : 0.85f, MatKind::EmissiveGlow);
+                                {0.20f, 0.20f, chordLen + 0.1f}, rimCol,
+                                night ? 0.16f : 0.38f, night ? 0.0f : 0.70f,
+                                night ? 1.85f : 0.0f,
+                                night ? MatKind::EmissiveGlow : MatKind::Standard);
                 rlPopMatrix();
             }
 
-            // Self-leveling hanging passenger gondola cabin with panoramic tinted glass & roof cap
             if (!shadowPass) {
-                const Color cabCol = (i % 3 == 0) ? Color{255, 92, 118, 255}
-                                   : ((i % 3 == 1) ? Color{64, 212, 255, 255} : Color{255, 214, 68, 255});
+                const Color cabCol = (i % 3 == 0) ? Color{154, 48, 46, 255}
+                                   : ((i % 3 == 1) ? Color{44, 78, 114, 255} : Color{192, 168, 118, 255});
                 const float gx = ferrisPos.x;
                 const float gy = hubY + cy - 0.85f;
                 const float gz = ferrisPos.z + cz;
-                // Suspension cross-axle + lower painted gondola body
                 drawModelStyled(cubeModel_, {gx, hubY + cy, gz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {3.30f, 0.12f, 0.12f}, Color{220, 226, 236, 255}, 0.30f, 0.82f, 0.0f, MatKind::Standard);
+                                {3.30f, 0.12f, 0.12f}, Color{196, 202, 210, 255}, 0.34f, 0.78f, 0.0f, MatKind::Standard);
                 drawModelStyled(cubeModel_, {gx, gy - 0.30f, gz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {2.55f, 0.72f, 1.44f}, cabCol, 0.22f, 0.35f,
-                                night ? 0.55f : 0.06f, MatKind::CarClearcoat);
-                // Panoramic smoked glass upper window surround
+                                {2.55f, 0.72f, 1.44f}, cabCol, 0.28f, 0.32f, 0.0f, MatKind::CarClearcoat);
                 drawModelStyled(cubeModel_, {gx, gy + 0.28f, gz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {2.42f, 0.56f, 1.36f}, Color{18, 30, 46, 255}, 0.06f, 0.22f,
+                                {2.42f, 0.56f, 1.36f}, Color{18, 28, 40, 255}, 0.06f, 0.22f,
                                 0.0f, MatKind::CarGlass);
-                // Gondola roof canopy
                 drawModelStyled(cubeModel_, {gx, gy + 0.62f, gz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {2.66f, 0.14f, 1.52f}, Color{240, 244, 250, 255}, 0.34f, 0.25f,
+                                {2.66f, 0.14f, 1.52f}, Color{212, 214, 218, 255}, 0.42f, 0.22f,
                                 0.0f, MatKind::Standard);
             }
         }
     }
 
-    // 4. Harbor Industrial Container Gantry Cranes (Harbor District: x = 248 & 278, z = 248)
-    const float craneXs[2] = {248.0f, 278.0f};
-    const Color craneYellow{234, 178, 38, 255};
-    for (int cIdx = 0; cIdx < 2; ++cIdx) {
-        const Vec2 cranePos{craneXs[cIdx], 248.0f};
-        if ((cranePos - focus).lengthSq() > cullDistSq) continue;
+    // 4. East Harbor Concrete Container Quay & 4 Ship-to-Shore Gantry Cranes facing Twin Freighter Ships!
+    const Vec2 quayCenter{704.0f, 570.0f};
+    if ((quayCenter - focus).lengthSq() < cullDistSq * 1.45f) {
+        // Concrete deep-water container wharf apron extending east from the ring road (x = 688..720, z = 472..668)
+        drawModelStyled(cubeModel_, {704.0f, -0.34f, 570.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {32.0f, 0.84f, 196.0f}, Color{128, 130, 134, 255},
+                        0.82f, 0.0f, 0.0f, MatKind::SidewalkConcrete);
+        // Parallel steel gantry crane rails along the wharf deck
+        if (!shadowPass) {
+            for (float rx : {700.5f, 711.5f}) {
+                drawModelStyled(cubeModel_, {rx, 0.10f, 570.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.26f, 0.08f, 188.0f}, Color{62, 66, 72, 255},
+                                0.36f, 0.78f, 0.0f, MatKind::Standard);
+            }
+        }
+    }
 
-        const float craneH = 19.5f;
+    static constexpr float kCraneZs[4] = {508.0f, 548.0f, 598.0f, 638.0f};
+    const Color craneRed{168, 52, 42, 255};
+    const Color craneSteel{182, 138, 48, 255};
+    for (int cIdx = 0; cIdx < 4; ++cIdx) {
+        const Vec2 cranePos{706.0f, kCraneZs[cIdx]};
+        if ((cranePos - focus).lengthSq() > cullDistSq * 1.35f) continue;
+
+        const float craneH = 22.0f;
+        const Color mainCol = (cIdx % 2 == 0) ? craneSteel : craneRed;
+        // 4 Portal legs resting directly on the twin wharf rails (x = 700.5 & 711.5)
         for (int lx = -1; lx <= 1; lx += 2) {
             for (int lz = -1; lz <= 1; lz += 2) {
                 drawModelStyled(cubeModel_,
-                                {cranePos.x + static_cast<float>(lx) * 4.2f,
+                                {cranePos.x + static_cast<float>(lx) * 5.5f,
                                  craneH * 0.5f,
-                                 cranePos.z + static_cast<float>(lz) * 4.2f},
+                                 cranePos.z + static_cast<float>(lz) * 4.4f},
                                 {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.72f, craneH, 0.72f}, craneYellow, 0.46f, 0.62f, 0.0f, MatKind::Standard);
+                                {0.78f, craneH, 0.78f}, mainCol, 0.48f, 0.58f, 0.0f, MatKind::IndustrialMetal);
+            }
+            // Lower portal sill beam tying paired legs along Z
+            drawModelStyled(cubeModel_,
+                            {cranePos.x + static_cast<float>(lx) * 5.5f, 1.25f, cranePos.z},
+                            {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.84f, 0.90f, 10.6f}, mainCol, 0.50f, 0.56f, 0.0f, MatKind::IndustrialMetal);
+            // Mid portal horizontal tie beam
+            drawModelStyled(cubeModel_,
+                            {cranePos.x + static_cast<float>(lx) * 5.5f, craneH * 0.56f, cranePos.z},
+                            {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.62f, 0.68f, 9.2f}, mainCol, 0.48f, 0.58f, 0.0f, MatKind::IndustrialMetal);
+        }
+        // Horizontal Ship-to-Shore Cantilever Boom extending EAST (+X) over the water toward the freighters!
+        drawModelStyled(cubeModel_, {cranePos.x + 8.5f, craneH, cranePos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {36.0f, 1.35f, 9.6f}, mainCol, 0.46f, 0.62f, 0.0f, MatKind::IndustrialMetal);
+        // Upper A-frame Apex Tower + Diagonal Forestay Tie Rods supporting cantilevered boom!
+        drawModelStyled(cubeModel_, {cranePos.x, craneH + 5.2f, cranePos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {1.35f, 10.4f, 9.4f}, mainCol, 0.48f, 0.62f, 0.0f, MatKind::IndustrialMetal);
+        if (!shadowPass) {
+            for (int side = -1; side <= 1; side += 2) {
+                const float sz = cranePos.z + static_cast<float>(side) * 4.3f;
+                // Forward forestay to waterside boom tip
+                rlPushMatrix();
+                rlTranslatef(cranePos.x + 12.2f, craneH + 5.4f, sz);
+                rlRotatef(-23.5f, 0.0f, 0.0f, 1.0f);
+                drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {26.2f, 0.24f, 0.24f}, Color{54, 58, 66, 255}, 0.34f, 0.80f, 0.0f, MatKind::Standard);
+                rlPopMatrix();
+                // Rear backstay to landside boom tail
+                rlPushMatrix();
+                rlTranslatef(cranePos.x - 4.5f, craneH + 5.4f, sz);
+                rlRotatef(48.0f, 0.0f, 0.0f, 1.0f);
+                drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {13.6f, 0.24f, 0.24f}, Color{54, 58, 66, 255}, 0.34f, 0.80f, 0.0f, MatKind::Standard);
+                rlPopMatrix();
+            }
+            // Overhead trolley cab + twin vertical hoist cables + suspended shipping container!
+            const float trolleyX = cranePos.x + ((cIdx % 2 == 0) ? 14.5f : 9.5f);
+            drawModelStyled(cubeModel_, {trolleyX, craneH - 1.55f, cranePos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {3.2f, 1.9f, 2.8f}, Color{214, 218, 222, 255}, 0.40f, 0.28f, 0.0f, MatKind::Standard);
+            for (int cs = -1; cs <= 1; cs += 2) {
+                drawModelStyled(cylModel_, {trolleyX, 11.2f, cranePos.z + static_cast<float>(cs) * 2.2f},
+                                {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.07f, 9.6f, 0.07f}, Color{46, 50, 56, 255}, 0.38f, 0.78f, 0.0f, MatKind::Standard);
+            }
+            const Color containerCol = (cIdx % 2 == 0) ? Color{148, 48, 42, 255} : Color{38, 86, 134, 255};
+            drawModelStyled(cubeModel_, {trolleyX, 9.8f, cranePos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {2.6f, 2.65f, 6.8f}, containerCol, 0.56f, 0.48f, 0.0f, MatKind::IndustrialMetal);
+            // Red aviation warning beacon atop each gantry crane at night
+            if (night) {
+                drawModelStyled(sphereModel_, {cranePos.x, craneH + 10.65f, cranePos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.26f, 0.26f, 0.26f}, Color{255, 48, 42, 255}, 0.10f, 0.0f, 2.2f, MatKind::EmissiveGlow);
             }
         }
-        // Horizontal portal tie beams + cantilevered 26m container boom truss
-        drawModelStyled(cubeModel_, {cranePos.x, craneH, cranePos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {9.6f, 1.25f, 26.5f}, craneYellow, 0.44f, 0.65f, 0.0f, MatKind::Standard);
-        drawModelStyled(cubeModel_, {cranePos.x, craneH + 3.8f, cranePos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {9.2f, 6.8f, 1.2f}, craneYellow, 0.44f, 0.65f, 0.0f, MatKind::Standard);
-        // Operator cab & suspended intermodal shipping container
-        drawModelStyled(cubeModel_, {cranePos.x, craneH - 1.4f, cranePos.z + 5.8f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {2.8f, 1.8f, 2.6f}, Color{236, 240, 246, 255}, 0.35f, 0.30f, 0.0f, MatKind::Standard);
-        const Color containerCol = (cIdx == 0) ? Color{192, 54, 46, 255} : Color{38, 108, 186, 255};
-        drawModelStyled(cubeModel_, {cranePos.x, 8.2f, cranePos.z + 6.5f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {2.6f, 2.7f, 6.4f}, containerCol, 0.62f, 0.45f, 0.0f, MatKind::Standard);
     }
 
-    // 5. Overhead Highway Directional Sign Gantries across Major Avenues (double-sided N/S signage)
+    // 5. Overhead Highway Directional Sign Gantries across Major Avenues & Bridge Approach
     struct GantryDef {
         float x;
         float z;
         bool alongX;
     };
-    constexpr GantryDef kGantries[3] = {
-        {  0.0f, 42.0f, true },
-        { 84.0f, 42.0f, true },
-        {-84.0f, 42.0f, true },
+    constexpr GantryDef kGantries[4] = {
+        {  0.0f,  42.0f, true },
+        { 84.0f,  42.0f, true },
+        {-84.0f,  42.0f, true },
+        {  0.0f, 630.0f, true }
     };
-    const Color gantrySteel{148, 156, 168, 255};
-    const Color highwayGreen{18, 108, 72, 255};
+    const Color gantrySteel{134, 140, 148, 255};
+    const Color highwayGreen{22, 86, 56, 255};
     for (const auto& g : kGantries) {
         const Vec2 gPos{g.x, g.z};
         if ((gPos - focus).lengthSq() > cullDistSq) continue;
@@ -3407,47 +4244,45 @@ void Renderer3D::drawLandmarkStructures(const GameWorld& world, const Vec2& focu
             const float px = g.alongX ? (g.x + static_cast<float>(side) * (span * 0.5f)) : g.x;
             const float pz = g.alongX ? g.z : (g.z + static_cast<float>(side) * (span * 0.5f));
             drawModelStyled(cylModel_, {px, 0.05f, pz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.22f, h, 0.22f}, gantrySteel, 0.38f, 0.78f, 0.0f, MatKind::Standard);
+                            {0.22f, h, 0.22f}, gantrySteel, 0.42f, 0.74f, 0.0f, MatKind::Standard);
         }
         drawModelStyled(cubeModel_, {g.x, h - 0.35f, g.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {span + 0.5f, 0.42f, 0.42f}, gantrySteel, 0.38f, 0.78f, 0.0f, MatKind::Standard);
-        // Reflective green highway directional sign boards with crisp double-sided route graphics
+                        {span + 0.5f, 0.42f, 0.42f}, gantrySteel, 0.42f, 0.74f, 0.0f, MatKind::Standard);
+        const MatKind signMat = night ? MatKind::EmissiveGlow : MatKind::Standard;
+        const float signGlow = night ? 0.28f : 0.0f;
         for (int side = -1; side <= 1; side += 2) {
             const float sx = g.x + static_cast<float>(side) * 3.8f;
             drawModelStyled(cubeModel_, {sx, h - 0.35f, g.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {5.2f, 1.65f, 0.16f}, highwayGreen, 0.30f, 0.25f,
-                            night ? 0.65f : 0.12f, MatKind::EmissiveGlow);
+                            {5.2f, 1.65f, 0.16f}, highwayGreen, 0.44f, 0.16f,
+                            night ? 0.14f : 0.0f, signMat);
             if (!shadowPass) {
-                const float signGlow = night ? 1.8f : 0.42f;
+                const Color signWhite{222, 226, 224, 255};
                 for (int face = -1; face <= 1; face += 2) {
-                    const float fz = g.z + static_cast<float>(face) * 0.095f;
-                    // Crisp reflective white outer border frame (top/bottom/left/right)
+                    const float fz = g.z + static_cast<float>(face) * 0.112f;
                     drawModelStyled(cubeModel_, {sx, h + 0.41f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {4.96f, 0.06f, 0.025f}, WHITE, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                                    {4.96f, 0.06f, 0.030f}, signWhite, 0.35f, 0.0f, signGlow, signMat);
                     drawModelStyled(cubeModel_, {sx, h - 1.11f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {4.96f, 0.06f, 0.025f}, WHITE, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                                    {4.96f, 0.06f, 0.030f}, signWhite, 0.35f, 0.0f, signGlow, signMat);
                     drawModelStyled(cubeModel_, {sx - 2.45f, h - 0.35f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.06f, 1.48f, 0.025f}, WHITE, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                                    {0.06f, 1.48f, 0.030f}, signWhite, 0.35f, 0.0f, signGlow, signMat);
                     drawModelStyled(cubeModel_, {sx + 2.45f, h - 0.35f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.06f, 1.48f, 0.025f}, WHITE, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
-                    // Interstate-style route shield badge + destination text bars
+                                    {0.06f, 1.48f, 0.030f}, signWhite, 0.35f, 0.0f, signGlow, signMat);
                     const float badgeX = sx - static_cast<float>(face) * 1.65f;
                     const float textX = sx + static_cast<float>(face) * 0.42f;
                     drawModelStyled(cubeModel_, {badgeX, h - 0.12f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.72f, 0.68f, 0.028f}, Color{24, 92, 208, 255}, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
-                    drawModelStyled(cubeModel_, {badgeX, h + 0.16f, fz + static_cast<float>(face) * 0.008f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.70f, 0.16f, 0.025f}, Color{216, 42, 42, 255}, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                                    {0.72f, 0.68f, 0.034f}, Color{34, 82, 158, 255}, 0.35f, 0.0f, signGlow, signMat);
+                    drawModelStyled(cubeModel_, {badgeX, h + 0.16f, fz + static_cast<float>(face) * 0.012f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.70f, 0.16f, 0.028f}, Color{178, 44, 42, 255}, 0.35f, 0.0f, signGlow, signMat);
                     drawModelStyled(cubeModel_, {textX, h + 0.04f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {2.95f, 0.24f, 0.028f}, WHITE, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                                    {2.95f, 0.24f, 0.034f}, signWhite, 0.35f, 0.0f, signGlow, signMat);
                     drawModelStyled(cubeModel_, {textX - static_cast<float>(face) * 0.25f, h - 0.34f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {2.25f, 0.16f, 0.028f}, Color{230, 240, 235, 255}, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
-                    // Downward yellow lane-exit chevron arrows
+                                    {2.25f, 0.16f, 0.034f}, Color{208, 214, 210, 255}, 0.35f, 0.0f, signGlow, signMat);
                     for (int a = -1; a <= 1; a += 2) {
                         const float ax = sx + static_cast<float>(a) * 1.05f;
                         drawModelStyled(cubeModel_, {ax, h - 0.78f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                        {0.14f, 0.28f, 0.028f}, Color{255, 214, 64, 255}, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                                        {0.14f, 0.28f, 0.028f}, Color{216, 178, 56, 255}, 0.35f, 0.0f, signGlow, signMat);
                         drawModelStyled(coneModel_, {ax, h - 0.86f, fz}, {0.0f, 0.0f, 1.0f}, 180.0f,
-                                        {0.18f, 0.22f, 0.03f}, Color{255, 214, 64, 255}, 0.15f, 0.0f, signGlow, MatKind::EmissiveGlow);
+                                        {0.18f, 0.22f, 0.03f}, Color{216, 178, 56, 255}, 0.35f, 0.0f, signGlow, signMat);
                     }
                 }
             }
@@ -3461,7 +4296,7 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
     const float animT = static_cast<float>(GetTime());
     constexpr float kWaterY = -0.85f; // Top surface of coastal OceanWater plane
 
-    // 1. Bobbing Coastal Luxury Sailboats & Motor Yachts off Sunset Beach & North Bay!
+    // 1. Bobbing Coastal Sailboats & Motor Yachts off Western Sunset Beach & North Bay Strait!
     struct VesselDef {
         float x;
         float z;
@@ -3470,22 +4305,23 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
         bool sailboat;
         Color stripe;
     };
-    static constexpr VesselDef kVessels[5] = {
-        {-462.0f, -44.0f,  18.0f, 1.05f, true,  {36, 128, 214, 255}},
-        {-495.0f,  36.0f, -24.0f, 1.20f, false, {24, 48, 86, 255}},
-        {-448.0f,  92.0f,  42.0f, 0.95f, true,  {218, 56, 54, 255}},
-        {-110.0f, 438.0f,  84.0f, 1.32f, false, {28, 96, 142, 255}},
-        {  96.0f, 452.0f, -72.0f, 1.00f, true,  {242, 188, 54, 255}}
+    static constexpr VesselDef kVessels[6] = {
+        {-832.0f,  -48.0f,  18.0f, 1.05f, true,  {36, 86, 146, 255}},
+        {-868.0f,   44.0f, -24.0f, 1.22f, false, {26, 44, 72, 255}},
+        {-824.0f,  140.0f,  42.0f, 0.98f, true,  {158, 46, 42, 255}},
+        {-118.0f,  756.0f,  84.0f, 1.28f, false, {32, 74, 108, 255}},
+        { 112.0f,  764.0f, -72.0f, 1.02f, true,  {184, 142, 52, 255}},
+        { -92.0f,  992.0f,  35.0f, 1.10f, true,  {38, 92, 86, 255}}
     };
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
         const auto& b = kVessels[i];
         const Vec2 bPos{b.x, b.z};
-        if ((bPos - focus).lengthSq() > 520.0f * 520.0f) continue;
+        if ((bPos - focus).lengthSq() > 580.0f * 580.0f) continue;
 
         const float phase = static_cast<float>(i) * 1.37f;
         const float heave = 0.14f * std::sin(animT * 1.45f + phase);
-        const float rollDeg = 2.8f * std::sin(animT * 1.15f + phase * 1.4f);
-        const float pitchDeg = 1.6f * std::cos(animT * 0.95f + phase);
+        const float rollDeg = 2.6f * std::sin(animT * 1.15f + phase * 1.4f);
+        const float pitchDeg = 1.5f * std::cos(animT * 0.95f + phase);
 
         rlPushMatrix();
         rlTranslatef(b.x, kWaterY + heave, b.z);
@@ -3494,79 +4330,71 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
         rlRotatef(rollDeg, 1.0f, 0.0f, 0.0f);
         rlScalef(b.scale, b.scale, b.scale);
 
-        // Sculpted white hull + pointed bow + colored waterline stripe + teak deck
         drawModelStyled(cubeModel_, {0.0f, 0.45f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {9.2f, 1.25f, 3.2f}, Color{242, 245, 250, 255}, 0.25f, 0.15f, 0.0f, MatKind::CarClearcoat);
+                        {9.2f, 1.25f, 3.2f}, Color{226, 228, 232, 255}, 0.25f, 0.14f, 0.0f, MatKind::CarClearcoat);
         drawModelStyled(coneModel_, {4.6f, 0.45f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
-                        {1.42f, 3.2f, 1.60f}, Color{242, 245, 250, 255}, 0.25f, 0.15f, 0.0f, MatKind::CarClearcoat);
+                        {1.42f, 3.2f, 1.60f}, Color{226, 228, 232, 255}, 0.25f, 0.14f, 0.0f, MatKind::CarClearcoat);
         drawModelStyled(cubeModel_, {0.2f, 0.26f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {9.6f, 0.24f, 3.28f}, b.stripe, 0.22f, 0.25f, 0.0f, MatKind::CarClearcoat);
+                        {9.6f, 0.24f, 3.28f}, b.stripe, 0.24f, 0.22f, 0.0f, MatKind::CarClearcoat);
         drawModelStyled(cubeModel_, {-0.2f, 1.10f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {8.4f, 0.10f, 2.85f}, Color{176, 134, 88, 255}, 0.72f, 0.0f, 0.0f, MatKind::Standard);
+                        {8.4f, 0.10f, 2.85f}, Color{144, 108, 72, 255}, 0.80f, 0.0f, 0.0f, MatKind::BarkWood);
 
         if (b.sailboat) {
-            // Compact cabin coachroof + tall brushed aluminum mast + billowing cream mainsail & jib!
             drawModelStyled(cubeModel_, {-0.6f, 1.55f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {3.6f, 0.85f, 2.05f}, Color{246, 248, 252, 255}, 0.28f, 0.15f, 0.0f, MatKind::Standard);
+                            {3.6f, 0.85f, 2.05f}, Color{230, 232, 236, 255}, 0.30f, 0.14f, 0.0f, MatKind::Standard);
             drawModelStyled(cylModel_, {0.6f, 1.12f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.10f, 11.4f, 0.10f}, Color{210, 218, 228, 255}, 0.25f, 0.85f, 0.0f, MatKind::Standard);
-            // Boom + billowing mainsail (slight wind curve)
-            const float sailSway = 5.0f * std::sin(animT * 0.9f + phase);
+                            {0.10f, 11.4f, 0.10f}, Color{196, 202, 210, 255}, 0.28f, 0.84f, 0.0f, MatKind::Standard);
+            const float sailSway = 4.5f * std::sin(animT * 0.9f + phase);
             rlPushMatrix();
             rlTranslatef(0.6f, 2.6f, 0.0f);
             rlRotatef(sailSway, 0.0f, 1.0f, 0.0f);
             drawModelStyled(cubeModel_, {-2.1f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {4.2f, 0.12f, 0.12f}, Color{200, 208, 220, 255}, 0.30f, 0.80f, 0.0f, MatKind::Standard);
+                            {4.2f, 0.12f, 0.12f}, Color{186, 192, 202, 255}, 0.32f, 0.78f, 0.0f, MatKind::Standard);
             drawModelStyled(coneModel_, {-1.45f, 0.15f, 0.0f}, {0.0f, 0.0f, 1.0f}, -10.0f,
-                            {2.05f, 9.2f, 0.16f}, Color{250, 248, 240, 255}, 0.65f, 0.0f, 0.0f, MatKind::Standard);
+                            {2.05f, 9.2f, 0.16f}, Color{230, 226, 216, 255}, 0.76f, 0.0f, 0.0f, MatKind::FabricCloth);
             rlPopMatrix();
-            // Forward triangular jib sail
             drawModelStyled(coneModel_, {2.45f, 2.4f, 0.0f}, {0.0f, 0.0f, 1.0f}, 14.0f,
-                            {1.45f, 7.6f, 0.14f}, Color{246, 244, 236, 255}, 0.65f, 0.0f, 0.0f, MatKind::Standard);
-            // Masthead white anchor light at night
+                            {1.45f, 7.6f, 0.14f}, Color{226, 222, 212, 255}, 0.76f, 0.0f, 0.0f, MatKind::FabricCloth);
             if (night) {
                 drawModelStyled(sphereModel_, {0.6f, 12.65f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.18f, 0.18f, 0.18f}, Color{255, 242, 198, 255}, 0.1f, 0.0f, 2.8f, MatKind::EmissiveGlow);
+                                {0.18f, 0.18f, 0.18f}, Color{255, 238, 188, 255}, 0.1f, 0.0f, 2.5f, MatKind::EmissiveGlow);
             }
         } else {
-            // Luxury 2-Deck Motor Yacht superstructure + panoramic smoked-glass bridge + radar arch!
             drawModelStyled(cubeModel_, {-0.5f, 1.85f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {5.8f, 1.45f, 2.55f}, Color{245, 247, 252, 255}, 0.22f, 0.18f, 0.0f, MatKind::CarClearcoat);
+                            {5.8f, 1.45f, 2.55f}, Color{230, 232, 236, 255}, 0.24f, 0.16f, 0.0f, MatKind::CarClearcoat);
             drawModelStyled(cubeModel_, {0.2f, 1.98f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {4.6f, 0.64f, 2.62f}, night ? Color{255, 224, 156, 255} : Color{18, 32, 48, 255},
-                            0.08f, 0.20f, night ? 1.45f : 0.0f, night ? MatKind::EmissiveGlow : MatKind::CarGlass);
-            // Upper flybridge deck + swept radar mast
+                            {4.6f, 0.64f, 2.62f}, night ? Color{255, 220, 152, 255} : Color{18, 28, 42, 255},
+                            0.08f, 0.20f, night ? 1.35f : 0.0f, night ? MatKind::EmissiveGlow : MatKind::CarGlass);
             drawModelStyled(cubeModel_, {-1.1f, 2.95f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {3.4f, 0.78f, 2.15f}, Color{248, 250, 254, 255}, 0.24f, 0.15f, 0.0f, MatKind::Standard);
+                            {3.4f, 0.78f, 2.15f}, Color{232, 234, 238, 255}, 0.28f, 0.14f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {-1.4f, 3.72f, 0.0f}, {0.0f, 0.0f, 1.0f}, 18.0f,
-                            {0.28f, 1.10f, 2.05f}, Color{236, 240, 248, 255}, 0.28f, 0.35f, 0.0f, MatKind::Standard);
+                            {0.28f, 1.10f, 2.05f}, Color{220, 224, 230, 255}, 0.30f, 0.35f, 0.0f, MatKind::Standard);
         }
 
-        // Port (Red) & Starboard (Green) Marine Navigation Lights
         if (night) {
             drawModelStyled(sphereModel_, {2.2f, 1.38f, -1.52f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.14f, 0.14f, 0.14f}, Color{255, 48, 48, 255}, 0.1f, 0.0f, 2.4f, MatKind::EmissiveGlow);
+                            {0.14f, 0.14f, 0.14f}, Color{255, 48, 48, 255}, 0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
             drawModelStyled(sphereModel_, {2.2f, 1.38f,  1.52f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.14f, 0.14f, 0.14f}, Color{52, 248, 108, 255}, 0.1f, 0.0f, 2.4f, MatKind::EmissiveGlow);
+                            {0.14f, 0.14f, 0.14f}, Color{52, 240, 108, 255}, 0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
         }
         rlPopMatrix();
     }
 
-    // 2. Anchored Southeast Harbor Container Freighter Ship (x = 432, z = 248)
-    const Vec2 shipPos{432.0f, 248.0f};
-    if ((shipPos - focus).lengthSq() < 540.0f * 540.0f) {
-        const float shipRoll = 0.8f * std::sin(animT * 0.65f);
+    // 2. Twin Anchored Southeast Harbor Container Freighter Ships (x = 766, z = 528 & 618)
+    static constexpr float kShipZs[2] = {528.0f, 618.0f};
+    for (int sIdx = 0; sIdx < 2; ++sIdx) {
+        const Vec2 shipPos{766.0f, kShipZs[sIdx]};
+        if ((shipPos - focus).lengthSq() >= 620.0f * 620.0f) continue;
+        const float shipRoll = 0.7f * std::sin(animT * 0.65f + static_cast<float>(sIdx) * 1.9f);
         rlPushMatrix();
         rlTranslatef(shipPos.x, kWaterY, shipPos.z);
         rlRotatef(shipRoll, 0.0f, 0.0f, 1.0f);
-        // Red-oxide lower hull + dark navy freeboard + bow bulb
         drawModelStyled(cubeModel_, {0.0f, 1.15f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {14.0f, 2.8f, 52.0f}, Color{154, 44, 38, 255}, 0.68f, 0.25f, 0.0f, MatKind::IndustrialMetal);
+                        {14.0f, 2.8f, 54.0f}, Color{134, 42, 36, 255}, 0.70f, 0.24f, 0.0f, MatKind::IndustrialMetal);
         drawModelStyled(cubeModel_, {0.0f, 3.65f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {14.4f, 2.4f, 52.4f}, Color{28, 40, 56, 255}, 0.58f, 0.35f, 0.0f, MatKind::IndustrialMetal);
-        // Multi-colored stacked intermodal cargo containers along main deck
+                        {14.4f, 2.4f, 54.4f}, Color{30, 40, 52, 255}, 0.60f, 0.34f, 0.0f, MatKind::IndustrialMetal);
         static constexpr Color kCargoCols[4] = {
-            {194, 54, 44, 255}, {36, 106, 178, 255}, {214, 152, 42, 255}, {44, 136, 86, 255}
+            {156, 48, 40, 255}, {38, 86, 136, 255}, {172, 126, 44, 255}, {44, 102, 72, 255}
         };
         for (int row = 0; row < 4; ++row) {
             const float cz = -17.0f + static_cast<float>(row) * 8.2f;
@@ -3574,33 +4402,33 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
                 const float cx = static_cast<float>(col) * 3.6f;
                 const int layers = (row == 1 || row == 2) ? 2 : 1;
                 for (int l = 0; l < layers; ++l) {
-                    const Color cc = kCargoCols[(row + col + l + 4) % 4];
+                    const Color cc = kCargoCols[(row + col + l + sIdx + 4) % 4];
                     drawModelStyled(cubeModel_, {cx, 6.1f + static_cast<float>(l) * 2.7f, cz},
                                     {0.0f, 1.0f, 0.0f}, 0.0f, {3.1f, 2.55f, 7.2f},
-                                    cc, 0.62f, 0.38f, 0.0f, MatKind::IndustrialMetal);
+                                    cc, 0.64f, 0.36f, 0.0f, MatKind::IndustrialMetal);
                 }
             }
         }
-        // Tall white aft bridge superstructure + lit wheelhouse windows + orange funnel
         drawModelStyled(cubeModel_, {0.0f, 9.8f, 18.2f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {12.2f, 10.2f, 7.8f}, Color{236, 240, 246, 255}, 0.45f, 0.15f, 0.0f, MatKind::Standard);
+                        {12.2f, 10.2f, 7.8f}, Color{216, 218, 222, 255}, 0.50f, 0.14f, 0.0f, MatKind::Standard);
         drawModelStyled(cubeModel_, {0.0f, 13.4f, 14.2f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {10.4f, 1.35f, 0.35f}, night ? Color{255, 226, 148, 255} : Color{22, 34, 48, 255},
-                        0.10f, 0.25f, night ? 1.8f : 0.0f, night ? MatKind::EmissiveGlow : MatKind::CarGlass);
+                        {10.4f, 1.35f, 0.35f}, night ? Color{255, 224, 148, 255} : Color{22, 32, 44, 255},
+                        0.10f, 0.25f, night ? 1.6f : 0.0f, night ? MatKind::EmissiveGlow : MatKind::CarGlass);
         drawModelStyled(cubeModel_, {0.0f, 16.4f, 20.5f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {2.6f, 4.2f, 3.2f}, Color{226, 86, 38, 255}, 0.50f, 0.30f, 0.0f, MatKind::Standard);
+                        {2.6f, 4.2f, 3.2f}, Color{188, 76, 38, 255}, 0.52f, 0.30f, 0.0f, MatKind::Standard);
         rlPopMatrix();
     }
 
-    // 3. Soaring Flapping Coastal Seagulls gliding over Sunset Beach, Pier & Central Park!
+    // 3. Soaring Flapping Coastal Seagulls gliding over Sunset Beach, Central Park Lake & Lighthouse!
     struct FlockCenter { float x; float z; float y; float r; };
-    static constexpr FlockCenter kFlocks[2] = {
-        {-382.0f, -12.0f, 18.5f, 26.0f},
-        { -42.0f, -42.0f, 22.0f, 24.0f}
+    static constexpr FlockCenter kFlocks[3] = {
+        {-756.0f, -12.0f, 18.5f, 26.0f},
+        {-108.0f, -42.0f, 22.0f, 26.0f},
+        {   0.0f, 922.0f, 24.0f, 28.0f}
     };
-    for (int f = 0; f < 2; ++f) {
+    for (int f = 0; f < 3; ++f) {
         const Vec2 fc{kFlocks[f].x, kFlocks[f].z};
-        if ((fc - focus).lengthSq() > 260.0f * 260.0f) continue;
+        if ((fc - focus).lengthSq() > 290.0f * 290.0f) continue;
         for (int g = 0; g < 5; ++g) {
             const float gf = static_cast<float>(g);
             const float orbitAng = animT * (0.34f + gf * 0.04f) + gf * 1.26f + static_cast<float>(f) * 2.1f;
@@ -3615,13 +4443,13 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
             rlTranslatef(gx, gy, gz);
             rlRotatef(headingDeg, 0.0f, 1.0f, 0.0f);
             drawModelStyled(sphereModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.32f, 0.10f, 0.12f}, Color{246, 248, 252, 255}, 0.55f, 0.0f, 0.0f, MatKind::Standard);
+                            {0.32f, 0.10f, 0.12f}, Color{236, 238, 242, 255}, 0.58f, 0.0f, 0.0f, MatKind::Standard);
             for (int side = -1; side <= 1; side += 2) {
                 rlPushMatrix();
                 rlRotatef(static_cast<float>(side) * flapDeg, 1.0f, 0.0f, 0.0f);
                 drawModelStyled(cubeModel_, {-0.02f, 0.0f, static_cast<float>(side) * 0.34f},
                                 {0.0f, 1.0f, 0.0f}, static_cast<float>(-side) * 14.0f,
-                                {0.16f, 0.03f, 0.68f}, Color{240, 244, 250, 255}, 0.55f, 0.0f, 0.0f, MatKind::Standard);
+                                {0.16f, 0.03f, 0.68f}, Color{226, 230, 236, 255}, 0.58f, 0.0f, 0.0f, MatKind::Standard);
                 rlPopMatrix();
             }
             rlPopMatrix();
@@ -3630,34 +4458,31 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
 
     // 4. High-Altitude Commercial City Airliner with Blinking Nav Strobes & Dual Jet Contrails!
     {
-        const float cycle = std::fmod(animT * 18.0f, 1100.0f) - 550.0f;
+        const float cycle = std::fmod(animT * 22.0f, 2200.0f) - 1100.0f;
         const float px = cycle;
-        const float py = 138.0f;
-        const float pz = -140.0f + cycle * 0.22f;
+        const float py = 165.0f;
+        const float pz = -180.0f + cycle * 0.22f;
         const bool strobeOn = (std::fmod(animT * 1.4f, 1.0f) < 0.20f);
 
         rlPushMatrix();
         rlTranslatef(px, py, pz);
         rlRotatef(-12.4f, 0.0f, 1.0f, 0.0f);
-        // Fuselage + swept wings + vertical tailfin
         drawModelStyled(cylModel_, {-7.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
-                        {1.15f, 14.0f, 1.15f}, Color{242, 246, 252, 255}, 0.25f, 0.45f, 0.0f, MatKind::Standard);
+                        {1.15f, 14.0f, 1.15f}, Color{234, 238, 244, 255}, 0.26f, 0.45f, 0.0f, MatKind::Standard);
         drawModelStyled(cubeModel_, {-0.5f, -0.1f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {3.4f, 0.26f, 16.2f}, Color{226, 232, 240, 255}, 0.28f, 0.55f, 0.0f, MatKind::Standard);
+                        {3.4f, 0.26f, 16.2f}, Color{216, 222, 230, 255}, 0.28f, 0.55f, 0.0f, MatKind::Standard);
         drawModelStyled(cubeModel_, {-6.4f, 1.8f, 0.0f}, {0.0f, 0.0f, 1.0f}, 18.0f,
-                        {2.6f, 3.6f, 0.22f}, Color{36, 112, 204, 255}, 0.30f, 0.35f, 0.0f, MatKind::Standard);
-        // Blinking port red / starboard green / tail white strobes
+                        {2.6f, 3.6f, 0.22f}, Color{36, 92, 162, 255}, 0.32f, 0.35f, 0.0f, MatKind::Standard);
         if (strobeOn || night) {
             drawModelStyled(sphereModel_, {-0.8f, 0.0f, -8.2f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.42f, 0.42f, 0.42f}, Color{255, 42, 42, 255}, 0.1f, 0.0f, 3.4f, MatKind::EmissiveGlow);
+                            {0.42f, 0.42f, 0.42f}, Color{255, 42, 42, 255}, 0.1f, 0.0f, 3.0f, MatKind::EmissiveGlow);
             drawModelStyled(sphereModel_, {-0.8f, 0.0f,  8.2f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.42f, 0.42f, 0.42f}, Color{48, 255, 96, 255}, 0.1f, 0.0f, 3.4f, MatKind::EmissiveGlow);
+                            {0.42f, 0.42f, 0.42f}, Color{48, 245, 96, 255}, 0.1f, 0.0f, 3.0f, MatKind::EmissiveGlow);
         }
-        // Subtle twin jet contrail ribbons trailing behind engines
         for (int s = -1; s <= 1; s += 2) {
             DrawLine3D({-2.5f, -0.4f, static_cast<float>(s) * 2.8f},
                        {-95.0f, -0.4f, static_cast<float>(s) * 3.8f},
-                       Color{235, 242, 252, static_cast<unsigned char>(night ? 45 : 105)});
+                       Color{230, 236, 244, static_cast<unsigned char>(night ? 38 : 88)});
         }
         rlPopMatrix();
     }
@@ -3671,7 +4496,6 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
         const float heliX = targetXZ.x + std::cos(orbitAng) * orbitR;
         const float heliZ = targetXZ.z + std::sin(orbitAng) * orbitR;
         const float heliY = targetY + 20.5f + 1.2f * std::sin(animT * 1.1f);
-        // Tangent heading along circular orbit + inward bank roll!
         const float tanYawRad = orbitAng + kHalfPi;
         const float tanYawDeg = -tanYawRad * kRadToDeg;
         const bool redFlash = (std::fmod(animT * 3.8f, 1.0f) < 0.5f);
@@ -3679,14 +4503,13 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
         rlPushMatrix();
         rlTranslatef(heliX, heliY, heliZ);
         rlRotatef(tanYawDeg, 0.0f, 1.0f, 0.0f);
-        rlRotatef(-11.0f, 0.0f, 0.0f, 1.0f); // Nose-down forward airspeed pitch
-        rlRotatef( 20.0f, 1.0f, 0.0f, 0.0f); // Banked smoothly into the turn
+        rlRotatef(-11.0f, 0.0f, 0.0f, 1.0f);
+        rlRotatef( 20.0f, 1.0f, 0.0f, 0.0f);
 
         const Color heliNavy{22, 30, 44, 255};
-        const Color heliWhite{240, 244, 250, 255};
-        const Color heliSteel{164, 174, 188, 255};
+        const Color heliWhite{236, 240, 246, 255};
+        const Color heliSteel{160, 170, 182, 255};
 
-        // Main sculpted fuselage pod + panoramic bubble nose cockpit + white SBPD belly stripe
         drawModelStyled(sphereModel_, {0.35f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {2.45f, 1.05f, 1.10f}, heliNavy, 0.28f, 0.45f, 0.0f, MatKind::CarClearcoat);
         drawModelStyled(sphereModel_, {1.45f, 0.08f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -3694,7 +4517,6 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
         drawModelStyled(cubeModel_, {0.10f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {3.2f, 0.24f, 1.98f}, heliWhite, 0.24f, 0.25f, 0.0f, MatKind::CarClearcoat);
 
-        // Twin tubular landing skids & diagonal struts
         for (int s = -1; s <= 1; s += 2) {
             const float sz = static_cast<float>(s) * 1.15f;
             drawModelStyled(cylModel_, {-1.4f, -1.32f, sz}, {0.0f, 0.0f, 1.0f}, -90.0f,
@@ -3705,7 +4527,6 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
                             {0.09f, 0.92f, 0.09f}, heliSteel, 0.35f, 0.75f, 0.0f, MatKind::Standard);
         }
 
-        // Tapered tail boom + horizontal stabilizer + vertical tailfin + spinning tail rotor!
         drawModelStyled(cubeModel_, {-3.35f, 0.24f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {4.6f, 0.40f, 0.38f}, heliNavy, 0.32f, 0.45f, 0.0f, MatKind::Standard);
         drawModelStyled(cubeModel_, {-4.55f, 0.26f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -3721,7 +4542,6 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
                         {1.35f, 0.12f, 0.04f}, Color{42, 46, 54, 255}, 0.38f, 0.65f, 0.0f, MatKind::Standard);
         rlPopMatrix();
 
-        // Mast + high-speed spinning 4-blade main rotor + translucent motion-blur disc
         drawModelStyled(cylModel_, {0.15f, 0.92f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.18f, 0.75f, 0.18f}, heliSteel, 0.30f, 0.80f, 0.0f, MatKind::Standard);
         rlPushMatrix();
@@ -3739,7 +4559,6 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
         rlDrawRenderBatchActive();
         rlEnableDepthMask();
 
-        // Flashing Red/Blue Police Strobe Beacon + Nose Gimbal Spotlight Lens!
         drawModelStyled(sphereModel_, {0.15f, -0.98f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.26f, 0.26f, 0.26f},
                         redFlash ? Color{255, 38, 48, 255} : Color{42, 138, 255, 255},
@@ -3749,7 +4568,6 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
                         0.08f, 0.0f, 4.0f, MatKind::EmissiveGlow);
         rlPopMatrix();
 
-        // Dramatic Additive Volumetric Sweeping Helicopter Searchlight Cone (open-ended gradient frustum, zero depth artifacts!)
         const Vec3 bStart{heliX, heliY - 0.85f, heliZ};
         const Vec3 bEnd{
             targetXZ.x + 1.8f * std::sin(animT * 1.4f),
@@ -3810,108 +4628,122 @@ void Renderer3D::drawLivingWorldAmbience(const GameWorld& world, const Vec2& foc
 }
 
 void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, const Vec3& camPos, bool shadowPass) {
+    const auto& city = world.city();
     const bool night = world.isNightTime();
     const float animT = static_cast<float>(GetTime());
-    const float treeCull = shadowPass ? (135.0f * 135.0f) : (235.0f * 235.0f);
+    const float treeRadius = shadowPass ? 135.0f : 245.0f;
+    const float treeCullSq = treeRadius * treeRadius;
 
-    for (const auto& t : world.city().trees()) {
-        if ((t.pos - focus).lengthSq() > treeCull) continue;
+    city.queryTreesInRadius(focus, treeRadius, visIdxBuf_);
+    const auto& allTrees = city.trees();
+
+    for (int idx : visIdxBuf_) {
+        const auto& t = allTrees[static_cast<std::size_t>(idx)];
+        if ((t.pos - focus).lengthSq() > treeCullSq) continue;
         const int treeHash = std::abs(static_cast<int>(t.pos.x * 7.0f + t.pos.z * 13.0f));
         const float windSway = std::sin(animT * 1.45f + t.pos.x * 0.11f + t.pos.z * 0.09f);
 
-        // Beveled concrete urban sidewalk tree planter curb, soil mulch & warm night landscape uplight!
+        // Architectural urban sidewalk tree grate & granite planter border (soil mulch + subtle night uplight)
         if (!shadowPass && t.inPlanter) {
-            drawModelStyled(cubeModel_, {t.pos.x, 0.17f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {1.58f, 0.22f, 1.58f}, Color{154, 158, 166, 255},
-                            0.72f, 0.05f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {t.pos.x, 0.28f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {1.66f, 0.06f, 1.66f}, Color{186, 190, 198, 255},
-                            0.65f, 0.05f, 0.0f, MatKind::Standard);
-            drawModelStyled(cubeModel_, {t.pos.x, 0.28f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {1.28f, 0.08f, 1.28f}, Color{64, 46, 32, 255},
-                            0.90f, 0.0f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {t.pos.x, 0.14f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {1.58f, 0.16f, 1.58f}, Color{118, 120, 124, 255},
+                            0.78f, 0.04f, 0.0f, MatKind::SidewalkConcrete);
+            drawModelStyled(cubeModel_, {t.pos.x, 0.22f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {1.34f, 0.05f, 1.34f}, Color{44, 46, 50, 255},
+                            0.52f, 0.65f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {t.pos.x, 0.21f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {1.12f, 0.07f, 1.12f}, Color{56, 42, 30, 255},
+                            0.92f, 0.0f, 0.0f, MatKind::Standard);
             if (night) {
-                drawModelStyled(sphereModel_, {t.pos.x + 0.48f, 0.34f, t.pos.z + 0.48f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.08f, 0.05f, 0.08f}, Color{255, 224, 152, 255},
-                                0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
+                drawModelStyled(sphereModel_, {t.pos.x + 0.48f, 0.28f, t.pos.z + 0.48f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.07f, 0.045f, 0.07f}, Color{255, 218, 146, 255},
+                                0.1f, 0.0f, 1.8f, MatKind::EmissiveGlow);
             }
         }
 
-        if (t.palmStyle) {
-            // Iconic California Coastal Palm Tree: 4-Segment Curved Bark Trunk + Coconut Cluster + 8 Arched Drooping Fronds!
+        if (t.palmStyle || t.species == TreeSpecies::PalmCoastal) {
+            // Coastal California Palm Tree: Curved Fissured Bark Trunk + Coconuts + 8 Drooping Botanical Fronds!
             const float leanYaw = static_cast<float>(treeHash % 360);
             const float segH = t.trunkHeight * 0.28f;
-            const Color barkLight{142, 104, 70, 255};
-            const Color barkDark{108, 76, 50, 255};
+            const Color barkLight{118, 92, 66, 255};
+            const Color barkDark{92, 70, 50, 255};
 
             rlPushMatrix();
             rlTranslatef(t.pos.x, 0.06f, t.pos.z);
             rlRotatef(leanYaw, 0.0f, 1.0f, 0.0f);
-            // Flared fibrous root collar
             drawModelStyled(coneModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.34f, 0.55f, 0.34f}, barkDark, 0.88f, 0.0f, 0.0f, MatKind::Standard);
+                            {0.34f, 0.55f, 0.34f}, barkDark, 0.90f, 0.0f, 0.0f, MatKind::BarkWood);
             for (int seg = 0; seg < 4; ++seg) {
                 const float r = 0.25f - static_cast<float>(seg) * 0.025f;
                 drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {r, segH * 1.05f, r}, (seg % 2 == 0) ? barkLight : barkDark,
-                                0.86f, 0.0f, 0.0f, MatKind::Standard);
+                                0.88f, 0.0f, 0.0f, MatKind::BarkWood);
                 if (!shadowPass && seg > 0) {
-                    // Fibrous palm bark ring collar
                     drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {r * 1.15f, 0.09f, r * 1.15f}, barkDark, 0.90f, 0.0f, 0.0f, MatKind::Standard);
+                                    {r * 1.15f, 0.09f, r * 1.15f}, barkDark, 0.92f, 0.0f, 0.0f, MatKind::BarkWood);
                 }
                 rlTranslatef(0.0f, segH, 0.0f);
-                rlRotatef(-4.5f - static_cast<float>(seg) * 0.9f + windSway * 0.45f, 0.0f, 0.0f, 1.0f);
+                rlRotatef(-4.2f - static_cast<float>(seg) * 0.85f + windSway * 0.45f, 0.0f, 0.0f, 1.0f);
             }
 
-            // Crown heart + cluster of 3 tropical coconuts nestled beneath fronds!
             if (!shadowPass) {
                 drawModelStyled(sphereModel_, {0.0f, 0.02f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.24f, 0.22f, 0.24f}, Color{84, 128, 56, 255}, 0.78f, 0.0f, 0.0f, MatKind::Standard);
+                                {0.24f, 0.22f, 0.24f}, Color{68, 96, 48, 255}, 0.82f, 0.0f, 0.0f, MatKind::FoliageGrass);
                 for (int c = 0; c < 3; ++c) {
                     const float ca = static_cast<float>(c) * (kTwoPi / 3.0f);
                     drawModelStyled(sphereModel_, {std::cos(ca) * 0.20f, -0.14f, std::sin(ca) * 0.20f},
-                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.13f, 0.15f, 0.13f},
-                                    Color{96, 62, 34, 255}, 0.75f, 0.0f, 0.0f, MatKind::Standard);
+                                    {0.0f, 1.0f, 0.0f}, 0.0f, {0.12f, 0.14f, 0.12f},
+                                    Color{86, 58, 34, 255}, 0.80f, 0.0f, 0.0f, MatKind::BarkWood);
                 }
             }
 
-            // 8 Gracefully Arched 2-Segment Drooping Tropical Palm Fronds swaying gently in coastal wind!
             const int frondCount = shadowPass ? 6 : 8;
             for (int f = 0; f < frondCount; ++f) {
                 const bool upperTier = (f % 2 == 0);
                 const float fAng = static_cast<float>(f) * (360.0f / static_cast<float>(frondCount)) + static_cast<float>(treeHash % 45);
-                const float liftDeg = (upperTier ? 34.0f : 16.0f) + windSway * 2.6f;
-                const Color frondCol = upperTier ? Color{78, 174, 76, 255} : Color{54, 146, 62, 255};
+                const float liftDeg = (upperTier ? 34.0f : 16.0f) + windSway * 2.4f;
+                const Color frondCol = upperTier ? Color{62, 108, 48, 255} : Color{44, 86, 38, 255};
                 const float innerLen = t.crownRadius * (upperTier ? 0.68f : 0.74f);
                 const float outerLen = t.crownRadius * (upperTier ? 0.76f : 0.82f);
 
                 rlPushMatrix();
                 rlRotatef(fAng, 0.0f, 1.0f, 0.0f);
-                // Inner rising arch segment
                 rlRotatef(liftDeg, 0.0f, 0.0f, 1.0f);
                 drawModelStyled(cubeModel_, {innerLen * 0.5f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {innerLen, 0.075f, 0.44f}, frondCol, 0.62f, 0.0f, 0.0f, MatKind::FoliageGrass);
-                // Outer gracefully drooping tapered leaf tip
+                                {innerLen, 0.075f, 0.44f}, frondCol, 0.78f, 0.0f, 0.0f, MatKind::FoliageGrass);
                 rlTranslatef(innerLen * 0.94f, 0.0f, 0.0f);
-                rlRotatef(-48.0f + windSway * 3.2f, 0.0f, 0.0f, 1.0f);
+                rlRotatef(-48.0f + windSway * 3.0f, 0.0f, 0.0f, 1.0f);
                 drawModelStyled(coneModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
-                                {0.10f, outerLen, 0.34f}, Color{64, 158, 68, 255},
-                                0.62f, 0.0f, 0.0f, MatKind::FoliageGrass);
+                                {0.10f, outerLen, 0.34f}, Color{52, 96, 44, 255},
+                                0.78f, 0.0f, 0.0f, MatKind::FoliageGrass);
                 rlPopMatrix();
             }
             rlPopMatrix();
+        } else if (t.species == TreeSpecies::CypressConifer) {
+            // Tall Slender Mediterranean Cypress Evergreen (sculpted organic tapered spire — zero stacked blobs!)
+            const Color barkCol{84, 62, 44, 255};
+            drawModelStyled(cylModel_, {t.pos.x, 0.06f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.18f, t.trunkHeight * 0.55f, 0.18f}, barkCol, 0.90f, 0.0f, 0.0f, MatKind::BarkWood);
+            const float spireR = t.crownRadius * 0.62f;
+            const float spireH = t.trunkHeight * 2.25f;
+            const Color cyCol = (treeHash % 2 == 0) ? Color{36, 66, 38, 255} : Color{44, 74, 42, 255};
+            rlPushMatrix();
+            rlTranslatef(t.pos.x, t.trunkHeight * 0.34f, t.pos.z);
+            rlRotatef(windSway * 1.1f, 0.0f, 0.0f, 1.0f);
+            drawModelStyled(cypressModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f},
+                            static_cast<float>(treeHash % 360),
+                            {spireR, spireH, spireR}, cyCol, 0.84f, 0.0f, 0.0f, MatKind::FoliageGrass);
+            rlPopMatrix();
         } else {
-            // Organic Sculpted Park/Boulevard Deciduous Tree: Flared Roots + 3 Woody Boughs + 6-Lobe Multi-Tone Crown!
-            const Color barkCol{102, 72, 48, 255};
-            const Color barkDark{82, 56, 36, 255};
+            // Realistic Deciduous Park & Boulevard Oak/Olive/Sycamore Tree (7-Tuft Organic Botanical Canopy + BarkWood!)
+            const Color barkCol{88, 66, 46, 255};
+            const Color barkDark{70, 52, 36, 255};
             drawModelStyled(coneModel_, {t.pos.x, 0.06f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.44f, 0.68f, 0.44f}, barkDark, 0.88f, 0.0f, 0.0f, MatKind::Standard);
+                            {0.44f, 0.68f, 0.44f}, barkDark, 0.90f, 0.0f, 0.0f, MatKind::BarkWood);
             drawModelStyled(cylModel_, {t.pos.x, 0.06f, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.27f, t.trunkHeight * 1.04f, 0.27f}, barkCol,
-                            0.86f, 0.0f, 0.0f, MatKind::Standard);
+                            0.88f, 0.0f, 0.0f, MatKind::BarkWood);
 
-            // 3 Spreading Woody Boughs rising into the canopy!
             if (!shadowPass) {
                 for (int br = 0; br < 3; ++br) {
                     const float bYaw = static_cast<float>(br) * 120.0f + static_cast<float>(treeHash % 90);
@@ -3921,63 +4753,72 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, co
                     rlRotatef(42.0f, 0.0f, 0.0f, 1.0f);
                     drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {0.12f, t.crownRadius * 0.88f, 0.12f}, barkDark,
-                                    0.86f, 0.0f, 0.0f, MatKind::Standard);
+                                    0.88f, 0.0f, 0.0f, MatKind::BarkWood);
                     rlPopMatrix();
                 }
             }
 
-            // Rich Botanical Palette: seasonal flowering Sakura / Jacaranda / Golden Elm trees along parks & boulevards!
-            const int palRoll = treeHash % 10;
-            Color cDeep{40, 118, 52, 255};
-            Color cMain{54, 148, 66, 255};
-            Color cSun{84, 178, 76, 255};
-            if (palRoll == 0) {
-                // Spring Sakura Cherry Blossom!
-                cDeep = {208, 128, 152, 255};
-                cMain = {238, 162, 186, 255};
-                cSun  = {252, 196, 214, 255};
-            } else if (palRoll == 1) {
-                // Coastal Lavender Jacaranda!
-                cDeep = {112, 92, 178, 255};
-                cMain = {146, 122, 214, 255};
-                cSun  = {178, 154, 238, 255};
-            } else if (palRoll == 2) {
-                // Warm Autumn Golden Elm!
-                cDeep = {168, 112, 38, 255};
-                cMain = {212, 152, 48, 255};
-                cSun  = {242, 192, 68, 255};
+            // 100% Authentic Botanical Palettes (Live Oak, Olive Sage, Sycamore, subtle Autumn Oak — ZERO neon/purple!)
+            const int palRoll = treeHash % 9;
+            Color cDeep{34, 68, 36, 255};
+            Color cMain{48, 86, 44, 255};
+            Color cSun{66, 106, 54, 255};
+            if (palRoll == 0 || palRoll == 1) {
+                // Coastal Olive / Eucalyptus Sage
+                cDeep = {50, 74, 48, 255};
+                cMain = {68, 94, 62, 255};
+                cSun  = {86, 114, 76, 255};
+            } else if (palRoll == 2 || palRoll == 3) {
+                // Sunlit Urban Sycamore
+                cDeep = {42, 78, 38, 255};
+                cMain = {58, 98, 48, 255};
+                cSun  = {78, 118, 58, 255};
+            } else if (palRoll == 4) {
+                // Warm Autumn Golden Oak (1 in 9)
+                cDeep = {112, 76, 34, 255};
+                cMain = {144, 98, 42, 255};
+                cSun  = {170, 122, 52, 255};
             }
 
-            const float cy = t.trunkHeight + t.crownRadius * 0.64f;
+            const float cy = t.trunkHeight + t.crownRadius * 0.56f;
             const float r = t.crownRadius;
-            const float swayOff = windSway * 0.06f;
-            drawModelStyled(sphereModel_, {t.pos.x + swayOff, cy, t.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {r * 0.94f, r * 0.80f, r * 0.94f}, cMain, 0.68f, 0.0f, 0.0f, MatKind::FoliageGrass);
+            const float swayOff = windSway * 0.05f;
+            const float baseRotDeg = static_cast<float>(treeHash % 360);
+            // Deep shaded interior core
+            drawModelStyled(foliageClusterModel_, {t.pos.x + swayOff, cy, t.pos.z}, {0.0f, 1.0f, 0.0f}, baseRotDeg,
+                            {r * 0.80f, r * 0.68f, r * 0.80f}, cDeep, 0.82f, 0.0f, 0.0f, MatKind::FoliageGrass);
             if (!shadowPass) {
-                // 5 Asymmetric layered shaded/sunlit crown clusters for lush natural silhouette
-                const float rotBase = static_cast<float>(treeHash % 360) * (kPi / 180.0f);
-                for (int l = 0; l < 4; ++l) {
-                    const float la = rotBase + static_cast<float>(l) * kHalfPi + 0.35f;
-                    const float dist = r * (0.42f + 0.08f * static_cast<float>(l % 2));
-                    const float ly = cy + ((l % 2 == 0) ? (-r * 0.16f) : (r * 0.14f));
-                    const float ls = r * ((l % 2 == 0) ? 0.62f : 0.58f);
-                    drawModelStyled(sphereModel_,
+                const float rotBase = baseRotDeg * (kPi / 180.0f);
+                // 5 asymmetrical perimeter leafy tufts + 2 sun-dappled upper crown tufts!
+                for (int l = 0; l < 5; ++l) {
+                    const float la = rotBase + static_cast<float>(l) * (kTwoPi / 5.0f) + 0.35f;
+                    const float dist = r * (0.48f + 0.11f * static_cast<float>(l % 2));
+                    const float ly = cy + ((l % 2 == 0) ? (-r * 0.14f) : (r * 0.14f));
+                    const float ls = r * ((l % 2 == 0) ? 0.56f : 0.48f);
+                    drawModelStyled(foliageClusterModel_,
                                     {t.pos.x + std::cos(la) * dist + swayOff, ly, t.pos.z + std::sin(la) * dist},
-                                    {0.0f, 1.0f, 0.0f}, 0.0f, {ls, ls * 0.88f, ls},
-                                    (l % 2 == 0) ? cDeep : cMain, 0.68f, 0.0f, 0.0f, MatKind::FoliageGrass);
+                                    {0.0f, 1.0f, 0.0f}, baseRotDeg + static_cast<float>(l) * 71.0f,
+                                    {ls * 1.08f, ls * 0.78f, ls},
+                                    (l % 2 == 0) ? cMain : cDeep, 0.80f, 0.0f, 0.0f, MatKind::FoliageGrass);
                 }
-                // Sunlit crowning apex tuft
-                drawModelStyled(sphereModel_, {t.pos.x + r * 0.12f + swayOff * 1.4f, cy + r * 0.44f, t.pos.z - r * 0.10f},
-                                {0.0f, 1.0f, 0.0f}, 0.0f, {r * 0.62f, r * 0.54f, r * 0.62f},
-                                cSun, 0.66f, 0.0f, 0.0f, MatKind::FoliageGrass);
+                drawModelStyled(foliageClusterModel_, {t.pos.x + r * 0.20f + swayOff * 1.3f, cy + r * 0.40f, t.pos.z - r * 0.14f},
+                                {0.0f, 1.0f, 0.0f}, baseRotDeg + 145.0f, {r * 0.54f, r * 0.44f, r * 0.50f},
+                                cSun, 0.78f, 0.0f, 0.0f, MatKind::FoliageGrass);
+                drawModelStyled(foliageClusterModel_, {t.pos.x - r * 0.24f + swayOff * 1.3f, cy + r * 0.34f, t.pos.z + r * 0.18f},
+                                {0.0f, 1.0f, 0.0f}, baseRotDeg + 230.0f, {r * 0.46f, r * 0.38f, r * 0.48f},
+                                cMain, 0.79f, 0.0f, 0.0f, MatKind::FoliageGrass);
             }
         }
     }
 
-    const float propCull = shadowPass ? (105.0f * 105.0f) : (195.0f * 195.0f);
+    const float propRadius = shadowPass ? 105.0f : 205.0f;
+    const float propCullSq = propRadius * propRadius;
+    city.queryPropsInRadius(focus, propRadius, visIdxBuf_);
+    const auto& allProps = city.streetProps();
 
-    for (const auto& prop : world.city().streetProps()) {
-        if ((prop.pos - focus).lengthSq() > propCull) continue;
+    for (int idx : visIdxBuf_) {
+        const auto& prop = allProps[static_cast<std::size_t>(idx)];
+        if ((prop.pos - focus).lengthSq() > propCullSq) continue;
         if (shadowPass &&
             prop.kind != StreetPropKind::StreetLight &&
             prop.kind != StreetPropKind::BusShelter &&
@@ -3986,7 +4827,6 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, co
             continue;
         }
 
-        // Gushing 3D Pressurized Fire Hydrant Water Geyser when a Hydrant is sheared off!
         if (!shadowPass && prop.broken && prop.kind == StreetPropKind::Hydrant) {
             const float geyserPulse = 4.2f + 0.45f * std::sin(animT * 14.0f + prop.homePos.x);
             DrawCylinder({prop.homePos.x, 0.08f, prop.homePos.z},
@@ -4008,69 +4848,68 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, co
 
         switch (prop.kind) {
             case StreetPropKind::StreetLight: {
-                // Fluted Cast-Iron Pedestal Base + Metallic Streetlamp Mast + Curved Arm + Street Name Plate!
                 if (!shadowPass) {
                     drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.23f, 0.62f, 0.23f}, Color{58, 64, 74, 255},
-                                    0.40f, 0.76f, 0.0f, MatKind::Standard);
+                                    {0.23f, 0.62f, 0.23f}, Color{54, 58, 66, 255},
+                                    0.42f, 0.76f, 0.0f, MatKind::Standard);
                     drawModelStyled(cylModel_, {0.0f, 0.62f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.18f, 0.24f, 0.18f}, Color{68, 74, 84, 255},
-                                    0.38f, 0.74f, 0.0f, MatKind::Standard);
+                                    {0.18f, 0.24f, 0.18f}, Color{62, 68, 76, 255},
+                                    0.40f, 0.74f, 0.0f, MatKind::Standard);
                 }
                 drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.125f, 6.25f, 0.125f}, Color{78, 84, 94, 255},
-                                0.38f, 0.72f, 0.0f, MatKind::Standard);
+                                {0.125f, 6.25f, 0.125f}, Color{72, 78, 86, 255},
+                                0.40f, 0.72f, 0.0f, MatKind::Standard);
                 drawModelStyled(cubeModel_, {0.72f, 6.18f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {1.56f, 0.14f, 0.18f}, Color{86, 92, 104, 255},
-                                0.38f, 0.72f, 0.0f, MatKind::Standard);
+                                {1.56f, 0.14f, 0.18f}, Color{80, 86, 94, 255},
+                                0.40f, 0.72f, 0.0f, MatKind::Standard);
 
                 if (!shadowPass && !prop.broken) {
                     const bool ewGreen = world.isTrafficGreenForHorizontal();
                     const bool nsGreen = world.isTrafficGreenForVertical();
-                    const Color ewCol = ewGreen ? Color{48, 248, 96, 255}
-                                                : (nsGreen ? Color{255, 54, 48, 255} : Color{255, 202, 42, 255});
-                    const Color nsCol = nsGreen ? Color{48, 248, 96, 255}
-                                                : (ewGreen ? Color{255, 54, 48, 255} : Color{255, 202, 42, 255});
+                    const Color ewCol = ewGreen ? Color{48, 240, 96, 255}
+                                                : (nsGreen ? Color{248, 54, 48, 255} : Color{248, 194, 42, 255});
+                    const Color nsCol = nsGreen ? Color{48, 240, 96, 255}
+                                                : (ewGreen ? Color{248, 54, 48, 255} : Color{248, 194, 42, 255});
 
-                    // Green reflective street-name sign plate mounted near top of mast
                     drawModelStyled(cubeModel_, {0.0f, 5.15f, 0.42f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.06f, 0.28f, 0.96f}, Color{20, 118, 74, 255},
-                                    0.35f, 0.25f, night ? 0.35f : 0.0f,
+                                    {0.06f, 0.28f, 0.96f}, Color{24, 96, 62, 255},
+                                    0.42f, 0.20f, night ? 0.35f : 0.0f,
                                     night ? MatKind::EmissiveGlow : MatKind::Standard);
 
-                    // Pedestrian Crosswalk WALK / DON'T WALK Signal Box at eye-level (y = 2.65m)!
                     drawModelStyled(cubeModel_, {0.22f, 2.65f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {0.22f, 0.36f, 0.26f}, Color{26, 30, 36, 255},
                                     0.50f, 0.35f, 0.0f, MatKind::Standard);
-                    const Color pedCol = ewGreen ? Color{225, 248, 255, 255} : Color{255, 112, 36, 255};
+                    const Color pedCol = ewGreen ? Color{225, 244, 252, 255} : Color{246, 108, 36, 255};
                     drawModelStyled(cubeModel_, {0.335f, 2.65f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.02f, 0.20f, 0.16f}, pedCol, 0.10f, 0.0f, 2.0f, MatKind::EmissiveGlow);
+                                    {0.02f, 0.20f, 0.16f}, pedCol, 0.12f, 0.0f, 1.8f, MatKind::EmissiveGlow);
 
                     drawModelStyled(cubeModel_, {1.05f, 5.62f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {0.30f, 0.74f, 0.30f}, Color{24, 28, 34, 255},
                                     0.55f, 0.35f, 0.0f, MatKind::Standard);
                     drawModelStyled(sphereModel_, {1.21f, 5.62f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.11f, 0.11f, 0.11f}, ewCol, 0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
+                                    {0.11f, 0.11f, 0.11f}, ewCol, 0.1f, 0.0f, 2.1f, MatKind::EmissiveGlow);
                     drawModelStyled(sphereModel_, {0.89f, 5.62f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.11f, 0.11f, 0.11f}, ewCol, 0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
+                                    {0.11f, 0.11f, 0.11f}, ewCol, 0.1f, 0.0f, 2.1f, MatKind::EmissiveGlow);
                     drawModelStyled(sphereModel_, {1.05f, 5.62f, 0.16f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.11f, 0.11f, 0.11f}, nsCol, 0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
+                                    {0.11f, 0.11f, 0.11f}, nsCol, 0.1f, 0.0f, 2.1f, MatKind::EmissiveGlow);
                     drawModelStyled(sphereModel_, {1.05f, 5.62f, -0.16f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.11f, 0.11f, 0.11f}, nsCol, 0.1f, 0.0f, 2.2f, MatKind::EmissiveGlow);
+                                    {0.11f, 0.11f, 0.11f}, nsCol, 0.1f, 0.0f, 2.1f, MatKind::EmissiveGlow);
 
-                    // LED luminaire head + warm night volumetric light cone & ground pool!
-                    const Color lampCol = night ? Color{255, 232, 168, 255} : Color{210, 218, 228, 255};
+                    const Color lampCol = night ? Color{255, 226, 162, 255} : Color{196, 202, 210, 255};
                     drawModelStyled(cubeModel_, {1.35f, 6.08f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                     {0.44f, 0.11f, 0.26f}, lampCol,
-                                    0.15f, 0.2f, night ? 2.5f : 0.0f,
+                                    0.18f, 0.2f, night ? 2.4f : 0.0f,
                                     night ? MatKind::EmissiveGlow : MatKind::Standard);
                     if (night) {
                         rlDrawRenderBatchActive();
                         rlSetTexture(0);
                         rlDisableDepthMask();
                         BeginBlendMode(BLEND_ADDITIVE);
-                        DrawCylinder({1.35f, -0.02f, 0.0f}, 4.3f, 4.3f, 0.015f, 16, Color{255, 220, 142, 34});
-                        DrawCylinder({1.35f, 0.02f, 0.0f}, 0.35f, 2.85f, 6.02f, 14, Color{255, 226, 158, 14});
+                        // 3 softly feathered warm sodium ground pools (eliminates hard circle edge!)
+                        DrawCylinder({1.35f, -0.02f, 0.0f}, 4.8f, 4.8f, 0.012f, 18, Color{255, 206, 132, 7});
+                        DrawCylinder({1.35f, -0.015f, 0.0f}, 3.1f, 3.1f, 0.012f, 18, Color{255, 214, 142, 11});
+                        DrawCylinder({1.35f, -0.01f, 0.0f}, 1.7f, 1.7f, 0.012f, 18, Color{255, 224, 158, 15});
+                        DrawCylinder({1.35f, 0.02f, 0.0f}, 0.28f, 2.55f, 6.02f, 14, Color{255, 220, 152, 6});
                         rlDrawRenderBatchActive();
                         EndBlendMode();
                         rlEnableDepthMask();
@@ -4079,198 +4918,205 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, co
                 break;
             }
             case StreetPropKind::Hydrant: {
-                // Multi-Part Cast-Iron Fire Hydrant: Bolted Base Flange + Side Hose Nozzles + Front Steamer Port + Bonnet Nut!
                 drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.26f, 0.12f, 0.26f}, Color{188, 34, 32, 255},
-                                0.42f, 0.45f, 0.0f, MatKind::Standard);
+                                {0.26f, 0.12f, 0.26f}, Color{154, 34, 32, 255},
+                                0.46f, 0.45f, 0.0f, MatKind::Standard);
                 drawModelStyled(cylModel_, {0.0f, 0.10f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.20f, 0.62f, 0.20f}, Color{224, 42, 38, 255},
-                                0.34f, 0.38f, 0.0f, MatKind::Standard);
+                                {0.20f, 0.62f, 0.20f}, Color{178, 38, 36, 255},
+                                0.38f, 0.38f, 0.0f, MatKind::Standard);
                 drawModelStyled(sphereModel_, {0.0f, 0.72f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.21f, 0.14f, 0.21f}, Color{236, 198, 62, 255},
-                                0.28f, 0.65f, 0.0f, MatKind::Standard);
+                                {0.21f, 0.14f, 0.21f}, Color{204, 174, 62, 255},
+                                0.32f, 0.62f, 0.0f, MatKind::Standard);
                 if (!shadowPass) {
-                    // Twin metallic side hose nozzles + front steamer port + top pentagon nut
                     drawModelStyled(cylModel_, {0.0f, 0.52f, -0.27f}, {1.0f, 0.0f, 0.0f}, 90.0f,
-                                    {0.075f, 0.54f, 0.075f}, Color{212, 218, 226, 255},
-                                    0.25f, 0.82f, 0.0f, MatKind::Standard);
+                                    {0.075f, 0.54f, 0.075f}, Color{192, 198, 206, 255},
+                                    0.28f, 0.80f, 0.0f, MatKind::Standard);
                     drawModelStyled(cylModel_, {0.06f, 0.44f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
-                                    {0.105f, 0.22f, 0.105f}, Color{212, 218, 226, 255},
-                                    0.25f, 0.82f, 0.0f, MatKind::Standard);
+                                    {0.105f, 0.22f, 0.105f}, Color{192, 198, 206, 255},
+                                    0.28f, 0.80f, 0.0f, MatKind::Standard);
                     drawModelStyled(cylModel_, {0.0f, 0.84f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.065f, 0.09f, 0.065f}, Color{232, 200, 72, 255},
-                                    0.24f, 0.85f, 0.0f, MatKind::Standard);
+                                    {0.065f, 0.09f, 0.065f}, Color{198, 172, 68, 255},
+                                    0.28f, 0.82f, 0.0f, MatKind::Standard);
                 }
                 break;
             }
             case StreetPropKind::Crate: {
-                // Reinforced Cargo Crate with Outer Frame Rails, Corner Battens & Diagonal Cross-Brace!
                 drawModelStyled(cubeModel_, {0.0f, 0.45f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.88f, 0.86f, 0.88f}, Color{176, 130, 78, 255},
-                                0.78f, 0.0f, 0.0f, MatKind::Standard);
+                                {0.88f, 0.86f, 0.88f}, Color{144, 108, 68, 255},
+                                0.84f, 0.0f, 0.0f, MatKind::BarkWood);
                 if (!shadowPass) {
-                    const Color battenCol{134, 94, 52, 255};
+                    const Color battenCol{108, 78, 48, 255};
                     drawModelStyled(cubeModel_, {0.0f, 0.06f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.96f, 0.12f, 0.96f}, battenCol, 0.82f, 0.0f, 0.0f, MatKind::Standard);
+                                    {0.96f, 0.12f, 0.96f}, battenCol, 0.86f, 0.0f, 0.0f, MatKind::BarkWood);
                     drawModelStyled(cubeModel_, {0.0f, 0.84f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.96f, 0.12f, 0.96f}, battenCol, 0.82f, 0.0f, 0.0f, MatKind::Standard);
+                                    {0.96f, 0.12f, 0.96f}, battenCol, 0.86f, 0.0f, 0.0f, MatKind::BarkWood);
                     drawModelStyled(cubeModel_, {0.0f, 0.45f, 0.0f}, {0.0f, 0.0f, 1.0f}, 45.0f,
-                                    {0.11f, 1.05f, 0.94f}, battenCol, 0.82f, 0.0f, 0.0f, MatKind::Standard);
+                                    {0.11f, 1.05f, 0.94f}, battenCol, 0.86f, 0.0f, 0.0f, MatKind::BarkWood);
                 }
                 break;
             }
             case StreetPropKind::TrafficCone: {
-                // Weighted Black Rubber Base + High-Vis Orange Cone + Twin Reflective White Collars!
                 if (!shadowPass) {
                     drawModelStyled(cubeModel_, {0.0f, 0.035f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.54f, 0.07f, 0.54f}, Color{28, 30, 36, 255},
-                                    0.78f, 0.05f, 0.0f, MatKind::Standard);
+                                    {0.54f, 0.07f, 0.54f}, Color{28, 30, 34, 255},
+                                    0.80f, 0.05f, 0.0f, MatKind::Standard);
                 }
                 drawModelStyled(coneModel_, {0.0f, 0.05f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.24f, 0.68f, 0.24f}, Color{252, 114, 28, 255},
-                                0.46f, 0.0f, 0.0f, MatKind::Standard);
+                                {0.24f, 0.68f, 0.24f}, Color{216, 94, 28, 255},
+                                0.52f, 0.0f, 0.0f, MatKind::Standard);
                 if (!shadowPass) {
                     drawModelStyled(cylModel_, {0.0f, 0.34f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.155f, 0.095f, 0.155f}, Color{246, 248, 252, 255},
-                                    0.20f, 0.15f, night ? 1.15f : 0.18f,
+                                    {0.155f, 0.095f, 0.155f}, Color{228, 230, 234, 255},
+                                    0.26f, 0.15f, night ? 0.95f : 0.0f,
                                     night ? MatKind::EmissiveGlow : MatKind::Standard);
                     drawModelStyled(cylModel_, {0.0f, 0.50f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.105f, 0.075f, 0.105f}, Color{246, 248, 252, 255},
-                                    0.20f, 0.15f, night ? 1.15f : 0.18f,
+                                    {0.105f, 0.075f, 0.105f}, Color{228, 230, 234, 255},
+                                    0.26f, 0.15f, night ? 0.95f : 0.0f,
                                     night ? MatKind::EmissiveGlow : MatKind::Standard);
                 }
                 break;
             }
             case StreetPropKind::BusShelter: {
-                // Modern Glass & Anodized Aluminum Transit Shelter + Interior Bench + Night Downlight + Route Lightbox
-                const Color frameCol{42, 46, 56, 255};
+                const Color frameCol{42, 46, 52, 255};
                 drawModelStyled(cubeModel_, {0.0f, 2.36f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {3.50f, 0.12f, 1.56f}, frameCol, 0.35f, 0.65f, 0.0f, MatKind::Standard);
+                                {3.50f, 0.12f, 1.56f}, frameCol, 0.38f, 0.65f, 0.0f, MatKind::Standard);
                 drawModelStyled(cubeModel_, {-1.62f, 1.18f, -0.62f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.10f, 2.36f, 0.10f}, frameCol, 0.35f, 0.65f, 0.0f, MatKind::Standard);
+                                {0.10f, 2.36f, 0.10f}, frameCol, 0.38f, 0.65f, 0.0f, MatKind::Standard);
                 drawModelStyled(cubeModel_, { 1.62f, 1.18f, -0.62f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.10f, 2.36f, 0.10f}, frameCol, 0.35f, 0.65f, 0.0f, MatKind::Standard);
+                                {0.10f, 2.36f, 0.10f}, frameCol, 0.38f, 0.65f, 0.0f, MatKind::Standard);
                 if (!shadowPass) {
-                    // Tempered glass rear wall
                     drawModelStyled(cubeModel_, {0.0f, 1.18f, -0.62f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {3.14f, 2.16f, 0.05f}, Color{28, 44, 62, 255},
+                                    {3.14f, 2.16f, 0.05f}, Color{24, 36, 48, 255},
                                     0.08f, 0.2f, 0.0f, MatKind::CarGlass);
-                    // Overhead warm LED transit shelter ceiling light strip at night
                     drawModelStyled(cubeModel_, {0.0f, 2.28f, -0.10f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {2.45f, 0.04f, 0.18f}, Color{245, 248, 255, 255},
-                                    0.12f, 0.0f, night ? 2.4f : 0.25f,
+                                    {2.45f, 0.04f, 0.18f}, Color{236, 240, 246, 255},
+                                    0.18f, 0.0f, night ? 2.1f : 0.0f,
                                     night ? MatKind::EmissiveGlow : MatKind::Standard);
-                    // Illuminated side ad / route map lightbox
+                    // Metro transit map & poster cabinet (grounded paper poster in daylight, softly backlit at night)
                     drawModelStyled(cubeModel_, {1.62f, 1.18f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.10f, 2.08f, 1.24f}, Color{68, 198, 255, 255},
-                                    0.15f, 0.0f, night ? 1.8f : 0.55f, MatKind::EmissiveGlow);
-                    // Waiting bench inside shelter with brushed steel armrests
+                                    {0.10f, 2.08f, 1.24f}, night ? Color{128, 192, 224, 255} : Color{54, 96, 128, 255},
+                                    0.32f, 0.08f, night ? 1.35f : 0.0f,
+                                    night ? MatKind::EmissiveGlow : MatKind::Standard);
                     drawModelStyled(cubeModel_, {-0.25f, 0.48f, -0.34f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {2.10f, 0.08f, 0.44f}, Color{168, 118, 72, 255},
-                                    0.72f, 0.0f, 0.0f, MatKind::Standard);
+                                    {2.10f, 0.08f, 0.44f}, Color{134, 96, 62, 255},
+                                    0.82f, 0.0f, 0.0f, MatKind::BarkWood);
                     for (int a = -1; a <= 1; a += 2) {
                         drawModelStyled(cubeModel_, {-0.25f + static_cast<float>(a) * 0.98f, 0.62f, -0.34f},
                                         {0.0f, 1.0f, 0.0f}, 0.0f, {0.05f, 0.26f, 0.40f},
-                                        Color{188, 196, 208, 255}, 0.28f, 0.85f, 0.0f, MatKind::Standard);
+                                        Color{174, 180, 188, 255}, 0.32f, 0.82f, 0.0f, MatKind::Standard);
                     }
                 }
                 break;
             }
             case StreetPropKind::Bench: {
-                // Slatted Teak & Cast-Iron Boulevard Bench
                 drawModelStyled(cubeModel_, {0.0f, 0.44f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {1.58f, 0.08f, 0.52f}, Color{166, 116, 68, 255},
-                                0.74f, 0.0f, 0.0f, MatKind::Standard);
+                                {1.58f, 0.08f, 0.52f}, Color{128, 92, 58, 255},
+                                0.82f, 0.0f, 0.0f, MatKind::BarkWood);
                 drawModelStyled(cubeModel_, {0.0f, 0.74f, -0.22f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {1.58f, 0.44f, 0.07f}, Color{166, 116, 68, 255},
-                                0.74f, 0.0f, 0.0f, MatKind::Standard);
+                                {1.58f, 0.44f, 0.07f}, Color{128, 92, 58, 255},
+                                0.82f, 0.0f, 0.0f, MatKind::BarkWood);
                 drawModelStyled(cubeModel_, {-0.66f, 0.24f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.09f, 0.48f, 0.50f}, Color{38, 42, 48, 255},
-                                0.45f, 0.65f, 0.0f, MatKind::Standard);
+                                {0.09f, 0.48f, 0.50f}, Color{38, 42, 46, 255},
+                                0.46f, 0.65f, 0.0f, MatKind::Standard);
                 drawModelStyled(cubeModel_, { 0.66f, 0.24f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.09f, 0.48f, 0.50f}, Color{38, 42, 48, 255},
-                                0.45f, 0.65f, 0.0f, MatKind::Standard);
+                                {0.09f, 0.48f, 0.50f}, Color{38, 42, 46, 255},
+                                0.46f, 0.65f, 0.0f, MatKind::Standard);
                 break;
             }
             case StreetPropKind::TrashBin: {
                 drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.28f, 0.82f, 0.28f}, Color{38, 76, 58, 255},
-                                0.55f, 0.25f, 0.0f, MatKind::Standard);
+                                {0.28f, 0.82f, 0.28f}, Color{42, 68, 54, 255},
+                                0.58f, 0.25f, 0.0f, MatKind::Standard);
                 drawModelStyled(sphereModel_, {0.0f, 0.82f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.29f, 0.14f, 0.29f}, Color{196, 204, 214, 255},
-                                0.28f, 0.75f, 0.0f, MatKind::Standard);
+                                {0.29f, 0.14f, 0.29f}, Color{176, 182, 190, 255},
+                                0.30f, 0.75f, 0.0f, MatKind::Standard);
                 break;
             }
             case StreetPropKind::FuelPump: {
-                // GLOBE OIL Digital Fuel Dispenser
                 drawModelStyled(cubeModel_, {0.0f, 0.96f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.86f, 1.72f, 0.48f}, Color{236, 240, 246, 255},
-                                0.42f, 0.25f, 0.0f, MatKind::Standard);
+                                {0.86f, 1.72f, 0.48f}, Color{212, 214, 218, 255},
+                                0.46f, 0.22f, 0.0f, MatKind::Standard);
                 drawModelStyled(cubeModel_, {0.0f, 1.66f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.92f, 0.36f, 0.52f}, Color{238, 62, 36, 255},
-                                0.30f, 0.20f, 0.6f, MatKind::EmissiveGlow);
+                                {0.92f, 0.36f, 0.52f}, Color{186, 52, 34, 255},
+                                0.36f, 0.18f, night ? 0.6f : 0.0f,
+                                night ? MatKind::EmissiveGlow : MatKind::Standard);
                 drawModelStyled(cubeModel_, {0.0f, 1.18f, 0.25f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.46f, 0.28f, 0.04f}, Color{72, 224, 255, 255},
-                                0.12f, 0.0f, 1.8f, MatKind::EmissiveGlow);
+                                {0.46f, 0.28f, 0.04f}, Color{46, 134, 168, 255},
+                                0.16f, 0.0f, night ? 1.4f : 0.25f, MatKind::EmissiveGlow);
                 drawModelStyled(cubeModel_, {0.0f, 1.18f, -0.25f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.46f, 0.28f, 0.04f}, Color{72, 224, 255, 255},
-                                0.12f, 0.0f, 1.8f, MatKind::EmissiveGlow);
+                                {0.46f, 0.28f, 0.04f}, Color{46, 134, 168, 255},
+                                0.16f, 0.0f, night ? 1.4f : 0.25f, MatKind::EmissiveGlow);
                 break;
             }
             case StreetPropKind::BeachUmbrella: {
                 const int colorIdx = std::abs(static_cast<int>(prop.pos.z * 0.3f)) % 4;
-                const Color canopyCol = (colorIdx == 0) ? Color{246, 74, 68, 255}
-                                      : (colorIdx == 1) ? Color{46, 178, 246, 255}
-                                      : (colorIdx == 2) ? Color{252, 196, 48, 255}
-                                                        : Color{64, 214, 146, 255};
+                const Color canopyCol = (colorIdx == 0) ? Color{178, 62, 54, 255}
+                                      : (colorIdx == 1) ? Color{52, 118, 162, 255}
+                                      : (colorIdx == 2) ? Color{198, 158, 62, 255}
+                                                        : Color{64, 134, 108, 255};
                 drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.06f, 2.25f, 0.06f}, Color{240, 242, 246, 255},
-                                0.45f, 0.3f, 0.0f, MatKind::Standard);
+                                {0.055f, 2.25f, 0.055f}, Color{186, 156, 114, 255},
+                                0.78f, 0.0f, 0.0f, MatKind::BarkWood);
                 drawModelStyled(coneModel_, {0.0f, 1.95f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {1.75f, 0.62f, 1.75f}, canopyCol,
-                                0.65f, 0.0f, 0.0f, MatKind::Standard);
+                                0.82f, 0.0f, 0.0f, MatKind::FabricCloth);
                 if (!shadowPass) {
-                    // Pair of coastal beach sun loungers beside umbrella
                     drawModelStyled(cubeModel_, {0.0f, 0.22f, 1.15f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {1.65f, 0.12f, 0.68f}, Color{242, 244, 248, 255},
-                                    0.65f, 0.0f, 0.0f, MatKind::Standard);
+                                    {1.65f, 0.12f, 0.68f}, Color{216, 214, 206, 255},
+                                    0.78f, 0.0f, 0.0f, MatKind::FabricCloth);
                     drawModelStyled(cubeModel_, {0.0f, 0.22f, -1.15f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {1.65f, 0.12f, 0.68f}, Color{242, 244, 248, 255},
-                                    0.65f, 0.0f, 0.0f, MatKind::Standard);
+                                    {1.65f, 0.12f, 0.68f}, Color{216, 214, 206, 255},
+                                    0.78f, 0.0f, 0.0f, MatKind::FabricCloth);
+                }
+                break;
+            }
+            case StreetPropKind::Bollard: {
+                // Architectural Dressed Steel & Granite Sidewalk Security Bollard
+                drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.135f, 0.84f, 0.135f}, Color{54, 58, 64, 255},
+                                0.42f, 0.72f, 0.0f, MatKind::Standard);
+                if (!shadowPass) {
+                    drawModelStyled(cylModel_, {0.0f, 0.70f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.142f, 0.055f, 0.142f}, Color{198, 204, 212, 255},
+                                    0.24f, 0.88f, 0.0f, MatKind::Standard);
+                    drawModelStyled(sphereModel_, {0.0f, 0.84f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                    {0.132f, 0.068f, 0.132f}, Color{62, 66, 74, 255},
+                                    0.38f, 0.74f, 0.0f, MatKind::Standard);
                 }
                 break;
             }
             case StreetPropKind::Billboard: {
-                // Tall Steel Monopole + Illuminated Graphic Ad Board (Pure Geometric Artwork — Zero Font Artifacts!)
+                // Tall Galvanized Steel Monopole + Grounded Editorial Ad Board (Backlit ONLY at night!)
                 drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.26f, 6.2f, 0.26f}, Color{62, 68, 78, 255},
-                                0.40f, 0.75f, 0.0f, MatKind::Standard);
+                                {0.26f, 6.2f, 0.26f}, Color{68, 72, 78, 255},
+                                0.44f, 0.72f, 0.0f, MatKind::Standard);
                 drawModelStyled(cubeModel_, {0.0f, 7.55f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {5.90f, 2.95f, 0.36f}, Color{28, 32, 40, 255},
-                                0.42f, 0.65f, 0.0f, MatKind::Standard);
+                                {5.90f, 2.95f, 0.36f}, Color{32, 36, 42, 255},
+                                0.46f, 0.62f, 0.0f, MatKind::Standard);
                 if (!shadowPass) {
                     const int theme = std::abs(static_cast<int>(prop.pos.x + prop.pos.z)) % 3;
-                    const Color bgCol = (theme == 0) ? Color{252, 108, 64, 255}
-                                      : (theme == 1) ? Color{36, 168, 248, 255}
-                                                     : Color{168, 62, 246, 255};
-                    const Color stripeCol = (theme == 0) ? Color{255, 224, 96, 255}
-                                          : (theme == 1) ? Color{242, 248, 255, 255}
-                                                         : Color{64, 242, 224, 255};
+                    const Color bgCol = (theme == 0) ? Color{36, 56, 78, 255}
+                                      : (theme == 1) ? Color{154, 72, 52, 255}
+                                                     : Color{42, 76, 68, 255};
+                    const Color stripeCol = (theme == 0) ? Color{216, 182, 92, 255}
+                                          : (theme == 1) ? Color{226, 222, 212, 255}
+                                                         : Color{186, 206, 198, 255};
+                    const MatKind bbMat = night ? MatKind::EmissiveGlow : MatKind::Standard;
+                    const float bbGlow  = night ? 1.15f : 0.0f;
                     for (int face = -1; face <= 1; face += 2) {
                         const float fz = static_cast<float>(face) * 0.20f;
                         drawModelStyled(cubeModel_, {0.0f, 7.55f, fz}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                         {5.55f, 2.60f, 0.04f}, bgCol,
-                                        0.15f, 0.0f, night ? 1.85f : 0.45f, MatKind::EmissiveGlow);
-                        // Stylized sun disc + horizon speed stripes graphic
+                                        0.48f, 0.05f, night ? 0.95f : 0.0f, bbMat);
                         drawModelStyled(cylModel_, {-1.45f, 7.65f, fz + face * 0.03f}, {1.0f, 0.0f, 0.0f}, 90.0f,
-                                        {0.78f, 0.04f, 0.78f}, stripeCol,
-                                        0.12f, 0.0f, night ? 2.2f : 0.65f, MatKind::EmissiveGlow);
+                                        {0.76f, 0.04f, 0.76f}, stripeCol,
+                                        0.42f, 0.05f, bbGlow, bbMat);
                         drawModelStyled(cubeModel_, {0.95f, 7.82f, fz + face * 0.03f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                         {2.55f, 0.34f, 0.04f}, stripeCol,
-                                        0.12f, 0.0f, night ? 2.1f : 0.65f, MatKind::EmissiveGlow);
+                                        0.42f, 0.05f, bbGlow, bbMat);
                         drawModelStyled(cubeModel_, {0.72f, 7.22f, fz + face * 0.03f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                        {2.10f, 0.22f, 0.04f}, WHITE,
-                                        0.12f, 0.0f, night ? 2.0f : 0.55f, MatKind::EmissiveGlow);
+                                        {2.10f, 0.22f, 0.04f}, Color{226, 228, 232, 255},
+                                        0.42f, 0.05f, bbGlow, bbMat);
                     }
                 }
                 break;
@@ -4279,15 +5125,21 @@ void Renderer3D::drawTreesAndProps(const GameWorld& world, const Vec2& focus, co
         rlPopMatrix();
     }
 
-    // 3D Falling Rain Streaks centered around the active camera when Dynamic Rain / Wet Road ([U]) is active
+    // Dense 220-Streak Multi-Depth Slanted 3D Coastal Rain Volume + Ground Splash Rings when Raining!
     if (!shadowPass && world.isRainWeather()) {
-        for (int i = 0; i < 108; ++i) {
+        for (int i = 0; i < 220; ++i) {
             const float seed = static_cast<float>(i) * 19.37f;
-            const float rx = camPos.x + std::fmod(std::sin(seed * 1.71f) * 43758.5f, 18.0f);
-            const float rz = camPos.z + std::fmod(std::cos(seed * 2.39f) * 31415.9f, 18.0f);
-            const float fallCycle = std::fmod(animT * 19.5f + seed * 3.1f, 10.3f);
-            const float ry = std::max(0.2f, camPos.y - 1.8f + (10.3f - fallCycle));
-            DrawLine3D({rx, ry + 0.72f, rz}, {rx - 0.08f, ry, rz - 0.05f}, Color{196, 226, 255, 138});
+            const bool nearLayer = (i < 96);
+            const float spread = nearLayer ? 13.5f : 26.0f;
+            const float rx = camPos.x + std::fmod(std::sin(seed * 1.71f) * 43758.5f, spread);
+            const float rz = camPos.z + std::fmod(std::cos(seed * 2.39f) * 31415.9f, spread);
+            const float fallSpan = nearLayer ? 10.5f : 15.0f;
+            const float speed = nearLayer ? 22.5f : 19.0f;
+            const float fallCycle = std::fmod(animT * speed + seed * 3.1f, fallSpan);
+            const float ry = std::max(0.05f, camPos.y - 2.0f + (fallSpan - fallCycle));
+            const float streakLen = nearLayer ? 0.85f : 1.05f;
+            const unsigned char alpha = nearLayer ? 118 : 74;
+            DrawLine3D({rx, ry + streakLen, rz}, {rx - 0.14f, ry, rz - 0.08f}, Color{206, 224, 240, alpha});
         }
     }
 }
@@ -4308,11 +5160,12 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, float groundSurfY, bool nightMo
         rlRotatef(-v.heading * kRadToDeg, 0.0f, 1.0f, 0.0f);
         const float shadowScale = std::clamp(1.0f - hoverH * 0.055f, 0.42f, 1.0f);
 
-        // 3 concentric soft feathered oval AO layers (completely eliminates hard rectangular corners!)
+        // 3 concentric soft feathered oval AO layers (tightened when real directional PCF shadows are active)
+        const float aoMul = shadowsActive_ ? 0.68f : 1.0f;
         const float aoLayers[3][3] = {
-            {halfL * 1.12f * shadowScale, halfW * 1.22f * shadowScale, 36.0f}, // Soft outer penumbra
-            {halfL * 0.99f * shadowScale, halfW * 1.04f * shadowScale, 68.0f}, // Body silhouette AO
-            {halfL * 0.80f * shadowScale, halfW * 0.82f * shadowScale, 92.0f}  // Deep under-chassis core
+            {halfL * 1.04f * shadowScale, halfW * 1.12f * shadowScale, 28.0f * aoMul}, // Soft outer penumbra
+            {halfL * 0.94f * shadowScale, halfW * 0.98f * shadowScale, 58.0f * aoMul}, // Body silhouette AO
+            {halfL * 0.78f * shadowScale, halfW * 0.80f * shadowScale, 88.0f}          // Deep under-chassis core
         };
         for (int li = 0; li < 3; ++li) {
             rlPushMatrix();
@@ -4536,26 +5389,7 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, float groundSurfY, bool nightMo
                             {0.145f, 0.058f, 0.024f}, darkTrim, 0.24f, 0.55f, 0.0f, MatKind::Standard);
         }
 
-        // Side fender aerodynamic brake-cooling louver gills on performance & sports cars
-        if (!v.destroyed &&
-            (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype ||
-             v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::JdmTuner ||
-             v.kind == VehicleKind::MuscleCar || v.kind == VehicleKind::ClassicRoadster)) {
-            const float ventX = halfL * 0.31f;
-            const float ventY = (v.kind == VehicleKind::TrackPrototype || v.kind == VehicleKind::Hypercar) ? 0.44f : 0.48f;
-            for (int side = -1; side <= 1; side += 2) {
-                const float vz = static_cast<float>(side) * (halfW * 0.964f);
-                drawModelStyled(cubeModel_, {ventX, ventY, vz}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.26f, 0.14f, 0.024f}, Color{14, 16, 20, 255}, 0.58f, 0.35f, 0.0f, MatKind::Standard);
-                for (int g = -1; g <= 1; ++g) {
-                    drawModelStyled(cubeModel_, {ventX + static_cast<float>(g) * 0.072f, ventY, vz + static_cast<float>(side) * 0.008f},
-                                    {0.0f, 0.0f, 1.0f}, -18.0f, {0.018f, 0.125f, 0.016f},
-                                    chromeCol, 0.18f, 0.88f, 0.0f, MatKind::Standard);
-                }
-            }
-        }
-
-        // Rear performance grille vent, license plate & twin/quad chrome exhaust tips (with glowing nitro inner cores!)
+        // Rear performance grille vent, license plate & twin/quad hollow chrome exhaust tips (with glowing nitro inner cores!)
         if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype ||
             v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::JdmTuner) {
             drawModelStyled(cubeModel_, {-halfL * 0.995f, 0.52f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -4572,12 +5406,14 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, float groundSurfY, bool nightMo
                               : (halfW * 0.54f);
         for (int side = -1; side <= 1; side += 2) {
             const float pz = static_cast<float>(side) * exZ;
+            // Hollow brushed chrome outer exhaust sleeve
             drawModelStyled(wheelModel_, {-halfL - 0.015f, exY, pz}, {0.0f, 1.0f, 0.0f}, 90.0f,
                             {0.058f, 0.058f, 0.16f}, chromeCol, 0.18f, 0.92f, 0.0f, MatKind::Standard);
-            drawModelStyled(wheelModel_, {-halfL - 0.032f, exY, pz}, {0.0f, 1.0f, 0.0f}, 90.0f,
-                            {0.038f, 0.038f, 0.06f},
+            // Solid dark soot / nitro-glowing inner exhaust baffle recessed inside hollow pipe
+            drawModelStyled(cylModel_, {-halfL - 0.058f, exY, pz}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.036f, 0.075f, 0.036f},
                             v.nitroActive ? Color{255, 128, 42, 255} : Color{14, 14, 18, 255},
-                            v.nitroActive ? 0.12f : 0.75f, v.nitroActive ? 0.0f : 0.20f,
+                            v.nitroActive ? 0.12f : 0.78f, v.nitroActive ? 0.0f : 0.20f,
                             v.nitroActive ? 3.2f : 0.0f,
                             v.nitroActive ? MatKind::EmissiveGlow : MatKind::Standard);
         }
@@ -4916,7 +5752,7 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, float groundSurfY, bool nightMo
         }
     }
 
-    // 4) Recessed Round 24-Segment Bevelled Tires + 5-Twin-Spoke Concave Alloy Rims + Brake Calipers!
+    // 4) Hollow 24-Segment Bevelled Tires + Deep-Concave 5-Twin-Spoke Alloy Rims + Ventilated Rotors & Brembo Calipers!
     float axleFrac = 0.63f;
     float wheelR   = 0.35f;
     float tireW    = 0.26f;
@@ -4967,28 +5803,28 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, float groundSurfY, bool nightMo
                 rlRotatef(static_cast<float>(-side) * 6.5f, 1.0f, 0.0f, 0.0f);
             }
 
-            // Tiered sport brake caliper inside rim (Brembo Gold on exotics, Cyber Cyan on JDM, Red on sports/muscle)
+            // Tiered sport brake caliper inside rim (Brembo Gold on exotics, Steel Blue on JDM, Red on sports/muscle)
             if (!shadowPass) {
                 const Color calCol = (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype)
-                                         ? Color{242, 188, 42, 255}
-                                         : ((v.kind == VehicleKind::JdmTuner) ? Color{44, 212, 246, 255}
+                                         ? Color{236, 178, 38, 255}
+                                         : ((v.kind == VehicleKind::JdmTuner) ? Color{48, 134, 212, 255}
                                          : ((v.kind == VehicleKind::DeliveryVan || v.kind == VehicleKind::Taxi)
                                                 ? Color{92, 98, 108, 255}
-                                                : Color{226, 42, 38, 255}));
-                drawModelStyled(cubeModel_, {-wheelR * 0.34f, wheelR * 0.16f, static_cast<float>(side) * (tireW * 0.28f)},
-                                {0.0f, 1.0f, 0.0f}, 0.0f, {0.115f, 0.168f, 0.064f},
-                                calCol, 0.26f, 0.62f, 0.0f, MatKind::Standard);
+                                                : Color{216, 42, 38, 255}));
+                drawModelStyled(cubeModel_, {-wheelR * 0.34f, wheelR * 0.14f, static_cast<float>(side) * (tireW * 0.24f)},
+                                {0.0f, 1.0f, 0.0f}, 0.0f, {0.115f, 0.175f, 0.068f},
+                                calCol, 0.24f, 0.64f, 0.0f, MatKind::Standard);
             }
 
             rlRotatef(-v.wheelSpin * kRadToDeg, 0.0f, 0.0f, 1.0f);
 
-            // Bevelled round rubber tire
+            // Hollow annular rubber tire (exposes deep-concave 3D spokes, rotor & Brembo caliper!)
             drawModelStyled(wheelModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {wheelR, wheelR, tireW}, Color{20, 22, 26, 255},
                             0.74f, 0.06f, 0.0f, MatKind::Standard);
 
             if (!shadowPass) {
-                // Steel brake rotor disc that glows cherry-orange hot during hard high-speed braking!
+                // Solid recessed steel brake rotor disc (cylModel_ rotated +90 deg X so axis aligns with Z)
                 const float heat = clampf(v.brakeHeat * ((front > 0) ? 1.0f : 0.72f), 0.0f, 1.0f);
                 const bool hotRotor = (!v.destroyed && heat > 0.16f);
                 const Color rotorCol = hotRotor
@@ -4997,19 +5833,21 @@ void Renderer3D::drawVehicle3D(const Vehicle& v, float groundSurfY, bool nightMo
                                                  static_cast<unsigned char>(lerpf(56.0f, 118.0f, heat)),
                                                  static_cast<unsigned char>(lerpf(42.0f, 24.0f, heat)),
                                                  255}
-                                           : Color{78, 84, 94, 255};
-                drawModelStyled(wheelModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {wheelR * 0.58f, wheelR * 0.58f, tireW * 0.82f}, rotorCol,
-                                hotRotor ? 0.18f : 0.32f, hotRotor ? 0.35f : 0.84f,
+                                           : Color{128, 134, 144, 255};
+                const float rotorThick = tireW * 0.42f;
+                drawModelStyled(cylModel_, {0.0f, 0.0f, -rotorThick * 0.5f}, {1.0f, 0.0f, 0.0f}, 90.0f,
+                                {wheelR * 0.54f, rotorThick, wheelR * 0.54f}, rotorCol,
+                                hotRotor ? 0.18f : 0.28f, hotRotor ? 0.35f : 0.88f,
                                 hotRotor ? (heat * 2.4f) : 0.0f,
                                 hotRotor ? MatKind::EmissiveGlow : MatKind::Standard);
                 drawModelStyled(sportRimModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {wheelR, wheelR, tireW}, rimCol,
                                 (v.rimStyle == 2) ? 0.14f : 0.18f, 0.90f, rimEmissive, rimMat);
-                // Crisp machined center hubcap (or classic chrome dog-dish cap on PoliceCruiser)
-                const float capR = (v.kind == VehicleKind::PoliceCruiser) ? 0.26f : 0.15f;
-                drawModelStyled(wheelModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {wheelR * capR, wheelR * capR, tireW * 1.05f},
+                // Solid machined center hubcap seated snugly into concave hub (or chrome dog-dish on PoliceCruiser)
+                const float capR = (v.kind == VehicleKind::PoliceCruiser) ? 0.25f : 0.145f;
+                const float capThick = tireW * ((v.kind == VehicleKind::PoliceCruiser) ? 0.94f : 0.68f);
+                drawModelStyled(cylModel_, {0.0f, 0.0f, -capThick * 0.5f}, {1.0f, 0.0f, 0.0f}, 90.0f,
+                                {wheelR * capR, capThick, wheelR * capR},
                                 (v.kind == VehicleKind::PoliceCruiser) ? chromeCol : Color{36, 40, 48, 255},
                                 0.14f, 0.92f, 0.0f, MatKind::Standard);
             }
@@ -5186,7 +6024,8 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                                  bool panicking, bool isPolice, bool isSwat,
                                  const CharacterCustomState* customChar,
                                  const WeaponSlotState* customWep,
-                                 const NpcVisualExtra* npcExtra) {
+                                 const NpcVisualExtra* npcExtra,
+                                 bool aimingOrFiring) {
     rlPushMatrix();
     rlTranslatef(pos.x, groundY, pos.z);
     rlRotatef(-yaw * kRadToDeg, 0.0f, 1.0f, 0.0f);
@@ -5199,23 +6038,29 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                                alive && !armed && !panicking && npcAct != NpcActivity::HandsUp);
     const bool npcNight = (npcExtra != nullptr && npcExtra->nightMode);
 
-    // 2-Layer feathered grounded contact shadow anchored on street or car roof directly beneath the character!
+    // Subtle grounded contact AO directly under feet (tightened when real directional PCF shadows are active)
     if (!shadowPass && alive) {
         const float surfY = (shadowGroundY > -900.0f) ? shadowGroundY : groundY;
         const float airH = std::max(0.0f, groundY - surfY);
         const float shScale = clampf(1.0f - airH * 0.22f, 0.42f, 1.0f) * (0.94f + 0.06f * hScale);
-        const float shY = (surfY - groundY) + 0.010f;
-        const auto outerA = static_cast<unsigned char>(clampf(52.0f * shScale, 16.0f, 52.0f));
-        const auto coreA  = static_cast<unsigned char>(clampf(108.0f * shScale, 34.0f, 108.0f));
-        if (holdUmbrella) {
-            const auto umbA = static_cast<unsigned char>(clampf(30.0f * shScale, 10.0f, 30.0f));
-            DrawCylinder({0.0f, shY - 0.002f, 0.0f},
-                         0.66f * shScale, 0.66f * shScale, 0.004f, 16, Color{8, 10, 15, umbA});
+        const float shY = (surfY - groundY) + 0.008f;
+        if (shadowsActive_) {
+            const auto coreA = static_cast<unsigned char>(clampf(42.0f * shScale, 14.0f, 42.0f));
+            DrawCylinder({0.0f, shY, 0.0f},
+                         0.22f * shScale, 0.22f * shScale, 0.004f, 14, Color{6, 8, 12, coreA});
+        } else {
+            const auto outerA = static_cast<unsigned char>(clampf(44.0f * shScale, 14.0f, 44.0f));
+            const auto coreA  = static_cast<unsigned char>(clampf(86.0f * shScale, 28.0f, 86.0f));
+            if (holdUmbrella) {
+                const auto umbA = static_cast<unsigned char>(clampf(24.0f * shScale, 8.0f, 24.0f));
+                DrawCylinder({0.0f, shY - 0.002f, 0.0f},
+                             0.58f * shScale, 0.58f * shScale, 0.004f, 14, Color{8, 10, 15, umbA});
+            }
+            DrawCylinder({0.0f, shY, 0.0f},
+                         0.40f * shScale, 0.40f * shScale, 0.005f, 14, Color{8, 10, 15, outerA});
+            DrawCylinder({0.0f, shY + 0.003f, 0.0f},
+                         0.24f * shScale, 0.24f * shScale, 0.005f, 14, Color{6, 8, 12, coreA});
         }
-        DrawCylinder({0.0f, shY, 0.0f},
-                     0.46f * shScale, 0.46f * shScale, 0.005f, 16, Color{8, 10, 15, outerA});
-        DrawCylinder({0.0f, shY + 0.004f, 0.0f},
-                     0.27f * shScale, 0.27f * shScale, 0.005f, 16, Color{6, 8, 12, coreA});
     }
 
     if (!alive) {
@@ -5232,6 +6077,7 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
     const Color skinC = toRayColor(skin);
     const Color accC  = toRayColor(getOutfitSpec(styleOutfit).accent);
     const Color shoeC = (styleOutfit == OutfitId::ViceWhiteSuit) ? Color{230, 232, 238, 255} : Color{26, 28, 34, 255};
+    const MatKind clothMat = (styleOutfit == OutfitId::RacerLeather) ? MatKind::Standard : MatKind::FabricCloth;
 
     // Articulated Left & Right Legs (Thigh, Knee Joint, Shin, Multi-Part Sneakers/Dress Shoes)
     const bool dressShoe = (styleOutfit == OutfitId::MidnightTuxedo || styleOutfit == OutfitId::GoldBossCoat || isPolice);
@@ -5248,24 +6094,24 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                                    : (alive ? -clampf(std::abs(legSwing) * 0.58f, 0.0f, 22.0f) : 0.0f);
         rlRotatef(legAngle, 0.0f, 0.0f, 1.0f);
 
-        // Rounded hip cap & sculpted tapered thigh
+        // Rounded hip cap & sculpted tapered thigh (FabricCloth woven denim/trouser shader)
         drawModelStyled(sphereModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.094f, 0.092f, 0.094f}, botC, 0.76f, 0.0f, 0.0f, MatKind::Standard);
+                        {0.094f, 0.092f, 0.094f}, botC, 0.80f, 0.0f, 0.0f, MatKind::FabricCloth);
         drawModelStyled(cylModel_, {0.0f, -0.34f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.092f, 0.34f, 0.092f}, botC, 0.76f, 0.0f, 0.0f, MatKind::Standard);
+                        {0.092f, 0.34f, 0.092f}, botC, 0.80f, 0.0f, 0.0f, MatKind::FabricCloth);
 
         // Articulated Knee Joint + Lower Shin + Detailed Multi-Part Shoe
         rlPushMatrix();
         rlTranslatef(0.0f, -0.34f, 0.0f);
         drawModelStyled(sphereModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.084f, 0.082f, 0.084f}, botC, 0.76f, 0.0f, 0.0f, MatKind::Standard);
+                        {0.084f, 0.082f, 0.084f}, botC, 0.80f, 0.0f, 0.0f, MatKind::FabricCloth);
         rlRotatef(kneeBend, 0.0f, 0.0f, 1.0f);
         drawModelStyled(cylModel_, {0.0f, -0.34f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.078f, 0.34f, 0.078f}, botC, 0.78f, 0.0f, 0.0f, MatKind::Standard);
+                        {0.078f, 0.34f, 0.078f}, botC, 0.82f, 0.0f, 0.0f, MatKind::FabricCloth);
         if (!shadowPass) {
             // Ankle cuff, contoured sneaker/shoe upper, rounded toe cap & contrasting midsole!
             drawModelStyled(cylModel_, {0.0f, -0.345f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.066f, 0.05f, 0.066f}, Color{226, 228, 234, 255}, 0.72f, 0.0f, 0.0f, MatKind::Standard);
+                            {0.066f, 0.05f, 0.066f}, Color{226, 228, 234, 255}, 0.76f, 0.0f, 0.0f, MatKind::FabricCloth);
             drawModelStyled(cubeModel_, {0.036f, -0.358f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.21f, 0.074f, 0.155f}, shoeC, dressShoe ? 0.24f : 0.54f, dressShoe ? 0.22f : 0.08f, 0.0f, MatKind::Standard);
             drawModelStyled(sphereModel_, {0.132f, -0.366f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -5285,21 +6131,21 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
     }
 
     // Sculpted Pelvis/Belt + Tapered Chest/Jacket + Rounded Deltoid Shoulders & Collar!
-    const float topRough = (styleOutfit == OutfitId::RacerLeather) ? 0.28f : 0.62f;
-    const float topMetal = (styleOutfit == OutfitId::GoldBossCoat) ? 0.35f : 0.06f;
+    const float topRough = (styleOutfit == OutfitId::RacerLeather) ? 0.28f : 0.72f;
+    const float topMetal = (styleOutfit == OutfitId::GoldBossCoat) ? 0.35f : 0.04f;
     drawModelStyled(cubeModel_, {0.0f, 0.77f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                     {0.246f, 0.072f, 0.396f}, Color{24, 26, 32, 255}, 0.46f, 0.30f, 0.0f, MatKind::Standard);
     drawModelStyled(cubeModel_, {0.0f, 0.94f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.242f, 0.28f, 0.394f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+                    {0.242f, 0.28f, 0.394f}, topC, topRough, topMetal, 0.0f, clothMat);
     drawModelStyled(cubeModel_, {0.0f, 1.21f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.264f, 0.34f, 0.428f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+                    {0.264f, 0.34f, 0.428f}, topC, topRough, topMetal, 0.0f, clothMat);
     // Organic rounded shoulder deltoids + collar ring
     for (int s = -1; s <= 1; s += 2) {
         drawModelStyled(sphereModel_, {0.0f, 1.305f, static_cast<float>(s) * 0.205f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.098f, 0.096f, 0.090f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+                        {0.098f, 0.096f, 0.090f}, topC, topRough, topMetal, 0.0f, clothMat);
     }
     drawModelStyled(cylModel_, {0.0f, 1.375f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.104f, 0.044f, 0.104f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+                    {0.104f, 0.044f, 0.104f}, topC, topRough, topMetal, 0.0f, clothMat);
 
     if (!shadowPass) {
         // Metallic silver/brass belt buckle on all characters
@@ -5311,12 +6157,12 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
         if (isPolice && isSwat) {
             // Heavy SWAT Kevlar tactical plate-carrier vest + 3 rifle mag pouches + shoulder pauldrons + radio whip!
             drawModelStyled(cubeModel_, {0.0f, 1.11f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.335f, 0.46f, 0.47f}, Color{26, 32, 40, 255}, 0.40f, 0.42f, 0.0f, MatKind::Standard);
+                            {0.335f, 0.46f, 0.47f}, Color{26, 32, 40, 255}, 0.56f, 0.22f, 0.0f, MatKind::FabricCloth);
             drawModelStyled(cubeModel_, {0.172f, 1.19f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.024f, 0.075f, 0.24f}, Color{236, 240, 248, 255}, 0.35f, 0.1f, 0.0f, MatKind::Standard);
             for (int mp = -1; mp <= 1; ++mp) {
                 drawModelStyled(cubeModel_, {0.180f, 0.99f, static_cast<float>(mp) * 0.115f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.048f, 0.135f, 0.082f}, Color{20, 24, 30, 255}, 0.50f, 0.25f, 0.0f, MatKind::Standard);
+                                {0.048f, 0.135f, 0.082f}, Color{20, 24, 30, 255}, 0.60f, 0.15f, 0.0f, MatKind::FabricCloth);
             }
             // Tactical back radio whip antenna
             drawModelStyled(cylModel_, {-0.175f, 1.24f, -0.13f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -5324,7 +6170,7 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
         } else if (isPolice) {
             // SBPD Officer uniform tie, gold shield chest badge, shoulder radio mic & duty-belt pouches!
             drawModelStyled(cubeModel_, {0.138f, 1.13f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.024f, 0.34f, 0.052f}, Color{16, 20, 30, 255}, 0.45f, 0.15f, 0.0f, MatKind::Standard);
+                            {0.024f, 0.34f, 0.052f}, Color{16, 20, 30, 255}, 0.58f, 0.05f, 0.0f, MatKind::FabricCloth);
             drawModelStyled(cubeModel_, {0.142f, 1.23f, -0.095f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.024f, 0.084f, 0.068f}, Color{246, 204, 62, 255}, 0.20f, 0.90f, 0.0f, MatKind::Standard);
             // Left-shoulder speaker mic + hip duty-belt radio & holster pouches
@@ -5337,35 +6183,40 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
         } else if (styleOutfit == OutfitId::ViceWhiteSuit || styleOutfit == OutfitId::MidnightTuxedo) {
             // Crisp dress shirt V-front + silk necktie + metallic tie bar + breast pocket square!
             drawModelStyled(cubeModel_, {0.132f, 1.16f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.028f, 0.40f, 0.165f}, WHITE, 0.65f, 0.0f, 0.0f, MatKind::Standard);
+                            {0.028f, 0.40f, 0.165f}, WHITE, 0.72f, 0.0f, 0.0f, MatKind::FabricCloth);
             drawModelStyled(cubeModel_, {0.145f, 1.12f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.024f, 0.34f, 0.052f}, accC, 0.35f, 0.15f, 0.0f, MatKind::Standard);
+                            {0.024f, 0.34f, 0.052f}, accC, 0.42f, 0.08f, 0.0f, MatKind::FabricCloth);
             drawModelStyled(cubeModel_, {0.152f, 1.13f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.014f, 0.014f, 0.062f}, Color{238, 206, 86, 255}, 0.18f, 0.92f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.136f, 1.22f, -0.115f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.020f, 0.028f, 0.068f}, accC, 0.40f, 0.10f, 0.0f, MatKind::Standard);
+                            {0.020f, 0.028f, 0.068f}, accC, 0.50f, 0.05f, 0.0f, MatKind::FabricCloth);
         } else if (styleOutfit == OutfitId::TacOpsArmor) {
             // Molded 3D Kevlar plate-carrier vest + 3 front mag pouches!
             drawModelStyled(cubeModel_, {0.0f, 1.11f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.325f, 0.46f, 0.46f}, accC, 0.42f, 0.35f, 0.0f, MatKind::Standard);
+                            {0.325f, 0.46f, 0.46f}, accC, 0.54f, 0.22f, 0.0f, MatKind::FabricCloth);
             for (int mp = -1; mp <= 1; ++mp) {
                 drawModelStyled(cubeModel_, {0.174f, 0.99f, static_cast<float>(mp) * 0.11f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.044f, 0.13f, 0.078f}, Color{28, 32, 36, 255}, 0.52f, 0.20f, 0.0f, MatKind::Standard);
+                                {0.044f, 0.13f, 0.078f}, Color{28, 32, 36, 255}, 0.62f, 0.15f, 0.0f, MatKind::FabricCloth);
             }
         } else if (styleOutfit == OutfitId::GoldBossCoat) {
             // Tailored boss overcoat lower panels cleanly below waist belt (zero Z-fighting!) + gold lapel trim + medallion!
             drawModelStyled(cubeModel_, {-0.012f, 0.585f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.232f, 0.295f, 0.402f}, topC, 0.48f, 0.25f, 0.0f, MatKind::Standard);
+                            {0.232f, 0.295f, 0.402f}, topC, 0.58f, 0.15f, 0.0f, MatKind::FabricCloth);
             drawModelStyled(cubeModel_, {0.136f, 1.13f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.028f, 0.46f, 0.14f}, accC, 0.25f, 0.80f, 0.0f, MatKind::Standard);
             drawModelStyled(sphereModel_, {0.148f, 1.18f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.014f, 0.036f, 0.036f}, Color{250, 206, 58, 255}, 0.16f, 0.96f, 0.0f, MatKind::Standard);
         } else {
-            // Layered inner shirt neckline + sleek metallic front jacket zipper!
-            drawModelStyled(cubeModel_, {0.120f, 1.28f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.055f, 0.16f, 0.16f}, accC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
+            // Tailored inner shirt collar + sleek metallic front jacket zipper
+            const Color shirtCol{
+                static_cast<unsigned char>(std::min(222, static_cast<int>(accC.r) * 85 / 100 + 20)),
+                static_cast<unsigned char>(std::min(224, static_cast<int>(accC.g) * 85 / 100 + 20)),
+                static_cast<unsigned char>(std::min(228, static_cast<int>(accC.b) * 85 / 100 + 20)),
+                255};
+            drawModelStyled(cubeModel_, {0.124f, 1.31f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.036f, 0.11f, 0.105f}, shirtCol, 0.74f, 0.0f, 0.0f, MatKind::FabricCloth);
             drawModelStyled(cubeModel_, {0.136f, 1.06f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.014f, 0.48f, 0.018f}, Color{186, 194, 208, 255}, 0.26f, 0.82f, 0.0f, MatKind::Standard);
+                            {0.012f, 0.46f, 0.015f}, Color{176, 184, 196, 255}, 0.28f, 0.80f, 0.0f, MatKind::Standard);
         }
 
         // Custom 3D Back Gear (Tactical Backpack / Heist Duffle Bag / Cyber Neon Wing Pack)!
@@ -5373,12 +6224,12 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
             if (customChar->backGearStyle == 1) {
                 // Tactical Olive/Charcoal Spec-Ops Backpack + Utility Pouch + Straps
                 drawModelStyled(cubeModel_, {-0.20f, 1.10f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.16f, 0.44f, 0.32f}, Color{44, 52, 46, 255}, 0.55f, 0.18f, 0.0f, MatKind::Standard);
+                                {0.16f, 0.44f, 0.32f}, Color{44, 52, 46, 255}, 0.65f, 0.10f, 0.0f, MatKind::FabricCloth);
                 drawModelStyled(cubeModel_, {-0.29f, 1.00f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.06f, 0.20f, 0.24f}, Color{30, 34, 38, 255}, 0.48f, 0.25f, 0.0f, MatKind::Standard);
+                                {0.06f, 0.20f, 0.24f}, Color{30, 34, 38, 255}, 0.58f, 0.15f, 0.0f, MatKind::FabricCloth);
                 for (int s = -1; s <= 1; s += 2) {
                     drawModelStyled(cubeModel_, {0.02f, 1.16f, static_cast<float>(s) * 0.12f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                    {0.32f, 0.36f, 0.045f}, Color{26, 28, 34, 255}, 0.52f, 0.20f, 0.0f, MatKind::Standard);
+                                    {0.32f, 0.36f, 0.045f}, Color{26, 28, 34, 255}, 0.60f, 0.12f, 0.0f, MatKind::FabricCloth);
                 }
             } else if (customChar->backGearStyle == 2) {
                 // Diagonal Heist Duffle Bag with Gold Zipper Trim!
@@ -5386,7 +6237,7 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                 rlTranslatef(-0.21f, 1.08f, 0.0f);
                 rlRotatef(32.0f, 1.0f, 0.0f, 0.0f);
                 drawModelStyled(cylModel_, {0.0f, -0.26f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.135f, 0.52f, 0.135f}, Color{24, 26, 32, 255}, 0.46f, 0.22f, 0.0f, MatKind::Standard);
+                                {0.135f, 0.52f, 0.135f}, Color{24, 26, 32, 255}, 0.56f, 0.12f, 0.0f, MatKind::FabricCloth);
                 drawModelStyled(cubeModel_, {-0.125f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {0.024f, 0.46f, 0.036f}, Color{242, 198, 64, 255}, 0.22f, 0.88f, 0.0f, MatKind::Standard);
                 rlPopMatrix();
@@ -5409,7 +6260,7 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
         }
     }
 
-    // Neck + Organic Sculpted Cranium & Jaw + Ears/Eyes/Nose/Brows/Mouth + 7 Custom Hair/Headgear & 4 Eyewear!
+    // Neck + Organic Sculpted Cranium & Jaw (SkinOrganics subsurface wrap!) + Ears/Eyes/Nose/Brows/Mouth
     rlPushMatrix();
     rlTranslatef(0.0f, 1.41f, 0.0f);
     if (alive) {
@@ -5423,12 +6274,12 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
         rlRotatef(headPitch * kRadToDeg, 0.0f, 0.0f, 1.0f);
     }
     drawModelStyled(cylModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.068f, 0.090f, 0.068f}, skinC, 0.65f, 0.0f, 0.0f, MatKind::Standard);
+                    {0.068f, 0.090f, 0.068f}, skinC, 0.62f, 0.0f, 0.0f, MatKind::SkinOrganics);
     // Smooth organic sculpted cranium + tapered lower jaw/chin
     drawModelStyled(sphereModel_, {0.0f, 0.175f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.132f, 0.140f, 0.124f}, skinC, 0.60f, 0.0f, 0.0f, MatKind::Standard);
+                    {0.132f, 0.140f, 0.124f}, skinC, 0.58f, 0.0f, 0.0f, MatKind::SkinOrganics);
     drawModelStyled(sphereModel_, {0.020f, 0.098f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                    {0.098f, 0.066f, 0.088f}, skinC, 0.60f, 0.0f, 0.0f, MatKind::Standard);
+                    {0.098f, 0.066f, 0.088f}, skinC, 0.58f, 0.0f, 0.0f, MatKind::SkinOrganics);
 
     const int headStyle = (customChar != nullptr) ? customChar->hairOrHatStyle : 0;
     const Color hairCol = (customChar != nullptr)
@@ -5442,12 +6293,12 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
             for (int side = -1; side <= 1; side += 2) {
                 drawModelStyled(sphereModel_, {-0.008f, 0.162f, static_cast<float>(side) * 0.124f},
                                 {0.0f, 1.0f, 0.0f}, 0.0f, {0.022f, 0.036f, 0.018f},
-                                skinC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
+                                skinC, 0.60f, 0.0f, 0.0f, MatKind::SkinOrganics);
             }
         }
         // Sculpted nose bridge/tip
         drawModelStyled(sphereModel_, {0.128f, 0.156f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.022f, 0.024f, 0.016f}, skinC, 0.60f, 0.0f, 0.0f, MatKind::Standard);
+                        {0.022f, 0.024f, 0.016f}, skinC, 0.58f, 0.0f, 0.0f, MatKind::SkinOrganics);
         // Eyes + eyebrows (visible when not covered by opaque SWAT goggles or cyber visor)
         if (!(isPolice && isSwat) && headStyle != 5 && glassesStyle != 3) {
             const float browY = panicking ? 0.220f : 0.211f;
@@ -5491,7 +6342,7 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
     } else if (isPolice) {
         // Peaked Navy SBPD Police Officer Cap + Gloss Visor + Gold Cap Crest!
         drawModelStyled(cylModel_, {-0.01f, 0.275f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.156f, 0.085f, 0.156f}, Color{22, 34, 64, 255}, 0.48f, 0.15f, 0.0f, MatKind::Standard);
+                        {0.156f, 0.085f, 0.156f}, Color{22, 34, 64, 255}, 0.58f, 0.08f, 0.0f, MatKind::FabricCloth);
         drawModelStyled(cubeModel_, {0.105f, 0.272f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                         {0.13f, 0.024f, 0.22f}, Color{16, 18, 24, 255}, 0.16f, 0.45f, 0.0f, MatKind::Standard);
         if (!shadowPass) {
@@ -5516,9 +6367,9 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
     } else if (headStyle == 3) {
         // Street Snapback Cap (structured dome + flat forward bill!)
         drawModelStyled(cylModel_, {-0.005f, 0.265f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.152f, 0.095f, 0.152f}, hairCol, 0.52f, 0.12f, 0.0f, MatKind::Standard);
+                        {0.152f, 0.095f, 0.152f}, hairCol, 0.62f, 0.05f, 0.0f, MatKind::FabricCloth);
         drawModelStyled(cubeModel_, {0.135f, 0.268f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.16f, 0.022f, 0.23f}, Color{20, 22, 28, 255}, 0.38f, 0.25f, 0.0f, MatKind::Standard);
+                        {0.16f, 0.022f, 0.23f}, Color{20, 22, 28, 255}, 0.48f, 0.10f, 0.0f, MatKind::FabricCloth);
     } else if (headStyle == 4) {
         // Full-Face Aero Moto Helmet (-8% incoming damage perk!)
         drawModelStyled(sphereModel_, {0.005f, 0.185f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -5556,21 +6407,26 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
 
     if (!shadowPass && glassesStyle > 0 && !(isPolice && isSwat) && headStyle != 4 && headStyle != 5) {
         if (glassesStyle == 2) {
-            // Gold Aviator Sunglasses (gold brow bar + twin tinted lenses)
-            drawModelStyled(cubeModel_, {0.130f, 0.208f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.024f, 0.012f, 0.220f}, Color{246, 202, 68, 255}, 0.16f, 0.92f, 0.0f, MatKind::Standard);
+            // Gold Aviator Sunglasses (flush brow bar + twin tinted lenses + slim side temples)
+            drawModelStyled(cubeModel_, {0.118f, 0.205f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.018f, 0.010f, 0.214f}, Color{236, 194, 68, 255}, 0.16f, 0.92f, 0.0f, MatKind::Standard);
             for (int s = -1; s <= 1; s += 2) {
-                drawModelStyled(cubeModel_, {0.128f, 0.176f, static_cast<float>(s) * 0.056f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.028f, 0.056f, 0.084f}, Color{36, 28, 18, 255}, 0.08f, 0.65f, 0.0f, MatKind::CarGlass);
+                drawModelStyled(cubeModel_, {0.116f, 0.176f, static_cast<float>(s) * 0.054f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.020f, 0.050f, 0.080f}, Color{36, 28, 18, 255}, 0.08f, 0.65f, 0.0f, MatKind::CarGlass);
             }
         } else if (glassesStyle == 3) {
             // Cyan Tactical Goggles!
-            drawModelStyled(cubeModel_, {0.130f, 0.184f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.036f, 0.068f, 0.230f}, Color{44, 232, 255, 255}, 0.08f, 0.3f, 2.2f, MatKind::EmissiveGlow);
+            drawModelStyled(cubeModel_, {0.120f, 0.184f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.028f, 0.062f, 0.224f}, Color{44, 232, 255, 255}, 0.08f, 0.3f, 2.2f, MatKind::EmissiveGlow);
         } else {
-            drawModelStyled(cubeModel_, {0.128f, 0.182f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.03f, 0.058f, 0.216f}, Color{16, 20, 28, 255},
+            // Wayfarer dark shades seated cleanly on bridge + thin ear arms
+            drawModelStyled(cubeModel_, {0.116f, 0.182f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.022f, 0.052f, 0.212f}, Color{16, 20, 28, 255},
                             0.12f, 0.45f, 0.0f, MatKind::CarGlass);
+            for (int s = -1; s <= 1; s += 2) {
+                drawModelStyled(cubeModel_, {0.052f, 0.186f, static_cast<float>(s) * 0.112f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {0.130f, 0.012f, 0.010f}, Color{18, 20, 26, 255}, 0.24f, 0.35f, 0.0f, MatKind::Standard);
+            }
         }
     }
     rlPopMatrix();
@@ -5579,30 +6435,30 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
     auto drawHangingSculptedArm = [&](int side, float elbowDeg, float shoulderDeg = 0.0f, int handPropMode = 0) {
         // Upper arm sleeve
         drawModelStyled(cylModel_, {0.0f, -0.22f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.068f, 0.22f, 0.068f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+                        {0.068f, 0.22f, 0.068f}, topC, topRough, topMetal, 0.0f, clothMat);
         // Articulated elbow joint + lower forearm sleeve + cuff + wristwatch + sculpted hand
         rlPushMatrix();
         rlTranslatef(0.0f, -0.22f, 0.0f);
         drawModelStyled(sphereModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.064f, 0.062f, 0.064f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+                        {0.064f, 0.062f, 0.064f}, topC, topRough, topMetal, 0.0f, clothMat);
         rlRotatef(elbowDeg, 0.0f, 0.0f, 1.0f);
         drawModelStyled(cylModel_, {0.0f, -0.21f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {0.058f, 0.21f, 0.058f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
+                        {0.058f, 0.21f, 0.058f}, topC, topRough, topMetal, 0.0f, clothMat);
         if (!shadowPass) {
             drawModelStyled(cylModel_, {0.0f, -0.215f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.062f, 0.028f, 0.062f}, accC, 0.45f, 0.15f, 0.0f, MatKind::Standard);
+                            {0.062f, 0.028f, 0.062f}, accC, 0.52f, 0.08f, 0.0f, clothMat);
             if (side < 0) {
                 // Sleek metallic wristwatch on left wrist!
                 drawModelStyled(cylModel_, {0.0f, -0.236f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {0.056f, 0.022f, 0.056f}, Color{198, 206, 220, 255}, 0.18f, 0.90f, 0.0f, MatKind::Standard);
             }
             drawModelStyled(sphereModel_, {0.0f, -0.275f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.054f, 0.064f, 0.048f}, skinC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
+                            {0.054f, 0.064f, 0.048f}, skinC, 0.60f, 0.0f, 0.0f, MatKind::SkinOrganics);
         }
 
         // Held 3D NPC props anchored directly in the hand frame
         if (handPropMode == 1 && npcExtra != nullptr) {
-            // Colorful 3D Rain Umbrella (drawn in shadow pass too so canopy casts real shadows!)
+            // Grounded Fabric 3D Rain Umbrella (drawn in shadow pass too so canopy casts real shadows!)
             rlPushMatrix();
             rlTranslatef(0.0f, -0.275f, 0.0f);
             rlRotatef(-(shoulderDeg + elbowDeg), 0.0f, 0.0f, 1.0f);
@@ -5616,12 +6472,12 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                 drawModelStyled(cylModel_, {0.0f, 0.02f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {0.011f, 0.86f, 0.011f}, Color{196, 204, 218, 255}, 0.22f, 0.88f, 0.0f, MatKind::Standard);
             }
-            // Sculpted 16-panel nylon canopy cone + smooth crown dome + metallic ferrule tip
+            // Sculpted 16-panel woven nylon canopy cone + smooth crown dome + metallic ferrule tip
             drawModelStyled(coneModel_, {0.0f, 0.75f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.58f, 0.24f, 0.58f}, umbCol, 0.34f, 0.06f, 0.0f, MatKind::Standard);
+                            {0.58f, 0.24f, 0.58f}, umbCol, 0.48f, 0.04f, 0.0f, MatKind::FabricCloth);
             if (!shadowPass) {
                 drawModelStyled(sphereModel_, {0.0f, 0.90f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {0.26f, 0.075f, 0.26f}, umbCol, 0.32f, 0.08f, 0.0f, MatKind::Standard);
+                                {0.26f, 0.075f, 0.26f}, umbCol, 0.46f, 0.05f, 0.0f, MatKind::FabricCloth);
                 drawModelStyled(cylModel_, {0.0f, 0.95f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                                 {0.010f, 0.085f, 0.010f}, Color{212, 218, 230, 255}, 0.18f, 0.90f, 0.0f, MatKind::Standard);
             }
@@ -5632,7 +6488,7 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                             {0.016f, 0.132f, 0.068f}, Color{22, 26, 34, 255}, 0.24f, 0.76f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.010f, -0.285f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
                             {0.006f, 0.114f, 0.056f}, Color{156, 224, 255, 255},
-                            0.08f, 0.0f, npcNight ? 2.5f : 1.45f, MatKind::EmissiveGlow);
+                            0.08f, 0.0f, npcNight ? 2.1f : 1.15f, MatKind::EmissiveGlow);
         } else if (!shadowPass && handPropMode == 3) {
             // Espresso Leather Executive Briefcase with Brass Clasps
             drawModelStyled(cubeModel_, {0.0f, -0.335f, 0.015f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -5656,11 +6512,11 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                             {0.044f, 0.020f, 0.044f}, Color{34, 28, 24, 255}, 0.42f, 0.08f, 0.0f, MatKind::Standard);
             rlPopMatrix();
         } else if (!shadowPass && handPropMode == 5) {
-            // Boutique Paper Shopping Tote Bag
+            // Boutique Canvas Shopping Tote Bag
             drawModelStyled(cubeModel_, {0.0f, -0.34f, 0.02f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.10f, 0.05f, 0.022f}, Color{236, 232, 224, 255}, 0.70f, 0.0f, 0.0f, MatKind::Standard);
+                            {0.10f, 0.05f, 0.022f}, Color{236, 232, 224, 255}, 0.72f, 0.0f, 0.0f, MatKind::FabricCloth);
             drawModelStyled(cubeModel_, {0.0f, -0.495f, 0.03f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.27f, 0.28f, 0.13f}, accC, 0.66f, 0.04f, 0.0f, MatKind::Standard);
+                            {0.27f, 0.28f, 0.13f}, accC, 0.72f, 0.02f, 0.0f, MatKind::FabricCloth);
         } else if (!shadowPass && handPropMode == 6) {
             // Smartphone carried casually in hand while strolling
             drawModelStyled(cubeModel_, {0.02f, -0.295f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -5673,15 +6529,23 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
         rlPushMatrix();
         rlTranslatef(0.0f, 1.31f, static_cast<float>(side) * 0.258f);
         if (armed && side == 1 && alive) {
-            rlRotatef(aimPitch * kRadToDeg, 0.0f, 0.0f, 1.0f);
-            drawModelStyled(cylModel_, {0.02f, -0.04f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
-                            {0.068f, 0.41f, 0.068f}, topC, topRough, topMetal, 0.0f, MatKind::Standard);
-            if (!shadowPass) {
-                drawModelStyled(cylModel_, {0.40f, -0.04f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
-                                {0.072f, 0.032f, 0.072f}, accC, 0.45f, 0.15f, 0.0f, MatKind::Standard);
+            const bool activeAimPose = aimingOrFiring || (muzzleFlash > 0.0f);
+            if (activeAimPose) {
+                rlRotatef(aimPitch * kRadToDeg, 0.0f, 0.0f, 1.0f);
+            } else {
+                // Natural relaxed low-ready carry posture when strolling armed without aiming/firing!
+                const float walkBobDeg = std::sin(animPhase) * 4.5f;
+                rlRotatef(-36.0f + walkBobDeg, 0.0f, 0.0f, 1.0f);
+                rlRotatef(14.0f, 0.0f, 1.0f, 0.0f);
             }
-            drawModelStyled(sphereModel_, {0.46f, -0.04f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.058f, 0.054f, 0.052f}, skinC, 0.62f, 0.0f, 0.0f, MatKind::Standard);
+            drawModelStyled(cylModel_, {-0.01f, -0.02f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                            {0.066f, 0.43f, 0.066f}, topC, topRough, topMetal, 0.0f, clothMat);
+            if (!shadowPass) {
+                drawModelStyled(cylModel_, {0.39f, -0.02f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                                {0.070f, 0.032f, 0.070f}, accC, 0.52f, 0.08f, 0.0f, clothMat);
+            }
+            drawModelStyled(sphereModel_, {0.45f, -0.02f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.056f, 0.052f, 0.050f}, skinC, 0.60f, 0.0f, 0.0f, MatKind::SkinOrganics);
 
             const int wSkin = (customWep != nullptr) ? customWep->skinIndex : 0;
             const auto wFin = getWeaponFinishMaterial(weapon, wSkin);
@@ -5736,20 +6600,29 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
                 const bool heavyMg = (weapon == WeaponId::CombatMG);
                 const bool longGun = (weapon == WeaponId::AssaultRifle || weapon == WeaponId::Shotgun ||
                                       isAutoShot || isSniper || heavyMg);
+                const bool isHandgun = (!longGun && weapon != WeaponId::SMG);
                 const float gunLen = isSniper ? 0.96f
                                    : (heavyMg ? 0.78f
                                    : (longGun ? 0.66f
-                                   : (isRevolver ? 0.42f : (weapon == WeaponId::SMG ? 0.44f : 0.32f))));
-                const float gunCenterX = 0.55f + (isSniper ? 0.12f : 0.0f);
+                                   : (isRevolver ? 0.36f : (weapon == WeaponId::SMG ? 0.44f : 0.27f))));
+                const float gunCenterX = isHandgun ? 0.51f : (0.55f + (isSniper ? 0.12f : 0.0f));
                 const Color bodyTint = (wSkin > 0) ? wPrimCol : (isRevolver ? Color{210, 218, 230, 255} : Color{34, 38, 46, 255});
                 const float bodyRough = (wSkin > 0) ? wFin.roughness : (isRevolver ? 0.14f : 0.28f);
                 const float bodyMetal = (wSkin > 0) ? wFin.metallic  : (isRevolver ? 0.94f : 0.82f);
-                drawModelStyled(cubeModel_, {gunCenterX, 0.025f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                                {gunLen * 0.72f, heavyMg ? 0.115f : (isSniper ? 0.082f : 0.095f), 0.072f}, bodyTint,
+                const float bodyH = heavyMg ? 0.115f : (isHandgun ? 0.056f : (isSniper ? 0.080f : 0.088f));
+                const float bodyW = isHandgun ? 0.044f : 0.068f;
+                drawModelStyled(cubeModel_, {gunCenterX, isHandgun ? 0.022f : 0.025f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                                {gunLen * (isHandgun ? 0.82f : 0.72f), bodyH, bodyW}, bodyTint,
                                 bodyRough, bodyMetal, wFin.emissive, wMat);
+                // Angled grip cleanly seated in the character's hand for handguns
+                if (!shadowPass && isHandgun) {
+                    const Color gripCol = isRevolver ? Color{88, 52, 32, 255} : Color{24, 26, 30, 255};
+                    drawModelStyled(cubeModel_, {gunCenterX - gunLen * 0.22f, -0.036f, 0.0f}, {0.0f, 0.0f, 1.0f}, -16.0f,
+                                    {0.056f, 0.098f, 0.038f}, gripCol, 0.62f, 0.08f, 0.0f, MatKind::Standard);
+                }
                 // Machined round steel barrel extending cleanly forward + compact buttstock & top optic on long guns
-                drawModelStyled(cylModel_, {gunCenterX + gunLen * 0.20f, 0.036f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
-                                {0.020f, gunLen * 0.34f, 0.020f}, Color{46, 52, 62, 255},
+                drawModelStyled(cylModel_, {gunCenterX + gunLen * 0.20f, isHandgun ? 0.028f : 0.036f, 0.0f}, {0.0f, 0.0f, 1.0f}, -90.0f,
+                                {isHandgun ? 0.015f : 0.020f, gunLen * 0.34f, isHandgun ? 0.015f : 0.020f}, Color{46, 52, 62, 255},
                                 0.24f, 0.88f, 0.0f, MatKind::Standard);
                 if (!shadowPass && longGun) {
                     drawModelStyled(cubeModel_, {gunCenterX - gunLen * 0.44f, 0.008f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
@@ -5861,8 +6734,10 @@ void Renderer3D::drawCharacter3D(const Vec2& pos, float groundY, float yaw, floa
 }
 
 void Renderer3D::drawPoisAndPickups(const GameWorld& world) {
-    const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 4.0f);
+    const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 3.2f);
+    const bool night = world.isNightTime();
 
+    // Sleek Low-Profile Open-Center Architectural Ground Rings (pavement visible cleanly inside!)
     for (const auto& poi : world.city().pois()) {
         if (world.mission().kind != ActiveMissionKind::None &&
             (poi.kind == PoiKind::MissionDelivery ||
@@ -5870,45 +6745,69 @@ void Renderer3D::drawPoisAndPickups(const GameWorld& world) {
              poi.kind == PoiKind::MissionGangRaid)) {
             continue;
         }
-        Color c = toRayColor(poi.markerColor);
-        c.a = static_cast<unsigned char>(95 + pulse * 68.0f);
-        drawModelStyled(cylModel_, {poi.pos.x, 0.08f, poi.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {poi.radius * 0.72f, 2.15f, poi.radius * 0.72f}, c,
-                        0.1f, 0.0f, 1.8f, MatKind::EmissiveGlow);
-        DrawCylinderWires({poi.pos.x, 0.09f, poi.pos.z}, poi.radius * 0.74f, poi.radius * 0.74f, 2.2f, 22,
-                          toRayColor(poi.markerColor));
+        const float surfY = world.surfaceHeightAt(poi.pos);
+        const float outerR = std::clamp(poi.radius * 0.56f, 1.35f, 2.35f);
+        const Color c = toRayColor(poi.markerColor);
+        const Color ringCol{c.r, c.g, c.b, static_cast<unsigned char>(165.0f + pulse * 55.0f)};
+        // Grounded dark bronze/charcoal bezel ring + subtle open LED guide ring
+        drawModelStyled(ringModel_, {poi.pos.x, surfY + 0.008f, poi.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {outerR + 0.14f, 0.026f, outerR + 0.14f}, Color{24, 28, 34, 210},
+                        0.42f, 0.60f, 0.0f, MatKind::Standard);
+        drawModelStyled(ringModel_, {poi.pos.x, surfY + 0.018f, poi.pos.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {outerR, 0.032f, outerR}, ringCol,
+                        0.22f, 0.12f, night ? (0.95f + 0.30f * pulse) : (0.42f + 0.20f * pulse),
+                        MatKind::EmissiveGlow);
     }
 
     if (world.mission().kind != ActiveMissionKind::None) {
         const Vec2 mp = world.mission().currentObjectivePos;
-        const float r = std::max(2.6f, world.mission().objectiveRadius * 0.65f);
-        drawModelStyled(cylModel_, {mp.x, 0.06f, mp.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                        {r, 6.8f, r}, Color{255, 218, 56, 92},
-                        0.1f, 0.0f, 2.1f, MatKind::EmissiveGlow);
-        DrawCylinderWires({mp.x, 0.07f, mp.z}, r, r, 6.8f, 24, Color{255, 228, 82, 235});
+        const float surfY = world.surfaceHeightAt(mp);
+        const float r = std::clamp(world.mission().objectiveRadius * 0.62f, 2.2f, 4.2f);
+        // Clean open golden perimeter ring + soft translucent vertical beacon
+        drawModelStyled(ringModel_, {mp.x, surfY + 0.018f, mp.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {r, 0.055f, r}, Color{246, 206, 66, 220},
+                        0.18f, 0.12f, 1.25f, MatKind::EmissiveGlow);
+        drawModelStyled(ringModel_, {mp.x, surfY + 0.06f, mp.z}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                        {r * 0.94f, 4.8f, r * 0.94f}, Color{255, 218, 72, 34},
+                        0.15f, 0.0f, 1.05f, MatKind::EmissiveGlow);
     }
 
     for (const auto& pk : world.pickups()) {
         if (pk.collected) continue;
-        const float y = 0.62f + 0.18f * std::sin(pk.bobPhase);
+        const float surfY = world.surfaceHeightAt(pk.pos);
+        const float y = surfY + 0.42f + 0.10f * std::sin(pk.bobPhase);
         rlPushMatrix();
         rlTranslatef(pk.pos.x, y, pk.pos.z);
-        rlRotatef(pk.bobPhase * kRadToDeg, 0.0f, 1.0f, 0.0f);
+        rlRotatef(pk.bobPhase * kRadToDeg * 0.75f, 0.0f, 1.0f, 0.0f);
         if (pk.kind == PickupKind::CashBundle) {
             drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.56f, 0.24f, 0.36f}, Color{72, 232, 98, 255},
-                            0.25f, 0.1f, 1.2f, MatKind::EmissiveGlow);
+                            {0.46f, 0.18f, 0.28f}, Color{78, 134, 86, 255},
+                            0.68f, 0.05f, night ? 0.42f : 0.0f,
+                            night ? MatKind::EmissiveGlow : MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.10f, 0.19f, 0.29f}, Color{216, 186, 112, 255},
+                            0.55f, 0.15f, 0.0f, MatKind::Standard);
         } else if (pk.kind == PickupKind::HealthKit) {
             drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.52f, 0.42f, 0.52f}, Color{245, 245, 248, 255},
-                            0.35f, 0.1f, 0.4f, MatKind::Standard);
+                            {0.46f, 0.34f, 0.46f}, Color{236, 238, 242, 255},
+                            0.36f, 0.12f, 0.0f, MatKind::Standard);
             drawModelStyled(cubeModel_, {0.0f, 0.02f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.55f, 0.14f, 0.18f}, Color{245, 48, 48, 255},
-                            0.2f, 0.0f, 1.6f, MatKind::EmissiveGlow);
+                            {0.48f, 0.11f, 0.16f}, Color{212, 42, 42, 255},
+                            0.28f, 0.08f, night ? 0.55f : 0.0f,
+                            night ? MatKind::EmissiveGlow : MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.0f, 0.02f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.16f, 0.11f, 0.48f}, Color{212, 42, 42, 255},
+                            0.28f, 0.08f, night ? 0.55f : 0.0f,
+                            night ? MatKind::EmissiveGlow : MatKind::Standard);
         } else {
+            // Executive leather/brass briefcase pickup
             drawModelStyled(cubeModel_, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
-                            {0.74f, 0.52f, 0.26f}, Color{255, 206, 54, 255},
-                            0.22f, 0.75f, 1.5f, MatKind::EmissiveGlow);
+                            {0.64f, 0.44f, 0.20f}, Color{54, 38, 26, 255},
+                            0.42f, 0.18f, 0.0f, MatKind::Standard);
+            drawModelStyled(cubeModel_, {0.0f, 0.14f, 0.0f}, {0.0f, 1.0f, 0.0f}, 0.0f,
+                            {0.66f, 0.05f, 0.21f}, Color{216, 178, 72, 255},
+                            0.20f, 0.90f, night ? 0.45f : 0.0f,
+                            night ? MatKind::EmissiveGlow : MatKind::Standard);
         }
         rlPopMatrix();
     }

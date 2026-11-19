@@ -21,6 +21,7 @@ public:
     void playEvents(const std::vector<AudioEvent>& events);
     void updateVehicleLoops(bool driving, float speedRatio, bool drifting, bool nitro);
     void updatePoliceSiren(float proximityIntensity);
+    void updateWeatherAmbience(bool raining);
 
 private:
     Sound buildNoiseBurst(float durationSec, float decayPower, float lowpassAlpha, float pitchScale);
@@ -28,12 +29,14 @@ private:
     Sound buildDualHorn(float f1, float f2, float durationSec);
     Sound buildContinuousLoop(bool screechMode);
     Sound buildPoliceSirenLoop();
+    Sound buildRainAmbienceLoop();
 
     bool ready_ = false;
     std::unordered_map<int, Sound> sounds_;
     Sound engineLoop_{};
     Sound driftLoop_{};
     Sound sirenLoop_{};
+    Sound rainLoop_{};
     bool hasLoops_ = false;
 };
 

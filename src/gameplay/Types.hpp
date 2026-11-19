@@ -387,6 +387,7 @@ struct PlayerState {
     float minigunSpin = 0.0f;      // Accumulated 6-barrel gatling rotation radians
     float minigunSpinSpeed = 0.0f; // Live barrel spin velocity (rad/s)
     float aimPitch = 0.0f;
+    bool aiming = false;
     float hitMarkerTimer = 0.0f;
     bool hitMarkerCritical = false;
     bool crosshairOnTarget = false;

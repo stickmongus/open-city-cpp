@@ -1,5 +1,4 @@
 #include "ui/HudRenderer.hpp"
-#include "render/GeneratedRealisticAssets.hpp"
 #if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
 #include "ui/AndroidKoreanGlyphs.hpp"
 #endif
@@ -801,43 +800,96 @@ void HudRenderer::drawRadarMinimap(const GameWorld& world, float cameraYaw, int 
         return {cx + rx, cy + ry};
     };
 
-    // Outer dark bezel + radar disc
-    DrawCircleV({cx, cy}, radius + 5.0f, Color{12, 16, 22, 230});
-    DrawCircleV({cx, cy}, radius, Color{24, 34, 46, 228});
+    // Outer dark bezel + sleek dark-glass radar disc
+    DrawCircleV({cx, cy}, radius + 5.0f, Color{10, 13, 18, 232});
+    DrawCircleV({cx, cy}, radius, Color{18, 25, 34, 224});
 
-    // Western Sunset Beach sand & Sunset Bay Pier markers on radar
-    for (float sz = -320.0f; sz <= 320.0f; sz += 24.0f) {
-        const Vector2 ps = projectToRadar({-348.0f, sz}, false);
-        if (ps.x > -1000.0f) {
-            DrawCircleV(ps, 5.5f, Color{198, 178, 126, 155});
+    // Western Sunset Beach sand (-746..-686) & 110m Timber Pier (-686..-796) on radar
+    const float minBeachZ = std::max(-672.0f, centerWorld.z - worldRange - 24.0f);
+    const float maxBeachZ = std::min( 672.0f, centerWorld.z + worldRange + 24.0f);
+    if (centerWorld.x < -510.0f) {
+        for (float sz = std::floor(minBeachZ / 24.0f) * 24.0f; sz <= maxBeachZ; sz += 24.0f) {
+            const Vector2 ps = projectToRadar({-714.0f, sz}, false);
+            if (ps.x > -1000.0f) {
+                DrawCircleV(ps, 6.2f, Color{196, 178, 132, 150});
+            }
+        }
+        for (float px = -688.0f; px >= -796.0f; px -= 12.0f) {
+            const Vector2 pp = projectToRadar({px, 0.0f}, false);
+            if (pp.x > -1000.0f) {
+                DrawCircleV(pp, 3.2f, Color{162, 124, 84, 215});
+            }
         }
     }
-    for (float px = -345.0f; px >= -420.0f; px -= 15.0f) {
-        const Vector2 pp = projectToRadar({px, 0.0f}, false);
-        if (pp.x > -1000.0f) {
-            DrawCircleV(pp, 3.2f, Color{168, 128, 86, 215});
+
+    // Grand Central Park reflective lake & North Bay Lighthouse Peninsula headland on radar
+    for (const auto& lk : world.city().lakes()) {
+        const Vec2 lc = lk.bounds.center();
+        if ((lc - centerWorld).lengthSq() < (worldRange + 48.0f) * (worldRange + 48.0f)) {
+            const Vector2 plk = projectToRadar(lc, false);
+            if (plk.x > -1000.0f) {
+                const float lw = std::max(6.0f, lk.bounds.halfExtents().x * 2.0f * scale);
+                const float lh = std::max(6.0f, lk.bounds.halfExtents().z * 2.0f * scale);
+                DrawRectanglePro({plk.x, plk.y, lw, lh}, {lw * 0.5f, lh * 0.5f},
+                                 -cameraYaw * kRadToDeg, Color{42, 92, 128, 215});
+            }
+        }
+    }
+    if (centerWorld.z > 510.0f) {
+        // Golden Bay Suspension Bridge deck & North Bay Peninsula coastal loop
+        for (float bz = CityMap::kBridgeStartZ; bz <= CityMap::kBridgeEndZ + 96.0f; bz += 14.0f) {
+            const Vector2 pb = projectToRadar({0.0f, bz}, false);
+            if (pb.x > -1000.0f) {
+                const bool onSpan = (bz <= CityMap::kBridgeEndZ);
+                DrawCircleV(pb, onSpan ? 3.0f : 2.6f,
+                            onSpan ? Color{196, 98, 72, 225} : Color{96, 108, 122, 200});
+            }
+        }
+        const Vector2 pHead = projectToRadar({0.0f, 886.0f}, false);
+        if (pHead.x > -1000.0f) {
+            DrawCircleV(pHead, 26.0f * scale * 2.4f, Color{54, 78, 56, 110});
+        }
+        const Vector2 pLight = projectToRadar({0.0f, 924.0f}, false);
+        if (pLight.x > -1000.0f) {
+            DrawCircleV(pLight, 4.2f, Color{242, 228, 172, 240});
         }
     }
 
-    // Nearby buildings on radar
-    for (const auto& b : world.city().buildings()) {
+    // Nearby buildings on radar (O(1) spatial grid query across 16x16 metropolis!)
+    std::vector<int> radarBldgs;
+    world.city().queryBuildingsInRadius(centerWorld, worldRange + 32.0f, radarBldgs);
+    const auto& allBldgs = world.city().buildings();
+    for (int idx : radarBldgs) {
+        const auto& b = allBldgs[static_cast<std::size_t>(idx)];
         const Vec2 bc = b.footprint.center();
         if ((bc - centerWorld).lengthSq() > (worldRange + 28.0f) * (worldRange + 28.0f)) continue;
         const Vector2 p = projectToRadar(bc, false);
         if (p.x < -1000.0f) continue;
-        const float bw = std::max(3.0f, b.footprint.halfExtents().x * scale * 1.4f);
-        DrawRectanglePro({p.x, p.y, bw, bw}, {bw * 0.5f, bw * 0.5f},
-                         -cameraYaw * kRadToDeg, Color{58, 70, 86, 210});
+        const float bw = std::max(3.0f, b.footprint.halfExtents().x * scale * 1.45f);
+        const float bh = std::max(3.0f, b.footprint.halfExtents().z * scale * 1.45f);
+        DrawRectanglePro({p.x, p.y, bw, bh}, {bw * 0.5f, bh * 0.5f},
+                         -cameraYaw * kRadToDeg, Color{54, 66, 82, 205});
     }
 
-    // Road grid lines clipped inside radar disc
+    // Road grid lines clipped locally around player inside 16x16 metropolis
+    const float gridSpan = world.city().roadCoord(CityMap::kRoadCount - 1);
+    const float zLo = std::max(-gridSpan, std::floor((centerWorld.z - worldRange) / 16.0f) * 16.0f);
+    const float zHi = std::min( gridSpan, centerWorld.z + worldRange);
+    const float xLo = std::max(-gridSpan, std::floor((centerWorld.x - worldRange) / 16.0f) * 16.0f);
+    const float xHi = std::min( gridSpan, centerWorld.x + worldRange);
     for (int i = 0; i < CityMap::kRoadCount; ++i) {
         const float rc = world.city().roadCoord(i);
-        for (float s = -320.0f; s <= 320.0f; s += 16.0f) {
-            const Vector2 pv = projectToRadar({rc, s}, false);
-            if (pv.x > -1000.0f) DrawCircleV(pv, 2.3f, Color{88, 98, 112, 190});
-            const Vector2 ph = projectToRadar({s, rc}, false);
-            if (ph.x > -1000.0f) DrawCircleV(ph, 2.3f, Color{88, 98, 112, 190});
+        if (std::abs(rc - centerWorld.x) <= worldRange + 16.0f) {
+            for (float s = zLo; s <= zHi; s += 16.0f) {
+                const Vector2 pv = projectToRadar({rc, s}, false);
+                if (pv.x > -1000.0f) DrawCircleV(pv, 2.3f, Color{88, 98, 112, 190});
+            }
+        }
+        if (std::abs(rc - centerWorld.z) <= worldRange + 16.0f) {
+            for (float s = xLo; s <= xHi; s += 16.0f) {
+                const Vector2 ph = projectToRadar({s, rc}, false);
+                if (ph.x > -1000.0f) DrawCircleV(ph, 2.3f, Color{88, 98, 112, 190});
+            }
         }
     }
 
@@ -887,15 +939,6 @@ void HudRenderer::drawRadarMinimap(const GameWorld& world, float cameraYaw, int 
                 DrawCircleV(pn, 4.3f, Color{10, 14, 20, 255});
                 DrawCircleV(pn, 3.1f, cCol);
             }
-        }
-    }
-
-    // Stunt Jump Ramps (6 engineered ramps across city & Sunset Pier)
-    for (const auto& ramp : generated::kCityStuntRamps) {
-        const Vector2 pr = projectToRadar({ramp.centerX, ramp.centerZ}, false);
-        if (pr.x > -1000.0f) {
-            DrawRectanglePro({pr.x, pr.y, 7.0f, 7.0f}, {3.5f, 3.5f}, 45.0f, Color{14, 16, 22, 245});
-            DrawRectanglePro({pr.x, pr.y, 4.8f, 4.8f}, {2.4f, 2.4f}, 45.0f, Color{255, 138, 36, 255});
         }
     }
 
@@ -952,14 +995,14 @@ void HudRenderer::drawRadarMinimap(const GameWorld& world, float cameraYaw, int 
     const float barY = cy + radius + (mobileUi_ ? 10.0f : 12.0f);
     const float leftX = cx - radius;
 
-    DrawRectangleRounded({leftX, barY, barW, 11.0f}, 0.35f, 4, Color{22, 28, 34, 225});
+    DrawRectangleRounded({leftX, barY, barW, 11.0f}, 0.35f, 4, Color{14, 18, 24, 215});
     const float hpFrac = clampf(world.player().health / world.player().maxHealth, 0.0f, 1.0f);
     if (hpFrac > 0.0f) {
         DrawRectangleRounded({leftX + 1.5f, barY + 1.5f, (barW - 3.0f) * hpFrac, 8.0f}, 0.35f, 4, Color{72, 222, 106, 255});
     }
 
     const float armorX = leftX + barW + 6.0f;
-    DrawRectangleRounded({armorX, barY, barW, 11.0f}, 0.35f, 4, Color{22, 28, 34, 225});
+    DrawRectangleRounded({armorX, barY, barW, 11.0f}, 0.35f, 4, Color{14, 18, 24, 215});
     const float arFrac = clampf(world.player().armor / world.player().maxArmor, 0.0f, 1.0f);
     if (arFrac > 0.0f) {
         DrawRectangleRounded({armorX + 1.5f, barY + 1.5f, (barW - 3.0f) * arFrac, 8.0f}, 0.35f, 4, Color{68, 178, 255, 255});
@@ -975,15 +1018,20 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
     const Vec2 pPos = (world.playerVehicle() != nullptr) ? world.playerVehicle()->pos : world.player().pos;
 
     const char* distName = "MIDTOWN";
-    if (pPos.x < -332.0f) {
+    if (pPos.x < -682.0f) {
         distName = pickText("SUNSET OCEAN PIER", "선셋 오션 비치·피어");
+    } else if (world.city().isOnNorthBridge(pPos, 2.5f)) {
+        distName = pickText("GOLDEN BAY BRIDGE", "골든 베이 현수교");
     } else {
         switch (world.city().districtAtWorld(pPos)) {
             case DistrictType::Downtown:           distName = pickText("DOWNTOWN", "다운타운 금융가"); break;
             case DistrictType::Midtown:            distName = pickText("MIDTOWN", "미드타운 상업지구"); break;
             case DistrictType::Industrial:         distName = pickText("HARBOR DOCKS", "항구 공업단지"); break;
             case DistrictType::CoastalResidential: distName = pickText("SUNSET BEACH", "선셋 해변지구"); break;
-            case DistrictType::CentralPark:        distName = pickText("CENTRAL PARK", "센트럴 파크"); break;
+            case DistrictType::CentralPark:        distName = pickText("CENTRAL PARK", "그랜드 센트럴 파크"); break;
+            case DistrictType::CivicCenter:        distName = pickText("CIVIC CENTER", "시청·행정타운"); break;
+            case DistrictType::SuburbanEstates:    distName = pickText("HILLCREST VILLAS", "힐크레스트 빌라지구"); break;
+            case DistrictType::NorthPeninsula:     distName = pickText("LIGHTHOUSE POINT", "북부 등대 반도"); break;
         }
     }
 
@@ -1025,7 +1073,7 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
                           world.passiveIncomePerCycle(), propCount);
         } else {
             std::snprintf(assetBuf, sizeof(assetBuf), "%s",
-                          pickText("OPEN CITY v1.2.0 MOBILE", "오픈 시티 v1.2.0 모바일"));
+                          pickText("OPEN CITY v1.3.0 MOBILE", "오픈 시티 v1.3.0 모바일"));
         }
     } else if (propCount > 0) {
         std::snprintf(assetBuf, sizeof(assetBuf),
@@ -1051,7 +1099,7 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
         const float boxY = 100.0f;
         const bool redBeat = (std::fmod(GetTime() * 4.2, 1.0) < 0.5);
 
-        DrawRectangleRounded({boxX, boxY, boxW, boxH}, 0.22f, 6, Color{12, 17, 26, 228});
+        DrawRectangleRounded({boxX, boxY, boxW, boxH}, 0.22f, 6, Color{10, 13, 18, 206});
         const Color borderCol = pl.policeLineOfSight
                                     ? (redBeat ? Color{255, 64, 74, 230} : Color{56, 148, 255, 230})
                                     : Color{118, 206, 255, 185};
@@ -1100,13 +1148,13 @@ void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool f
         weaponCardY = boxY + boxH + 8.0f;
     }
 
-    // Equipped weapon & ammo card (with HUD theme accent + Gunsmith attachment badges)
+    // Equipped weapon & ammo card (AAA frosted dark glass + HUD theme accent)
     const auto& wspec = getWeaponSpec(pl.currentWeapon);
     const auto& wslot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
 
-    DrawRectangleRounded({rightEdge - 264.0f, weaponCardY, 264.0f, 54.0f}, 0.22f, 6, Color{14, 20, 28, 218});
+    DrawRectangleRounded({rightEdge - 264.0f, weaponCardY, 264.0f, 54.0f}, 0.22f, 6, Color{10, 13, 18, 198});
     DrawRectangleRoundedLinesEx({rightEdge - 264.0f, weaponCardY, 264.0f, 54.0f},
-                                0.22f, 6, 1.2f, toRayColor(themeRgba, 135));
+                                0.22f, 6, 1.1f, toRayColor(themeRgba, 118));
     char wTitleBuf[96];
     std::snprintf(wTitleBuf, sizeof(wTitleBuf), "[%d/%d] %s",
                   static_cast<int>(pl.currentWeapon) + 1,
@@ -1154,8 +1202,8 @@ void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, i
                          ? (static_cast<float>(screenH) - 148.0f)
                          : (static_cast<float>(screenH) - 164.0f);
 
-    DrawRectangleRounded({rx, ry, 234.0f, 138.0f}, 0.18f, 8, Color{14, 18, 26, 224});
-    DrawRectangleRoundedLinesEx({rx, ry, 234.0f, 138.0f}, 0.18f, 8, 1.2f, toRayColor(themeRgba, 128));
+    DrawRectangleRounded({rx, ry, 234.0f, 138.0f}, 0.18f, 8, Color{10, 13, 18, 202});
+    DrawRectangleRoundedLinesEx({rx, ry, 234.0f, 138.0f}, 0.18f, 8, 1.1f, toRayColor(themeRgba, 118));
 
     const char* vName = pickText(spec.nameEn, spec.nameKo);
     drawUiText(vName, rx + 14.0f, ry + 8.0f, 17.0f,
@@ -2509,13 +2557,13 @@ void HudRenderer::drawHelpOverlay(const GameWorld& world, int screenW, int scree
         return;
     }
 
-    DrawRectangleRounded({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, Color{10, 15, 24, 198});
-    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, 1.2f, toRayColor(themeRgba, 125));
-    drawUiText(pickText("OPEN CITY C++ + RUST v1.2.0 - CONTROLS", "OPEN CITY C++ + RUST v1.2.0 - 조작 안내"),
+    DrawRectangleRounded({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, Color{10, 13, 18, 202});
+    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, 1.1f, toRayColor(themeRgba, 118));
+    drawUiText(pickText("OPEN CITY C++ + RUST v1.3.0 - CONTROLS", "OPEN CITY C++ + RUST v1.3.0 - 조작 안내"),
                30.0f, 24.0f, 18.5f, toRayColor(themeRgba, 255));
 
     const char* linesEn[11] = {
-        "WASD : Walk / Drive & Steer (16 Cars · 6-Speed · Stunt Jumps)",
+        "WASD : Walk / Drive & Steer (16 Cars · 6-Speed · Golden Bay Bridge)",
         "Mouse : 1:1 Aim (RMB Precision / Scope) & Shoot (LMB)",
         "V (or MMB) : Toggle 1st-Person / 3rd-Person View",
         "K : Custom Studio (Character / Gunsmith / Car / HUD)",
@@ -2528,7 +2576,7 @@ void HudRenderer::drawHelpOverlay(const GameWorld& world, int screenW, int scree
         "U : Rain/Wet Road | G : Siren | T : Time | F3 : GFX"
     };
     const char* linesKo[11] = {
-        "WASD : 이동 / 16종 차량 6단변속·스턴트점프 주행",
+        "WASD : 이동 / 16종 차량 6단변속 · 골든 베이 현수교 주행",
         "마우스 : 1:1 정밀조준 · 저격스코프(우클릭) · 사격(좌클릭)",
         "V (또는 휠클릭) : 1인칭(FPS·운전석) / 3인칭 시점 전환",
         "K : 커스텀 스튜디오 (캐릭터 · 총기 · 차량 · 조준선·HUD)",

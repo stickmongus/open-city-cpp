@@ -30,8 +30,7 @@ public:
     int ownedPropertyCount() const;
     float tuningDiscountScale() const;
 
-    // 3D Ground/Platform/Stunt-Ramp Height & SBPD Wanted System
-    float evaluateStuntRampHeight(const Vec2& pos, float* outSlopePitch = nullptr, const Vec2* travelDir = nullptr) const;
+    // 3D Ground, Coastal Pier & Golden Bay Suspension Bridge Elevation + SBPD Wanted System
     float surfaceHeightAt(const Vec2& pos) const;
     float computePlayerSupportHeight(const Vec2& pos, float currentY, Vec2* platformCarryVel = nullptr) const;
     void reportCrime(float heatDelta, int minStars, const Vec2& crimePos, bool directWitness = false);
@@ -67,9 +66,15 @@ public:
     bool isNightTime() const { return timeOfDayHours_ < 6.2f || timeOfDayHours_ >= 19.3f; }
     float daylightFactor() const;
     bool isRainWeather() const { return rainWeather_; }
-    void setRainWeather(bool rain) { rainWeather_ = rain; }
+    void setRainWeather(bool rain) {
+        rainWeather_ = rain;
+        for (auto& npc : npcs_) {
+            if (npc.role == NpcRole::Civilian) {
+                npc.holdingUmbrella = rainWeather_ && ((npc.id * 37) % 100) < 62;
+            }
+        }
+    }
     void toggleRainWeather();
-    int stuntJumpsCompleted() const { return stuntJumpsCompleted_; }
 
     // City-wide traffic & pedestrian signal phases (24s cycle)
     bool isTrafficGreenForHorizontal() const;
@@ -180,7 +185,6 @@ private:
     float policeSpawnCooldown_ = 0.0f;
     float panicScreamCooldown_ = 0.0f;
     bool rainWeather_ = false;
-    int stuntJumpsCompleted_ = 0;
 };
 
 } // namespace oc

@@ -46,7 +46,6 @@ int main(int argc, char** argv) {
     bool gunPresetDemo = false;
     bool carPresetDemo = false;
     bool wetRoadDemo = false;
-    bool stuntShotDemo = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--smoke-test") == 0) {
@@ -78,8 +77,6 @@ int main(int argc, char** argv) {
             carPresetDemo = true;
         } else if (std::strcmp(argv[i], "--wet-road") == 0) {
             wetRoadDemo = true;
-        } else if (std::strcmp(argv[i], "--stunt-shot") == 0) {
-            stuntShotDemo = true;
         } else if (std::strcmp(argv[i], "--open-shop") == 0) {
             openShopOverride = true;
         } else if (std::strcmp(argv[i], "--cash") == 0 && i + 1 < argc) {
@@ -113,10 +110,10 @@ int main(int argc, char** argv) {
 
 #if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
     SetConfigFlags(FLAG_VSYNC_HINT);
-    InitWindow(0, 0, "Open City v1.2.0");
+    InitWindow(0, 0, "Open City v1.3.0");
 #else
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1440, 860, "Open City C++ + Rust v1.2.0 - 3D Open-World Sandbox");
+    InitWindow(1440, 860, "Open City C++ + Rust v1.3.0 - 3D Open-World Metropolis");
 #endif
     SetExitKey(KEY_NULL); // Keep ESC / Android Back free for closing modals instead of instant quit
     SetTargetFPS(60);
@@ -136,7 +133,7 @@ int main(int argc, char** argv) {
         world.pushBanner("WELCOME TO SUNSET BAY", "선셋 베이 시티에 오신 것을 환영합니다",
                          "Left Stick Move  |  Drag Right to Aim  |  Top Bar: 1P / Custom / Phone / Rain",
                          "좌측 스틱 이동 · 우측 드래그 조준 · 상단 바 1·3인칭 / 커스텀 / 폰 / 날씨",
-                         {92, 224, 255, 255}, 4.8f);
+                         {118, 192, 232, 255}, 4.8f);
     }
 
     if (wetRoadDemo) {
@@ -217,16 +214,6 @@ int main(int argc, char** argv) {
             }
             const oc::Vec2 cfwd = oc::forwardFromHeading(chosenCar->heading);
             chosenCar->velocity = cfwd * (smokeTestMode ? 18.5f : 0.0f);
-            if (stuntShotDemo) {
-                chosenCar->posY = 3.25f;
-                chosenCar->velY = 4.6f;
-                chosenCar->airborne = true;
-                chosenCar->bodyPitch = 0.24f;
-                chosenCar->nitroActive = true;
-                chosenCar->currentGear = 5;
-                chosenCar->engineRpm = 7450.0f;
-                chosenCar->velocity = cfwd * 32.0f;
-            }
 
             world.player().drivingVehicleId = chosenCar->id;
             world.player().pos = chosenCar->pos;
@@ -256,9 +243,9 @@ int main(int argc, char** argv) {
             bool siren;
         };
         const ShowcaseEntry entries[6] = {
-            {oc::VehicleKind::TrackPrototype,  9.2f, -3.1f,  0.52f, {34, 42, 54, 255},    false, true,  1, false},
+            {oc::VehicleKind::TrackPrototype,  9.2f, -3.1f,  0.52f, {34, 42, 54, 255},    false, true,  0, false},
             {oc::VehicleKind::ClassicRoadster, 9.6f,  3.2f, -0.54f, {214, 28, 36, 255},   false, false, 0, false},
-            {oc::VehicleKind::JdmTuner,       15.0f, -5.6f,  0.46f, {24, 98, 228, 255},   false, true,  2, false},
+            {oc::VehicleKind::JdmTuner,       15.0f, -5.6f,  0.46f, {24, 98, 228, 255},   false, true,  0, false},
             {oc::VehicleKind::OffroadPickup,  15.6f,  5.6f, -0.44f, {226, 128, 34, 255},  false, false, 0, false},
             {oc::VehicleKind::Ambulance,      22.2f, -3.4f,  0.34f, {246, 248, 252, 255}, false, false, 0, true},
             {oc::VehicleKind::FireTruck,      23.5f,  4.2f, -0.36f, {206, 26, 28, 255},   false, false, 0, true},
@@ -550,6 +537,7 @@ int main(int argc, char** argv) {
             touch.resetState();
             audio.updateVehicleLoops(false, 0.0f, false, false);
             audio.updatePoliceSiren(0.0f);
+            audio.updateWeatherAmbience(false);
             BeginDrawing();
             ClearBackground(BLACK);
             EndDrawing();
@@ -880,9 +868,9 @@ int main(int argc, char** argv) {
         input.aimRayDir = preViewDir;
 
         // Step simulation BEFORE evaluating final camera pose so 1st-person cockpit/eye has ZERO 1-frame position lag!
-        if (!(smokeTestMode && (jumpPanicDemo || fleetShowcaseDemo || stuntShotDemo))) {
+        if (!(smokeTestMode && (jumpPanicDemo || fleetShowcaseDemo))) {
             world.update(frameDt, input);
-        } else if (smokeTestMode && (fleetShowcaseDemo || stuntShotDemo)) {
+        } else if (smokeTestMode && fleetShowcaseDemo) {
             // Still update siren strobe phases for emergency showcase vehicles
             for (auto& v : world.vehicles()) {
                 if (v.sirenActive) {
@@ -1109,7 +1097,7 @@ int main(int argc, char** argv) {
 
         smoothedFov = oc::lerpf(smoothedFov, targetFov, std::min(1.0f, frameDt * 11.0f));
 
-        // Process synthesized audio events, vehicle engine/drift loops & distance-attenuated emergency sirens
+        // Process synthesized audio events, vehicle engine/drift loops, rain ambience & distance-attenuated sirens
         audio.playEvents(world.consumeAudioEvents());
         if (const oc::Vehicle* car = world.playerVehicle()) {
             const float speedRatio = oc::clampf(car->speed() / std::max(1.0f, oc::getVehicleSpec(car->kind).maxForwardSpeed), 0.0f, 1.0f);
@@ -1132,6 +1120,7 @@ int main(int argc, char** argv) {
                                          ? std::pow(oc::clampf(1.0f - closestSirenDist / 135.0f, 0.0f, 1.0f), 0.72f)
                                          : 0.0f;
         audio.updatePoliceSiren(sirenIntensity);
+        audio.updateWeatherAmbience(world.isRainWeather());
 
         const oc::Vec3 camTarget = finalCamPos + viewDir * 35.0f;
 

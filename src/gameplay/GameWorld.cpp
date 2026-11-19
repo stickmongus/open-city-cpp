@@ -44,7 +44,7 @@ constexpr std::array<WeaponSpec, static_cast<std::size_t>(WeaponId::Count)> kWea
 }};
 
 constexpr std::array<PropertySpec, static_cast<std::size_t>(PropertyId::Count)> kPropertySpecs = {{
-    {PropertyId::SunsetCondo,      "Sunset Beach Condo",   "선셋 비치 오션뷰 콘도",   "Max HP +25",        "최대 체력 +25",           2500,  220, {-280.0f, -120.0f}},
+    {PropertyId::SunsetCondo,      "Sunset Beach Condo",   "선셋 비치 오션뷰 콘도",   "Max HP +25",        "최대 체력 +25",           2500,  220, {-620.0f, -120.0f}},
     {PropertyId::GlobeOilGas,      "Globe Oil Station",    "글로브 오일 주유소",      "2x Nitro Regen",    "니트로 충전속도 2배",      5000,  480, {-126.0f,   26.5f}},
     {PropertyId::PayNTuneFranchise,"Pay 'n' Tune Customs", "페이 앤 튠 튜닝 본점",    "50% Off Tuning",    "차고 튜닝·수리 50% 할인",  8500,  850, { -28.5f,   19.0f}},
     {PropertyId::PulseNightclub,   "Pulse Neon Nightclub", "펄스 네온 나이트클럽",    "+25% Mission Cash", "미션 보상금 +25% 보너스", 15000, 1550, {  28.0f, -153.0f}},
@@ -53,12 +53,12 @@ constexpr std::array<PropertySpec, static_cast<std::size_t>(PropertyId::Count)> 
 }};
 
 constexpr std::array<OutfitSpec, static_cast<std::size_t>(OutfitId::Count)> kOutfitSpecs = {{
-    {OutfitId::StreetCasual,   "Street Jacket",    "스트리트 캐주얼 재킷",   0, { 48, 126, 225, 255}, { 36,  40,  52, 255}, {236, 240, 248, 255}, true,  false, false, false, 1.00f},
-    {OutfitId::ViceWhiteSuit,  "Vice White Suit",  "바이스 화이트 수트",   800, {238, 240, 245, 255}, {225, 228, 236, 255}, { 46, 198, 238, 255}, true,  true,  false, false, 0.96f},
-    {OutfitId::MidnightTuxedo, "Executive Tuxedo", "다운타운 블랙 턱시도",1500, { 24,  26,  34, 255}, { 20,  22,  28, 255}, {218,  44,  58, 255}, true,  true,  false, false, 0.92f},
-    {OutfitId::RacerLeather,   "Carbon Racer",     "레이서 레더 재킷",    1200, {208,  38,  46, 255}, { 26,  28,  34, 255}, {245, 204,  56, 255}, true,  false, false, false, 0.94f},
-    {OutfitId::TacOpsArmor,    "Spec-Ops Tactical","특수부대 전술 방탄복",2400, { 54,  64,  56, 255}, { 34,  38,  36, 255}, {198, 174, 108, 255}, true,  false, true,  false, 0.82f},
-    {OutfitId::GoldBossCoat,   "VIP Boss Coat",    "VIP 골드 보스 코트",  5000, { 34,  28,  44, 255}, { 24,  22,  30, 255}, {248, 198,  58, 255}, true,  true,  false, true,  0.86f}
+    {OutfitId::StreetCasual,   "Street Jacket",    "스트리트 캐주얼 재킷",   0, { 44,  64,  92, 255}, { 34,  38,  48, 255}, {214, 218, 224, 255}, true,  false, false, false, 1.00f},
+    {OutfitId::ViceWhiteSuit,  "Vice White Suit",  "바이스 화이트 수트",   800, {226, 228, 232, 255}, {212, 214, 220, 255}, { 46, 158, 194, 255}, true,  true,  false, false, 0.96f},
+    {OutfitId::MidnightTuxedo, "Executive Tuxedo", "다운타운 블랙 턱시도",1500, { 24,  26,  32, 255}, { 20,  22,  28, 255}, {178,  44,  54, 255}, true,  true,  false, false, 0.92f},
+    {OutfitId::RacerLeather,   "Carbon Racer",     "레이서 레더 재킷",    1200, {168,  38,  44, 255}, { 26,  28,  34, 255}, {218, 178,  58, 255}, true,  false, false, false, 0.94f},
+    {OutfitId::TacOpsArmor,    "Spec-Ops Tactical","특수부대 전술 방탄복",2400, { 52,  60,  52, 255}, { 34,  38,  36, 255}, {176, 156, 102, 255}, true,  false, true,  false, 0.82f},
+    {OutfitId::GoldBossCoat,   "VIP Boss Coat",    "VIP 골드 보스 코트",  5000, { 34,  30,  40, 255}, { 24,  22,  28, 255}, {228, 182,  62, 255}, true,  true,  false, true,  0.86f}
 }};
 
 struct PaintPreset {
@@ -71,18 +71,18 @@ struct PaintPreset {
 };
 
 constexpr std::array<PaintPreset, 12> kCustomPaints = {{
-    {{232,  36,  64, 255}, {248, 248, 252, 255}, false, false, "Candy Crimson",   "캔디 크림슨 메탈릭"},
-    {{ 32, 138, 248, 255}, {245, 248, 255, 255}, false, false, "Sapphire Blue",   "사파이어 블루"},
-    {{ 28,  30,  36, 255}, {242, 192,  52, 255}, true,  false, "Stealth Matte",   "스텔스 매트 블랙"},
-    {{244, 246, 250, 255}, { 34,  38,  46, 255}, false, false, "Pearl White",     "펄 화이트"},
-    {{248, 188,  38, 255}, { 28,  30,  36, 255}, false, false, "Solar Gold",      "솔라 골드 메탈릭"},
-    {{ 28, 206, 132, 255}, {242, 248, 246, 255}, false, false, "Emerald GT",      "에메랄드 그린"},
-    {{148,  52, 242, 255}, { 72, 232, 255, 255}, false, false, "Ultraviolet",     "울트라바이올렛"},
-    {{ 64,  70,  78, 255}, {238,  72,  48, 255}, true,  false, "Titanium Satin",  "티타늄 새틴 그레이"},
-    {{226, 234, 244, 255}, { 34,  42,  54, 255}, false, true,  "Mirror Chrome",   "미러 실버 크롬"},
-    {{252, 204,  64, 255}, { 26,  28,  34, 255}, false, true,  "24K Gold Chrome", "24K 로얄 골드 크롬"},
-    {{ 26, 214, 246, 255}, {248, 252, 255, 255}, false, false, "Cyber Cyan",      "사이버 네온 시안"},
-    {{246,  66, 158, 255}, {248, 248, 252, 255}, false, false, "Vice Rose",       "바이스 로즈 메탈릭"}
+    {{184,  32,  44, 255}, {238, 240, 244, 255}, false, false, "Candy Crimson",   "캔디 크림슨 메탈릭"},
+    {{ 32,  92, 178, 255}, {236, 240, 246, 255}, false, false, "Sapphire Blue",   "사파이어 블루"},
+    {{ 28,  30,  36, 255}, {222, 176,  54, 255}, true,  false, "Stealth Matte",   "스텔스 매트 블랙"},
+    {{226, 228, 232, 255}, { 34,  38,  46, 255}, false, false, "Pearl White",     "펄 화이트"},
+    {{214, 162,  42, 255}, { 28,  30,  36, 255}, false, false, "Solar Gold",      "솔라 골드 메탈릭"},
+    {{ 28, 118,  78, 255}, {232, 236, 234, 255}, false, false, "Emerald GT",      "에메랄드 그린"},
+    {{ 98,  46, 158, 255}, { 72, 202, 224, 255}, false, false, "Ultraviolet",     "울트라바이올렛"},
+    {{ 64,  70,  78, 255}, {212,  68,  46, 255}, true,  false, "Titanium Satin",  "티타늄 새틴 그레이"},
+    {{212, 220, 230, 255}, { 34,  42,  54, 255}, false, true,  "Mirror Chrome",   "미러 실버 크롬"},
+    {{232, 188,  64, 255}, { 26,  28,  34, 255}, false, true,  "24K Gold Chrome", "24K 로얄 골드 크롬"},
+    {{ 34, 158, 192, 255}, {238, 242, 246, 255}, false, false, "Cyber Cyan",      "사이버 네온 시안"},
+    {{156,  42,  76, 255}, {236, 238, 242, 255}, false, false, "Vice Rose",       "바이스 로즈 메탈릭"}
 }};
 
 ColorRGBA randomTrafficPaint(Rng& rng, VehicleKind kind) {
@@ -90,45 +90,47 @@ ColorRGBA randomTrafficPaint(Rng& rng, VehicleKind kind) {
         return {20, 24, 32, 255};
     }
     if (kind == VehicleKind::Taxi) {
-        return {244, 196, 36, 255};
+        return {226, 174, 34, 255};
     }
     if (kind == VehicleKind::Ambulance) {
-        return {245, 247, 252, 255};
+        return {232, 234, 238, 255};
     }
     if (kind == VehicleKind::FireTruck) {
-        return {208, 30, 36, 255};
+        return {184, 28, 34, 255};
     }
     if (kind == VehicleKind::DeliveryVan) {
-        return rng.chance(0.5f) ? ColorRGBA{228, 232, 238, 255} : ColorRGBA{68, 108, 164, 255};
+        return rng.chance(0.55f) ? ColorRGBA{214, 218, 222, 255} : ColorRGBA{58, 76, 98, 255};
     }
     if (kind == VehicleKind::ArmoredSuv) {
-        return {42, 46, 52, 255};
+        return {40, 44, 50, 255};
     }
     if (kind == VehicleKind::LuxurySedan) {
-        return rng.chance(0.55f) ? ColorRGBA{28, 32, 40, 255} : ColorRGBA{232, 236, 242, 255};
+        return rng.chance(0.58f) ? ColorRGBA{26, 30, 38, 255} : ColorRGBA{196, 200, 206, 255};
     }
     if (kind == VehicleKind::ClassicRoadster) {
-        return rng.chance(0.5f) ? ColorRGBA{232, 44, 58, 255} : ColorRGBA{38, 196, 214, 255};
+        return rng.chance(0.55f) ? ColorRGBA{176, 34, 42, 255} : ColorRGBA{36, 78, 62, 255};
     }
     if (kind == VehicleKind::OffroadPickup) {
-        return rng.chance(0.5f) ? ColorRGBA{228, 122, 34, 255} : ColorRGBA{54, 96, 68, 255};
+        return rng.chance(0.5f) ? ColorRGBA{168, 86, 34, 255} : ColorRGBA{52, 74, 56, 255};
     }
     if (kind == VehicleKind::JdmTuner) {
-        return rng.chance(0.55f) ? ColorRGBA{42, 116, 246, 255} : ColorRGBA{244, 246, 250, 255};
+        return rng.chance(0.55f) ? ColorRGBA{36, 86, 168, 255} : ColorRGBA{218, 222, 228, 255};
     }
     if (kind == VehicleKind::TrackPrototype) {
-        return rng.chance(0.5f) ? ColorRGBA{32, 224, 172, 255} : ColorRGBA{246, 58, 62, 255};
+        return rng.chance(0.5f) ? ColorRGBA{46, 62, 78, 255} : ColorRGBA{186, 38, 42, 255};
     }
-    static constexpr std::array<ColorRGBA, 9> kPalette = {{
-        {218, 48, 56, 255},
-        {46, 118, 222, 255},
-        {236, 238, 242, 255},
-        {42, 46, 54, 255},
-        {44, 178, 116, 255},
-        {238, 126, 38, 255},
-        {132, 72, 212, 255},
-        {172, 180, 192, 255},
-        {28, 168, 196, 255}
+    // Authentic real-world OEM automotive metallic & pearl finishes (Obsidian, Gunmetal, Titanium, Pearl, Rosso, Navy, British Racing Green, Satin Bronze, Burnt Copper)
+    static constexpr std::array<ColorRGBA, 10> kPalette = {{
+        { 32,  35,  42, 255}, // Obsidian Black
+        { 76,  82,  92, 255}, // Gunmetal Grey
+        {172, 178, 186, 255}, // Titanium Silver
+        {222, 224, 228, 255}, // Pearl White
+        {174,  34,  40, 255}, // Rosso Corsa Crimson
+        { 34,  58,  96, 255}, // Midnight Navy
+        { 34,  68,  52, 255}, // British Racing Green
+        {126, 108,  84, 255}, // Satin Champagne Bronze
+        { 68,  94, 122, 255}, // Slate Steel Blue
+        {162,  76,  38, 255}  // Burnt Copper Metallic
     }};
     return kPalette[static_cast<std::size_t>(rng.rangeInt(0, static_cast<int>(kPalette.size()) - 1))];
 }
@@ -351,35 +353,32 @@ void GameWorld::reset() {
     player_.weapons[static_cast<std::size_t>(WeaponId::Pistol)].magAmmo = 12;
     player_.weapons[static_cast<std::size_t>(WeaponId::Pistol)].reserveAmmo = 84;
 
-    // Initialize default personal garage colors + starter owned hatchback
+    // Initialize default personal garage colors + starter owned hatchback (clean OEM factory finishes)
     player_.garage[static_cast<std::size_t>(VehicleKind::Compact)].owned = true;
-    player_.garage[static_cast<std::size_t>(VehicleKind::Compact)].paintColor = {46, 152, 242, 255};
-    player_.garage[static_cast<std::size_t>(VehicleKind::MuscleCar)].paintColor = {242, 132, 34, 255};
-    player_.garage[static_cast<std::size_t>(VehicleKind::SportsCoupe)].paintColor = {228, 42, 58, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::Compact)].paintColor = {44, 96, 154, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::MuscleCar)].paintColor = {178, 56, 36, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::SportsCoupe)].paintColor = {176, 32, 40, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::SportsCoupe)].customSpoiler = true;
     player_.garage[static_cast<std::size_t>(VehicleKind::SportsCoupe)].spoilerStyle = 1;
-    player_.garage[static_cast<std::size_t>(VehicleKind::LuxurySedan)].paintColor = {28, 32, 42, 255};
-    player_.garage[static_cast<std::size_t>(VehicleKind::ArmoredSuv)].paintColor = {52, 58, 64, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::LuxurySedan)].paintColor = {28, 32, 40, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::ArmoredSuv)].paintColor = {50, 54, 60, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::ArmoredSuv)].mattePaint = true;
-    player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].paintColor = {248, 196, 38, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].paintColor = {206, 152, 34, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].customSpoiler = true;
     player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].spoilerStyle = 1;
-    player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].neonPreset = 1;
     player_.garage[static_cast<std::size_t>(VehicleKind::Hypercar)].rimStyle = 1;
-    player_.garage[static_cast<std::size_t>(VehicleKind::OffroadPickup)].paintColor = {232, 126, 36, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::OffroadPickup)].paintColor = {166, 76, 32, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::OffroadPickup)].rimStyle = 2;
-    player_.garage[static_cast<std::size_t>(VehicleKind::ClassicRoadster)].paintColor = {232, 44, 58, 255};
-    player_.garage[static_cast<std::size_t>(VehicleKind::ClassicRoadster)].stripeColor = {248, 248, 252, 255};
-    player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].paintColor = {42, 116, 246, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::ClassicRoadster)].paintColor = {172, 34, 42, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::ClassicRoadster)].stripeColor = {236, 236, 240, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].paintColor = {34, 82, 168, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].customSpoiler = true;
     player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].spoilerStyle = 1;
-    player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].neonPreset = 2;
     player_.garage[static_cast<std::size_t>(VehicleKind::JdmTuner)].rimStyle = 1;
-    player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].paintColor = {32, 224, 172, 255};
-    player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].stripeColor = {255, 72, 64, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].paintColor = {206, 212, 220, 255};
+    player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].stripeColor = {184, 34, 42, 255};
     player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].customSpoiler = true;
     player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].spoilerStyle = 2;
-    player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].neonPreset = 4;
     player_.garage[static_cast<std::size_t>(VehicleKind::TrackPrototype)].rimStyle = 2;
 
     player_.ownedOutfits[static_cast<std::size_t>(OutfitId::StreetCasual)] = true;
@@ -394,7 +393,6 @@ void GameWorld::reset() {
     policeSpawnCooldown_ = 0.0f;
     panicScreamCooldown_ = 0.0f;
     rainWeather_ = false;
-    stuntJumpsCompleted_ = 0;
 
     for (auto& sp : city_.streetProps()) {
         if (sp.homePos.lengthSq() > 0.001f) {
@@ -418,9 +416,9 @@ void GameWorld::reset() {
 
     spawnInitialWorld();
     pushBanner("WELCOME TO SUNSET BAY", "선셋 베이 시티에 오신 것을 환영합니다",
-               "[K] Custom Studio  |  [U] Rain Reflection  |  [V] 1st/3rd Person",
-               "[K] 커스텀 스튜디오 · [U] 우천 반사 날씨 · [V] 1·3인칭 · [P] 스마트폰",
-               {92, 224, 255, 255}, 4.8f);
+               "[K] Custom Studio  |  [U] Rain Weather  |  [V] 1st/3rd Person",
+               "[K] 커스텀 스튜디오 · [U] 우천 날씨 · [V] 1·3인칭 · [P] 스마트폰",
+               {118, 192, 232, 255}, 4.8f);
 }
 
 void GameWorld::spawnParkedShowroomCars() {
@@ -444,44 +442,48 @@ void GameWorld::spawnParkedShowroomCars() {
         vehicles_.push_back(v);
     };
 
-    // Starter sculpted cars parked along Central Crossroads & Midtown curbs
-    addParked(VehicleKind::SportsCoupe,     { 22.5f,   7.2f},  0.0f,    {228,  42,  58, 255}, 0, 0);
-    addParked(VehicleKind::MuscleCar,       {  7.2f,  24.5f},  kHalfPi, { 38, 118, 238, 255}, 0, 0);
-    addParked(VehicleKind::LuxurySedan,     {-23.0f,  -7.2f},  kPi,     { 28,  32,  42, 255}, 0, 1);
-    addParked(VehicleKind::ClassicRoadster, { 26.5f,  -7.2f},  kPi,     {232,  44,  58, 255}, 0, 0);
-    addParked(VehicleKind::JdmTuner,        {-20.5f,  14.5f},  0.0f,    { 42, 116, 246, 255}, 2, 1);
-    addParked(VehicleKind::OffroadPickup,   {-14.5f,  76.0f}, -kHalfPi, {232, 126,  36, 255}, 0, 2);
+    // Starter sculpted cars parked along Central Crossroads & Midtown curbs (authentic OEM finishes)
+    addParked(VehicleKind::SportsCoupe,     { 22.5f,   7.2f},  0.0f,    {176,  30,  38, 255}, 0, 1);
+    addParked(VehicleKind::MuscleCar,       {  7.2f,  24.5f},  kHalfPi, { 34,  76, 134, 255}, 0, 0);
+    addParked(VehicleKind::LuxurySedan,     {-23.0f,  -7.2f},  kPi,     { 28,  32,  40, 255}, 0, 1);
+    addParked(VehicleKind::ClassicRoadster, { 26.5f,  -7.2f},  kPi,     {164,  32,  40, 255}, 0, 0);
+    addParked(VehicleKind::JdmTuner,        {-20.5f,  14.5f},  0.0f,    { 36,  82, 162, 255}, 0, 1);
+    addParked(VehicleKind::OffroadPickup,   {-14.5f,  76.0f}, -kHalfPi, {162,  76,  34, 255}, 0, 2);
 
-    // Downtown SBPD Precinct parked Interceptor cruiser + Midtown EMS Ambulance & Fire Engine
-    {
+    // Downtown SBPD Precinct & Civic Center parked Interceptor cruisers + Midtown EMS Ambulance & Fire Engine
+    auto addPoliceParked = [&](Vec2 pos, float heading) {
         const auto& pspec = getVehicleSpec(VehicleKind::PoliceCruiser);
         Vehicle cruiser{};
         cruiser.id = nextVehicleId_++;
         cruiser.kind = VehicleKind::PoliceCruiser;
-        cruiser.pos = {76.5f, -7.2f};
-        cruiser.heading = 0.0f;
+        cruiser.pos = pos;
+        cruiser.heading = heading;
         cruiser.health = pspec.maxHealth;
         cruiser.maxHealth = pspec.maxHealth;
         cruiser.paintColor = {20, 24, 32, 255};
-        cruiser.stripeColor = {242, 246, 252, 255};
+        cruiser.stripeColor = {240, 244, 248, 255};
         cruiser.rimStyle = 2;
         cruiser.isParked = true;
         cruiser.isPolice = true;
         vehicles_.push_back(cruiser);
-    }
-    addParked(VehicleKind::Ambulance, { 14.5f, -24.5f}, -kHalfPi, {245, 247, 252, 255}, 0, 0);
-    addParked(VehicleKind::FireTruck, {-76.5f,  -7.2f},  0.0f,    {208,  30,  36, 255}, 0, 0);
+    };
+    addPoliceParked({  76.5f,   -7.2f}, 0.0f);
+    addPoliceParked({ 192.0f, -175.2f}, 0.0f);     // Civic Center SBPD HQ
+    addParked(VehicleKind::Ambulance, {  14.5f,  -24.5f}, -kHalfPi, {238, 240, 244, 255}, 0, 0);
+    addParked(VehicleKind::Ambulance, { 276.0f, -175.2f},  0.0f,    {238, 240, 244, 255}, 0, 0); // Bay Medical Center
+    addParked(VehicleKind::FireTruck, { -76.5f,   -7.2f},  0.0f,    {178,  28,  34, 255}, 0, 0);
 
-    // LUXURY AUTOS Dealership Showroom forecourt display lineup (Block 5,4 around x=104..134, z=21.5)
-    addParked(VehicleKind::TrackPrototype,  {105.0f,  21.5f}, -kHalfPi * 0.85f, { 32, 224, 172, 255}, 4, 2, false);
-    addParked(VehicleKind::Hypercar,        {115.5f,  21.5f}, -kHalfPi,         {250, 196,  38, 255}, 5, 1, false);
-    addParked(VehicleKind::ClassicRoadster, {125.5f,  21.5f}, -kHalfPi * 1.10f, { 38, 196, 214, 255}, 1, 0, false);
-    addParked(VehicleKind::ArmoredSuv,      {135.0f,  21.5f}, -kHalfPi * 1.18f, { 54,  58,  64, 255}, 0, 2, true);
+    // LUXURY AUTOS Dealership Showroom forecourt display lineup (clean factory finishes, zero default neon)
+    addParked(VehicleKind::TrackPrototype,  {105.0f,  21.5f}, -kHalfPi * 0.85f, {208, 214, 222, 255}, 0, 2, false);
+    addParked(VehicleKind::Hypercar,        {115.5f,  21.5f}, -kHalfPi,         {198, 146,  32, 255}, 0, 1, false);
+    addParked(VehicleKind::ClassicRoadster, {125.5f,  21.5f}, -kHalfPi * 1.10f, { 34,  86,  72, 255}, 0, 0, false);
+    addParked(VehicleKind::ArmoredSuv,      {135.0f,  21.5f}, -kHalfPi * 1.18f, { 52,  56,  62, 255}, 0, 2, true);
 
-    // Sunset Beach & Pulse Nightclub VIP curbside exotics & Baja 4x4
-    addParked(VehicleKind::JdmTuner,        { 24.0f, -91.0f},  0.0f,    {168,  54, 248, 255}, 2, 1, false);
-    addParked(VehicleKind::OffroadPickup,   {-342.0f, 18.0f},  kHalfPi, {232, 126,  36, 255}, 0, 2, false);
-    addParked(VehicleKind::ClassicRoadster, {-342.0f,-22.0f}, -kHalfPi, {236,  52,  64, 255}, 0, 1, false);
+    // Sunset Beach Boulevard, Pulse Nightclub & North Bay Lighthouse Peninsula parked cars
+    addParked(VehicleKind::JdmTuner,        {  24.0f,  -91.0f},  0.0f,    { 46,  54,  76, 255}, 0, 1, false);
+    addParked(VehicleKind::OffroadPickup,   {-680.0f,   20.0f},  kHalfPi, {168,  82,  36, 255}, 0, 2, false);
+    addParked(VehicleKind::ClassicRoadster, {-680.0f,  -22.0f}, -kHalfPi, {174,  34,  42, 255}, 0, 1, false);
+    addParked(VehicleKind::LuxurySedan,     {  12.0f,  892.0f}, -kHalfPi, { 34,  40,  52, 255}, 0, 1, false);
 }
 
 void GameWorld::spawnInitialWorld() {
@@ -508,14 +510,15 @@ void GameWorld::spawnInitialWorld() {
         g.facingYaw = rng_.range(-kPi, kPi);
         g.health = 85.0f;
         g.maxHealth = 85.0f;
-        g.outfitTop = {175, 36, 48, 255};
-        g.outfitBottom = {28, 30, 36, 255};
+        g.outfitTop = {138, 36, 44, 255};
+        g.outfitBottom = {32, 34, 40, 255};
         npcs_.push_back(g);
     }
 
-    pickups_.push_back(WorldPickup{PickupKind::CashBundle, {-42.0f, -42.0f}, 350, 0.0f, false});
-    pickups_.push_back(WorldPickup{PickupKind::CashBundle, {-372.0f, 0.0f},  500, 0.7f, false}); // Sunset Pier end bonus
-    pickups_.push_back(WorldPickup{PickupKind::HealthKit,  { 24.0f,  20.0f},  50, 1.2f, false});
+    pickups_.push_back(WorldPickup{PickupKind::CashBundle, { -42.0f, -42.0f}, 350, 0.0f, false});
+    pickups_.push_back(WorldPickup{PickupKind::CashBundle, {-748.0f,   0.0f}, 500, 0.7f, false}); // Sunset Pier end bonus
+    pickups_.push_back(WorldPickup{PickupKind::CashBundle, {   0.0f, 916.0f}, 750, 1.4f, false}); // North Bay Lighthouse bonus
+    pickups_.push_back(WorldPickup{PickupKind::HealthKit,  {  24.0f,  20.0f},  50, 1.2f, false});
 }
 
 Vec2 GameWorld::playerWorldPos() const {
@@ -593,61 +596,32 @@ float GameWorld::tuningDiscountScale() const {
 
 void GameWorld::toggleRainWeather() {
     rainWeather_ = !rainWeather_;
-    pushAudio(AudioEventType::ShopBuy, 0.78f);
-    pushBanner(rainWeather_ ? "COASTAL RAIN & WET ASPHALT" : "CLEAR SUNSET BAY SKY",
-               rainWeather_ ? "우천 날씨 & 젖은 아스팔트 거울 반사 ON" : "맑은 날씨 모드 (건조 노면)",
-               rainWeather_ ? "Real-time road puddle reflections & reduced tire grip"
-                            : "Full dry-tarmac tire grip restored",
-               rainWeather_ ? "네온·빌딩 노면 거울 반사 활성화 및 빗길 제동거리 증가"
-                            : "건조 아스팔트 노면 최대 타이어 그립 복구",
-               rainWeather_ ? ColorRGBA{84, 212, 255, 255} : ColorRGBA{255, 210, 82, 255}, 2.4f);
-}
-
-float GameWorld::evaluateStuntRampHeight(const Vec2& pos, float* outSlopePitch, const Vec2* travelDir) const {
-    if (outSlopePitch) *outSlopePitch = 0.0f;
-    float bestH = 0.0f;
-    float bestSlope = 0.0f;
-    for (const auto& r : generated::kCityStuntRamps) {
-        const float dx = pos.x - r.centerX;
-        const float dz = pos.z - r.centerZ;
-        const float maxR = r.length + r.width;
-        if (dx * dx + dz * dz > maxR * maxR) continue;
-
-        const float c = r.dirX;
-        const float s = r.dirZ;
-        const float localFwd = dx * c + dz * s;
-        const float localSide = -dx * s + dz * c;
-        const float halfL = r.length * 0.5f;
-        const float halfW = r.width * 0.5f;
-        if (localFwd >= -halfL && localFwd <= halfL && std::abs(localSide) <= halfW) {
-            const float u = clampf((localFwd + halfL) / r.length, 0.0f, 1.0f);
-            const float h = r.height * (0.35f * u + 0.65f * u * u);
-            if (h > bestH) {
-                bestH = h;
-                const float dhdu = r.height * (0.35f + 1.30f * u) / r.length;
-                float alignSign = 1.0f;
-                if (travelDir) {
-                    const float dotFwd = travelDir->x * c + travelDir->z * s;
-                    alignSign = (dotFwd >= 0.0f) ? 1.0f : -0.35f;
-                }
-                bestSlope = std::atan(dhdu) * alignSign;
-            }
+    for (auto& npc : npcs_) {
+        if (npc.role == NpcRole::Civilian) {
+            npc.holdingUmbrella = rainWeather_ && ((npc.id * 37) % 100) < 62;
         }
     }
-    if (outSlopePitch) *outSlopePitch = bestSlope;
-    return bestH;
+    pushAudio(AudioEventType::ShopBuy, 0.78f);
+    pushBanner(rainWeather_ ? "COASTAL RAIN & WET ASPHALT" : "CLEAR SUNSET BAY SKY",
+               rainWeather_ ? "우천 날씨 & 젖은 아스팔트 노면 ON" : "맑은 날씨 모드 (건조 노면)",
+               rainWeather_ ? "Wet tarmac reflections, raindrops & reduced tire grip"
+                            : "Full dry-tarmac tire grip restored",
+               rainWeather_ ? "빗물 웅덩이 반사·빗소리 및 빗길 제동거리 증가 활성화"
+                            : "건조 아스팔트 노면 최대 타이어 그립 복구",
+               rainWeather_ ? ColorRGBA{108, 178, 224, 255} : ColorRGBA{232, 192, 92, 255}, 2.4f);
 }
 
-
 float GameWorld::surfaceHeightAt(const Vec2& pos) const {
-    float baseH = 0.0f;
-    if (pos.x < -345.0f) {
-        baseH = (std::abs(pos.z) < 7.6f) ? 0.24f : 0.02f;
-    } else {
-        baseH = city_.isOnRoad(pos, 0.1f) ? 0.0f : 0.08f;
+    if (city_.isOnNorthBridge(pos, 1.5f)) {
+        return city_.bridgeDeckElevationAt(pos);
     }
-    const float rampH = evaluateStuntRampHeight(pos);
-    return (rampH > 0.001f) ? (baseH + rampH) : baseH;
+    if (city_.isOnNorthPeninsula(pos)) {
+        return city_.isOnRoad(pos, 0.1f) ? 0.0f : 0.10f;
+    }
+    if (pos.x < -684.0f) {
+        return (std::abs(pos.z) < 7.6f) ? 0.24f : 0.02f;
+    }
+    return city_.isOnRoad(pos, 0.1f) ? 0.0f : 0.08f;
 }
 
 float GameWorld::computePlayerSupportHeight(const Vec2& pos, float currentY, Vec2* platformCarryVel) const {
@@ -975,12 +949,16 @@ void GameWorld::maintainTrafficPopulation() {
     }
 
     int attempts = 0;
-    while (activeTraffic < kTargetTraffic && attempts < 45) {
+    const int centerRx = city_.nearestRoadIndex(center.x);
+    const int centerRz = city_.nearestRoadIndex(center.z);
+    while (activeTraffic < kTargetTraffic && attempts < 56) {
         ++attempts;
         const bool horiz = rng_.chance(0.5f);
-        const int roadIdx = rng_.rangeInt(1, CityMap::kRoadCount - 2);
+        const int baseRoad = horiz ? centerRz : centerRx;
+        const int roadIdx = std::clamp(baseRoad + rng_.rangeInt(-3, 3), 1, CityMap::kRoadCount - 2);
         const int dir = rng_.chance(0.5f) ? 1 : -1;
-        const float along = rng_.range(-280.0f, 280.0f);
+        const float axisBase = horiz ? center.x : center.z;
+        const float along = clampf(axisBase + rng_.range(-240.0f, 240.0f), -650.0f, 650.0f);
         const float rCoord = city_.roadCoord(roadIdx);
 
         float heading = 0.0f;
@@ -1066,12 +1044,16 @@ void GameWorld::maintainCivilianPopulation() {
     }
 
     int attempts = 0;
-    while (civCount < kTargetCivilians && attempts < 65) {
+    const int centerNodeU = std::clamp(city_.nearestSidewalkNodeIndex(center.x), 1, CityMap::kSidewalkNodeCount - 2);
+    const int centerNodeV = std::clamp(city_.nearestSidewalkNodeIndex(center.z), 1, CityMap::kSidewalkNodeCount - 2);
+    while (civCount < kTargetCivilians && attempts < 80) {
         ++attempts;
-        // Pick a pure block-front sidewalk segment (never mid-crosswalk) in lattice [1..16]
-        const int blk = rng_.rangeInt(1, CityMap::kBlockCount - 2);
-        const int sideLine = rng_.rangeInt(1, CityMap::kSidewalkNodeCount - 2);
+        // Pick a pure block-front sidewalk segment near the player in the 16x16 lattice
         const bool horiz = rng_.chance(0.5f);
+        const int uNear = std::clamp(centerNodeU + rng_.rangeInt(-5, 5), 1, CityMap::kSidewalkNodeCount - 2);
+        const int vNear = std::clamp(centerNodeV + rng_.rangeInt(-5, 5), 1, CityMap::kSidewalkNodeCount - 2);
+        const int blk = std::clamp(((horiz ? uNear : vNear) - 1) / 2, 0, CityMap::kBlockCount - 1);
+        const int sideLine = horiz ? vNear : uNear;
         const bool fwdOrder = rng_.chance(0.5f);
 
         int n0 = 2 * blk + 1;
@@ -1123,28 +1105,28 @@ void GameWorld::maintainCivilianPopulation() {
             {122,  82,  56, 255}
         }};
         static constexpr std::array<ColorRGBA, 6> kUmbrellaPalette = {{
-            { 42, 134, 236, 255}, // Ocean Blue
-            {226,  52,  66, 255}, // Crimson Red
-            {242, 192,  46, 255}, // Sunny Yellow
-            { 38, 178, 136, 255}, // Emerald Teal
-            {148,  74, 224, 255}, // Violet
-            { 36,  40,  50, 255}  // Classic Executive Black
+            { 34,  44,  62, 255}, // Classic Navy
+            { 30,  32,  38, 255}, // Executive Charcoal Black
+            {138,  38,  46, 255}, // Deep Burgundy
+            { 42,  76,  64, 255}, // Forest Green
+            {168, 134,  76, 255}, // Warm Ochre
+            { 74,  92, 114, 255}  // Slate Blue
         }};
         npc.skinColor = kNpcSkinTones[static_cast<std::size_t>(rng_.rangeInt(0, 4))];
         npc.umbrellaColor = kUmbrellaPalette[static_cast<std::size_t>(rng_.rangeInt(0, 5))];
         npc.heightScale = rng_.range(0.93f, 1.07f);
-        npc.hairColorIdx = rng_.chance(0.76f) ? rng_.rangeInt(0, 2) : rng_.rangeInt(0, 5);
+        npc.hairColorIdx = rng_.chance(0.86f) ? rng_.rangeInt(0, 2) : rng_.rangeInt(0, 5);
 
         const float archRoll = rng_.range(0.0f, 1.0f);
         if (archRoll < 0.22f) {
             // Downtown Executive / Business Commuter
             npc.archetype = NpcArchetype::Business;
-            npc.outfitStyle = rng_.chance(0.32f) ? OutfitId::ViceWhiteSuit : OutfitId::MidnightTuxedo;
+            npc.outfitStyle = rng_.chance(0.24f) ? OutfitId::ViceWhiteSuit : OutfitId::MidnightTuxedo;
             npc.outfitTop = (npc.outfitStyle == OutfitId::ViceWhiteSuit)
-                                ? ColorRGBA{232, 235, 242, 255}
-                                : (rng_.chance(0.55f) ? ColorRGBA{28, 32, 42, 255} : ColorRGBA{42, 52, 74, 255});
+                                ? ColorRGBA{204, 202, 196, 255}
+                                : (rng_.chance(0.55f) ? ColorRGBA{30, 34, 42, 255} : ColorRGBA{42, 52, 68, 255});
             npc.outfitBottom = (npc.outfitStyle == OutfitId::ViceWhiteSuit)
-                                   ? ColorRGBA{218, 222, 232, 255}
+                                   ? ColorRGBA{186, 184, 178, 255}
                                    : ColorRGBA{24, 26, 34, 255};
             npc.hairStyle = rng_.chance(0.5f) ? 1 : 0;
             npc.glassesStyle = rng_.chance(0.38f) ? 2 : (rng_.chance(0.25f) ? 1 : 0);
@@ -1155,11 +1137,11 @@ void GameWorld::maintainCivilianPopulation() {
             npc.archetype = NpcArchetype::Jogger;
             npc.outfitStyle = OutfitId::StreetCasual;
             static constexpr std::array<ColorRGBA, 4> kSportTops = {{
-                { 42, 206, 148, 255}, {244, 108,  46, 255},
-                { 54, 152, 246, 255}, {238,  64, 134, 255}
+                { 46, 118,  98, 255}, {178,  84,  48, 255},
+                { 56,  98, 152, 255}, {148,  52,  76, 255}
             }};
             npc.outfitTop = kSportTops[static_cast<std::size_t>(rng_.rangeInt(0, 3))];
-            npc.outfitBottom = {28, 32, 40, 255};
+            npc.outfitBottom = {32, 36, 44, 255};
             npc.hairStyle = rng_.chance(0.45f) ? 3 : 0;
             npc.glassesStyle = rng_.chance(0.30f) ? 1 : 0;
             npc.heldProp = NpcHeldProp::None;
@@ -1168,16 +1150,15 @@ void GameWorld::maintainCivilianPopulation() {
             // Coastal Tourist / Boutique Shopper
             npc.archetype = NpcArchetype::Tourist;
             npc.outfitStyle = OutfitId::StreetCasual;
-            npc.outfitTop = {
-                static_cast<std::uint8_t>(rng_.rangeInt(145, 245)),
-                static_cast<std::uint8_t>(rng_.rangeInt(115, 235)),
-                static_cast<std::uint8_t>(rng_.rangeInt(80, 220)),
-                255
-            };
+            static constexpr std::array<ColorRGBA, 5> kCoastalTops = {{
+                {194, 184, 166, 255}, {112, 138, 156, 255},
+                {166, 122,  98, 255}, {118, 138, 108, 255}, {182, 164, 134, 255}
+            }};
+            npc.outfitTop = kCoastalTops[static_cast<std::size_t>(rng_.rangeInt(0, 4))];
             npc.outfitBottom = {
-                static_cast<std::uint8_t>(rng_.rangeInt(165, 215)),
-                static_cast<std::uint8_t>(rng_.rangeInt(148, 196)),
-                static_cast<std::uint8_t>(rng_.rangeInt(115, 165)),
+                static_cast<std::uint8_t>(rng_.rangeInt(124, 162)),
+                static_cast<std::uint8_t>(rng_.rangeInt(114, 148)),
+                static_cast<std::uint8_t>(rng_.rangeInt(92, 124)),
                 255
             };
             npc.hairStyle = rng_.chance(0.55f) ? 3 : 1;
@@ -1189,9 +1170,9 @@ void GameWorld::maintainCivilianPopulation() {
             // Street Style / Smartphone Tech Commuter
             npc.archetype = NpcArchetype::StreetTech;
             npc.outfitStyle = rng_.chance(0.42f) ? OutfitId::RacerLeather : OutfitId::StreetCasual;
-            npc.outfitTop = rng_.chance(0.5f) ? ColorRGBA{44, 48, 62, 255} : ColorRGBA{176, 46, 62, 255};
-            npc.outfitBottom = {32, 36, 46, 255};
-            npc.hairStyle = rng_.chance(0.35f) ? 2 : (rng_.chance(0.5f) ? 3 : 1);
+            npc.outfitTop = rng_.chance(0.5f) ? ColorRGBA{44, 48, 56, 255} : ColorRGBA{128, 44, 52, 255};
+            npc.outfitBottom = {32, 36, 44, 255};
+            npc.hairStyle = rng_.chance(0.20f) ? 2 : (rng_.chance(0.5f) ? 3 : 1);
             npc.glassesStyle = rng_.chance(0.35f) ? 1 : 0;
             npc.backGearStyle = rng_.chance(0.50f) ? 1 : 0;
             npc.heldProp = NpcHeldProp::Smartphone;
@@ -1200,28 +1181,28 @@ void GameWorld::maintainCivilianPopulation() {
             // City Crew / High-Vis Worker
             npc.archetype = NpcArchetype::Worker;
             npc.outfitStyle = OutfitId::StreetCasual;
-            npc.outfitTop = rng_.chance(0.55f) ? ColorRGBA{236, 178, 38, 255} : ColorRGBA{226, 118, 38, 255};
-            npc.outfitBottom = {44, 52, 68, 255};
+            npc.outfitTop = rng_.chance(0.55f) ? ColorRGBA{196, 152, 44, 255} : ColorRGBA{186, 98, 42, 255};
+            npc.outfitBottom = {44, 52, 64, 255};
             npc.hairStyle = rng_.chance(0.65f) ? 3 : 0;
             npc.glassesStyle = rng_.chance(0.25f) ? 1 : 0;
             npc.heldProp = rng_.chance(0.35f) ? NpcHeldProp::CoffeeCup : NpcHeldProp::None;
             npc.walkSpeed = rng_.range(1.48f, 1.86f);
         } else {
-            // Classic Sunset Bay Casual Pedestrian
+            // Realistic Urban Casual Pedestrian (denim, wool, olive, camel, heather grey, navy, burgundy)
             npc.archetype = NpcArchetype::Casual;
             npc.outfitStyle = OutfitId::StreetCasual;
-            npc.outfitTop = {
-                static_cast<std::uint8_t>(rng_.rangeInt(68, 232)),
-                static_cast<std::uint8_t>(rng_.rangeInt(68, 232)),
-                static_cast<std::uint8_t>(rng_.rangeInt(82, 238)),
-                255
-            };
-            npc.outfitBottom = {
-                static_cast<std::uint8_t>(rng_.rangeInt(34, 88)),
-                static_cast<std::uint8_t>(rng_.rangeInt(38, 96)),
-                static_cast<std::uint8_t>(rng_.rangeInt(48, 118)),
-                255
-            };
+            static constexpr std::array<ColorRGBA, 8> kUrbanTops = {{
+                { 52,  66,  86, 255}, { 88,  92,  96, 255},
+                { 66,  78,  62, 255}, {148, 126,  98, 255},
+                {118,  52,  56, 255}, {178, 174, 166, 255},
+                { 42,  46,  52, 255}, { 96,  78,  64, 255}
+            }};
+            static constexpr std::array<ColorRGBA, 4> kUrbanBottoms = {{
+                { 38,  48,  66, 255}, { 32,  34,  40, 255},
+                { 78,  72,  60, 255}, { 54,  58,  64, 255}
+            }};
+            npc.outfitTop = kUrbanTops[static_cast<std::size_t>(rng_.rangeInt(0, 7))];
+            npc.outfitBottom = kUrbanBottoms[static_cast<std::size_t>(rng_.rangeInt(0, 3))];
             npc.hairStyle = rng_.rangeInt(0, 1);
             npc.glassesStyle = rng_.chance(0.22f) ? 1 : 0;
             npc.backGearStyle = rng_.chance(0.20f) ? 1 : 0;
@@ -1317,18 +1298,18 @@ void GameWorld::maintainPolicePopulation(float dt) {
     bool spawnedWantedWave = false;
 
     int attempts = 0;
-    while (activeCruisers < targetCruisers && attempts < 36) {
+    const int centerRx = city_.nearestRoadIndex(center.x);
+    const int centerRz = city_.nearestRoadIndex(center.z);
+    while (activeCruisers < targetCruisers && attempts < 42) {
         ++attempts;
         const bool horiz = rng_.chance(0.5f);
-        int roadIdx = rng_.rangeInt(1, CityMap::kRoadCount - 2);
-        if (wanted) {
-            const int nearIdx = horiz ? city_.nearestRoadIndex(center.z) : city_.nearestRoadIndex(center.x);
-            roadIdx = std::clamp(nearIdx + rng_.rangeInt(-1, 1), 1, CityMap::kRoadCount - 2);
-        }
+        const int nearIdx = horiz ? centerRz : centerRx;
+        const int spread = wanted ? 1 : 3;
+        const int roadIdx = std::clamp(nearIdx + rng_.rangeInt(-spread, spread), 1, CityMap::kRoadCount - 2);
         const float rCoord = city_.roadCoord(roadIdx);
         const float distOff = wanted ? (rng_.chance(0.5f) ? rng_.range(42.0f, 82.0f) : rng_.range(-82.0f, -42.0f))
-                                     : rng_.range(-220.0f, 220.0f);
-        const float along = wanted ? clampf((horiz ? center.x : center.z) + distOff, -315.0f, 315.0f) : distOff;
+                                     : rng_.range(-200.0f, 200.0f);
+        const float along = clampf((horiz ? center.x : center.z) + distOff, -650.0f, 650.0f);
 
         int dir = rng_.chance(0.5f) ? 1 : -1;
         if (wanted) {
@@ -1394,17 +1375,16 @@ void GameWorld::maintainPolicePopulation(float dt) {
     }
 
     attempts = 0;
-    while (activeOfficers < targetOfficers && attempts < 40) {
+    const int centerNodeU = std::clamp(city_.nearestSidewalkNodeIndex(center.x), 1, CityMap::kSidewalkNodeCount - 2);
+    const int centerNodeV = std::clamp(city_.nearestSidewalkNodeIndex(center.z), 1, CityMap::kSidewalkNodeCount - 2);
+    while (activeOfficers < targetOfficers && attempts < 48) {
         ++attempts;
-        int blk = rng_.rangeInt(1, CityMap::kBlockCount - 2);
-        int sideLine = rng_.rangeInt(1, CityMap::kSidewalkNodeCount - 2);
         const bool horiz = rng_.chance(0.5f);
-        if (wanted) {
-            const int nearNodeU = std::clamp(city_.nearestSidewalkNodeIndex(center.x) + rng_.rangeInt(-2, 2), 1, CityMap::kSidewalkNodeCount - 2);
-            const int nearNodeV = std::clamp(city_.nearestSidewalkNodeIndex(center.z) + rng_.rangeInt(-2, 2), 1, CityMap::kSidewalkNodeCount - 2);
-            blk = std::clamp(((horiz ? nearNodeU : nearNodeV) - 1) / 2, 0, CityMap::kBlockCount - 1);
-            sideLine = horiz ? nearNodeV : nearNodeU;
-        }
+        const int nodeSpread = wanted ? 2 : 5;
+        const int nearNodeU = std::clamp(centerNodeU + rng_.rangeInt(-nodeSpread, nodeSpread), 1, CityMap::kSidewalkNodeCount - 2);
+        const int nearNodeV = std::clamp(centerNodeV + rng_.rangeInt(-nodeSpread, nodeSpread), 1, CityMap::kSidewalkNodeCount - 2);
+        const int blk = std::clamp(((horiz ? nearNodeU : nearNodeV) - 1) / 2, 0, CityMap::kBlockCount - 1);
+        const int sideLine = horiz ? nearNodeV : nearNodeU;
 
         const int n0 = 2 * blk + 1;
         const int n1 = 2 * blk + 2;
@@ -3042,6 +3022,7 @@ void GameWorld::updatePlayerOnFoot(float dt, const PlayerInput& input) {
         wishDir = wishDir / wishLen;
     }
 
+    player_.aiming = input.aimHeld;
     bool sprinting = input.sprintOrNitro && wishLen > 0.1f && !input.aimHeld && player_.stamina > 0.05f;
     if (sprinting) {
         player_.stamina = std::max(0.0f, player_.stamina - dt * 0.24f);
@@ -3678,20 +3659,28 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
     const Vec2 lookPos = v.pos + v.velocity * dt;
 
     auto samplePointGroundH = [&](const Vec2& p, float* outSlope) -> float {
-        const float rH = evaluateStuntRampHeight(p, outSlope, &fwdBefore);
-        float baseH = 0.0f;
-        if (p.x < -345.0f) {
-            baseH = (std::abs(p.z) < 7.6f) ? 0.24f : 0.02f;
-        } else {
-            baseH = city_.isOnRoad(p, 0.1f) ? 0.0f : 0.08f;
+        if (outSlope) *outSlope = 0.0f;
+        if (city_.isOnNorthBridge(p, 1.5f)) {
+            float slopeZ = 0.0f;
+            const float bh = city_.bridgeDeckElevationAt(p, &slopeZ);
+            if (outSlope) {
+                *outSlope = std::atan(slopeZ * fwdBefore.z);
+            }
+            return bh;
         }
-        return (rH > 0.001f) ? (baseH + rH) : baseH;
+        if (city_.isOnNorthPeninsula(p)) {
+            return city_.isOnRoad(p, 0.1f) ? 0.0f : 0.10f;
+        }
+        if (p.x < -684.0f) {
+            return (std::abs(p.z) < 7.6f) ? 0.24f : 0.02f;
+        }
+        return city_.isOnRoad(p, 0.1f) ? 0.0f : 0.08f;
     };
 
     float rampSlopePitch = 0.0f;
     const float groundH = samplePointGroundH(lookPos, &rampSlopePitch);
 
-    // Sample all 4 wheel contact patches (FL, FR, RL, RR) for true independent curb/ramp suspension!
+    // Sample all 4 wheel contact patches (FL, FR, RL, RR) for true independent curb/bridge suspension!
     const float axleX = spec.halfLength * 0.63f;
     const float axleZ = spec.halfWidth * 0.86f;
     const Vec2 wheelWorld[4] = {
@@ -3763,7 +3752,7 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
     rsState.shift_backfire = 0;
     rsState.brake_heat = v.brakeHeat;
 
-    // Call into the native v1.2.0 Rust physics kernel!
+    // Call into the native Rust physics kernel!
     oc_rs_step_vehicle_dynamics(dt, &rsState, &rsSpec, &rsInput);
 
     v.pos = {rsState.pos_x, rsState.pos_z};
@@ -3813,23 +3802,11 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
         }
     }
 
-    // 3D Stunt Jump Touchdown Sparks & Cash Bonus!
+    // Hard chassis bottom-out suspension thud & sparks on steep crests
     if (rsState.landed_air_time >= 0.36f) {
-        emitParticles({v.pos.x, v.posY + 0.22f, v.pos.z}, 12, {255, 206, 82, 255}, 6.2f, 0.16f, 0.34f);
+        emitParticles({v.pos.x, v.posY + 0.22f, v.pos.z}, 8, {255, 206, 82, 255}, 4.8f, 0.12f, 0.26f);
         if (v.isPlayerDriving) {
-            pushAudio(AudioEventType::CarCrash, clampf(rsState.landed_impact_speed / 16.0f, 0.35f, 0.85f));
-            if (rsState.landed_air_time >= 0.42f) {
-                ++stuntJumpsCompleted_;
-                const int jumpBonus = std::clamp(static_cast<int>(rsState.landed_air_time * 420.0f), 200, 1500);
-                player_.cash += jumpBonus;
-                v.nitroCharge = std::min(1.0f, v.nitroCharge + 0.35f);
-                pushAudio(AudioEventType::CashPickup, 0.95f);
-                char subEn[80];
-                char subKo[96];
-                std::snprintf(subEn, sizeof(subEn), "Air Time %.2fs  |  +$%d Stunt Bonus!", rsState.landed_air_time, jumpBonus);
-                std::snprintf(subKo, sizeof(subKo), "체공 시간 %.2f초 · 스턴트 보너스 +$%d 획득!", rsState.landed_air_time, jumpBonus);
-                pushBanner("STUNT JUMP COMPLETED!", "3D 스턴트 점프 성공!", subEn, subKo, {255, 214, 58, 255}, 2.8f);
-            }
+            pushAudio(AudioEventType::CarCrash, clampf(rsState.landed_impact_speed / 18.0f, 0.25f, 0.75f));
         }
     }
 
@@ -3913,7 +3890,7 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
     const int nearRx = city_.nearestRoadIndex(v.pos.x);
     const int nearRz = city_.nearestRoadIndex(v.pos.z);
     const Vec2 interCenter{city_.roadCoord(nearRx), city_.roadCoord(nearRz)};
-    const int interKey = nearRz * 16 + nearRx;
+    const int interKey = nearRz * 32 + nearRx;
 
     if ((v.pos - interCenter).length() < 3.6f && v.lastTurnIntersectionKey != interKey) {
         const bool atCityEdge = (v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRx >= CityMap::kRoadCount - 1) ||
@@ -4018,7 +3995,6 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
         throttle = (v.speed() > 0.6f) ? -0.95f : 0.0f;
         if (v.speed() <= 0.65f) {
             v.velocity = {0.0f, 0.0f};
-            v.brakingVisual = true;
         }
     } else if (v.driverPanicked) {
         const float panicSpeed = 29.0f;
@@ -4033,6 +4009,9 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
     }
 
     stepVehiclePhysics(dt, v, throttle, steer, false, false);
+    if (obstacleAhead) {
+        v.brakingVisual = true;
+    }
 }
 
 void GameWorld::updatePoliceVehicleAi(float dt, Vehicle& v) {

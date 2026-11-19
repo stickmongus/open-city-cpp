@@ -11,16 +11,6 @@ struct Vec2f {
     float y;
 };
 
-struct StuntRampSpec {
-    float centerX;
-    float centerZ;
-    float dirX;
-    float dirZ;
-    float length;
-    float width;
-    float height;
-};
-
 // 16-tap Golden-Angle Poisson Disk kernel for soft shadow filtering
 inline constexpr std::array<Vec2f, 16> kPoissonDisk16 = {{
     {+0.176777f, +0.000000f},
@@ -70,7 +60,7 @@ inline constexpr std::array<Vec2f, 25> kSuspensionBridgeCatenary = {{
     {+1.000000f, +1.000000f},
 }};
 
-// 12-spoke Sunset Pier Ferris Wheel unit circle LUT
+// 12-spoke Sunset Beach Ferris Wheel unit circle LUT
 inline constexpr std::array<Vec2f, 12> kFerrisWheelRing12 = {{
     {+1.000000f, +0.000000f},
     {+0.866025f, +0.500000f},
@@ -84,22 +74,6 @@ inline constexpr std::array<Vec2f, 12> kFerrisWheelRing12 = {{
     {-0.000000f, -1.000000f},
     {+0.500000f, -0.866025f},
     {+0.866025f, -0.500000f},
-}};
-
-// 6 Engineered 3D Stunt Jump Ramps across Downtown Medians, Sunset Pier & Harbor
-inline constexpr std::array<StuntRampSpec, 6> kCityStuntRamps = {{
-    // 0: Central Crossroads Westbound Median Launch Ramp (near spawn!)
-    { -26.0f,   0.0f, -1.0f,  0.0f, 11.5f, 3.6f, 2.45f },
-    // 1: Downtown Financial Eastbound Median Super Jump
-    {  44.0f,   0.0f,  1.0f,  0.0f, 12.0f, 3.6f, 2.65f },
-    // 2: Sunset Pier Oceanfront Boardwalk Fly-Off Ramp
-    {-350.0f,   0.0f, -1.0f,  0.0f, 11.5f, 4.4f, 2.55f },
-    // 3: North Bridge Approach Median Sky-Jump Ramp
-    {   0.0f,  46.0f,  0.0f,  1.0f, 12.0f, 3.6f, 2.65f },
-    // 4: Pulse Nightclub Avenue Southbound Median Stunt Ramp
-    {   0.0f, -46.0f,  0.0f, -1.0f, 11.5f, 3.6f, 2.45f },
-    // 5: Harbor Industrial Dockyard Mega Ramp
-    { 230.0f, 168.0f,  1.0f,  0.0f, 12.5f, 4.0f, 2.80f },
 }};
 
 } // namespace oc::generated

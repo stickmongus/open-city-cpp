@@ -11,7 +11,10 @@ enum class DistrictType {
     Midtown,
     Industrial,
     CoastalResidential,
-    CentralPark
+    CentralPark,
+    CivicCenter,
+    SuburbanEstates,
+    NorthPeninsula
 };
 
 enum class BuildingStyle {
@@ -24,7 +27,9 @@ enum class BuildingStyle {
     GarageBuilding,
     DealershipBuilding,
     BoutiqueBuilding,
-    NightclubBuilding
+    NightclubBuilding,
+    CivicLandmark,
+    VillaHouse
 };
 
 struct Building {
@@ -33,7 +38,7 @@ struct Building {
     float upperTierHeight = 0.0f; // optional stepped skyscraper upper tier
     ColorRGBA primaryColor{};
     ColorRGBA accentColor{};
-    ColorRGBA awningColor{198, 56, 52, 255};
+    ColorRGBA awningColor{148, 52, 48, 255};
     BuildingStyle style = BuildingStyle::ModernOffice;
     bool litWindows = true;
     bool hasStorefront = false;
@@ -48,7 +53,18 @@ struct GasStationCanopy {
 
 struct ParkPatch {
     AABB2D bounds;
-    ColorRGBA grassColor{58, 128, 66, 255};
+    ColorRGBA grassColor{62, 92, 46, 255};
+};
+
+struct LakePatch {
+    AABB2D bounds;
+    float waterY = -0.02f;
+};
+
+enum class TreeSpecies : std::uint8_t {
+    OakDeciduous = 0,
+    PalmCoastal = 1,
+    CypressConifer = 2
 };
 
 struct TreeProp {
@@ -57,6 +73,7 @@ struct TreeProp {
     float crownRadius = 2.2f;
     bool palmStyle = false;
     bool inPlanter = false;
+    TreeSpecies species = TreeSpecies::OakDeciduous;
 };
 
 enum class StreetPropKind {
@@ -69,7 +86,8 @@ enum class StreetPropKind {
     TrashBin,
     Billboard,
     FuelPump,
-    BeachUmbrella
+    BeachUmbrella,
+    Bollard
 };
 
 struct StreetProp {
@@ -111,16 +129,30 @@ struct PointOfInterest {
 
 class CityMap {
 public:
-    static constexpr int kRoadCount = 9;          // 9 N-S & 9 E-W avenues -> 8x8 city blocks
-    static constexpr int kBlockCount = 8;
-    static constexpr int kSidewalkNodeCount = kRoadCount * 2; // 18 sidewalk lines (0..17)
-    static constexpr float kBlockPitch = 84.0f;   // center-to-center road spacing
-    static constexpr float kRoadWidth = 18.0f;    // 4-lane avenue width
+    // Expanded 16x16 City Metropolis (~1.45km x 1.65km drivable land incl. North Bay Lighthouse Peninsula!)
+    static constexpr int kRoadCount = 17;          // 17 N-S & 17 E-W avenues -> 16x16 city blocks (4x area!)
+    static constexpr int kBlockCount = 16;
+    static constexpr int kSidewalkNodeCount = kRoadCount * 2; // 34 sidewalk lines (0..33)
+    static constexpr float kBlockPitch = 84.0f;    // center-to-center road spacing
+    static constexpr float kRoadWidth = 18.0f;     // 4-lane avenue width
     static constexpr float kSidewalkWidth = 3.5f;
     static constexpr float kSidewalkCenterOffset = kRoadWidth * 0.5f + kSidewalkWidth * 0.5f; // 10.75m
-    static constexpr float kLaneOffset = 4.2f;    // center of travel lane from road centerline
-    static constexpr float kHalfCitySpan = 365.0f;
-    static constexpr float kOceanBoundary = 395.0f;
+    static constexpr float kLaneOffset = 4.2f;     // center of travel lane from road centerline
+    static constexpr float kHalfCitySpan = 702.0f; // Main island concrete seawall promenade extent
+    static constexpr float kWestBeachOuter = -746.0f;
+    static constexpr float kWestPierOuter  = -796.0f;
+    static constexpr float kBridgeStartZ   = 681.0f;
+    static constexpr float kBridgeEndZ     = 815.0f;
+    static constexpr float kPeninsulaMaxZ  = 952.0f;
+    static constexpr float kPeninsulaHalfW = 128.0f;
+    static constexpr float kOceanBoundary  = 990.0f;
+
+    // Spatial acceleration grid aligned to 84m city blocks for O(1) collision & rendering queries
+    static constexpr int kGridCols = 20;           // x in [-840, +840]
+    static constexpr int kGridRows = 22;           // z in [-840, +1008]
+    static constexpr float kGridOriginX = -840.0f;
+    static constexpr float kGridOriginZ = -840.0f;
+    static constexpr float kGridCellSize = 84.0f;
 
     CityMap();
 
@@ -135,6 +167,9 @@ public:
     }
     bool isOnRoad(const Vec2& p, float margin = 0.0f) const;
     bool isInIntersection(const Vec2& p) const;
+    bool isOnNorthBridge(const Vec2& p, float margin = 0.0f) const;
+    bool isOnNorthPeninsula(const Vec2& p) const;
+    float bridgeDeckElevationAt(const Vec2& p, float* outSlopeZ = nullptr) const;
 
     DistrictType districtAt(int bx, int bz) const;
     DistrictType districtAtWorld(const Vec2& p) const;
@@ -142,26 +177,42 @@ public:
     const std::vector<Building>& buildings() const { return buildings_; }
     const std::vector<GasStationCanopy>& canopies() const { return canopies_; }
     const std::vector<ParkPatch>& parks() const { return parks_; }
+    const std::vector<LakePatch>& lakes() const { return lakes_; }
     const std::vector<TreeProp>& trees() const { return trees_; }
     std::vector<StreetProp>& streetProps() { return streetProps_; }
     const std::vector<StreetProp>& streetProps() const { return streetProps_; }
     const std::vector<PointOfInterest>& pois() const { return pois_; }
 
+    // Fast spatial-grid queries for rendering & AI (returns indices into respective vectors)
+    void queryBuildingsInRadius(const Vec2& center, float radius, std::vector<int>& outIndices) const;
+    void queryTreesInRadius(const Vec2& center, float radius, std::vector<int>& outIndices) const;
+    void queryPropsInRadius(const Vec2& center, float radius, std::vector<int>& outIndices) const;
+
     const PointOfInterest* findPoi(PoiKind kind) const;
 
-    // Collision resolution against static buildings and ocean walls
+    // Collision resolution against static buildings, park lake shoreline, bridge rails & ocean seawalls
     bool resolveCircleWorld(Vec2& pos, float radius, Vec2* outHitNormal = nullptr) const;
     bool resolveOBBBuildings(const OBB2D& obb, Vec2& outPush) const;
     float raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDist) const;
     float raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const;
 
 private:
+    void buildSpatialIndex();
+    static int gridCellX(float x);
+    static int gridCellZ(float z);
+    static int gridFlatIndex(int cx, int cz) { return cz * kGridCols + cx; }
+
     std::vector<Building> buildings_;
     std::vector<GasStationCanopy> canopies_;
     std::vector<ParkPatch> parks_;
+    std::vector<LakePatch> lakes_;
     std::vector<TreeProp> trees_;
     std::vector<StreetProp> streetProps_;
     std::vector<PointOfInterest> pois_;
+
+    std::vector<std::vector<int>> buildingGrid_;
+    std::vector<std::vector<int>> treeGrid_;
+    std::vector<std::vector<int>> propGrid_;
 };
 
 } // namespace oc

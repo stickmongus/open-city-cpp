@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """
-Open City C++ v0.9.0 — Procedural 3D CAD Spline, Landmark Geometry & Shader LUT Generator
+Open City C++ v1.3.0 — Procedural 3D CAD Spline, Landmark Geometry & Shader LUT Generator
 =========================================================================================
 Generates `src/render/GeneratedRealisticAssets.hpp` containing:
   1. 16-tap rotated Poisson disk filter kernel for soft PCF shadows.
-  2. High-resolution 22-point automotive cross-section profile weights & crease curves.
-  3. Catenary cable curve coordinates for the Golden Bay Suspension Bridge landmark.
-  4. 12-gondola Sunset Pier Ferris Wheel spoke & cabin ring geometry tables.
-  5. Engineered parabolic 3D Stunt Jump Ramp definitions shared by Physics & 3D Renderer.
+  2. True hyperbolic cosine catenary cable curve coordinates for the Golden Bay Suspension Bridge.
+  3. 12-gondola Sunset Beach Ferris Wheel spoke & cabin ring geometry tables.
 """
 
 from __future__ import annotations
@@ -65,16 +63,6 @@ def build_header() -> str:
         "    float y;",
         "};",
         "",
-        "struct StuntRampSpec {",
-        "    float centerX;",
-        "    float centerZ;",
-        "    float dirX;",
-        "    float dirZ;",
-        "    float length;",
-        "    float width;",
-        "    float height;",
-        "};",
-        "",
         "// 16-tap Golden-Angle Poisson Disk kernel for soft shadow filtering",
         "inline constexpr std::array<Vec2f, 16> kPoissonDisk16 = {{",
     ]
@@ -90,31 +78,14 @@ def build_header() -> str:
     lines.append("}};")
     lines.append("")
 
-    lines.append("// 12-spoke Sunset Pier Ferris Wheel unit circle LUT")
+    lines.append("// 12-spoke Sunset Beach Ferris Wheel unit circle LUT")
     lines.append("inline constexpr std::array<Vec2f, 12> kFerrisWheelRing12 = {{")
     for c, s in ferris:
         lines.append(f"    {{{c:+.6f}f, {s:+.6f}f}},")
     lines.append("}};")
     lines.append("")
 
-    # 6 City Stunt Jump Ramps placed cleanly on avenue medians, Sunset Pier & Harbor
     lines.extend([
-        "// 6 Engineered 3D Stunt Jump Ramps across Downtown Medians, Sunset Pier & Harbor",
-        "inline constexpr std::array<StuntRampSpec, 6> kCityStuntRamps = {{",
-        "    // 0: Central Crossroads Westbound Median Launch Ramp (near spawn!)",
-        "    { -26.0f,   0.0f, -1.0f,  0.0f, 11.5f, 3.6f, 2.45f },",
-        "    // 1: Downtown Financial Eastbound Median Super Jump",
-        "    {  44.0f,   0.0f,  1.0f,  0.0f, 12.0f, 3.6f, 2.65f },",
-        "    // 2: Sunset Pier Oceanfront Boardwalk Fly-Off Ramp",
-        "    {-350.0f,   0.0f, -1.0f,  0.0f, 11.5f, 4.4f, 2.55f },",
-        "    // 3: North Bridge Approach Median Sky-Jump Ramp",
-        "    {   0.0f,  46.0f,  0.0f,  1.0f, 12.0f, 3.6f, 2.65f },",
-        "    // 4: Pulse Nightclub Avenue Southbound Median Stunt Ramp",
-        "    {   0.0f, -46.0f,  0.0f, -1.0f, 11.5f, 3.6f, 2.45f },",
-        "    // 5: Harbor Industrial Dockyard Mega Ramp",
-        "    { 230.0f, 168.0f,  1.0f,  0.0f, 12.5f, 4.0f, 2.80f },",
-        "}};",
-        "",
         "} // namespace oc::generated",
         "",
     ])

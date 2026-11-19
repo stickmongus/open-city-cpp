@@ -514,14 +514,14 @@ void testDealershipRealEstateTuningAndHeavyOrdnance() {
     }
     ASSERT_TRUE(hasStorefront && hasBalconies && hasHelipad);
 
-    // Verify player can walk onto Sunset Beach (-360, 40) and Sunset Bay Pier (-410, 0)
-    oc::Vec2 beachPos{-360.0f, 40.0f};
+    // Verify player can walk onto expanded Sunset Beach (-716, 40) and 110m Timber Ocean Pier (-770, 0)
+    oc::Vec2 beachPos{-716.0f, 40.0f};
     city.resolveCircleWorld(beachPos, 0.5f);
-    ASSERT_TRUE(std::abs(beachPos.x - (-360.0f)) < 0.01f);
+    ASSERT_TRUE(std::abs(beachPos.x - (-716.0f)) < 0.01f);
 
-    oc::Vec2 pierPos{-410.0f, 0.0f};
+    oc::Vec2 pierPos{-770.0f, 0.0f};
     city.resolveCircleWorld(pierPos, 0.5f);
-    ASSERT_TRUE(std::abs(pierPos.x - (-410.0f)) < 0.01f);
+    ASSERT_TRUE(std::abs(pierPos.x - (-770.0f)) < 0.01f);
 
     ++gTestsPassed;
 }
@@ -1240,35 +1240,35 @@ void testRustPhysicsEngineStuntJumpsAndRealisticWorld() {
     // Turning right rolls chassis left, compressing left wheels (0, 2) vs right wheels (1, 3)
     ASSERT_TRUE(std::abs(car->wheelCompression[0] - car->wheelCompression[1]) > 0.012f);
 
-    // 2. Verify Rust 3D Stunt Ramp Launch, Airborne Flight & Stunt Jump Cash Bonus
-    // North Bridge Approach Ramp (#3): center = (0.0, 46.0), dir = (0, +1), length = 12.0, height = 2.65
-    const int cashBeforeStunt = world.player().cash;
+    // 2. Verify Smooth Arched Driving across 134m Golden Bay Suspension Bridge (z = 681..815) onto North Bay Peninsula!
     car = world.findVehicleMutable(carId);
     ASSERT_TRUE(car != nullptr);
-    car->pos = {0.0f, 40.5f};
+    car->pos = {0.0f, oc::CityMap::kBridgeStartZ - 12.0f};
     car->posY = 0.0f;
     car->velY = 0.0f;
     car->airborne = false;
-    car->heading = oc::kHalfPi; // Facing +Z up the ramp
-    car->velocity = {0.0f, 30.0f};
+    car->heading = oc::kHalfPi; // Facing +Z across Golden Bay Bridge
+    car->velocity = {0.0f, 34.0f};
     car->angularVelocity = 0.0f;
 
-    bool sawRampElevation = false;
-    bool sawAirborne = false;
-    oc::PlayerInput stuntIn{};
-    stuntIn.moveForward = 1.0f;
-    stuntIn.sprintOrNitro = true;
-    for (int i = 0; i < 140; ++i) {
-        world.update(1.0f / 60.0f, stuntIn);
+    float peakBridgeY = 0.0f;
+    bool reachedPeninsula = false;
+    oc::PlayerInput bridgeIn{};
+    bridgeIn.moveForward = 1.0f;
+    for (int i = 0; i < 320; ++i) {
+        world.update(1.0f / 60.0f, bridgeIn);
         car = world.findVehicleMutable(carId);
         ASSERT_TRUE(car != nullptr);
-        if (car->posY > 1.2f) sawRampElevation = true;
-        if (car->airborne) sawAirborne = true;
+        peakBridgeY = std::max(peakBridgeY, car->posY);
+        if (car->pos.z > oc::CityMap::kBridgeEndZ + 12.0f) {
+            reachedPeninsula = true;
+            break;
+        }
     }
-    ASSERT_TRUE(sawRampElevation);
-    ASSERT_TRUE(sawAirborne);
-    ASSERT_TRUE(world.player().cash > cashBeforeStunt);
-    ASSERT_TRUE(world.stuntJumpsCompleted() >= 1);
+    ASSERT_TRUE(peakBridgeY > 2.2f && peakBridgeY < 3.0f);
+    ASSERT_TRUE(reachedPeninsula);
+    ASSERT_TRUE(world.city().isOnNorthPeninsula(car->pos));
+    ASSERT_TRUE(world.city().districtAtWorld(car->pos) == oc::DistrictType::NorthPeninsula);
 
     // 3. Verify Rust Rotational Collision Impulse (PIT Maneuver Spin-Out) & 4-Quadrant Crash Deformation
     int targetCarId = -1;
@@ -1378,26 +1378,20 @@ void testRustPhysicsEngineStuntJumpsAndRealisticWorld() {
 void testBugfixRegressionsV091() {
     oc::GameWorld world(20261119ULL);
 
-    // 1. Verify ZERO trees or street props overlap any of the 6 Stunt Ramps or Sunset Pier walkway
-    auto overlapsAnyRampOrPier = [](const oc::Vec2& p) -> bool {
-        if (p.x < -342.0f && std::abs(p.z) < 8.2f) return true;
-        for (const auto& r : oc::generated::kCityStuntRamps) {
-            const float dx = p.x - r.centerX;
-            const float dz = p.z - r.centerZ;
-            const float along = dx * r.dirX + dz * r.dirZ;
-            const float across = -dx * r.dirZ + dz * r.dirX;
-            if (std::abs(along) <= r.length * 0.5f + 1.8f &&
-                std::abs(across) <= r.width * 0.5f + 1.2f) {
-                return true;
-            }
+    // 1. Verify ZERO trees or street props overlap Sunset Pier walkway, Golden Bay Bridge deck, or Grand Central Park lake
+    auto overlapsClearZone = [&](const oc::Vec2& p) -> bool {
+        if (p.x < -686.0f && std::abs(p.z) < 8.2f) return true;
+        if (world.city().isOnNorthBridge(p, 2.5f)) return true;
+        for (const auto& lk : world.city().lakes()) {
+            if (lk.bounds.contains(p)) return true;
         }
         return false;
     };
     for (const auto& t : world.city().trees()) {
-        ASSERT_TRUE(!overlapsAnyRampOrPier(t.pos));
+        ASSERT_TRUE(!overlapsClearZone(t.pos));
     }
     for (const auto& sp : world.city().streetProps()) {
-        ASSERT_TRUE(!overlapsAnyRampOrPier(sp.pos));
+        ASSERT_TRUE(!overlapsClearZone(sp.pos));
     }
 
     // Move all traffic & NPCs clear of the central test corridor
@@ -2036,6 +2030,104 @@ void testV120GunpointHandsUpReaction() {
 }
 
 
+void testV130MetropolisBridgeLakeAndRealism() {
+    oc::GameWorld world(20261300ULL);
+    const auto& city = world.city();
+
+    // 1. Verify 4x expanded 16x16 metropolis (17x17 roads, 8 distinct districts, spatial grid parity)
+    ASSERT_TRUE(oc::CityMap::kRoadCount == 17);
+    ASSERT_TRUE(oc::CityMap::kBlockCount == 16);
+    ASSERT_TRUE(city.buildings().size() > 260);
+    ASSERT_TRUE(!city.lakes().empty());
+
+    // Check spatial grid query returns exact matching subset within radius
+    std::vector<int> gridBldgs;
+    const oc::Vec2 queryCenter{168.0f, -168.0f};
+    city.queryBuildingsInRadius(queryCenter, 120.0f, gridBldgs);
+    ASSERT_TRUE(!gridBldgs.empty());
+    for (std::size_t i = 0; i < city.buildings().size(); ++i) {
+        const oc::Vec2 c = city.buildings()[i].footprint.center();
+        if ((c - queryCenter).length() < 90.0f) {
+            bool found = false;
+            for (int idx : gridBldgs) {
+                if (idx == static_cast<int>(i)) { found = true; break; }
+            }
+            ASSERT_TRUE(found);
+        }
+    }
+
+    // Verify all 8 realistic districts exist across the metropolis
+    bool seenDistrict[8] = {};
+    for (int bz = 0; bz < oc::CityMap::kBlockCount; ++bz) {
+        for (int bx = 0; bx < oc::CityMap::kBlockCount; ++bx) {
+            seenDistrict[static_cast<int>(city.districtAt(bx, bz))] = true;
+        }
+    }
+    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::Downtown)]);
+    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::Midtown)]);
+    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::Industrial)]);
+    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::CoastalResidential)]);
+    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::CentralPark)]);
+    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::CivicCenter)]);
+    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::SuburbanEstates)]);
+    ASSERT_TRUE(city.districtAtWorld({0.0f, 890.0f}) == oc::DistrictType::NorthPeninsula);
+
+    // 2. Verify Golden Bay Suspension Bridge smooth arch elevation & guardrail containment
+    float slopeMid = 99.0f;
+    const float hMid = city.bridgeDeckElevationAt({0.0f, 748.0f}, &slopeMid);
+    const float hStart = city.bridgeDeckElevationAt({0.0f, oc::CityMap::kBridgeStartZ});
+    const float hEnd = city.bridgeDeckElevationAt({0.0f, oc::CityMap::kBridgeEndZ});
+    ASSERT_TRUE(hMid > 2.35f && hMid < 2.55f);
+    ASSERT_TRUE(std::abs(slopeMid) < 0.03f);
+    ASSERT_TRUE(hStart < 0.1f && hEnd < 0.1f);
+
+    oc::Vec2 railTest{14.0f, 748.0f};
+    ASSERT_TRUE(city.resolveCircleWorld(railTest, 0.5f));
+    ASSERT_TRUE(railTest.x <= 8.5f);
+
+    // 3. Verify Grand Central Park lake stone arch footbridge is walkable & open water keeps entities out!
+    const oc::Vec2 lakeCenter = city.lakes()[0].bounds.center();
+    oc::Vec2 footbridgeTest = lakeCenter;
+    ASSERT_TRUE(!city.resolveCircleWorld(footbridgeTest, 0.5f));
+    oc::Vec2 openWaterTest = lakeCenter + oc::Vec2{8.0f, 0.0f};
+    ASSERT_TRUE(city.resolveCircleWorld(openWaterTest, 0.5f));
+    ASSERT_TRUE(!city.lakes()[0].bounds.contains(openWaterTest));
+
+    // 4. Verify OEM stock showroom/garage vehicles have zero default neon underglow
+    for (const auto& v : world.vehicles()) {
+        ASSERT_TRUE(v.neonPreset == 0);
+    }
+
+    // 5. Verify player aiming flag tracks low-ready vs aiming stance accurately
+    world.player().pos = {0.0f, -168.0f};
+    world.player().posY = 0.0f;
+    world.player().drivingVehicleId = -1;
+    oc::PlayerInput relaxedIn{};
+    relaxedIn.aimHeld = false;
+    world.update(1.0f / 60.0f, relaxedIn);
+    ASSERT_TRUE(!world.player().aiming);
+
+    oc::PlayerInput aimedIn{};
+    aimedIn.aimHeld = true;
+    world.update(1.0f / 60.0f, aimedIn);
+    ASSERT_TRUE(world.player().aiming);
+
+    // 6. Verify CypressConifer & Bollard realism additions are generated in metropolis
+    bool hasCypress = false;
+    for (const auto& t : city.trees()) {
+        if (t.species == oc::TreeSpecies::CypressConifer) { hasCypress = true; break; }
+    }
+    bool hasBollard = false;
+    for (const auto& sp : city.streetProps()) {
+        if (sp.kind == oc::StreetPropKind::Bollard) { hasBollard = true; break; }
+    }
+    ASSERT_TRUE(hasCypress);
+    ASSERT_TRUE(hasBollard);
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -2061,6 +2153,7 @@ int main() {
     testV120FourCornerCurbSuspensionAndCollisionFriction();
     testV120LivingNpcDiversityRainUmbrellasAndDodge();
     testV120GunpointHandsUpReaction();
+    testV130MetropolisBridgeLakeAndRealism();
 
     std::cout << "[PASS] All " << gTestsPassed << " Open City C++ simulation test suites succeeded!\n";
     return 0;

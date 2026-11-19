@@ -9,7 +9,7 @@ endif()
 # without requiring a separate VC++ Redistributable install.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(open_city VERSION 1.2.0 LANGUAGES C CXX)
+project(open_city VERSION 1.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -42,8 +42,8 @@ if(UNIX AND NOT ANDROID AND RUSTC_EXECUTABLE)
     list(APPEND OPEN_CITY_RUST_OBJECTS "${RUST_PHYSICS_OBJ}")
 endif()
 
-# Pure C++20 + Rust simulation core (city generation, 6-speed gearbox, 4-wheel suspension,
-# rotational rigid-body collisions, stunt ramps, traffic/pedestrian/gang AI, weapons, shops)
+# Pure C++20 + Rust simulation core (16x16 metropolis, Golden Bay Bridge, 6-speed gearbox,
+# 4-wheel suspension, rotational rigid-body collisions, traffic/pedestrian/gang AI, weapons, shops)
 add_library(open_city_core STATIC
     src/world/CityMap.cpp
     src/gameplay/GameWorld.cpp

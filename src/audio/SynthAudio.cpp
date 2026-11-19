@@ -113,10 +113,15 @@ Sound SynthAudio::buildContinuousLoop(bool screechMode) {
         const float t = static_cast<float>(i) / static_cast<float>(sampleRate);
         float sample = 0.0f;
         if (!screechMode) {
-            // Warm V8-inspired low harmonic rumble (integer Hz for clean 1s loop seam)
-            sample = 0.48f * std::sin(kTwoPi * 55.0f * t) +
-                     0.30f * std::sin(kTwoPi * 110.0f * t) +
-                     0.16f * std::sin(kTwoPi * 165.0f * t);
+            // Rich V8-inspired multi-harmonic cylinder firing + subtle intake/exhaust texture (clean 1s seam)
+            const float n = rng.range(-1.0f, 1.0f);
+            filt = filt + 0.055f * (n - filt);
+            const float lope = 0.88f + 0.12f * std::sin(kTwoPi * 7.0f * t);
+            sample = (0.42f * std::sin(kTwoPi * 52.0f * t) +
+                      0.26f * std::sin(kTwoPi * 104.0f * t) +
+                      0.15f * std::sin(kTwoPi * 156.0f * t) +
+                      0.09f * std::sin(kTwoPi * 208.0f * t) +
+                      0.14f * filt) * lope;
         } else {
             const float n = rng.range(-1.0f, 1.0f);
             filt = filt + 0.18f * (n - filt);
@@ -160,6 +165,37 @@ Sound SynthAudio::buildPoliceSirenLoop() {
     return s;
 }
 
+Sound SynthAudio::buildRainAmbienceLoop() {
+    constexpr int sampleRate = 44100;
+    const int frames = sampleRate * 2; // 2.0s seamless soft rain-on-pavement pink-filtered noise
+
+    Wave wave{};
+    wave.frameCount = static_cast<unsigned int>(frames);
+    wave.sampleRate = sampleRate;
+    wave.sampleSize = 16;
+    wave.channels = 1;
+    auto* data = static_cast<short*>(RL_MALLOC(static_cast<std::size_t>(frames) * sizeof(short)));
+
+    Rng rng(0x5241494EULL);
+    float b0 = 0.0f;
+    float b1 = 0.0f;
+    float b2 = 0.0f;
+    for (int i = 0; i < frames; ++i) {
+        const float white = rng.range(-1.0f, 1.0f);
+        b0 = 0.9965f * b0 + white * 0.045f;
+        b1 = 0.9600f * b1 + white * 0.095f;
+        b2 = 0.7200f * b2 + white * 0.240f;
+        const float droplet = (rng.chance(0.0022f)) ? rng.range(-0.35f, 0.35f) : 0.0f;
+        const float sample = clampf((b0 + b1 + b2 * 0.55f + droplet) * 0.68f, -1.0f, 1.0f);
+        data[i] = static_cast<short>(sample * 11500.0f);
+    }
+
+    wave.data = data;
+    Sound s = LoadSoundFromWave(wave);
+    UnloadWave(wave);
+    return s;
+}
+
 void SynthAudio::init() {
     InitAudioDevice();
     if (!IsAudioDeviceReady()) {
@@ -193,6 +229,7 @@ void SynthAudio::init() {
     engineLoop_ = buildContinuousLoop(false);
     driftLoop_ = buildContinuousLoop(true);
     sirenLoop_ = buildPoliceSirenLoop();
+    rainLoop_ = buildRainAmbienceLoop();
     hasLoops_ = true;
 }
 
@@ -206,6 +243,7 @@ void SynthAudio::shutdown() {
         UnloadSound(engineLoop_);
         UnloadSound(driftLoop_);
         UnloadSound(sirenLoop_);
+        UnloadSound(rainLoop_);
         hasLoops_ = false;
     }
     CloseAudioDevice();
@@ -258,6 +296,18 @@ void SynthAudio::updatePoliceSiren(float proximityIntensity) {
         SetSoundPitch(sirenLoop_, 0.98f + clamped * 0.08f);
     } else if (IsSoundPlaying(sirenLoop_)) {
         StopSound(sirenLoop_);
+    }
+}
+
+void SynthAudio::updateWeatherAmbience(bool raining) {
+    if (!ready_ || !hasLoops_) return;
+    if (raining) {
+        if (!IsSoundPlaying(rainLoop_)) {
+            PlaySound(rainLoop_);
+        }
+        SetSoundVolume(rainLoop_, 0.24f);
+    } else if (IsSoundPlaying(rainLoop_)) {
+        StopSound(rainLoop_);
     }
 }
 
