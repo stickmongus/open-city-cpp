@@ -107,7 +107,7 @@ done
     --auto-add-overlay
 
 # 5) Compile NativeLoader.java -> classes.dex (Java 8 bytecode -> DEX via d8)
-javac --release 8 \
+javac -source 1.8 -target 1.8 -Xlint:-options \
     -classpath "${ANDROID_JAR}" \
     -d "${OUT_DIR}/java_obj" \
     "${ROOT_DIR}/android/src/com/stickmongus/opencity/NativeLoader.java" \

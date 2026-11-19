@@ -61,7 +61,9 @@ def main() -> int:
         ],
     )
 
-    # 3) src/rlgl.h: use sized GL_DEPTH_COMPONENT24_OES instead of unsized WebGL GL_DEPTH_COMPONENT on Android ES3
+    # 3) src/rlgl.h:
+    #    - use sized GL_DEPTH_COMPONENT24_OES instead of unsized WebGL GL_DEPTH_COMPONENT on Android ES3
+    #    - call core OpenGL ES 3.0 glDrawBuffers() instead of ES2 extension glDrawBuffersEXT()
     patch_file(
         raylib_root / "src" / "rlgl.h",
         [
@@ -76,6 +78,14 @@ def main() -> int:
                 "    RLGL.ExtSupported.texDepthWebGL = true;\n"
                 "#endif\n"
                 "    RLGL.ExtSupported.maxDepthBits = 24;",
+            ),
+            (
+                "#if defined(GRAPHICS_API_OPENGL_ES3)\n"
+                "            glDrawBuffersEXT(count, buffers);\n"
+                "#else",
+                "#if defined(GRAPHICS_API_OPENGL_ES3)\n"
+                "            glDrawBuffers(count, buffers);\n"
+                "#else",
             ),
         ],
     )
