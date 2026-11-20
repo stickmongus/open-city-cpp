@@ -1,11 +1,36 @@
 #include "render/Renderer3D.hpp"
 
+#include <stb_truetype.h>
+
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace oc {
 
 namespace {
+
+inline std::uint32_t decodeUtf8Next(const char* s, std::size_t& idx, std::size_t len) {
+    if (idx >= len) return 0;
+    const unsigned char c0 = static_cast<unsigned char>(s[idx++]);
+    if (c0 < 0x80) return c0;
+    if ((c0 & 0xE0) == 0xC0 && idx < len) {
+        const unsigned char c1 = static_cast<unsigned char>(s[idx++]);
+        return ((c0 & 0x1Fu) << 6) | (c1 & 0x3Fu);
+    }
+    if ((c0 & 0xF0) == 0xE0 && idx + 1 < len) {
+        const unsigned char c1 = static_cast<unsigned char>(s[idx++]);
+        const unsigned char c2 = static_cast<unsigned char>(s[idx++]);
+        return ((c0 & 0x0Fu) << 12) | ((c1 & 0x3Fu) << 6) | (c2 & 0x3Fu);
+    }
+    if ((c0 & 0xF8) == 0xF0 && idx + 2 < len) {
+        const unsigned char c1 = static_cast<unsigned char>(s[idx++]);
+        const unsigned char c2 = static_cast<unsigned char>(s[idx++]);
+        const unsigned char c3 = static_cast<unsigned char>(s[idx++]);
+        return ((c0 & 0x07u) << 18) | ((c1 & 0x3Fu) << 12) | ((c2 & 0x3Fu) << 6) | (c3 & 0x3Fu);
+    }
+    return '?';
+}
 
 inline void fillColor4(float out[4], ColorRGBA c) {
     out[0] = static_cast<float>(c.r) / 255.0f;
@@ -62,12 +87,270 @@ GpuMesh buildGiwaRoofMesh(VulkanContext& vk) {
 
 Renderer3D::~Renderer3D() = default;
 
-void Renderer3D::init(VulkanContext& vk, const CityMap& city) {
+void Renderer3D::init(VulkanContext& vk, const CityMap& city,
+                      const std::vector<std::uint8_t>& fontBytes) {
     if (initialized_) return;
     buildStaticPrimitives(vk);
+    buildSeoulSignAtlas(vk, fontBytes);
     cars_.init(vk);
     buildSeoulMacroMeshes(vk, city);
     initialized_ = true;
+}
+
+void Renderer3D::buildSeoulSignAtlas(VulkanContext& vk, const std::vector<std::uint8_t>& fontBytes) {
+    constexpr int kW = 1024;
+    constexpr int kH = 1024;
+    constexpr int kCellW = 256;
+    constexpr int kCellH = 128;
+    std::vector<std::uint8_t> rgba(static_cast<std::size_t>(kW) * static_cast<std::size_t>(kH) * 4u, 255u);
+
+    auto putPx = [&](int x, int y, ColorRGBA c, float alpha) {
+        if (x < 0 || x >= kW || y < 0 || y >= kH || alpha <= 0.001f) return;
+        const std::size_t off = (static_cast<std::size_t>(y) * static_cast<std::size_t>(kW) + static_cast<std::size_t>(x)) * 4u;
+        const float a = std::clamp(alpha, 0.0f, 1.0f);
+        rgba[off + 0] = static_cast<std::uint8_t>(lerpf(static_cast<float>(rgba[off + 0]), static_cast<float>(c.r), a));
+        rgba[off + 1] = static_cast<std::uint8_t>(lerpf(static_cast<float>(rgba[off + 1]), static_cast<float>(c.g), a));
+        rgba[off + 2] = static_cast<std::uint8_t>(lerpf(static_cast<float>(rgba[off + 2]), static_cast<float>(c.b), a));
+        rgba[off + 3] = 255u;
+    };
+
+    auto fillRect = [&](int x0, int y0, int w, int h, ColorRGBA c) {
+        const int x1 = std::min(kW, x0 + w);
+        const int y1 = std::min(kH, y0 + h);
+        for (int y = std::max(0, y0); y < y1; ++y) {
+            for (int x = std::max(0, x0); x < x1; ++x) {
+                const std::size_t off = (static_cast<std::size_t>(y) * static_cast<std::size_t>(kW) + static_cast<std::size_t>(x)) * 4u;
+                rgba[off + 0] = c.r;
+                rgba[off + 1] = c.g;
+                rgba[off + 2] = c.b;
+                rgba[off + 3] = 255u;
+            }
+        }
+    };
+
+    auto drawBorder = [&](int x0, int y0, int w, int h, int t, ColorRGBA c) {
+        fillRect(x0, y0, w, t, c);
+        fillRect(x0, y0 + h - t, w, t, c);
+        fillRect(x0, y0, t, h, c);
+        fillRect(x0 + w - t, y0, t, h, c);
+    };
+
+    auto fillCircle = [&](int cx, int cy, int rad, ColorRGBA c) {
+        for (int dy = -rad; dy <= rad; ++dy) {
+            for (int dx = -rad; dx <= rad; ++dx) {
+                const float d = std::sqrt(static_cast<float>(dx * dx + dy * dy));
+                const float cov = clampf(static_cast<float>(rad) + 0.5f - d, 0.0f, 1.0f);
+                if (cov > 0.01f) putPx(cx + dx, cy + dy, c, cov);
+            }
+        }
+    };
+
+    stbtt_fontinfo font{};
+    const bool hasFont = !fontBytes.empty() &&
+                         stbtt_InitFont(&font, fontBytes.data(), stbtt_GetFontOffsetForIndex(fontBytes.data(), 0)) != 0;
+
+    auto drawCenteredText = [&](int cx, int cy, int maxW, const char* text, float pxSize, ColorRGBA col, bool shadow) {
+        if (!text || !text[0]) return;
+        const std::size_t len = std::strlen(text);
+        if (!hasFont) {
+            // Crisp geometric fallback bars if no TTF font is available
+            const int bw = std::min(maxW - 16, static_cast<int>(len) * 8);
+            fillRect(cx - bw / 2, cy - static_cast<int>(pxSize * 0.35f), bw, std::max(4, static_cast<int>(pxSize * 0.55f)), col);
+            return;
+        }
+
+        // Measure UTF-8 string width and shrink smoothly to fit inside maxW
+        auto measureWidth = [&](float scale) -> float {
+            std::size_t idx = 0;
+            float w = 0.0f;
+            while (idx < len) {
+                const std::uint32_t cp = decodeUtf8Next(text, idx, len);
+                if (cp == 0) break;
+                int adv = 0, lsb = 0;
+                stbtt_GetCodepointHMetrics(&font, static_cast<int>(cp), &adv, &lsb);
+                w += static_cast<float>(adv) * scale;
+            }
+            return w;
+        };
+
+        float scale = stbtt_ScaleForPixelHeight(&font, pxSize);
+        float totalW = measureWidth(scale);
+        if (totalW > static_cast<float>(maxW) && totalW > 1.0f) {
+            scale *= static_cast<float>(maxW) / totalW;
+            totalW = static_cast<float>(maxW);
+        }
+
+        int ascent = 0, descent = 0, lineGap = 0;
+        stbtt_GetFontVMetrics(&font, &ascent, &descent, &lineGap);
+        const float baselineY = static_cast<float>(cy) + static_cast<float>(ascent + descent) * scale * 0.5f;
+        float penX = static_cast<float>(cx) - totalW * 0.5f;
+
+        std::size_t idx = 0;
+        while (idx < len) {
+            const std::uint32_t cp = decodeUtf8Next(text, idx, len);
+            if (cp == 0) break;
+            int adv = 0, lsb = 0;
+            stbtt_GetCodepointHMetrics(&font, static_cast<int>(cp), &adv, &lsb);
+            int gw = 0, gh = 0, xoff = 0, yoff = 0;
+            unsigned char* bmp = stbtt_GetCodepointBitmap(&font, 0.0f, scale, static_cast<int>(cp), &gw, &gh, &xoff, &yoff);
+            if (bmp) {
+                const int gx0 = static_cast<int>(std::floor(penX)) + xoff;
+                const int gy0 = static_cast<int>(std::floor(baselineY)) + yoff;
+                for (int by = 0; by < gh; ++by) {
+                    for (int bx = 0; bx < gw; ++bx) {
+                        const float cov = static_cast<float>(bmp[by * gw + bx]) / 255.0f;
+                        if (cov < 0.02f) continue;
+                        if (shadow) {
+                            putPx(gx0 + bx + 2, gy0 + by + 2, {10, 12, 16, 255}, cov * 0.55f);
+                        }
+                        putPx(gx0 + bx, gy0 + by, col, cov);
+                        // Slight bold horizontal thickening (+1px) for razor-sharp street readability!
+                        putPx(gx0 + bx + 1, gy0 + by, col, cov * 0.45f);
+                    }
+                }
+                stbtt_FreeBitmap(bmp, nullptr);
+            }
+            penX += static_cast<float>(adv) * scale;
+        }
+    };
+
+    struct SignDef {
+        ColorRGBA bg;
+        ColorRGBA border;
+        ColorRGBA accent;
+        ColorRGBA textCol;
+        const char* line1;
+        const char* line2;
+        int style; // 0=gantry, 1=shop, 2=pharmacy/clinic cross, 3=metro, 4=bis, 5=apt, 6=busLed, 7=plate
+    };
+
+    // 32 Authentic Seoul 3D Signs packed into 4 cols x 8 rows (256x128 each -> 1024x1024 atlas)
+    static constexpr SignDef kSigns[32] = {
+        // Row 0..1 (Slots 0..7): Iconic Korean Dark-Green Overhead Highway Directional Gantries
+        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 반포대교 · 남산",      "강변북로 · 이태원", 0},
+        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 강남역 · 테헤란로 →",  "삼성역 · 코엑스",   0},
+        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 광화문 · 시청",        "경복궁 · 세종대로", 0},
+        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 여의도 · 올림픽대로",  "마포대교 · 63빌딩", 0},
+        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 서울 외곽순환 IC",     "수도권 제1순환도로", 0},
+        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "← 홍대입구 · 신촌",      "마포 · 성산대교",   0},
+        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 잠실 · 롯데월드 →",    "송파 · 올림픽공원", 0},
+        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 구로디지털 · 신도림",  "서부간선 · 관악",   0},
+
+        // Row 2..4 (Slots 8..19): Authentic Korean 1F & 2F Commercial Street Shopfronts!
+        {{ 68,  42, 138, 255}, {124, 214,  88, 255}, {124, 214,  88, 255}, {252, 254, 255, 255}, "편의점 24시",            "도시락 · 커피 · ATM", 1},
+        {{ 42,  36,  34, 255}, {224, 182,  92, 255}, {224, 182,  92, 255}, {248, 242, 226, 255}, "서울 커피 · 베이커리",   "ESPRESSO & BAKERY",  1},
+        {{ 20, 128,  86, 255}, {238, 246, 242, 255}, {250, 252, 254, 255}, {252, 254, 255, 255}, "온누리 약국",            "처방조제 · 건강상담", 2},
+        {{198,  56,  38, 255}, {248, 228, 178, 255}, {246, 186,  42, 255}, {255, 250, 238, 255}, "김밥 · 떡볶이 분식",     "포장 · 배달 가능",    1},
+
+        {{196, 118,  26, 255}, { 64,  38,  18, 255}, {252, 232, 148, 255}, {255, 252, 242, 255}, "치킨 · 호프",            "생맥주 · 배달전문",   1},
+        {{ 24,  70, 148, 255}, {228, 236, 246, 255}, { 68, 152, 232, 255}, {252, 254, 255, 255}, "한국은행 · ATM",         "365 자동화코너",      1},
+        {{ 26, 104,  66, 255}, {242, 210,  76, 255}, {242, 210,  76, 255}, {252, 238, 136, 255}, "공인중개사 · 부동산",    "아파트 · 상가 · 매매",1},
+        {{ 64,  48,  74, 255}, {228, 188, 198, 255}, {228, 188, 198, 255}, {252, 246, 250, 255}, "서울 헤어 · 미용실",     "컷 · 펌 · 컬러",      1},
+
+        {{ 24, 112, 128, 255}, {234, 246, 248, 255}, {252, 254, 255, 255}, {252, 254, 255, 255}, "서울 내과 · 치과",       "건강검진 · 야간진료", 2},
+        {{ 34,  82, 158, 255}, {236, 206,  92, 255}, {236, 206,  92, 255}, {252, 254, 255, 255}, "영어 · 수학 학원",       "초 · 중 · 고 입시전문",1},
+        {{142,  34,  38, 255}, {232, 194, 108, 255}, {232, 194, 108, 255}, {254, 244, 222, 255}, "한우 · 삼겹살",          "참숯 화로구이 전문",  1},
+        {{ 30, 122, 184, 255}, {236, 246, 254, 255}, {144, 216, 252, 255}, {252, 254, 255, 255}, "크린 세탁소",            "명품의류 · 당일세탁", 1},
+
+        // Row 5 (Slots 20..23): Seoul Metro Subway Entrance Signboards
+        {{ 32,  38,  46, 255}, { 42, 168,  78, 255}, { 42, 168,  78, 255}, {250, 252, 255, 255}, "2호선 강남역",           "SEOUL METRO LINE 2", 3},
+        {{ 32,  38,  46, 255}, {192, 162,  66, 255}, {192, 162,  66, 255}, {250, 252, 255, 255}, "9호선 고속터미널",       "SEOUL METRO LINE 9", 3},
+        {{ 32,  38,  46, 255}, {236, 118,  28, 255}, {236, 118,  28, 255}, {250, 252, 255, 255}, "3호선 경복궁역",         "SEOUL METRO LINE 3", 3},
+        {{ 32,  38,  46, 255}, { 36,  98, 198, 255}, { 36,  98, 198, 255}, {250, 252, 255, 255}, "1호선 시청역",           "SEOUL METRO LINE 1", 3},
+
+        // Row 6 (Slots 24..27): Seoul BIS Arrival Board, Korean Apartment Dong Panels, Blue Bus LED Header
+        {{ 16,  28,  46, 255}, { 54, 168, 242, 255}, { 28, 116, 214, 255}, {255, 214,  86, 255}, "서울 버스 도착안내",     "472 곧도착 · 5511 3분", 4},
+        {{ 42,  64,  98, 255}, {228, 234, 242, 255}, {198, 174, 112, 255}, {250, 252, 255, 255}, "101동",                  "래미안 · SEOUL",      5},
+        {{ 54,  60,  72, 255}, {224, 228, 234, 255}, {178, 152, 108, 255}, {250, 252, 255, 255}, "105동",                  "자이 · SEOUL",        5},
+        {{ 14,  18,  24, 255}, { 38,  98, 206, 255}, { 38,  98, 206, 255}, {255, 208,  64, 255}, "서울 간선 472",          "신사 · 강남 · 반포",  6},
+
+        // Row 7 (Slots 28..31): Green Bus LED Header + Authentic Korean Vehicle License Plates!
+        {{ 14,  18,  24, 255}, { 44, 152,  76, 255}, { 44, 152,  76, 255}, {126, 246, 138, 255}, "서울 지선 5511",         "서울대 · 관악 · 반포", 6},
+        {{244, 246, 250, 255}, { 32,  36,  44, 255}, { 26,  86, 186, 255}, { 20,  22,  28, 255}, "123가 4568",             "",                    7},
+        {{244, 186,  32, 255}, { 32,  34,  38, 255}, { 32,  34,  38, 255}, { 20,  22,  26, 255}, "서울 34바 8247",         "",                    7},
+        {{244, 246, 250, 255}, { 22,  46, 104, 255}, { 22,  46, 104, 255}, { 20,  42,  98, 255}, "경찰 112",               "",                    7}
+    };
+
+    for (int slot = 0; slot < 32; ++slot) {
+        const int col = slot % 4;
+        const int row = slot / 4;
+        const int x0 = col * kCellW;
+        const int y0 = row * kCellH;
+        const SignDef& sd = kSigns[slot];
+
+        fillRect(x0, y0, kCellW, kCellH, sd.bg);
+
+        if (sd.style == 0) {
+            // Korean Highway Gantry: crisp double white frame + blue highway route shield + bold white destinations!
+            drawBorder(x0 + 5, y0 + 5, kCellW - 10, kCellH - 10, 3, sd.border);
+            fillRect(x0 + 16, y0 + 74, 34, 26, sd.accent);
+            drawBorder(x0 + 16, y0 + 74, 34, 26, 2, sd.border);
+            drawCenteredText(x0 + 33, y0 + 87, 30, "46", 17.0f, sd.border, false);
+            drawCenteredText(x0 + kCellW / 2, y0 + 44, kCellW - 28, sd.line1, 32.0f, sd.textCol, true);
+            drawCenteredText(x0 + kCellW / 2 + 18, y0 + 87, kCellW - 76, sd.line2, 21.0f, {226, 238, 232, 255}, true);
+        } else if (sd.style == 1 || sd.style == 2) {
+            // Korean Commercial Shopfront: clean architectural border, bottom accent strip, optional pharmacy/clinic cross!
+            drawBorder(x0 + 4, y0 + 4, kCellW - 8, kCellH - 8, 3, sd.border);
+            fillRect(x0 + 7, y0 + kCellH - 14, kCellW - 14, 7, sd.accent);
+            int textCenterX = x0 + kCellW / 2;
+            int textMaxW = kCellW - 24;
+            if (sd.style == 2) {
+                // Crisp medical / pharmacy cross badge on left
+                fillRect(x0 + 20, y0 + 34, 32, 10, sd.accent);
+                fillRect(x0 + 31, y0 + 23, 10, 32, sd.accent);
+                textCenterX = x0 + kCellW / 2 + 22;
+                textMaxW = kCellW - 68;
+            }
+            drawCenteredText(textCenterX, y0 + 46, textMaxW, sd.line1, 34.0f, sd.textCol, true);
+            drawCenteredText(x0 + kCellW / 2, y0 + 89, kCellW - 28, sd.line2, 19.0f, {236, 240, 244, 255}, false);
+        } else if (sd.style == 3) {
+            // Seoul Metro Subway Sign: colored left circular line emblem + horizontal line bar + crisp station name!
+            fillRect(x0, y0, kCellW, 12, sd.accent);
+            fillRect(x0, y0 + kCellH - 10, kCellW, 10, sd.accent);
+            fillCircle(x0 + 40, y0 + 62, 24, sd.accent);
+            const char* numStr = (slot == 20) ? "2" : ((slot == 21) ? "9" : ((slot == 22) ? "3" : "1"));
+            drawCenteredText(x0 + 40, y0 + 62, 34, numStr, 30.0f, {255, 255, 255, 255}, false);
+            drawCenteredText(x0 + 152, y0 + 50, 174, sd.line1, 30.0f, sd.textCol, true);
+            drawCenteredText(x0 + 152, y0 + 88, 174, sd.line2, 16.0f, {206, 214, 224, 255}, false);
+        } else if (sd.style == 4) {
+            // Seoul BIS Digital Bus Information Screen
+            drawBorder(x0 + 4, y0 + 4, kCellW - 8, kCellH - 8, 3, sd.border);
+            fillRect(x0 + 7, y0 + 7, kCellW - 14, 38, sd.accent);
+            drawCenteredText(x0 + kCellW / 2, y0 + 26, kCellW - 22, sd.line1, 22.0f, {252, 254, 255, 255}, false);
+            drawCenteredText(x0 + kCellW / 2, y0 + 76, kCellW - 22, sd.line2, 23.0f, sd.textCol, false);
+            fillRect(x0 + 18, y0 + 104, kCellW - 36, 8, {42, 186, 124, 255});
+        } else if (sd.style == 5) {
+            // Korean Apartment Complex Shear-Wall Dong Number Panel (101동 / 105동)
+            drawBorder(x0 + 5, y0 + 5, kCellW - 10, kCellH - 10, 3, sd.accent);
+            fillRect(x0 + 14, y0 + 82, kCellW - 28, 3, sd.accent);
+            drawCenteredText(x0 + kCellW / 2, y0 + 46, kCellW - 24, sd.line1, 46.0f, sd.textCol, true);
+            drawCenteredText(x0 + kCellW / 2, y0 + 102, kCellW - 28, sd.line2, 21.0f, {226, 230, 238, 255}, false);
+        } else if (sd.style == 6) {
+            // Seoul City Bus Front LED Destination Matrix
+            drawBorder(x0 + 4, y0 + 4, kCellW - 8, kCellH - 8, 4, sd.border);
+            fillRect(x0 + 10, y0 + 10, 14, kCellH - 20, sd.accent);
+            drawCenteredText(x0 + kCellW / 2 + 8, y0 + 48, kCellW - 36, sd.line1, 34.0f, sd.textCol, false);
+            drawCenteredText(x0 + kCellW / 2 + 8, y0 + 92, kCellW - 36, sd.line2, 21.0f, {242, 246, 250, 255}, false);
+        } else if (sd.style == 7) {
+            // Authentic Korean License Plate (White Private + Blue KOR left band / Yellow Taxi / Police)
+            drawBorder(x0 + 5, y0 + 5, kCellW - 10, kCellH - 10, 4, sd.border);
+            int textCx = x0 + kCellW / 2;
+            int textW = kCellW - 24;
+            if (slot == 29) {
+                // Modern Korean holographic blue left KOR strip!
+                fillRect(x0 + 9, y0 + 9, 28, kCellH - 18, sd.accent);
+                drawCenteredText(x0 + 23, y0 + 92, 24, "KOR", 13.0f, {248, 250, 254, 255}, false);
+                textCx = x0 + kCellW / 2 + 14;
+                textW = kCellW - 52;
+            } else if (slot == 31) {
+                // Seoul Police crisp blue header accent strip
+                fillRect(x0 + 9, y0 + 9, kCellW - 18, 16, sd.accent);
+            }
+            drawCenteredText(textCx, y0 + 66, textW, sd.line1, 52.0f, sd.textCol, false);
+        }
+    }
+
+    vk.uploadSignAtlasRGBA8(rgba.data(), static_cast<std::uint32_t>(kW), static_cast<std::uint32_t>(kH));
 }
 
 void Renderer3D::shutdown(VulkanContext& vk) {
@@ -381,23 +664,19 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
             const float midX = 0.5f * (bx0 + bx1), midZ = 0.5f * (bz0 + bz1);
             const float segX = (bx1 - bx0) + 1.0f, segZ = (bz1 - bz0) + 1.0f;
             const ColorRGBA kAcousticPanel{68, 92, 78, 255};
-            // North & South Ring Expressway barriers
-            const float yN = city.terrainElevationAt({midX, minZ});
-            const float yS = city.terrainElevationAt({midX, maxZ});
-            embMb.addBox({midX, yN + 1.0f, minZ}, {segX, 2.2f, 2.0f}, kGuardWall);
-            embMb.addBox({midX, yN + 2.7f, minZ}, {segX, 1.4f, 0.55f}, kAcousticPanel);
-            embMb.addBox({midX, yS + 1.0f, maxZ}, {segX, 2.2f, 2.0f}, kGuardWall);
-            embMb.addBox({midX, yS + 2.7f, maxZ}, {segX, 1.4f, 0.55f}, kAcousticPanel);
+            // North & South Ring Expressway barriers solidly grounded at y = 0.0m!
+            embMb.addBox({midX, 1.0f, minZ}, {segX, 2.4f, 2.0f}, kGuardWall);
+            embMb.addBox({midX, 2.85f, minZ}, {segX, 1.4f, 0.55f}, kAcousticPanel);
+            embMb.addBox({midX, 1.0f, maxZ}, {segX, 2.4f, 2.0f}, kGuardWall);
+            embMb.addBox({midX, 2.85f, maxZ}, {segX, 1.4f, 0.55f}, kAcousticPanel);
             // West & East Ring Expressway barriers (cleanly bridged across Han River!)
             if (!city.isInHanRiverWater({minX, midZ}, -12.0f)) {
-                const float yW = city.terrainElevationAt({minX, midZ});
-                embMb.addBox({minX, yW + 1.0f, midZ}, {2.0f, 2.2f, segZ}, kGuardWall);
-                embMb.addBox({minX, yW + 2.7f, midZ}, {0.55f, 1.4f, segZ}, kAcousticPanel);
+                embMb.addBox({minX, 1.0f, midZ}, {2.0f, 2.4f, segZ}, kGuardWall);
+                embMb.addBox({minX, 2.85f, midZ}, {0.55f, 1.4f, segZ}, kAcousticPanel);
             }
             if (!city.isInHanRiverWater({maxX, midZ}, -12.0f)) {
-                const float yE = city.terrainElevationAt({maxX, midZ});
-                embMb.addBox({maxX, yE + 1.0f, midZ}, {2.0f, 2.2f, segZ}, kGuardWall);
-                embMb.addBox({maxX, yE + 2.7f, midZ}, {0.55f, 1.4f, segZ}, kAcousticPanel);
+                embMb.addBox({maxX, 1.0f, midZ}, {2.0f, 2.4f, segZ}, kGuardWall);
+                embMb.addBox({maxX, 2.85f, midZ}, {0.55f, 1.4f, segZ}, kAcousticPanel);
             }
         }
         hanEmbankmentMesh_ = embMb.upload(vk, 35.0f);
@@ -408,7 +687,7 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
     // ------------------------------------------------------------------------
     {
         MeshBuilder3D forestMb, graniteMb;
-        auto addMountainList = [&](const std::vector<SeoulMountain>& mList, int rings, int slices) {
+        auto addMountainList = [&](const std::vector<SeoulMountain>& mList, int rings, int slices, bool dipOuterSkirt) {
             for (const auto& m : mList) {
                 for (int r = 0; r < rings; ++r) {
                     const float f0 = static_cast<float>(r) / static_cast<float>(rings);
@@ -418,7 +697,7 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                         const float rz = m.radiusZ * frac;
                         const float wx = m.center.x + std::cos(ang) * rx;
                         const float wz = m.center.z + std::sin(ang) * rz;
-                        float h = (frac > 0.96f) ? -2.0f : city.terrainElevationAt({wx, wz});
+                        const float h = (dipOuterSkirt && frac > 0.96f) ? -2.0f : city.terrainElevationAt({wx, wz});
                         return {wx, h, wz};
                     };
 
@@ -448,18 +727,27 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                 }
             }
         };
-        addMountainList(city.mountains(), 10, 24);
-        addMountainList(city.perimeterMountains(), 7, 16);
+        addMountainList(city.mountains(), 10, 24, true);
 
-        // Continuous 3D triangulated greenbelt foothill terrain skirt sampling terrainElevationAt() vertex-for-vertex!
-        // Ensures ZERO floating, ZERO sharp void edges, and lush rolling forested hillsides beyond every outer road!
-        auto addTerrainBand = [&](float xA, float xB, int nx, float zA, float zB, int nz) {
+        // Single continuous, watertight 3D triangulated greenbelt & outer mountain ring sampling terrainElevationAt() 1:1!
+        // Uses non-linear radial spacing (tight ~30m strips right behind the Ring Expressway wall) so zero trees float!
+        auto addTerrainBand = [&](float xA, float xB, int nx, bool expX, bool revX,
+                                  float zA, float zB, int nz, bool expZ, bool revZ) {
+            auto sampleAxis = [](float a, float b, float u, bool useExp, bool rev) -> float {
+                if (!useExp) return lerpf(a, b, u);
+                const float t = rev ? (1.0f - std::pow(1.0f - u, 1.75f)) : std::pow(u, 1.75f);
+                return lerpf(a, b, t);
+            };
             for (int iz = 0; iz < nz; ++iz) {
-                const float z0 = lerpf(zA, zB, static_cast<float>(iz) / static_cast<float>(nz));
-                const float z1 = lerpf(zA, zB, static_cast<float>(iz + 1) / static_cast<float>(nz));
+                const float uz0 = static_cast<float>(iz) / static_cast<float>(nz);
+                const float uz1 = static_cast<float>(iz + 1) / static_cast<float>(nz);
+                const float z0 = sampleAxis(zA, zB, uz0, expZ, revZ);
+                const float z1 = sampleAxis(zA, zB, uz1, expZ, revZ);
                 for (int ix = 0; ix < nx; ++ix) {
-                    const float x0 = lerpf(xA, xB, static_cast<float>(ix) / static_cast<float>(nx));
-                    const float x1 = lerpf(xA, xB, static_cast<float>(ix + 1) / static_cast<float>(nx));
+                    const float ux0 = static_cast<float>(ix) / static_cast<float>(nx);
+                    const float ux1 = static_cast<float>(ix + 1) / static_cast<float>(nx);
+                    const float x0 = sampleAxis(xA, xB, ux0, expX, revX);
+                    const float x1 = sampleAxis(xA, xB, ux1, expX, revX);
                     const Vec2 mid{0.5f * (x0 + x1), 0.5f * (z0 + z1)};
                     if (city.isInHanRiverWater(mid, 12.0f)) continue;
                     const float y00 = city.terrainElevationAt({x0, z0});
@@ -467,22 +755,27 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                     const float y11 = city.terrainElevationAt({x1, z1});
                     const float y01 = city.terrainElevationAt({x0, z1});
                     const float hAvg = 0.25f * (y00 + y10 + y11 + y01);
-                    const float hf = clampf(hAvg / 140.0f, 0.0f, 1.0f);
-                    const ColorRGBA col{
-                        static_cast<std::uint8_t>(lerpf(62.0f, 48.0f, hf)),
-                        static_cast<std::uint8_t>(lerpf(104.0f, 78.0f, hf)),
-                        static_cast<std::uint8_t>(lerpf(52.0f, 46.0f, hf)),
-                        255
-                    };
-                    // Counter-clockwise upward-facing quad (+Y normal)
-                    forestMb.addQuad({x0, y00, z0}, {x0, y01, z1}, {x1, y11, z1}, {x1, y10, z0}, col);
+                    if (hAvg > 275.0f) {
+                        const ColorRGBA cRock{146, 144, 140, 255};
+                        graniteMb.addQuad({x0, y00, z0}, {x0, y01, z1}, {x1, y11, z1}, {x1, y10, z0}, cRock);
+                    } else {
+                        const float hf = clampf(hAvg / 220.0f, 0.0f, 1.0f);
+                        const ColorRGBA col{
+                            static_cast<std::uint8_t>(lerpf(62.0f, 44.0f, hf)),
+                            static_cast<std::uint8_t>(lerpf(104.0f, 76.0f, hf)),
+                            static_cast<std::uint8_t>(lerpf(52.0f, 45.0f, hf)),
+                            255
+                        };
+                        // Counter-clockwise upward-facing quad (+Y normal)
+                        forestMb.addQuad({x0, y00, z0}, {x0, y01, z1}, {x1, y11, z1}, {x1, y10, z0}, col);
+                    }
                 }
             }
         };
-        addTerrainBand( 14300.0f,  18400.0f, 10, -15800.0f,  15800.0f, 64); // East Gyeonggi hills
-        addTerrainBand(-18400.0f, -14300.0f, 10, -15800.0f,  15800.0f, 64); // West Gimpo/Incheon hills
-        addTerrainBand(-14300.0f,  14300.0f, 56, -15800.0f, -11800.0f, 10); // North Bukhansan/Dobong ridge
-        addTerrainBand(-14300.0f,  14300.0f, 56,  11800.0f,  15800.0f, 10); // South Gwanak/Cheonggye ridge
+        addTerrainBand( 14322.0f,  18800.0f, 24, true,  false, -16200.0f,  16200.0f, 96, false, false); // East Gyeonggi / Namhansan hills
+        addTerrainBand(-18800.0f, -14322.0f, 24, true,  true,  -16200.0f,  16200.0f, 96, false, false); // West Gimpo / Gyeyangsan hills
+        addTerrainBand(-14322.0f,  14322.0f, 96, false, false, -16200.0f, -11822.0f, 24, true,  true);  // North Bukhansan / Dobong ridge
+        addTerrainBand(-14322.0f,  14322.0f, 96, false, false,  11822.0f,  16200.0f, 24, true,  false); // South Gwanak / Cheonggye ridge
 
         mountainForestMesh_ = forestMb.upload(vk, 55.0f);
         mountainGraniteMesh_ = graniteMb.upload(vk, 35.0f);
@@ -1069,6 +1362,133 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     ubo.viewPosAndHour[1] = camera.position.y;
     ubo.viewPosAndHour[2] = camera.position.z;
     ubo.viewPosAndHour[3] = h;
+
+    // -----------------------------------------------------------------------
+    // Gather up to 20 Dynamic Local Lights (Muzzle Flash, Flashing Emergency
+    // Sirens, Vehicle Twin Headlight Spotlights, and Warm Seoul Streetlights!)
+    // -----------------------------------------------------------------------
+    int nLights = 0;
+    auto pushLocalLight = [&](const Vec3& pos, float radius, const Vec3& col,
+                              bool isSpot, const Vec3& dir = {0, -1, 0}, float cosOuter = 0.72f) {
+        if (nLights >= SceneUBO::kMaxLocalLights) return;
+        ubo.lightPosRadius[nLights][0] = pos.x;
+        ubo.lightPosRadius[nLights][1] = pos.y;
+        ubo.lightPosRadius[nLights][2] = pos.z;
+        ubo.lightPosRadius[nLights][3] = radius;
+        ubo.lightColorType[nLights][0] = col.x;
+        ubo.lightColorType[nLights][1] = col.y;
+        ubo.lightColorType[nLights][2] = col.z;
+        ubo.lightColorType[nLights][3] = isSpot ? 1.0f : 0.0f;
+        ubo.lightDirCone[nLights][0] = dir.x;
+        ubo.lightDirCone[nLights][1] = dir.y;
+        ubo.lightDirCone[nLights][2] = dir.z;
+        ubo.lightDirCone[nLights][3] = cosOuter;
+        ++nLights;
+    };
+
+    const CityMap& city = world.city();
+    const Vec2 focus2D{camera.target.x, camera.target.z};
+    const auto& pl = world.player();
+
+    // 1. Player Firearm Muzzle Flash Point Light
+    if (pl.muzzleFlashTimer > 0.001f && pl.drivingVehicleId < 0) {
+        const Vec2 pf = forwardFromHeading(pl.facingYaw);
+        const float gy = city.surfaceHeightAt(pl.pos) + pl.posY;
+        const float flashK = clampf(pl.muzzleFlashTimer / 0.055f, 0.25f, 1.0f);
+        pushLocalLight({pl.pos.x + pf.x * 0.75f, gy + 1.38f, pl.pos.z + pf.z * 0.75f},
+                       13.5f, {22.0f * flashK, 13.5f * flashK, 5.0f * flashK}, false);
+    }
+
+    // 2. Active Flashing Police / 119 Ambulance / FireTruck Roof Sirens (up to 4 nearest!)
+    struct LightCand { float distSq; int idx; };
+    std::vector<LightCand> sirenCands;
+    sirenCands.reserve(8);
+    std::vector<LightCand> headCands;
+    headCands.reserve(16);
+    const bool headlightsOn = (nightF > 0.10f || wet > 0.20f);
+    const float headIntensity = clampf(nightF * 1.15f + wet * 0.45f, 0.0f, 1.25f);
+
+    const auto& vehs = world.vehicles();
+    for (int vi = 0; vi < static_cast<int>(vehs.size()); ++vi) {
+        const auto& v = vehs[static_cast<std::size_t>(vi)];
+        if (v.destroyed) continue;
+        const float d2 = (v.pos - focus2D).lengthSq();
+        if (v.sirenActive && d2 < 78.0f * 78.0f) {
+            sirenCands.push_back({v.isPlayerDriving ? -1.0f : d2, vi});
+        }
+        if (headlightsOn && d2 < 68.0f * 68.0f && (v.isPlayerDriving || v.hasNpcDriver || v.sirenActive)) {
+            headCands.push_back({v.isPlayerDriving ? -1.0f : d2, vi});
+        }
+    }
+    std::sort(sirenCands.begin(), sirenCands.end(), [](const LightCand& a, const LightCand& b) { return a.distSq < b.distSq; });
+    for (int i = 0; i < std::min<int>(4, static_cast<int>(sirenCands.size())); ++i) {
+        const auto& v = vehs[static_cast<std::size_t>(sirenCands[static_cast<std::size_t>(i)].idx)];
+        const auto& spec = getVehicleSpec(v.kind);
+        const float gy = city.surfaceHeightAt(v.pos) + v.posY;
+        const bool redPhase = std::sin(v.sirenPhase * 14.0f) > 0.0f;
+        const float boost = lerpf(0.75f, 1.35f, nightF);
+        const Vec3 sCol = redPhase
+            ? Vec3{18.5f * boost, 1.1f * boost, 1.4f * boost}
+            : Vec3{1.1f * boost, 6.4f * boost, 21.0f * boost};
+        pushLocalLight({v.pos.x, gy + spec.chassisHeight + 0.65f, v.pos.z}, 22.0f, sCol, false);
+    }
+
+    // 3. Vehicle Twin Front Headlight Spotlights (player vehicle + up to 3 nearest traffic cars!)
+    if (headlightsOn && headIntensity > 0.05f) {
+        std::sort(headCands.begin(), headCands.end(), [](const LightCand& a, const LightCand& b) { return a.distSq < b.distSq; });
+        for (int i = 0; i < std::min<int>(4, static_cast<int>(headCands.size())); ++i) {
+            if (nLights + 2 > SceneUBO::kMaxLocalLights) break;
+            const auto& v = vehs[static_cast<std::size_t>(headCands[static_cast<std::size_t>(i)].idx)];
+            const auto& spec = getVehicleSpec(v.kind);
+            const float gy = city.surfaceHeightAt(v.pos) + v.posY;
+            const Vec2 vf = forwardFromHeading(v.heading);
+            const Vec2 vr = rightFromHeading(v.heading);
+            const ColorRGBA hl = getVehicleHeadlightColorRGBA(v.headlightColorIdx, nightF > 0.35f);
+            const Vec3 hlLin{
+                std::pow(static_cast<float>(hl.r) / 255.0f, 2.2f) * 18.5f * headIntensity,
+                std::pow(static_cast<float>(hl.g) / 255.0f, 2.2f) * 18.5f * headIntensity,
+                std::pow(static_cast<float>(hl.b) / 255.0f, 2.2f) * 18.5f * headIntensity
+            };
+            const Vec3 spotDir = Vec3{vf.x, -0.15f, vf.z}.normalized();
+            const float lampY = gy + ((v.kind == VehicleKind::SeoulBus || v.kind == VehicleKind::FireTruck) ? 1.05f : 0.82f);
+            for (float side : {-1.0f, 1.0f}) {
+                const Vec3 lPos{
+                    v.pos.x + vf.x * (spec.halfLength + 0.12f) + vr.x * (side * spec.halfWidth * 0.62f),
+                    lampY,
+                    v.pos.z + vf.z * (spec.halfLength + 0.12f) + vr.z * (side * spec.halfWidth * 0.62f)
+                };
+                pushLocalLight(lPos, 46.0f, hlLin, true, spotDir, 0.72f);
+            }
+        }
+    }
+
+    // 4. Nearest Warm Seoul Streetlights illuminating night & rainy sidewalks/boulevards!
+    if (nightF > 0.16f && nLights < SceneUBO::kMaxLocalLights) {
+        std::vector<LightCand> lampCands;
+        lampCands.reserve(24);
+        const auto& props = city.streetProps();
+        for (int pi = 0; pi < static_cast<int>(props.size()); ++pi) {
+            const auto& p = props[static_cast<std::size_t>(pi)];
+            if (p.kind != StreetPropKind::StreetLight || p.broken) continue;
+            const float d2 = (p.pos - focus2D).lengthSq();
+            if (d2 < 72.0f * 72.0f) {
+                lampCands.push_back({d2, pi});
+            }
+        }
+        std::sort(lampCands.begin(), lampCands.end(), [](const LightCand& a, const LightCand& b) { return a.distSq < b.distSq; });
+        const float lampGain = clampf((nightF - 0.14f) / 0.65f, 0.0f, 1.0f);
+        for (const auto& lc : lampCands) {
+            if (nLights >= SceneUBO::kMaxLocalLights) break;
+            const auto& p = props[static_cast<std::size_t>(lc.idx)];
+            const float gy = city.surfaceHeightAt(p.pos) + p.posY;
+            const float ax = std::cos(p.yaw) * 1.92f;
+            const float az = std::sin(p.yaw) * 1.92f;
+            pushLocalLight({p.pos.x + ax, gy + 6.75f, p.pos.z + az},
+                           24.0f, {10.5f * lampGain, 8.2f * lampGain, 5.2f * lampGain}, false);
+        }
+    }
+
+    ubo.localLightCount[0] = static_cast<float>(nLights);
     return ubo;
 }
 
@@ -1100,6 +1520,57 @@ void Renderer3D::drawBox(VulkanContext& vk, const Vec3& center, const Vec3& size
     }
     m = m * Mat4::scale(size.x, size.y, size.z);
     drawMesh(vk, cubeMesh_, m, tint, roughness, metallic, emissive, matId, shadowPass, pipe);
+}
+
+void Renderer3D::drawSignQuad(VulkanContext& vk, const Vec3& center, const Vec3& outNormal,
+                              const Vec3& upAxis, float width, float height, int atlasSlot,
+                              float emissive, ColorRGBA tint) {
+    const int slot = std::clamp(atlasSlot, 0, 31);
+    const int col = slot % 4;
+    const int row = slot / 4;
+    const float u0 = (static_cast<float>(col) * 256.0f + 2.5f) / 1024.0f;
+    const float u1 = (static_cast<float>(col + 1) * 256.0f - 2.5f) / 1024.0f;
+    const float v0 = (static_cast<float>(row) * 128.0f + 2.5f) / 1024.0f;
+    const float v1 = (static_cast<float>(row + 1) * 128.0f - 2.5f) / 1024.0f;
+
+    const Vec3 n = outNormal.normalized();
+    const Vec3 up = upAxis.normalized();
+    // Viewer looking AT the sign along -n sees rightAxis = cross(up, n) pointing to their right -> Hangul NEVER mirrored!
+    const Vec3 right = Vec3{
+        up.y * n.z - up.z * n.y,
+        up.z * n.x - up.x * n.z,
+        up.x * n.y - up.y * n.x
+    }.normalized();
+    const Vec3 hw = right * (width * 0.5f);
+    const Vec3 hh = up * (height * 0.5f);
+
+    const Vec3 tl = hh - hw;
+    const Vec3 tr = hh + hw;
+    const Vec3 br = hw - hh;
+    const Vec3 bl = Vec3{-hw.x - hh.x, -hw.y - hh.y, -hw.z - hh.z};
+
+    auto mkV = [&](const Vec3& p, float u, float v) -> Vertex3D {
+        Vertex3D vv{};
+        vv.px = p.x; vv.py = p.y; vv.pz = p.z;
+        vv.nx = n.x; vv.ny = n.y; vv.nz = n.z;
+        vv.u = u;    vv.v = v;
+        vv.r = 1.0f; vv.g = 1.0f; vv.b = 1.0f; vv.a = 1.0f;
+        return vv;
+    };
+
+    const Vertex3D quad[6] = {
+        mkV(tl, u0, v0), mkV(bl, u0, v1), mkV(br, u1, v1),
+        mkV(tl, u0, v0), mkV(br, u1, v1), mkV(tr, u1, v0)
+    };
+
+    DrawPush dp{};
+    dp.model = Mat4::translation(center.x, center.y, center.z);
+    fillColor4(dp.tint, tint);
+    dp.pbrParams[0] = 0.34f;
+    dp.pbrParams[1] = 0.05f;
+    dp.pbrParams[2] = emissive;
+    dp.pbrParams[3] = static_cast<float>(static_cast<int>(MatId::SignTextured)) / 255.0f;
+    vk.drawDynamicTriangles3D(quad, 6, WorldPipelineKind::Opaque, dp);
 }
 
 void Renderer3D::drawSeoulTerrainAndRoads(VulkanContext& vk, const GameWorld& world,
@@ -1331,11 +1802,17 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
                         b.accentColor, 0.52f, 0.28f, 0.0f, MatId::Standard, false);
                 drawBox(vk, {c.x, roofY - 1.1f, c.z}, {sz.x + 0.16f, 1.4f, sz.z + 0.16f}, 0.0f,
                         b.accentColor, 0.74f, 0.06f, 0.0f, MatId::Standard, false);
-                // Distinctive side shear-wall dong-number architectural accent panel (아파트 동 번호 판넬)
+                // Distinctive side shear-wall dong-number architectural accent panel (아파트 동 번호 판넬 — 101동 / 105동!)
                 for (float sx : {-1.0f, 1.0f}) {
                     drawBox(vk, {c.x + sx * (sz.x * 0.5f + 0.12f), roofY - 5.2f, c.z},
                             {0.20f, 3.8f, sz.z * 0.46f}, 0.0f, b.accentColor, 0.48f, 0.12f,
-                            nightMode ? 0.55f : 0.0f, nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
+                            0.0f, MatId::Standard, false);
+                    if (distSq < 185.0f * 185.0f) {
+                        drawSignQuad(vk, {c.x + sx * (sz.x * 0.5f + 0.24f), roofY - 5.2f, c.z},
+                                     {sx, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f},
+                                     std::min(sz.z * 0.44f, 6.2f), 3.45f,
+                                     25 + (b.facadeVariant & 1), nightMode ? 0.34f : 0.04f);
+                    }
                 }
             } else {
                 // Rooftop stairwell penthouse + silver HVAC chiller units
@@ -1352,15 +1829,15 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
                 }
             }
 
-            // ORIENTATION-AWARE MULTI-BAY KOREAN 1F~3F STOREFRONTS & SIGNBOARDS (한국 상가 다중 간판 & 돌출간판)!
+            // ORIENTATION-AWARE MULTI-BAY KOREAN 1F~3F STOREFRONTS WITH REAL HANGUL SIGNBOARDS!
             // ONLY placed on facade edges actually bordering a street (b.streetEdgeMask)!
             if (b.hasStorefront && distSq < 210.0f * 210.0f) {
-                const float signY = b.baseY + 3.92f;
-                const float canopyY = b.baseY + 3.35f;
+                const float signY = b.baseY + 4.10f;
+                const float canopyY = b.baseY + 3.28f;
                 const ColorRGBA canopyCol{48, 54, 64, 255};
-                const float signEm = nightMode ? 0.85f : 0.08f;
+                const float signEm = nightMode ? 0.55f : 0.05f;
+                const float hangulEm = nightMode ? 0.46f : 0.06f;
                 const MatId signMat = nightMode ? MatId::EmissiveGlow : MatId::Standard;
-                // Secondary contrasting Korean shop unit sign palette (CU green/purple, GS blue, Pharmacy mint, Cafe amber, Bakery navy)
                 static constexpr ColorRGBA kAltShopSigns[8] = {
                     { 24, 134,  92, 255}, // Pharmacy / Mart Mint Green
                     { 32,  96, 186, 255}, // Convenience Store / Bank Blue
@@ -1373,43 +1850,61 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
                 };
                 const ColorRGBA shopB = kAltShopSigns[(b.facadeVariant + 3u) & 7u];
                 const ColorRGBA shop2F = kAltShopSigns[(b.facadeVariant + 5u) & 7u];
+                const bool drawTextSigns = (distSq < 150.0f * 150.0f);
+                const int seedIdx = std::abs(static_cast<int>(c.x * 0.13f + c.z * 0.19f)) + static_cast<int>(b.facadeVariant);
 
-                auto drawStreetEdgeShops = [&](float edgeX, float edgeZ, float span, bool alongZ, float outSign) {
+                auto drawStreetEdgeShops = [&](float edgeX, float edgeZ, float span, bool alongZ, float outSign, int edgeOrd) {
                     const float halfUnit = span * 0.40f;
+                    const float signW1 = std::min(halfUnit * 0.92f, 4.65f);
+                    const float signH1 = 1.24f;
                     const float off = span * 0.22f;
                     const float ox1 = alongZ ? (edgeX + outSign * 0.18f) : (edgeX - off);
                     const float oz1 = alongZ ? (edgeZ - off) : (edgeZ + outSign * 0.18f);
                     const float ox2 = alongZ ? (edgeX + outSign * 0.18f) : (edgeX + off);
                     const float oz2 = alongZ ? (edgeZ + off) : (edgeZ + outSign * 0.18f);
-                    const Vec3 s1 = alongZ ? Vec3{0.34f, 0.86f, halfUnit} : Vec3{halfUnit, 0.86f, 0.34f};
+                    const Vec3 s1 = alongZ ? Vec3{0.34f, signH1, signW1} : Vec3{signW1, signH1, 0.34f};
                     const Vec3 sCan = alongZ ? Vec3{1.05f, 0.12f, span * 0.78f} : Vec3{span * 0.78f, 0.12f, 1.05f};
-                    // 2 distinct neighboring 1F Korean shop fascia signboards!
-                    drawBox(vk, {ox1, signY, oz1}, s1, 0.0f, b.awningColor, 0.38f, 0.12f, signEm, signMat, false);
-                    drawBox(vk, {ox2, signY, oz2}, s1, 0.0f, shopB,         0.38f, 0.12f, signEm, signMat, false);
-                    // Crisp white lettering trim bar centered on each Korean signboard
-                    const Vec3 sTrim = alongZ ? Vec3{0.38f, 0.20f, halfUnit * 0.68f} : Vec3{halfUnit * 0.68f, 0.20f, 0.38f};
-                    drawBox(vk, {ox1, signY, oz1}, sTrim, 0.0f, {244, 246, 250, 255}, 0.30f, 0.05f, nightMode ? 1.15f : 0.12f, signMat, false);
-                    drawBox(vk, {ox2, signY, oz2}, sTrim, 0.0f, {248, 244, 232, 255}, 0.30f, 0.05f, nightMode ? 1.15f : 0.12f, signMat, false);
+                    // 2 distinct neighboring 1F Korean shop fascia signbox housings!
+                    drawBox(vk, {ox1, signY, oz1}, s1, 0.0f, b.awningColor, 0.38f, 0.12f, signEm * 0.35f, MatId::Standard, false);
+                    drawBox(vk, {ox2, signY, oz2}, s1, 0.0f, shopB,         0.38f, 0.12f, signEm * 0.35f, MatId::Standard, false);
+                    if (drawTextSigns) {
+                        const Vec3 outN = alongZ ? Vec3{outSign, 0.0f, 0.0f} : Vec3{0.0f, 0.0f, outSign};
+                        const float facePush = 0.20f;
+                        const int slot1 = 8 + ((seedIdx + edgeOrd * 2) % 12);
+                        const int slot2 = 8 + ((seedIdx + edgeOrd * 2 + 5) % 12);
+                        drawSignQuad(vk, {ox1 + outN.x * facePush, signY, oz1 + outN.z * facePush},
+                                     outN, {0.0f, 1.0f, 0.0f}, signW1 * 0.96f, signH1 * 0.94f, slot1, hangulEm);
+                        drawSignQuad(vk, {ox2 + outN.x * facePush, signY, oz2 + outN.z * facePush},
+                                     outN, {0.0f, 1.0f, 0.0f}, signW1 * 0.96f, signH1 * 0.94f, slot2, hangulEm);
+                    }
                     // Metallic rain canopy above 1F storefronts
                     drawBox(vk, {alongZ ? (edgeX + outSign * 0.55f) : edgeX, canopyY, alongZ ? edgeZ : (edgeZ + outSign * 0.55f)},
                             sCan, 0.0f, canopyCol, 0.34f, 0.55f, 0.0f, MatId::Standard, false);
                     // 2F horizontal Korean academy/clinic fascia + vertical projecting signbox (돌출간판)!
                     if (b.height > 11.0f) {
-                        const Vec3 s2F = alongZ ? Vec3{0.28f, 0.72f, halfUnit * 0.92f} : Vec3{halfUnit * 0.92f, 0.72f, 0.28f};
-                        drawBox(vk, {ox2, b.baseY + 7.35f, oz2}, s2F, 0.0f, shop2F, 0.36f, 0.10f, signEm, signMat, false);
+                        const float signW2 = std::min(halfUnit * 0.86f, 4.25f);
+                        const float signH2 = 1.12f;
+                        const Vec3 s2F = alongZ ? Vec3{0.28f, signH2, signW2} : Vec3{signW2, signH2, 0.28f};
+                        drawBox(vk, {ox2, b.baseY + 7.45f, oz2}, s2F, 0.0f, shop2F, 0.36f, 0.10f, signEm * 0.35f, MatId::Standard, false);
+                        if (drawTextSigns) {
+                            const Vec3 outN = alongZ ? Vec3{outSign, 0.0f, 0.0f} : Vec3{0.0f, 0.0f, outSign};
+                            const int slot2F = 16 + ((seedIdx + edgeOrd) & 3);
+                            drawSignQuad(vk, {ox2 + outN.x * 0.175f, b.baseY + 7.45f, oz2 + outN.z * 0.175f},
+                                         outN, {0.0f, 1.0f, 0.0f}, signW2 * 0.96f, signH2 * 0.94f, slot2F, hangulEm);
+                        }
                         const float px = alongZ ? (edgeX + outSign * 0.58f) : (edgeX + off * 1.45f);
                         const float pz = alongZ ? (edgeZ + off * 1.45f) : (edgeZ + outSign * 0.58f);
                         const Vec3 sProj = alongZ ? Vec3{0.92f, 3.8f, 0.26f} : Vec3{0.26f, 3.8f, 0.92f};
                         drawBox(vk, {px, b.baseY + 8.1f, pz}, sProj, 0.0f,
                                 (b.facadeVariant & 1) ? shopB : b.awningColor,
-                                0.30f, 0.12f, nightMode ? 1.15f : 0.10f, signMat, false);
+                                0.30f, 0.12f, nightMode ? 0.95f : 0.08f, signMat, false);
                     }
                 };
 
-                if (b.streetEdgeMask & 0x01u) drawStreetEdgeShops(b.footprint.min.x, c.z, sz.z, true,  -1.0f);
-                if (b.streetEdgeMask & 0x02u) drawStreetEdgeShops(b.footprint.max.x, c.z, sz.z, true,   1.0f);
-                if (b.streetEdgeMask & 0x04u) drawStreetEdgeShops(c.x, b.footprint.min.z, sz.x, false, -1.0f);
-                if (b.streetEdgeMask & 0x08u) drawStreetEdgeShops(c.x, b.footprint.max.z, sz.x, false,  1.0f);
+                if (b.streetEdgeMask & 0x01u) drawStreetEdgeShops(b.footprint.min.x, c.z, sz.z, true,  -1.0f, 0);
+                if (b.streetEdgeMask & 0x02u) drawStreetEdgeShops(b.footprint.max.x, c.z, sz.z, true,   1.0f, 1);
+                if (b.streetEdgeMask & 0x04u) drawStreetEdgeShops(c.x, b.footprint.min.z, sz.x, false, -1.0f, 2);
+                if (b.streetEdgeMask & 0x08u) drawStreetEdgeShops(c.x, b.footprint.max.z, sz.x, false,  1.0f, 3);
             }
 
             if (b.style == BuildingStyle::NightclubBuilding || b.style == BuildingStyle::DealershipBuilding) {
@@ -1499,6 +1994,14 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
             baseM = baseM * Mat4::rotationAxis({1, 0, 0}, p.roll) * Mat4::rotationAxis({0, 0, 1}, p.pitch);
         }
 
+        auto drawLocalSign = [&](const Vec3& locCenter, const Vec3& locNormal, const Vec3& locUp,
+                                 float w, float h, int slot, float em) {
+            const Vec3 wc = baseM.transformPoint(locCenter);
+            const Vec3 wn = (baseM.transformPoint(locCenter + locNormal) - wc).normalized();
+            const Vec3 wu = (baseM.transformPoint(locCenter + locUp) - wc).normalized();
+            drawSignQuad(vk, wc, wn, wu, w, h, slot, em);
+        };
+
         switch (p.kind) {
             case StreetPropKind::StreetLight: {
                 // Tapered steel Seoul streetlamp post + outward luminaire arm extending OVER the roadway (+X local)!
@@ -1557,29 +2060,38 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 }
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.52f, -0.25f) * Mat4::scale(3.0f, 0.12f, 0.45f),
                          {136, 96, 60, 255}, 0.75f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
-                // Seoul BIS (Bus Information System) digital LED arrival totem beside shelter!
+                // Seoul BIS (Bus Information System) digital LED arrival totem with live Hangul screen!
                 if (!shadowPass) {
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.65f, 1.35f, 0.15f) * Mat4::scale(0.46f, 2.70f, 0.24f),
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.65f, 1.35f, 0.15f) * Mat4::scale(0.64f, 2.70f, 0.24f),
                              {38, 44, 54, 255}, 0.34f, 0.65f, 0.0f, MatId::Standard, false);
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.65f, 1.92f, 0.28f) * Mat4::scale(0.36f, 0.78f, 0.04f),
-                             {24, 154, 242, 255}, 0.15f, 0.0f, nightMode ? 1.4f : 0.45f, MatId::EmissiveGlow, false);
+                    drawLocalSign({2.65f, 1.96f, 0.285f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f},
+                                  0.60f, 0.42f, 24, nightMode ? 0.62f : 0.28f);
+                    drawLocalSign({2.65f, 1.96f, 0.015f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f},
+                                  0.60f, 0.42f, 24, nightMode ? 0.62f : 0.28f);
                 }
                 break;
             }
             case StreetPropKind::SubwayEntrance: {
-                // Authentic Seoul Metro Glass-Canopy Subway Entrance + Tall Line-Color Pole Sign (지하철 폴사인)!
+                // Authentic Seoul Metro Glass-Canopy Subway Entrance + Hangul Station Signboards + Line Pole Sign!
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.55f, 0.0f) * Mat4::scale(5.4f, 0.20f, 2.6f),
                          {52, 58, 68, 255}, 0.30f, 0.74f, 0.0f, MatId::Standard, shadowPass);
+                // Ordered to match atlas slots 20..23: Line 2 Green, Line 9 Gold, Line 3 Orange, Line 1 Navy!
                 static constexpr ColorRGBA kMetroLines[4] = {
-                    { 42, 168,  78, 255}, // Line 2 Green
-                    {236, 118,  28, 255}, // Line 3 Orange
-                    {192, 162,  66, 255}, // Line 9 Gold
-                    { 36,  98, 198, 255}  // Line 1 Navy Blue
+                    { 42, 168,  78, 255}, // 20: Line 2 Green (2호선 강남역)
+                    {192, 162,  66, 255}, // 21: Line 9 Gold (9호선 고속터미널)
+                    {236, 118,  28, 255}, // 22: Line 3 Orange (3호선 경복궁역)
+                    { 36,  98, 198, 255}  // 23: Line 1 Navy Blue (1호선 시청역)
                 };
-                const ColorRGBA lineCol = kMetroLines[static_cast<unsigned>(std::abs(static_cast<int>(p.pos.x + p.pos.z))) & 3u];
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.74f, 0.0f) * Mat4::scale(5.5f, 0.32f, 2.7f),
-                         lineCol, 0.24f, 0.18f, nightMode ? 1.25f : 0.18f,
-                         nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
+                const unsigned metroIdx = static_cast<unsigned>(std::abs(static_cast<int>(p.pos.x + p.pos.z))) & 3u;
+                const ColorRGBA lineCol = kMetroLines[metroIdx];
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.86f, 0.0f) * Mat4::scale(5.5f, 0.56f, 2.7f),
+                         lineCol, 0.24f, 0.18f, nightMode ? 0.45f : 0.06f, MatId::Standard, false);
+                if (!shadowPass && distSq < 160.0f * 160.0f) {
+                    const int metroSlot = 20 + static_cast<int>(metroIdx);
+                    const float mEm = nightMode ? 0.55f : 0.10f;
+                    drawLocalSign({0.0f, 2.86f,  1.38f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.72f, metroSlot, mEm);
+                    drawLocalSign({0.0f, 2.86f, -1.38f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.72f, metroSlot, mEm);
+                }
                 // Glass side balustrades + dark stairwell opening
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.25f, -1.20f) * Mat4::scale(5.2f, 2.4f, 0.10f),
                          {78, 128, 162, 255}, 0.12f, 0.28f, 0.0f, MatId::GlassSkyscraper, shadowPass);
@@ -1601,10 +2113,8 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 break;
             }
             case StreetPropKind::RoadGantry: {
-                // Iconic Korean Dark-Green Overhead Highway Directional Sign Gantry (한국형 도로 이정표 갠트리)!
-                // Twin galvanized steel portal columns sitting on left/right sidewalks (+/-9.6m) + overhead truss at 6.3m!
+                // Iconic Korean Dark-Green Overhead Highway Directional Sign Gantry with REAL HANGUL DESTINATIONS!
                 const ColorRGBA kSteel{168, 174, 182, 255};
-                const ColorRGBA kKrSignGreen{14, 112, 74, 255};
                 const ColorRGBA kKrBorderWhite{242, 246, 248, 255};
                 for (float sx : {-9.55f, 9.55f}) {
                     drawMesh(vk, cylMesh_, baseM * Mat4::translation(sx, 0.0f, 0.0f) * Mat4::scale(0.38f, 6.7f, 0.38f),
@@ -1615,24 +2125,39 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                          kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 5.75f, 0.0f) * Mat4::scale(19.4f, 0.22f, 0.22f),
                          kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
-                // 2 large signature Korean dark-green overhead road directional panels with crisp white frame & lane text bars!
-                for (float px : {-4.2f, 4.2f}) {
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, 6.15f, 0.0f) * Mat4::scale(6.4f, 2.15f, 0.16f),
-                             kKrBorderWhite, 0.32f, 0.15f, nightMode ? 0.45f : 0.04f, MatId::Standard, shadowPass);
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, 6.15f, 0.0f) * Mat4::scale(6.16f, 1.92f, 0.20f),
-                             kKrSignGreen, 0.34f, 0.12f, nightMode ? 0.55f : 0.05f,
-                             nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
+
+                // Pick geographically authentic Seoul destinations for Left & Right overhead boards!
+                const bool isOuterRing = (std::abs(p.pos.x) > 14000.0f || std::abs(p.pos.z) > 11500.0f);
+                int slotL = 0, slotR = 1;
+                if (isOuterRing) {
+                    slotL = 4; // ↑ 서울 외곽순환 IC
+                    slotR = (p.pos.x > 0.0f) ? 6 : 7;
+                } else {
+                    switch (city.districtAtWorld(p.pos)) {
+                        case DistrictType::SeochoBanpo:        slotL = 0; slotR = 1; break;
+                        case DistrictType::GangnamTeheran:     slotL = 1; slotR = 6; break;
+                        case DistrictType::GwanghwamunPalace:
+                        case DistrictType::MyeongdongCityHall:
+                        case DistrictType::JongnoCheonggye:    slotL = 2; slotR = 0; break;
+                        case DistrictType::YeouidoFinance:     slotL = 3; slotR = 5; break;
+                        case DistrictType::HongdaeMapo:        slotL = 5; slotR = 2; break;
+                        case DistrictType::JamsilSongpa:
+                        case DistrictType::SeongsuKonkuk:      slotL = 6; slotR = 1; break;
+                        case DistrictType::GuroGwanak:         slotL = 7; slotR = 3; break;
+                        default:                               slotL = 0; slotR = 2; break;
+                    }
+                }
+                const float gEm = nightMode ? 0.36f : 0.05f;
+                const float panelXs[2] = {-4.2f, 4.2f};
+                const int panelSlots[2] = {slotL, slotR};
+                for (int k = 0; k < 2; ++k) {
+                    const float px = panelXs[k];
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, 6.15f, 0.0f) * Mat4::scale(6.4f, 2.25f, 0.36f),
+                             kKrBorderWhite, 0.34f, 0.18f, 0.0f, MatId::Standard, shadowPass);
                     if (!shadowPass) {
-                        // Crisp white destination lettering lines & blue highway route shield on BOTH front & back faces!
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px - 0.6f, 6.52f, 0.0f) * Mat4::scale(3.6f, 0.26f, 0.23f),
-                                 kKrBorderWhite, 0.26f, 0.05f, nightMode ? 0.95f : 0.08f, MatId::Standard, false);
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px + 0.2f, 6.02f, 0.0f) * Mat4::scale(2.8f, 0.20f, 0.23f),
-                                 kKrBorderWhite, 0.26f, 0.05f, nightMode ? 0.95f : 0.08f, MatId::Standard, false);
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px - 2.1f, 6.02f, 0.0f) * Mat4::scale(0.82f, 0.54f, 0.23f),
-                                 {28, 102, 214, 255}, 0.28f, 0.10f, nightMode ? 0.85f : 0.06f, MatId::Standard, false);
-                        // White downward lane arrow bar at bottom of sign
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, 5.52f, 0.0f) * Mat4::scale(0.32f, 0.42f, 0.23f),
-                                 kKrBorderWhite, 0.26f, 0.05f, nightMode ? 0.95f : 0.08f, MatId::Standard, false);
+                        // Crisp Hangul directional sign faces cleanly proud of the 0.36m sign backing on BOTH sides!
+                        drawLocalSign({px, 6.15f,  0.215f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, 6.28f, 2.14f, panelSlots[k], gEm);
+                        drawLocalSign({px, 6.15f, -0.215f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, 6.28f, 2.14f, panelSlots[k], gEm);
                     }
                 }
                 break;
@@ -1700,7 +2225,7 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
 
 void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
                              bool nightMode, bool shadowPass, bool alphaPass,
-                             bool cockpitHoodOnly) {
+                             bool cockpitHoodOnly, const PlayerState* playerDriver) {
     const CarMeshSet& cm = cars_.get(v.kind);
     const WheelMeshSet& wm = cars_.wheel();
     const auto& spec = getVehicleSpec(v.kind);
@@ -1724,7 +2249,7 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
 
     if (alphaPass) {
         if (cockpitHoodOnly) return;
-        // Flush curved smoked automotive glass (matId=8 -> mirror-like Seoul reflections + dark 3D cabin visible inside!)
+        // Flush curved smoked automotive glass (matId=8 -> mirror-like Seoul reflections + dark 3D cabin & driver visible inside!)
         drawMesh(vk, cm.glass, bodyMat, {255, 255, 255, 255}, 0.03f, 0.15f, 0.0f,
                  MatId::CarGlass, false, WorldPipelineKind::Alpha);
 
@@ -1773,9 +2298,65 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
 
     if (cockpitHoodOnly) return;
 
-    // 2. Dark 3D Interior Cabin (seats, steering wheel, dashboard visible cleanly behind glass!)
+    // 2. Dark 3D Interior Cabin + Live 3D Seated Driver holding the steering wheel!
     if (!shadowPass) {
         drawMesh(vk, cm.interior, bodyMat, {255, 255, 255, 255}, 0.80f, 0.04f, 0.0f, MatId::Standard, false);
+
+        if (!v.destroyed && (v.hasNpcDriver || v.isPlayerDriving)) {
+            Vec3 eye = driverSeatEyeLocal(v.kind);
+            if (v.kind == VehicleKind::SeoulBus) {
+                eye.x -= 0.14f;
+            }
+            ColorRGBA drvTop{54, 64, 82, 255};
+            ColorRGBA drvSkin{234, 194, 162, 255};
+            ColorRGBA drvHair{28, 24, 22, 255};
+            bool policeCap = false;
+            if (v.isPlayerDriving && playerDriver) {
+                drvTop  = getPlayerTopColor(playerDriver->currentOutfit, playerDriver->characterCustom.customTopColorIdx);
+                drvSkin = getPlayerSkinColor(playerDriver->characterCustom.skinToneIdx);
+                drvHair = getPlayerHairColor(playerDriver->currentOutfit, playerDriver->characterCustom.hairColorIdx);
+            } else if (v.isPolice || v.kind == VehicleKind::PoliceCruiser) {
+                drvTop = {26, 48, 96, 255};
+                drvHair = {22, 42, 88, 255};
+                policeCap = true;
+            } else if (v.kind == VehicleKind::SeoulBus) {
+                drvTop = {138, 178, 218, 255}; // Seoul City Bus driver light-blue collared shirt!
+            } else if (v.kind == VehicleKind::Taxi) {
+                drvTop = {222, 226, 232, 255}; // Crisp white Seoul taxi shirt
+            } else if (v.kind == VehicleKind::Ambulance || v.kind == VehicleKind::FireTruck) {
+                drvTop = {216, 86, 36, 255};   // Korean 119 orange rescue jacket
+            } else {
+                static constexpr ColorRGBA kDrvPal[5] = {
+                    {46, 56, 74, 255}, {154, 146, 134, 255}, {76, 84, 72, 255},
+                    {126, 58, 56, 255}, {58, 62, 68, 255}
+                };
+                drvTop = kDrvPal[static_cast<unsigned>(v.id) % 5u];
+            }
+
+            // Seated driver torso slightly reclined into bucket seat + neck + head + hair/cap
+            const Vec3 torsoPos{eye.x - 0.14f, eye.y - 0.56f, eye.z};
+            const Mat4 drvRoot = bodyMat * Mat4::translation(torsoPos.x, torsoPos.y, torsoPos.z) *
+                                 Mat4::rotationAxis({0, 0, 1}, 0.14f);
+            drawMesh(vk, torsoMesh_, drvRoot * Mat4::scale(0.28f, 0.48f, 0.40f),
+                     drvTop, 0.74f, 0.04f, 0.0f, MatId::FabricCloth, false);
+            const Vec3 headPos{eye.x - 0.05f, eye.y - 0.03f, eye.z};
+            drawMesh(vk, sphereMesh_, bodyMat * Mat4::translation(headPos.x, headPos.y, headPos.z) * Mat4::scale(0.21f, 0.24f, 0.19f),
+                     drvSkin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, false);
+            drawMesh(vk, sphereMesh_, bodyMat * Mat4::translation(headPos.x - 0.02f, headPos.y + 0.05f, headPos.z) * Mat4::scale(0.22f, 0.16f, 0.205f),
+                     drvHair, 0.68f, 0.04f, 0.0f, MatId::Standard, false);
+            if (policeCap) {
+                drawMesh(vk, cubeMesh_, bodyMat * Mat4::translation(headPos.x + 0.09f, headPos.y + 0.03f, headPos.z) * Mat4::scale(0.10f, 0.02f, 0.15f),
+                         {18, 22, 28, 255}, 0.35f, 0.15f, 0.0f, MatId::Standard, false);
+            }
+            // Both arms gripping the steering wheel (steering hands shift subtly as front wheels turn!)
+            const float wheelTilt = v.steerVisual * 0.075f;
+            const Vec3 shL{eye.x - 0.10f, eye.y - 0.20f, eye.z - 0.18f};
+            const Vec3 shR{eye.x - 0.10f, eye.y - 0.20f, eye.z + 0.18f};
+            const Vec3 handL{eye.x + 0.22f, eye.y - 0.18f + wheelTilt, eye.z - 0.13f};
+            const Vec3 handR{eye.x + 0.22f, eye.y - 0.18f - wheelTilt, eye.z + 0.13f};
+            drawArmIK(vk, bodyMat, shL, handL, {eye.x + 0.02f, eye.y - 0.34f, eye.z - 0.28f}, drvTop, drvSkin, false);
+            drawArmIK(vk, bodyMat, shR, handR, {eye.x + 0.02f, eye.y - 0.34f, eye.z + 0.28f}, drvTop, drvSkin, false);
+        }
     }
 
     // 3. Matte-Black Exterior Trim (DLO frames, grilles, shutlines, wheel-well liners, mirrors, diffuser!)
@@ -1786,7 +2367,7 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
         drawMesh(vk, cm.chrome, bodyMat, {255, 255, 255, 255}, 0.15f, 0.92f, 0.0f, MatId::CarClearcoat, false);
     }
 
-    // 5. Clean Zero-Z-Fighting Livery (Police lightbar/door band, Taxi sign, 119 Ambulance/Fire, Van band)
+    // 5. Clean Zero-Z-Fighting Livery (Police lightbar/door band, Taxi sign, 119 Ambulance/Fire, Seoul Bus band)
     if (cm.livery.valid()) {
         const float liveryEm = (!shadowPass && (v.kind == VehicleKind::Taxi || v.sirenActive))
             ? (nightMode ? 1.4f : 0.45f) : 0.0f;
@@ -1805,7 +2386,7 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
         drawMesh(vk, cm.spoiler, bodyMat, {255, 255, 255, 255}, 0.28f, 0.35f, 0.0f, MatId::Standard, shadowPass);
     }
 
-    // 8. Sculpted 3D Headlamps & Taillights
+    // 8. Sculpted 3D Headlamps, Taillights, Korean Hangul License Plates & Seoul Bus Front LED Header!
     if (!shadowPass && !v.destroyed) {
         const ColorRGBA hlCol = getVehicleHeadlightColorRGBA(v.headlightColorIdx, nightMode);
         const float hlEm = nightMode ? 2.4f : 0.55f;
@@ -1813,6 +2394,27 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
 
         const float tlEm = v.brakingVisual ? 2.65f : (nightMode ? 1.35f : 0.28f);
         drawMesh(vk, cm.lampsTail, bodyMat, {255, 42, 48, 255}, 0.08f, 0.10f, tlEm, MatId::EmissiveGlow, false);
+
+        // Authentic Korean Hangul License Plates (123가 4568 / 서울 34바 8247 / 경찰 112)
+        auto drawVehSign = [&](const Vec3& locPos, const Vec3& locNorm, float w, float h, int slot, float em) {
+            const Vec3 wc = bodyMat.transformPoint(locPos);
+            const Vec3 wn = (bodyMat.transformPoint(locPos + locNorm) - wc).normalized();
+            const Vec3 wu = (bodyMat.transformPoint(locPos + Vec3{0.0f, 1.0f, 0.0f}) - wc).normalized();
+            drawSignQuad(vk, wc, wn, wu, w, h, slot, em);
+        };
+        const int plateSlot = (v.isPolice || v.kind == VehicleKind::PoliceCruiser) ? 31
+                            : ((v.kind == VehicleKind::Taxi || v.kind == VehicleKind::SeoulBus) ? 30 : 29);
+        const float plateW = (v.kind == VehicleKind::SeoulBus || v.kind == VehicleKind::FireTruck) ? 0.50f : 0.41f;
+        const float plateH = (v.kind == VehicleKind::SeoulBus || v.kind == VehicleKind::FireTruck) ? 0.15f : 0.11f;
+        const float plateEm = nightMode ? 0.14f : 0.02f;
+        drawVehSign(cm.frontPlateLocal + Vec3{0.008f, 0.0f, 0.0f}, { 1.0f, 0.0f, 0.0f}, plateW, plateH, plateSlot, plateEm);
+        drawVehSign(cm.rearPlateLocal  - Vec3{0.008f, 0.0f, 0.0f}, {-1.0f, 0.0f, 0.0f}, plateW, plateH, plateSlot, plateEm);
+
+        // Seoul City Bus Front LED Destination Matrix (서울 간선 472 / 서울 지선 5511)!
+        if (v.kind == VehicleKind::SeoulBus) {
+            const int busSlot = (v.paintColor.b >= v.paintColor.g) ? 27 : 28;
+            drawVehSign(cm.busSignLocal, {1.0f, 0.0f, 0.0f}, 1.66f, 0.31f, busSlot, nightMode ? 0.92f : 0.42f);
+        }
     }
 
     // 9. Four Independent Articulated Wheels (Curved Rubber Tire + 10-Spoke Alloy Rim + Brake Rotor + Caliper!)
@@ -2200,12 +2802,21 @@ void Renderer3D::drawDetailedWeapon3D(VulkanContext& vk, WeaponId weapon, const 
         flashScale *= 0.42f;
     }
 
-    // Optional Laser Sight Module & Crisp Glowing Beam
+    // Optional Laser Sight Module & Crisp Glowing Beam (1P local beam; 3P uses exact world-ray beam in drawAlphaAndEffects!)
     if (!shadowPass && laserColIdx > 0) {
         const ColorRGBA lCol = getLaserSightColorRGBA(laserColIdx);
         boxPart({muzzleX * 0.62f, muzzleY - 0.026f, 0.022f}, {0.055f, 0.022f, 0.022f}, darkIron, 0.36f, 0.74f);
-        const float beamLen = isFirstPerson ? 2.6f : 1.6f;
-        cylX(muzzleX * 0.68f, muzzleY - 0.026f, 0.022f, beamLen, 0.0055f, lCol, 0.1f, 0.0f, 2.8f);
+        if (isFirstPerson) {
+            cylX(muzzleX * 0.68f, muzzleY - 0.026f, 0.022f, 2.6f, 0.0055f, lCol, 0.1f, 0.0f, 2.8f);
+        } else if (customWep != nullptr) {
+            const Vec3 loc{muzzleX * 0.68f, muzzleY - 0.026f, 0.022f};
+            lastPlayerLaserOrigin_ = {
+                weaponWorldM.m[0] * loc.x + weaponWorldM.m[4] * loc.y + weaponWorldM.m[8]  * loc.z + weaponWorldM.m[12],
+                weaponWorldM.m[1] * loc.x + weaponWorldM.m[5] * loc.y + weaponWorldM.m[9]  * loc.z + weaponWorldM.m[13],
+                weaponWorldM.m[2] * loc.x + weaponWorldM.m[6] * loc.y + weaponWorldM.m[10] * loc.z + weaponWorldM.m[14]
+            };
+            hasPlayerLaserOrigin_ = true;
+        }
     }
 
     // Starburst Muzzle Flash!
@@ -2536,17 +3147,77 @@ void Renderer3D::drawCharacter(VulkanContext& vk, const Vec2& pos, float groundY
         drawArmIK(vk, upperRoot, shLeft,  lHand, {0.02f, 1.12f, -0.44f}, top, skin, shadowPass);
         drawArmIK(vk, upperRoot, shRight, rHand, {0.02f, 1.12f,  0.44f}, top, skin, shadowPass);
     } else {
-        // Natural walking arms + NPC rain umbrella grip!
+        // Natural walking arms + NPC rain umbrella + Living Seoul Citizen 3D Held Props!
         const Vec3 lHand{
             0.04f + std::sin(-armSwing) * 0.36f,
             0.88f + std::abs(armSwing) * 0.04f,
             -0.245f
         };
-        const Vec3 rHand = (npcPtr && npcPtr->holdingUmbrella && alive)
-            ? Vec3{0.16f, 1.24f, 0.24f}
-            : Vec3{0.04f + std::sin(armSwing) * 0.36f, 0.88f + std::abs(armSwing) * 0.04f, 0.245f};
+        const bool npcPhone = (npcPtr && alive && !npcPtr->holdingUmbrella &&
+                               (npcPtr->activity == NpcActivity::CheckingPhone || npcPtr->heldProp == NpcHeldProp::Smartphone));
+        const bool npcCoffee = (npcPtr && alive && !npcPtr->holdingUmbrella && !npcPhone &&
+                                npcPtr->heldProp == NpcHeldProp::CoffeeCup);
+        const bool npcCarryBag = (npcPtr && alive && !npcPtr->holdingUmbrella && !npcPhone &&
+                                  (npcPtr->heldProp == NpcHeldProp::Briefcase || npcPtr->heldProp == NpcHeldProp::ShoppingBag));
+
+        Vec3 rHand{0.04f + std::sin(armSwing) * 0.36f, 0.88f + std::abs(armSwing) * 0.04f, 0.245f};
+        Vec3 rPole{-0.12f, 1.08f, 0.34f};
+        if (npcPtr && npcPtr->holdingUmbrella && alive) {
+            rHand = {0.16f, 1.24f, 0.24f};
+        } else if (npcPhone) {
+            rHand = {0.27f, 1.30f, 0.11f};
+            rPole = {0.06f, 1.04f, 0.36f};
+        } else if (npcCoffee) {
+            rHand = {0.22f, 1.15f, 0.22f};
+            rPole = {0.02f, 1.02f, 0.36f};
+        } else if (npcCarryBag) {
+            rHand = {0.06f + std::sin(armSwing) * 0.12f, 0.86f, 0.26f};
+        }
         drawArmIK(vk, upperRoot, shLeft,  lHand, {-0.12f, 1.08f, -0.34f}, top, skin, shadowPass);
-        drawArmIK(vk, upperRoot, shRight, rHand, {-0.12f, 1.08f,  0.34f}, top, skin, shadowPass);
+        drawArmIK(vk, upperRoot, shRight, rHand, rPole, top, skin, shadowPass);
+
+        // Render 3D Seoul Citizen Held Props cleanly attached to right hand!
+        if (npcPtr && alive && !shadowPass && !npcPtr->holdingUmbrella) {
+            if (npcPhone) {
+                // Sleek smartphone body + glowing bright screen held in right hand!
+                const Mat4 phoneM = upperRoot * Mat4::translation(rHand.x + 0.03f, rHand.y + 0.05f, rHand.z - 0.02f) *
+                                    Mat4::rotationAxis({0, 0, 1}, -0.42f);
+                drawMesh(vk, cubeMesh_, phoneM * Mat4::scale(0.016f, 0.14f, 0.075f),
+                         {22, 24, 30, 255}, 0.26f, 0.65f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, cubeMesh_, phoneM * Mat4::translation(-0.010f, 0.0f, 0.0f) * Mat4::scale(0.006f, 0.122f, 0.064f),
+                         {178, 226, 255, 255}, 0.12f, 0.0f, nightMode ? 1.85f : 0.72f, MatId::EmissiveGlow, false);
+            } else if (npcCoffee) {
+                // Iconic Seoul Iced Americano cup + white lid + green straw!
+                const Mat4 cupM = upperRoot * Mat4::translation(rHand.x + 0.02f, rHand.y - 0.06f, rHand.z);
+                drawMesh(vk, cylMesh_, cupM * Mat4::scale(0.076f, 0.145f, 0.076f),
+                         {62, 42, 28, 255}, 0.18f, 0.08f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, cylMesh_, cupM * Mat4::translation(0.0f, 0.05f, 0.0f) * Mat4::scale(0.082f, 0.048f, 0.082f),
+                         {192, 162, 126, 255}, 0.85f, 0.0f, 0.0f, MatId::Standard, false); // Cardboard cup sleeve
+                drawMesh(vk, cylMesh_, cupM * Mat4::translation(0.0f, 0.145f, 0.0f) * Mat4::scale(0.082f, 0.018f, 0.082f),
+                         {244, 246, 250, 255}, 0.28f, 0.05f, 0.0f, MatId::Standard, false); // White lid
+                drawMesh(vk, cylMesh_, cupM * Mat4::translation(0.01f, 0.155f, 0.0f) * Mat4::scale(0.010f, 0.065f, 0.010f),
+                         {32, 142, 74, 255}, 0.35f, 0.0f, 0.0f, MatId::Standard, false);     // Green straw
+            } else if (npcPtr->heldProp == NpcHeldProp::Briefcase) {
+                // Seoul Gangnam/Yeouido Office Executive Leather Briefcase
+                const Mat4 bagM = upperRoot * Mat4::translation(rHand.x, rHand.y - 0.19f, rHand.z + 0.03f);
+                drawMesh(vk, cubeMesh_, bagM * Mat4::scale(0.38f, 0.27f, 0.09f),
+                         {38, 30, 26, 255}, 0.48f, 0.12f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, cubeMesh_, bagM * Mat4::translation(0.0f, 0.14f, 0.0f) * Mat4::scale(0.11f, 0.04f, 0.025f),
+                         {28, 24, 22, 255}, 0.42f, 0.25f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, cubeMesh_, bagM * Mat4::translation(0.0f, 0.04f, 0.048f) * Mat4::scale(0.048f, 0.028f, 0.010f),
+                         {216, 192, 120, 255}, 0.22f, 0.88f, 0.0f, MatId::CarClearcoat, false);
+            } else if (npcPtr->heldProp == NpcHeldProp::ShoppingBag) {
+                // Trendy Seoul Department-Store Shopping Bag
+                const ColorRGBA bagCol = ((npcPtr->id & 1) == 0)
+                    ? ColorRGBA{228, 198, 154, 255}
+                    : ColorRGBA{214, 152, 168, 255};
+                const Mat4 bagM = upperRoot * Mat4::translation(rHand.x, rHand.y - 0.21f, rHand.z + 0.04f);
+                drawMesh(vk, cubeMesh_, bagM * Mat4::scale(0.28f, 0.31f, 0.12f),
+                         bagCol, 0.72f, 0.02f, 0.0f, MatId::FabricCloth, false);
+                drawMesh(vk, cubeMesh_, bagM * Mat4::translation(0.0f, 0.165f, 0.0f) * Mat4::scale(0.12f, 0.055f, 0.025f),
+                         {48, 44, 42, 255}, 0.65f, 0.0f, 0.0f, MatId::Standard, false);
+            }
+        }
     }
 
     // 5. Korean Rain Umbrella when raining!
@@ -2574,7 +3245,7 @@ void Renderer3D::drawAlphaAndEffects(VulkanContext& vk, const GameWorld& world,
     for (const auto& v : world.vehicles()) {
         if ((v.pos - focus).lengthSq() > 340.0f * 340.0f) continue;
         const float gy = city.surfaceHeightAt(v.pos);
-        drawVehicle(vk, v, gy, nightMode, false, true, false);
+        drawVehicle(vk, v, gy, nightMode, false, true, false, &world.player());
     }
 
     // 3. Sleek Compact Curb POI Beacons (no immersion-breaking giant arcade rings!) + Mission / GPS Markers
@@ -2632,7 +3303,7 @@ void Renderer3D::drawAlphaAndEffects(VulkanContext& vk, const GameWorld& world,
                 0.92f, 0.0f, 0.0f, MatId::Standard, false, WorldPipelineKind::Alpha);
     }
 
-    // 6. Glowing Bullet Tracers
+    // 6. Glowing Bullet Tracers + Optional 3rd-Person Tactical Laser Sight Beam!
     for (const auto& tr : world.tracers()) {
         const Vec3 mid = (tr.start + tr.end) * 0.5f;
         const Vec3 dir = tr.end - tr.start;
@@ -2642,9 +3313,85 @@ void Renderer3D::drawAlphaAndEffects(VulkanContext& vk, const GameWorld& world,
         drawBox(vk, mid, {len, 0.05f, 0.05f}, yaw, tr.color,
                 0.1f, 0.0f, 3.0f, MatId::EmissiveGlow, false, WorldPipelineKind::Additive);
     }
+    {
+        const auto& pl = world.player();
+        const float gy = city.surfaceHeightAt(pl.pos) + pl.posY;
+        const bool isThirdPerson = (camera.position - Vec3{pl.pos.x, gy + 1.56f, pl.pos.z}).lengthSq() > 0.70f;
+        if (isThirdPerson && pl.drivingVehicleId < 0 && !pl.wasted && pl.currentWeapon != WeaponId::Fists) {
+            const auto& slot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
+            if (slot.laserSightColor > 0 && (pl.weaponAimBlend > 0.25f || pl.aiming)) {
+                const Vec2 pf = forwardFromHeading(pl.facingYaw);
+                const Vec2 pr = rightFromHeading(pl.facingYaw);
+                const Vec3 aimDir = directionFromYawPitch(pl.facingYaw, pl.aimPitch);
+                const Vec3 beamStart = hasPlayerLaserOrigin_
+                    ? lastPlayerLaserOrigin_
+                    : Vec3{pl.pos.x + pf.x * 0.72f + pr.x * 0.26f, gy + 1.36f, pl.pos.z + pf.z * 0.72f + pr.z * 0.26f};
+                Vec3 beamEnd = beamStart + aimDir * 35.0f;
+                if (pl.crosshairHitDist > 1.2f && pl.crosshairHitDist < 120.0f) {
+                    const Vec3 toCross = pl.crosshairPoint3D - beamStart;
+                    const float cLen = toCross.length();
+                    if (cLen > 1.2f && (toCross / cLen).dot(aimDir) > 0.72f) {
+                        beamEnd = pl.crosshairPoint3D;
+                    }
+                }
+                Vec3 diff = beamEnd - beamStart;
+                const float rawLen = diff.length();
+                if (rawLen > 0.45f) {
+                    const float len = std::min(rawLen, 42.0f);
+                    const Vec3 dir = diff / rawLen;
+                    beamEnd = beamStart + dir * len;
+                    const ColorRGBA lasCol = getLaserSightColorRGBA(slot.laserSightColor);
+                    const ColorRGBA beamCol{lasCol.r, lasCol.g, lasCol.b, 155};
+                    // Build clean +Y cylinder matrix from beamStart to beamEnd (cylMesh_ spans Y in [0..1])
+                    const Vec3 ref = (std::abs(dir.y) < 0.92f) ? Vec3{0.0f, 1.0f, 0.0f} : Vec3{1.0f, 0.0f, 0.0f};
+                    const Vec3 xAx = cross3(ref, dir).normalized();
+                    const Vec3 zAx = cross3(dir, xAx).normalized();
+                    const float rad = 0.012f;
+                    Mat4 beamM{};
+                    beamM.m[0]  = xAx.x * rad; beamM.m[1]  = xAx.y * rad; beamM.m[2]  = xAx.z * rad; beamM.m[3]  = 0.0f;
+                    beamM.m[4]  = dir.x * len; beamM.m[5]  = dir.y * len; beamM.m[6]  = dir.z * len; beamM.m[7]  = 0.0f;
+                    beamM.m[8]  = zAx.x * rad; beamM.m[9]  = zAx.y * rad; beamM.m[10] = zAx.z * rad; beamM.m[11] = 0.0f;
+                    beamM.m[12] = beamStart.x; beamM.m[13] = beamStart.y; beamM.m[14] = beamStart.z; beamM.m[15] = 1.0f;
+                    drawMesh(vk, cylMesh_, beamM, beamCol, 0.1f, 0.0f, 2.2f,
+                             MatId::EmissiveGlow, false, WorldPipelineKind::Additive);
+                    drawMesh(vk, sphereMesh_, Mat4::translation(beamEnd.x, beamEnd.y, beamEnd.z) * Mat4::scale(0.065f, 0.065f, 0.065f),
+                             lasCol, 0.1f, 0.0f, 3.0f, MatId::EmissiveGlow, false, WorldPipelineKind::Additive);
+                }
+            }
+        }
+    }
 
-    // 7. Particles (Tire Drift Smoke, Explosions, Sparks, Rain Spray!)
+    // 7. Particles (Spinning Brass Casings, Red 12-Gauge Shotgun Hulls, Dropped Magazines, Muzzle Smoke, Sparks & Rain Spray!)
     for (const auto& pt : world.particles()) {
+        if (pt.kind == ParticleKind::BrassCasing) {
+            const Mat4 cm = Mat4::translation(pt.pos.x, pt.pos.y, pt.pos.z) *
+                            Mat4::rotationAxis({0, 1, 0}, pt.spinAngle) *
+                            Mat4::rotationAxis({1, 0, 0}, pt.spinAngle * 1.4f) *
+                            Mat4::scale(pt.size * 0.42f, pt.size * 1.65f, pt.size * 0.42f);
+            drawMesh(vk, cylMesh_, cm, {236, 198, 86, 255}, 0.20f, 0.92f, 0.0f,
+                     MatId::CarClearcoat, false, WorldPipelineKind::Opaque);
+            continue;
+        }
+        if (pt.kind == ParticleKind::ShotgunShell) {
+            const Mat4 sm = Mat4::translation(pt.pos.x, pt.pos.y, pt.pos.z) *
+                            Mat4::rotationAxis({0, 1, 0}, pt.spinAngle) *
+                            Mat4::rotationAxis({0, 0, 1}, pt.spinAngle * 1.3f);
+            drawMesh(vk, cylMesh_, sm * Mat4::scale(pt.size * 0.56f, pt.size * 1.45f, pt.size * 0.56f),
+                     {214, 42, 46, 255}, 0.34f, 0.18f, 0.0f, MatId::Standard, false, WorldPipelineKind::Opaque);
+            drawMesh(vk, cylMesh_, sm * Mat4::translation(0.0f, -pt.size * 0.42f, 0.0f) * Mat4::scale(pt.size * 0.58f, pt.size * 0.48f, pt.size * 0.58f),
+                     {234, 196, 84, 255}, 0.20f, 0.92f, 0.0f, MatId::CarClearcoat, false, WorldPipelineKind::Opaque);
+            continue;
+        }
+        if (pt.kind == ParticleKind::DroppedMag) {
+            const Mat4 mm = Mat4::translation(pt.pos.x, pt.pos.y, pt.pos.z) *
+                            Mat4::rotationAxis({0, 1, 0}, pt.spinAngle * 0.7f) *
+                            Mat4::rotationAxis({1, 0, 0}, pt.spinAngle) *
+                            Mat4::scale(pt.size * 0.58f, pt.size * 1.75f, pt.size * 0.28f);
+            drawMesh(vk, cubeMesh_, mm, {52, 56, 64, 255}, 0.34f, 0.76f, 0.0f,
+                     MatId::Standard, false, WorldPipelineKind::Opaque);
+            continue;
+        }
+
         const float alphaF = clampf(pt.ttl / std::max(0.01f, pt.maxTtl), 0.0f, 1.0f);
         ColorRGBA col = pt.color;
         col.a = static_cast<std::uint8_t>(static_cast<float>(col.a) * alphaF);
@@ -2816,6 +3563,7 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
                                          const CameraState& camera,
                                          bool firstPerson, float adsBlend, bool lookBack) {
     if (!initialized_) return;
+    hasPlayerLaserOrigin_ = false;
 
     const Vec2 focus = world.player().pos;
     const Vec3 lightDir = computeSunDirection(world);
@@ -2848,7 +3596,7 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
             if ((v.pos - focus).lengthSq() > vehCull * vehCull) continue;
             const float gy = world.city().surfaceHeightAt(v.pos);
             const bool hoodOnly = (!shadowPass && firstPerson && !lookBack && v.id == world.player().drivingVehicleId);
-            drawVehicle(vk, v, gy, nightMode, shadowPass, false, hoodOnly);
+            drawVehicle(vk, v, gy, nightMode, shadowPass, false, hoodOnly, &world.player());
         }
 
         // Draw Player with live 3D weapon carry / shoulder-aim / recoil / reload / equip / punch animations!

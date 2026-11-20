@@ -206,11 +206,21 @@ float CityMap::terrainElevationAt(const Vec2& p) const {
         return curElev;
     };
     float elev = evalMountains(mountains_, 0.0f);
-    elev = evalMountains(perimeterMountains_, elev);
 
-    // Smooth natural Seoul outer greenbelt basin rim right outside the outer ring expressway (|x|>14320 / |z|>11820)
-    const float edgeX = std::max(0.0f, (std::abs(p.x) - 14320.0f) / 1150.0f);
-    const float edgeZ = std::max(0.0f, (std::abs(p.z) - 11820.0f) / 1150.0f);
+    // Mask outer perimeter mountains cleanly outside the Ring Expressway retaining wall (|x|>14326 / |z|>11826)
+    // so all 4 expressway borders, IC gantries, acoustic walls & pine rows stay flat & solidly grounded at y=0!
+    const float outX = clampf((std::abs(p.x) - 14326.0f) / 160.0f, 0.0f, 1.0f);
+    const float outZ = clampf((std::abs(p.z) - 11826.0f) / 160.0f, 0.0f, 1.0f);
+    const float outRaw = std::max(outX, outZ);
+    if (outRaw > 0.001f) {
+        const float outMask = outRaw * outRaw * (3.0f - 2.0f * outRaw);
+        const float perimElev = evalMountains(perimeterMountains_, 0.0f);
+        elev = std::max(elev, perimElev * outMask);
+    }
+
+    // Smooth natural Seoul outer greenbelt basin rim right outside the outer ring expressway wall (|x|>14330 / |z|>11830)
+    const float edgeX = std::max(0.0f, (std::abs(p.x) - 14330.0f) / 1150.0f);
+    const float edgeZ = std::max(0.0f, (std::abs(p.z) - 11830.0f) / 1150.0f);
     const float rimT = clampf(std::max(edgeX, edgeZ), 0.0f, 1.8f);
     if (rimT > 0.001f) {
         const float wave = 0.76f + 0.24f * std::sin(p.x * 0.0016f + p.z * 0.0014f);
@@ -731,6 +741,42 @@ void CityMap::generateChunk(int chunkX, int chunkZ) {
             // Skip if directly intersecting a bridge approach deck or riverside expressway
             if (findBridgeAt(bc, 20.0f) != nullptr || isOnRiversideExpressway(bc)) continue;
 
+            // Outer Ring Expressway IC Gantries & Roadside Korean Pine Rows lining all 4 urban Ring Expressway borders!
+            const bool inRingZ = (bz >= -140 && bz <= 139);
+            const bool inRingX = (bx >= -170 && bx <= 169);
+            const bool isOuterE = (bx == 169) && inRingZ;
+            const bool isOuterW = (bx == -170) && inRingZ;
+            const bool isOuterS = (bz == 139) && inRingX;
+            const bool isOuterN = (bz == -140) && inRingX;
+            if (isOuterE || isOuterW) {
+                const float roadX = roadCoord(isOuterE ? 170 : -170);
+                const float pineX = isOuterE ? 14313.5f : -14313.5f;
+                if (!isInHanRiverWater({roadX, bc.z}, -12.0f)) {
+                    if ((bz % 2) == 0) {
+                        const Vec2 icPos{roadX, bc.z};
+                        streetProps_.push_back(StreetProp{icPos, StreetPropKind::RoadGantry, 0.0f, false, {}, 0.0f, icPos});
+                    }
+                    for (int k = 0; k < 4; ++k) {
+                        const float pz = lerpf(z0 + 4.0f, z1 - 4.0f, static_cast<float>(k) / 3.0f);
+                        const Vec2 tp{pineX, pz};
+                        trees_.push_back(TreeProp{tp, 0.0f, 4.0f, 2.9f, false, TreeSpecies::KoreanPine});
+                    }
+                }
+            }
+            if (isOuterN || isOuterS) {
+                const float roadZ = roadCoord(isOuterS ? 140 : -140);
+                const float pineZ = isOuterS ? 11813.5f : -11813.5f;
+                if ((bx % 2) == 0) {
+                    const Vec2 icPos{bc.x, roadZ};
+                    streetProps_.push_back(StreetProp{icPos, StreetPropKind::RoadGantry, kHalfPi, false, {}, 0.0f, icPos});
+                }
+                for (int k = 0; k < 4; ++k) {
+                    const float px = lerpf(x0 + 4.0f, x1 - 4.0f, static_cast<float>(k) / 3.0f);
+                    const Vec2 tp{px, pineZ};
+                    trees_.push_back(TreeProp{tp, 0.0f, 4.0f, 2.9f, false, TreeSpecies::KoreanPine});
+                }
+            }
+
             // Skip if overlapping any macro landmark footprint
             bool hitsMacro = false;
             for (const auto& mb : macroBuildings_) {
@@ -743,14 +789,17 @@ void CityMap::generateChunk(int chunkX, int chunkZ) {
             if (hitsMacro) continue;
 
             const float groundY = terrainElevationAt(bc);
-            // High mountain ridges (> 34m elevation): dense Korean pine forests instead of city blocks!
-            if (groundY > 34.0f) {
+            // Outside the 4 Ring Expressway borders or on steep mountain ridges (> 34m):
+            // scatter ONLY natural Korean pine trees matching terrainElevationAt (NEVER flat urban parks/buildings)!
+            if (groundY > 34.0f || !inRingX || !inRingZ) {
                 Rng mrng(hashChunkCoords(seed_, bx * 13 + 7, bz * 17 + 3));
-                parks_.push_back(ParkPatch{{{x0 - 4.0f, z0 - 4.0f}, {x1 + 4.0f, z1 + 4.0f}}, groundY, {46, 78, 40, 255}});
                 for (int t = 0; t < 7; ++t) {
                     const Vec2 tp{mrng.range(x0, x1), mrng.range(z0, z1)};
+                    if (isInHanRiverWater(tp, -10.0f)) continue;
+                    const float ty = terrainElevationAt(tp);
+                    const float rootSink = (ty > 1.5f) ? 1.15f : 0.0f;
                     trees_.push_back(TreeProp{
-                        tp, terrainElevationAt(tp), mrng.range(3.2f, 5.2f), mrng.range(2.2f, 3.4f),
+                        tp, ty - rootSink, mrng.range(3.2f, 5.2f), mrng.range(2.2f, 3.4f),
                         false, TreeSpecies::KoreanPine
                     });
                 }

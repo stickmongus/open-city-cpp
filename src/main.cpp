@@ -44,6 +44,8 @@ struct CliOptions {
     bool fleetLineup = false;
     int weaponId = -1;    // >=0 unlocks & equips that exact WeaponId
     bool forceAim = false;
+    bool forceSiren = false;
+    bool forceLaser = false;
 };
 
 #if !defined(__ANDROID__)
@@ -77,6 +79,8 @@ CliOptions parseArgs(int argc, char** argv) {
         else if (a == "--fleet-lineup") o.fleetLineup = true;
         else if (a == "--weapon" && i + 1 < argc) o.weaponId = std::atoi(argv[++i]);
         else if (a == "--aim") o.forceAim = true;
+        else if (a == "--siren") o.forceSiren = true;
+        else if (a == "--laser") o.forceLaser = true;
     }
     return o;
 }
@@ -111,6 +115,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         const auto wid = static_cast<WeaponId>(cli.weaponId);
         auto& slot = world.player().weapons[static_cast<std::size_t>(wid)];
         slot.owned = true;
+        if (cli.forceLaser) slot.laserSightColor = 1; // Tactical Red Laser
         const auto& spec = getWeaponSpec(wid);
         if (spec.magazineSize > 0) {
             slot.magAmmo = spec.magazineSize;
@@ -125,10 +130,17 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
     }
 
     if (cli.drive) {
-        VehicleKind vkKind = cli.driveHypercar ? VehicleKind::Hypercar : VehicleKind::SportsCoupe;
-        Vehicle& car = world.spawnCustomVehicle(vkKind, world.player().pos, cli.hasYaw ? (cli.yawDeg * kPi / 180.0f) : -kHalfPi,
-                                                cli.driveHypercar ? ColorRGBA{22, 138, 224, 255} : ColorRGBA{218, 36, 48, 255});
-        car.stripeStyle = cli.driveHypercar ? 1 : 0;
+        VehicleKind vkKind = cli.forceSiren ? VehicleKind::PoliceCruiser
+                           : (cli.driveHypercar ? VehicleKind::Hypercar : VehicleKind::SportsCoupe);
+        ColorRGBA pCol = cli.forceSiren ? ColorRGBA{244, 246, 250, 255}
+                       : (cli.driveHypercar ? ColorRGBA{22, 138, 224, 255} : ColorRGBA{218, 36, 48, 255});
+        Vehicle& car = world.spawnCustomVehicle(vkKind, world.player().pos, cli.hasYaw ? (cli.yawDeg * kPi / 180.0f) : -kHalfPi, pCol);
+        car.stripeStyle = (cli.driveHypercar && !cli.forceSiren) ? 1 : 0;
+        if (cli.forceSiren) {
+            car.isPolice = true;
+            car.sirenActive = true;
+            car.sirenPhase = 0.08f;
+        }
         world.enterVehicle(car.id);
     }
 
@@ -148,29 +160,37 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         else if (kind == VehicleKind::SUV) paint = {44, 52, 66, 255};
         else if (kind == VehicleKind::Ambulance) paint = {246, 248, 252, 255};
         else if (kind == VehicleKind::FireTruck) paint = {216, 28, 34, 255};
+        else if (kind == VehicleKind::SeoulBus) paint = {26, 86, 178, 255}; // Iconic Seoul Blue Trunk Bus!
 
         Vehicle& hero = world.spawnCustomVehicle(kind, basePos, -kHalfPi, paint);
         hero.steerVisual = 0.28f; // Slight dramatic showroom front-wheel turn!
-        hero.sirenActive = (kind == VehicleKind::PoliceCruiser || kind == VehicleKind::Ambulance || kind == VehicleKind::FireTruck);
+        hero.hasNpcDriver = true; // Show live 3D seated driver behind the steering wheel!
+        hero.sirenActive = cli.forceSiren || (kind == VehicleKind::PoliceCruiser || kind == VehicleKind::Ambulance || kind == VehicleKind::FireTruck);
         const float gy = world.city().surfaceHeightAt(basePos);
-        heroCamPos    = {basePos.x + 4.35f, gy + 1.50f, basePos.z - 3.95f};
-        heroCamTarget = {basePos.x,         gy + 0.80f, basePos.z + 0.15f};
+        if (kind == VehicleKind::SeoulBus) {
+            heroCamPos    = {basePos.x + 6.9f, gy + 2.35f, basePos.z - 6.8f};
+            heroCamTarget = {basePos.x,        gy + 1.45f, basePos.z - 0.6f};
+        } else {
+            heroCamPos    = {basePos.x + 4.35f, gy + 1.50f, basePos.z - 3.95f};
+            heroCamTarget = {basePos.x,         gy + 0.80f, basePos.z + 0.15f};
+        }
         useHeroCam = true;
     } else if (cli.fleetLineup) {
         const Vec2 basePos{588.0f, 960.0f};
         world.fastTravelTo(basePos + Vec2{18.0f, -24.0f}, "Banpo");
         const VehicleKind lineup[5] = {
             VehicleKind::SportsCoupe, VehicleKind::PoliceCruiser,
-            VehicleKind::Taxi, VehicleKind::DeliveryVan, VehicleKind::Hypercar
+            VehicleKind::Taxi, VehicleKind::SeoulBus, VehicleKind::Hypercar
         };
         const ColorRGBA colors[5] = {
             {208, 28, 38, 255}, {244, 246, 250, 255},
-            {246, 126, 24, 255}, {234, 238, 244, 255}, {24, 124, 226, 255}
+            {246, 126, 24, 255}, {26, 86, 178, 255}, {24, 124, 226, 255}
         };
         for (int i = 0; i < 5; ++i) {
             const Vec2 vp{basePos.x - 10.0f + static_cast<float>(i) * 5.0f, basePos.z};
             Vehicle& c = world.spawnCustomVehicle(lineup[i], vp, -kHalfPi + 0.32f, colors[i]);
             c.steerVisual = 0.22f;
+            c.hasNpcDriver = true;
         }
         const float gy = world.city().surfaceHeightAt(basePos);
         heroCamPos    = {basePos.x + 8.5f, gy + 3.2f, basePos.z - 12.8f};
@@ -182,11 +202,12 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         world.clearBanner();
     }
 
+    const auto fontBytes = app.loadAssetOrSystemFont();
+
     Renderer3D renderer;
-    renderer.init(vk, world.city());
+    renderer.init(vk, world.city(), fontBytes);
 
     Vulkan2D ui2d;
-    const auto fontBytes = app.loadAssetOrSystemFont();
     const bool hasFont = ui2d.init(vk, fontBytes);
 
     HudRenderer hud;
@@ -210,6 +231,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
     }
     bool firstPerson = cli.firstPerson;
     float adsBlend = cli.forceAim ? 1.0f : 0.0f;
+    float smoothCamArmScale = 1.0f; // Smooth 3rd-person spring-arm building collision pull-in!
     float smoothKeySteer = 0.0f;
     float smoothKeyThrottle = 0.0f;
     int screenshotWarmupFrames = cli.screenshotPath.empty() ? 0 : 3;
@@ -399,9 +421,31 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
 
         adsBlend += ((gameIn.aimHeld ? 1.0f : 0.0f) - adsBlend) * std::min(1.0f, dt * 12.0f);
 
-        // Compute Camera Pose (3rd-person, 1st-person cockpit/FPS, or showcase hero cam)
+        // Compute Camera Pose (3rd-person with spring-arm building collision, 1st-person cockpit/FPS, or hero cam)
         CameraState cam{};
         cam.fovyDeg = firstPerson ? (64.0f - adsBlend * 18.0f) : (58.0f - adsBlend * 12.0f);
+        auto applySpringArmCollision = [&](const Vec3& anchor, Vec3& desiredPos, float minArmDist) {
+            const Vec3 armVec = desiredPos - anchor;
+            const float armLen = armVec.length();
+            if (armLen < 0.1f) return;
+            const Vec3 armDir = armVec / armLen;
+            const float hitT = world.city().raycastBuildings3D(anchor, armDir, armLen + 0.35f);
+            float targetScale = 1.0f;
+            if (hitT > 0.0f && hitT < armLen) {
+                const float safeDist = std::max(minArmDist, hitT - 0.42f);
+                targetScale = clampf(safeDist / armLen, minArmDist / armLen, 1.0f);
+            }
+            // Pull in immediately to prevent clipping into walls; glide back out smoothly!
+            if (targetScale < smoothCamArmScale) {
+                smoothCamArmScale = targetScale;
+            } else {
+                smoothCamArmScale += (targetScale - smoothCamArmScale) * std::min(1.0f, dt * 7.5f);
+            }
+            desiredPos = anchor + armDir * (armLen * smoothCamArmScale);
+            const float terrainFloor = world.city().surfaceHeightAt({desiredPos.x, desiredPos.z}) + 0.55f;
+            if (desiredPos.y < terrainFloor) desiredPos.y = terrainFloor;
+        };
+
         if (useHeroCam) {
             cam.position = heroCamPos;
             cam.target = heroCamTarget;
@@ -436,6 +480,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
                         std::max(gy + 0.75f, gy + spec.chassisHeight * 0.72f + elev - std::sin(camPitch) * dist * 0.65f),
                         pCar->pos.z - std::sin(viewYaw) * dist * std::cos(camPitch)
                     };
+                    applySpringArmCollision({pCar->pos.x, gy + spec.chassisHeight * 0.78f, pCar->pos.z}, cam.position, 2.2f);
                 }
             } else {
                 const float gy = world.city().surfaceHeightAt(pl.pos) + pl.posY;
@@ -455,6 +500,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
                         std::max(gy + 0.65f, gy + 1.48f + 0.62f - std::sin(camPitch) * dist * 0.75f),
                         pl.pos.z + right.z * shoulderOff - std::sin(camYaw) * dist * std::cos(camPitch)
                     };
+                    applySpringArmCollision({pl.pos.x, gy + 1.48f, pl.pos.z}, cam.position, 1.05f);
                 }
             }
         }
@@ -530,7 +576,7 @@ extern "C" void android_main(struct android_app* state) {
 int main(int argc, char** argv) {
     const oc::CliOptions cli = oc::parseArgs(argc, argv);
     oc::PlatformApp app;
-    if (!app.initDesktop(1440, 864, "Open City Seoul v2.2 — Native Vulkan 3D")) {
+    if (!app.initDesktop(1440, 864, "Open City Seoul v2.3 — Native Vulkan 3D")) {
         return 1;
     }
     const int rc = oc::runApplication(app, cli);

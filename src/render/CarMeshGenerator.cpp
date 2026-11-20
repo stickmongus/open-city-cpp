@@ -296,7 +296,8 @@ enum class CarBodyType {
     PickupTruck,     // OffroadPickup
     RoadsterOpen,    // ClassicRoadster
     CargoVan,        // DeliveryVan, Ambulance
-    FirePumper       // FireTruck
+    FirePumper,      // FireTruck
+    CityBus          // SeoulBus
 };
 
 struct CarBlueprint {
@@ -346,6 +347,7 @@ struct CarBlueprint {
     bool isAmbulance = false;
     bool isFireTruck = false;
     bool isDeliveryVan = false;
+    bool isSeoulBus = false;
 };
 
 CarBlueprint makeBlueprint(VehicleKind kind) {
@@ -586,6 +588,26 @@ CarBlueprint makeBlueprint(VehicleKind kind) {
             b.isHighBox = true;
             b.hasRearDoor = false;
             b.isFireTruck = true;
+            break;
+
+        case VehicleKind::SeoulBus:
+            b.bodyType = CarBodyType::CityBus;
+            b.groundClear = 0.30f;
+            b.frontAxleX = b.halfL * 0.60f;
+            b.rearAxleX = -b.halfL * 0.54f;
+            b.wheelR = 0.49f; b.wheelW = 0.31f;
+            b.xHoodStart = b.halfL - 0.06f;
+            b.xCowl = b.halfL * 0.94f;
+            b.xRoofFront = b.halfL * 0.87f;
+            b.xBpillar = b.halfL * 0.64f;
+            b.xRoofRear = -b.halfL * 0.98f;
+            b.xRearDeck = -b.halfL * 0.99f;
+            b.yNose = 1.16f; b.yCowl = 1.24f; b.yBeltRear = 1.24f; b.yRearDeck = 1.24f;
+            b.yRoof = 2.86f; b.yRoofCrown = 0.045f; b.roofHalfW = b.halfW * 0.96f;
+            b.noseTaper = 0.98f; b.rearTaper = 0.99f;
+            b.isHighBox = true;
+            b.hasRearDoor = false;
+            b.isSeoulBus = true;
             break;
 
         default:
@@ -836,7 +858,7 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
     const ColorRGBA kChromeCol{232, 236, 242, 255};
     const ColorRGBA kInteriorDark{32, 34, 40, 255};
     const ColorRGBA kInteriorSeat{44, 46, 54, 255};
-    const ColorRGBA kGlassTint{14, 22, 34, 184}; // Deep smoked luxury automotive glass (alpha=0.72)
+    const ColorRGBA kGlassTint{14, 22, 34, 152}; // Deep smoked luxury automotive glass (clear enough to see 3D seated driver!)
     const ColorRGBA kHeadLight{250, 252, 255, 255};
     const ColorRGBA kTailRed{235, 28, 34, 255};
 
@@ -1321,7 +1343,7 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
                            0.90f, 1.0f, 2, s, 0.0f, 0.075f, kWhite);
 
             // Continuous Gloss-Black Beltline Weatherstrip Molding (sits cleanly at t ∈ [0.00, 0.055], ZERO zigzag!)
-            const float beltEndX = b.isHighBox ? b.xBpillar : (b.xRearDeck + 0.04f);
+            const float beltEndX = (b.isHighBox && !b.isSeoulBus) ? b.xBpillar : (b.xRearDeck + 0.04f);
             addCurvedGreenhousePanel(trimMb, b,
                                      b.xCowl - aWidth + 0.02f, b.xCowl - aWidth + 0.02f,
                                      beltEndX, beltEndX,
@@ -1329,11 +1351,52 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
             // Gloss-Black Upper DLO Trim Strip just under roof rail (t ∈ [0.875, 0.91])
             addCurvedGreenhousePanel(trimMb, b,
                                      b.xRoofFront - aWidth * 0.6f, b.xRoofFront - aWidth * 0.6f,
-                                     b.isHighBox ? b.xBpillar : (b.xRoofRear + 0.02f),
-                                     b.isHighBox ? b.xBpillar : (b.xRoofRear + 0.02f),
+                                     (b.isHighBox && !b.isSeoulBus) ? b.xBpillar : (b.xRoofRear + 0.02f),
+                                     (b.isHighBox && !b.isSeoulBus) ? b.xBpillar : (b.xRoofRear + 0.02f),
                                      0.875f, 0.912f, 1, s, 0.003f, kDloGloss, true);
 
-            if (b.isHighBox) {
+            if (b.isSeoulBus) {
+                // Authentic Seoul Low-Floor City Bus (현대 일렉시티 / 뉴슈퍼에어로시티):
+                // Solid painted rear corner pillar + full-length panoramic tinted passenger windows with crisp dark mullions!
+                addSolidPillar(bodyMb, b,
+                               b.xRoofRear + 0.34f, b.xRoofRear + 0.34f,
+                               b.xRearTip, b.xRearTip,
+                               0.0f, 1.0f, 4, s, 0.0f, 0.075f, kWhite);
+                const float busWinFrontBot = b.xCowl - aWidth + 0.020f;
+                const float busWinFrontTop = b.xRoofFront - aWidth + 0.020f;
+                const float busWinRear     = b.xRoofRear + 0.30f;
+                // Continuous panoramic tinted side glass spanning the whole passenger cabin
+                addCurvedGreenhousePanel(glassMb, b,
+                                         busWinFrontBot, busWinFrontTop,
+                                         busWinRear, busWinRear,
+                                         0.03f, 0.895f, vSegs, s, 0.012f, kGlassTint, true);
+                // 5 crisp gloss-black vertical window mullions dividing the panoramic bus windows
+                for (int m = 1; m <= 5; ++m) {
+                    const float mx = lerpf(busWinFrontTop - 0.12f, busWinRear + 0.12f, static_cast<float>(m) / 6.0f);
+                    addSolidPillar(trimMb, b,
+                                   mx + 0.045f, mx + 0.045f,
+                                   mx - 0.045f, mx - 0.045f,
+                                   0.03f, 0.90f, vSegs, s, 0.004f, 0.045f, kDloGloss);
+                }
+                // Right-side (+Z sidewalk) twin Seoul transit folding doors (front boarding + center exit!)
+                if (s > 0.0f) {
+                    const float doorCenters[2] = {b.halfL * 0.72f, b.halfL * 0.04f};
+                    for (float dx : doorCenters) {
+                        const float doorH = (b.yRoof - 0.16f) - (b.groundClear + 0.06f);
+                        const float doorY = (b.groundClear + 0.06f) + doorH * 0.5f;
+                        const float doorZ = b.beltHalfW + 0.008f;
+                        // Dark brushed aluminum door frame + vertical twin-leaf seam
+                        trimMb.addBox({dx, doorY, doorZ}, {1.06f, doorH, 0.018f}, kDloGloss);
+                        // Full-height tinted glass leaves
+                        for (float leaf : {-0.24f, 0.24f}) {
+                            glassMb.addBox({dx + leaf, doorY + 0.12f, doorZ + 0.006f},
+                                           {0.44f, doorH * 0.82f, 0.016f}, kGlassTint);
+                        }
+                        // Safety yellow grab bar inside door
+                        liveryMb.addBox({dx, doorY - 0.18f, doorZ + 0.012f}, {0.032f, 0.72f, 0.014f}, {244, 198, 36, 255});
+                    }
+                }
+            } else if (b.isHighBox) {
                 // Commercial Van / Ambulance / FireTruck:
                 // Front cab window between A-pillar and B-pillar, then SOLID crisp flat-panel cargo box behind B-pillar!
                 addSolidPillar(bodyMb, b,
@@ -1504,6 +1567,17 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
                     glassMb.addQuad(bb, a, d, c, kGlassTint);
                 }
             }
+        } else if (b.isSeoulBus) {
+            // Wide Seoul Bus Rear Panoramic Window + Rear Engine Grille Louvers
+            const float winY = lerpf(b.yBeltRear, b.yRoof, 0.56f);
+            const float winH = (b.yRoof - b.yBeltRear) * 0.56f;
+            glassMb.addBox({b.xRearTip - 0.010f, winY, 0.0f}, {0.022f, winH, b.roofHalfW * 1.62f}, kGlassTint);
+            trimMb.addBox({b.xRearTip - 0.004f, winY, 0.0f}, {0.016f, winH + 0.06f, b.roofHalfW * 1.68f}, kDloGloss);
+            // Rear engine compartment air vents
+            for (int lv = 0; lv < 4; ++lv) {
+                const float ly = b.groundClear + 0.28f + static_cast<float>(lv) * 0.14f;
+                trimMb.addBox({b.xRearTip - 0.010f, ly, 0.0f}, {0.020f, 0.045f, b.halfW * 1.24f}, kTrimDark);
+            }
         } else {
             // Commercial Van / Ambulance rear twin window panes + vertical center door seam!
             const float winY = lerpf(b.yBeltRear, b.yRoof, 0.56f);
@@ -1544,9 +1618,22 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
         interiorMb.addCylinderX({dashX - 0.20f, b.yCowl - 0.02f, -seatZ}, 0.14f, 0.04f, 12, kTrimDark);
         // Twin front bucket seats + bolsters + headrests
         for (float s : {-1.0f, 1.0f}) {
+            if (b.isSeoulBus && s > 0.0f) continue; // Right side is front boarding aisle on Seoul Bus!
             interiorMb.addBox({seatX, cabY + 0.14f, s * seatZ}, {0.46f, 0.14f, 0.44f}, kInteriorSeat);
             interiorMb.addBox({seatX - 0.18f, cabY + 0.42f, s * seatZ}, {0.14f, 0.50f, 0.42f}, kInteriorSeat);
             interiorMb.addBox({seatX - 0.20f, cabY + 0.74f, s * seatZ}, {0.11f, 0.18f, 0.22f}, kInteriorDark);
+        }
+        // Passenger rows & yellow grab poles inside Seoul City Bus (visible through panoramic glass!)
+        if (b.isSeoulBus) {
+            const ColorRGBA kBusSeatCol{48, 72, 118, 255};
+            for (int row = 0; row < 6; ++row) {
+                const float rx = lerpf(b.halfL * 0.48f, -b.halfL * 0.78f, static_cast<float>(row) / 5.0f);
+                for (float s : {-1.0f, 1.0f}) {
+                    if (s > 0.0f && row == 2) continue; // Center exit doorway gap
+                    interiorMb.addBox({rx, cabY + 0.36f, s * (b.beltHalfW * 0.58f)}, {0.42f, 0.12f, 0.54f}, kBusSeatCol);
+                    interiorMb.addBox({rx - 0.18f, cabY + 0.70f, s * (b.beltHalfW * 0.58f)}, {0.10f, 0.58f, 0.52f}, kBusSeatCol);
+                }
+            }
         }
         // Rear bench seat (for 4-door / SUV / Compact / Coupe)
         if (!b.openTop && !b.isHighBox && !b.openBed) {
@@ -1572,15 +1659,17 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
         trimMb.addBox({mirX - 0.042f, mirY + 0.025f, s * (mirZ + 0.125f)}, {0.015f, 0.072f, 0.125f}, {44, 52, 64, 255});
 
         // Flush sculpted door handles (front + rear if 4-door)
-        const float hFrontX = b.xBpillar + 0.18f;
-        const float hY = beltYAt(b, hFrontX) - 0.11f;
-        const float hZ = b.halfW * planWidthScale(b, hFrontX) * 0.992f;
-        chromeMb.addBox({hFrontX, hY, s * (hZ + 0.012f)}, {0.15f, 0.032f, 0.026f}, kChromeCol);
-        if (b.hasRearDoor) {
-            const float hRearX = lerpf(b.xBpillar, b.xRearDeck, 0.42f);
-            const float hRY = beltYAt(b, hRearX) - 0.11f;
-            const float hRZ = b.halfW * planWidthScale(b, hRearX) * 0.992f;
-            chromeMb.addBox({hRearX, hRY, s * (hRZ + 0.012f)}, {0.14f, 0.032f, 0.026f}, kChromeCol);
+        if (!b.isSeoulBus) {
+            const float hFrontX = b.xBpillar + 0.18f;
+            const float hY = beltYAt(b, hFrontX) - 0.11f;
+            const float hZ = b.halfW * planWidthScale(b, hFrontX) * 0.992f;
+            chromeMb.addBox({hFrontX, hY, s * (hZ + 0.012f)}, {0.15f, 0.032f, 0.026f}, kChromeCol);
+            if (b.hasRearDoor) {
+                const float hRearX = lerpf(b.xBpillar, b.xRearDeck, 0.42f);
+                const float hRY = beltYAt(b, hRearX) - 0.11f;
+                const float hRZ = b.halfW * planWidthScale(b, hRearX) * 0.992f;
+                chromeMb.addBox({hRearX, hRY, s * (hRZ + 0.012f)}, {0.14f, 0.032f, 0.026f}, kChromeCol);
+            }
         }
 
         // Ultra-crisp 4.5mm conformal door shutlines hugging all 3 sculpted flank bands cleanly!
@@ -1608,9 +1697,11 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
                 else          trimMb.addQuad(bb, a, d, c, kTrimDark);
             }
         };
-        addDoorSeam(b.xCowl - 0.08f);
-        addDoorSeam(b.xBpillar);
-        if (b.hasRearDoor) addDoorSeam(b.rearAxleX + archR + 0.06f);
+        if (!b.isSeoulBus) {
+            addDoorSeam(b.xCowl - 0.08f);
+            addDoorSeam(b.xBpillar);
+            if (b.hasRearDoor) addDoorSeam(b.rearAxleX + archR + 0.06f);
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -1681,6 +1772,22 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
             const float rx = lerpf(ladX - ladLen * 0.46f, ladX + ladLen * 0.46f, static_cast<float>(r) / 10.0f);
             chromeMb.addBox({rx, ladY, 0.0f}, {0.04f, 0.04f, 0.66f}, kChromeCol);
         }
+    } else if (b.isSeoulBus) {
+        // Authentic Seoul City Bus (파랑 간선버스 / 초록 지선버스):
+        // Crisp white lower Seoul livery beltline wave + roof twin white HVAC / electric battery pods + front LED route bezel!
+        for (float s : {-1.0f, 1.0f}) {
+            const float bandY = b.yBeltRear - 0.11f;
+            liveryMb.addBox({0.0f, bandY, s * (b.halfW + 0.010f)}, {b.halfL * 1.84f, 0.16f, 0.018f}, {244, 246, 250, 255});
+            liveryMb.addBox({0.0f, bandY - 0.105f, s * (b.halfW + 0.010f)}, {b.halfL * 1.84f, 0.045f, 0.016f}, {214, 224, 238, 255});
+        }
+        // Front crisp white accent fascia strip + dark upper LED destination sign housing
+        liveryMb.addBox({b.xFrontNose + 0.010f, b.yNose - 0.14f, 0.0f}, {0.022f, 0.14f, b.halfW * 1.76f}, {244, 246, 250, 255});
+        trimMb.addBox({b.xRoofFront + 0.045f, b.yRoof - 0.16f, 0.0f}, {0.14f, 0.34f, b.roofHalfW * 1.56f}, kDloGloss);
+        // Twin white rooftop HVAC / electric battery pods
+        liveryMb.addBox({ 0.85f, b.yRoof + 0.18f, 0.0f}, {2.45f, 0.28f, b.roofHalfW * 1.34f}, {238, 242, 246, 255});
+        liveryMb.addBox({-2.05f, b.yRoof + 0.16f, 0.0f}, {2.25f, 0.24f, b.roofHalfW * 1.28f}, {234, 238, 244, 255});
+        trimMb.addBox({ 0.85f, b.yRoof + 0.32f, 0.0f}, {1.85f, 0.03f, b.roofHalfW * 0.86f}, kTrimDark);
+        trimMb.addBox({-2.05f, b.yRoof + 0.28f, 0.0f}, {1.65f, 0.03f, b.roofHalfW * 0.82f}, kTrimDark);
     } else if (b.isDeliveryVan) {
         // Clean flat-panel modern logistics accent trim (proud +0.012m off strictly planar cargo wall — ZERO Z-fighting!)
         for (float s : {-1.0f, 1.0f}) {
@@ -1756,6 +1863,14 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
     set.wheelTrackZ = b.halfW - b.wheelW * 0.44f;
     set.wheelRadius = b.wheelR;
     set.wheelWidth  = b.wheelW;
+
+    const bool isSportAero = (b.bodyType == CarBodyType::CoupeFastback ||
+                              b.bodyType == CarBodyType::RoadsterOpen);
+    const float bowMax = b.isHighBox ? 0.040f : (isSportAero ? 0.135f : 0.095f);
+    const float rearBow = b.isHighBox ? 0.020f : 0.068f;
+    set.frontPlateLocal = {b.xFrontNose + bowMax + 0.024f, b.groundClear + (isSportAero ? 0.145f : 0.19f), 0.0f};
+    set.rearPlateLocal  = {b.xRearTip - rearBow - 0.018f,  b.isHighBox ? (b.groundClear + 0.42f) : (b.groundClear + 0.35f), 0.0f};
+    set.busSignLocal    = {b.xRoofFront + 0.125f, b.yRoof - 0.16f, 0.0f};
     return set;
 }
 

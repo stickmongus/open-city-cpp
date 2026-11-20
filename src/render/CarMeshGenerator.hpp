@@ -88,6 +88,11 @@ struct CarMeshSet {
     float wheelRadius = 0.36f;
     float wheelWidth = 0.25f;
 
+    // Exact 3D anchor positions for Hangul Korean license plates & Seoul Bus front LED destination header
+    Vec3 frontPlateLocal{2.30f, 0.40f, 0.0f};
+    Vec3 rearPlateLocal{-2.30f, 0.56f, 0.0f};
+    Vec3 busSignLocal{4.06f, 2.70f, 0.0f};
+
     void destroy(VulkanContext& vk);
 };
 

@@ -16,9 +16,14 @@ layout(set = 0, binding = 0) uniform SceneUBO {
     vec4 fogColorAndTexel;     // xyz = fogColor, w = shadowTexelSize
     vec4 horizonColorAndDay;   // xyz = horizonColor, w = dayFactor
     vec4 viewPosAndHour;       // xyz = viewPos, w = timeHours
+    vec4 localLightCount;      // x = active dynamic local lights (0..20)
+    vec4 lightPosRadius[20];   // xyz = worldPos, w = radius
+    vec4 lightColorType[20];   // rgb = linear HDR intensity, w = type (0 = point, 1 = spot)
+    vec4 lightDirCone[20];     // xyz = unit forward dir, w = cosOuterHalfAngle
 } ubo;
 
 layout(set = 0, binding = 1) uniform sampler2D shadowMap;
+layout(set = 0, binding = 2) uniform sampler2D signAtlasTex;
 
 layout(push_constant) uniform DrawPush {
     mat4 model;
@@ -687,6 +692,16 @@ void main() {
         roughness = 0.56;
         metallic = 0.08;
     }
+    else if (matId == 17) {
+        // MAT 17: Real Hangul 3D Seoul Sign Atlas (Gantries, Shopfronts, Subway, BIS, Apt Panels, Bus LED, Plates)
+        vec4 tex = texture(signAtlasTex, fragUv);
+        vec3 signLin = pow(clamp(tex.rgb, 0.0, 1.0), vec3(2.2));
+        albedo = signLin * albedo;
+        alphaOut *= tex.a;
+        roughness = 0.34;
+        metallic = 0.05;
+        emissiveColor = albedo;
+    }
 
     // -----------------------------------------------------------------------
     // Physically Based Cook-Torrance GGX + Energy-Conserving Automotive Clearcoat
@@ -795,7 +810,57 @@ void main() {
         }
     }
 
-    vec3 totalLinear = envLit + directLit + emissiveColor * emissive;
+    // -----------------------------------------------------------------------
+    // Dynamic Multi-Point & Spotlight Local Illumination (Headlights, Sirens,
+    // Streetlights & Muzzle Flashes) with Full GGX Specular & Wet Puddle Glint!
+    // -----------------------------------------------------------------------
+    vec3 localLit = vec3(0.0);
+    int numLocal = clamp(int(ubo.localLightCount.x + 0.5), 0, 20);
+    for (int li = 0; li < numLocal; ++li) {
+        vec3 lPos = ubo.lightPosRadius[li].xyz;
+        float lRad = ubo.lightPosRadius[li].w;
+        vec3 toL = lPos - fragPosition;
+        float d2 = dot(toL, toL);
+        if (d2 >= lRad * lRad || d2 < 0.0001) continue;
+        float distL = sqrt(d2);
+        vec3 lDir = toL / distL;
+        float rawNdl = dot(N, lDir);
+        bool isSpot = (ubo.lightColorType[li].w > 0.5);
+        // Micro-facet grazing retroreflection for low-mounted automotive headlights on rough asphalt
+        float effNdl = isSpot
+            ? max(max(rawNdl, 0.0), smoothstep(0.0, 0.22, rawNdl + 0.08) * 0.34 * step(-0.02, rawNdl))
+            : max(rawNdl, 0.0);
+        if (effNdl <= 0.0001) continue;
+
+        float uDist = clamp(1.0 - distL / lRad, 0.0, 1.0);
+        float atten = (uDist * uDist) / (1.0 + 0.018 * d2);
+
+        if (isSpot) {
+            vec3 spotFwd = ubo.lightDirCone[li].xyz;
+            float cosOuter = ubo.lightDirCone[li].w;
+            float cosTheta = dot(-lDir, spotFwd);
+            float cosInner = mix(cosOuter, 1.0, 0.38);
+            float cone = smoothstep(cosOuter, cosInner, cosTheta);
+            if (cone <= 0.001) continue;
+            atten *= cone;
+        }
+
+        vec3 lCol = ubo.lightColorType[li].rgb * atten;
+        vec3 H_l = normalize(lDir + V);
+        float ndh_l = max(dot(N, H_l), 0.0);
+        float vdh_l = max(dot(V, H_l), 0.0);
+        float dDen = (ndh_l * ndh_l * (alpha2 - 1.0) + 1.0);
+        float D_l = alpha2 / max(kPi * dDen * dDen, 0.0001);
+        float G_l2 = (ndotv / (ndotv * (1.0 - kG) + kG)) * (effNdl / (effNdl * (1.0 - kG) + kG));
+        vec3 F_l = f0 + (vec3(1.0) - f0) * pow(1.0 - vdh_l, 5.0);
+        vec3 spec_l = min((D_l * G_l2 * F_l) / max(4.0 * ndotv * effNdl, 0.002), vec3(4.5));
+        vec3 diff_l = (vec3(1.0) - F_l) * (1.0 - metallic * 0.85) * albedo / kPi;
+
+        float wetGlint = (puddleMask * 1.65 + wetRoadSurface * 0.42) * pow(ndh_l, 48.0);
+        localLit += (diff_l + spec_l * 0.65 + vec3(wetGlint)) * lCol * effNdl;
+    }
+
+    vec3 totalLinear = envLit + directLit + localLit + emissiveColor * emissive;
 
     // Real Seoul long-range atmospheric perspective (lets Lotte World Tower & N Seoul Tower remain visible kilometers away!)
     float dist = length(viewPos - fragPosition);

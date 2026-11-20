@@ -33,6 +33,8 @@ struct Vertex2D {
 static_assert(sizeof(Vertex2D) == 32, "Vertex2D must match ui2d.vert 32-byte stride");
 
 struct SceneUBO {
+    static constexpr int kMaxLocalLights = 20;
+
     Mat4 viewProj{};
     Mat4 lightVP{};
     float lightDirAndShadows[4]{-0.45f, -0.78f, -0.42f, 1.0f};
@@ -42,8 +44,12 @@ struct SceneUBO {
     float fogColorAndTexel[4]{0.66f, 0.78f, 0.90f, 1.0f / 2048.0f};
     float horizonColorAndDay[4]{0.78f, 0.85f, 0.94f, 1.0f};
     float viewPosAndHour[4]{0.0f, 5.0f, 0.0f, 13.5f};
+    float localLightCount[4]{0.0f, 0.0f, 0.0f, 0.0f};
+    float lightPosRadius[kMaxLocalLights][4]{};
+    float lightColorType[kMaxLocalLights][4]{};
+    float lightDirCone[kMaxLocalLights][4]{};
 };
-static_assert(sizeof(SceneUBO) == 240, "SceneUBO must match std140 layout");
+static_assert(sizeof(SceneUBO) == 1216, "SceneUBO must match std140 layout");
 
 struct DrawPush {
     Mat4 model{};
@@ -110,6 +116,8 @@ public:
 
     // Font atlas upload (R8_UNORM texture for Vulkan2D text rendering)
     bool uploadFontAtlasR8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h);
+    // 3D Seoul Hangul Sign Atlas upload (RGBA8_UNORM texture sampled at set=0, binding=2)
+    bool uploadSignAtlasRGBA8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h);
 
     // Frame lifecycle
     bool beginFrame();

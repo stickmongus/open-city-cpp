@@ -234,6 +234,12 @@ void testAllThreeMissionsCompletion() {
     ASSERT_TRUE(world.mission().kind == oc::ActiveMissionKind::GangRaid);
     const int cash2 = world.player().cash;
 
+    // Clear unrelated ambient traffic away from the raid zone so teleporting next to targets doesn't land inside a passing bus
+    for (auto& v : world.vehicles()) {
+        v.pos = {260.0f, 260.0f};
+        v.velocity = {0.0f, 0.0f};
+    }
+
     // Eliminate syndicate targets by firing Assault Rifle directly at each target
     world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)] = {true, 30, 300};
     world.player().currentWeapon = oc::WeaponId::AssaultRifle;
@@ -245,6 +251,7 @@ void testAllThreeMissionsCompletion() {
             }
         }
         oc::PlayerInput fire{};
+        fire.aimHeld = true;
         fire.fireHeld = true;
         fire.aimYaw = 0.0f;
         world.update(0.04f, fire);
@@ -763,7 +770,8 @@ void testFirstPersonAimAlignmentAndPrecisionSpread() {
         const oc::Vec3 eye = oc::driverSeatEyeLocal(kind);
         ASSERT_TRUE(eye.z < -0.20f && eye.z > -spec.halfWidth);
         ASSERT_TRUE(eye.y > 0.90f && eye.y < 2.20f);
-        ASSERT_TRUE(std::abs(eye.x) < spec.halfLength * 0.65f);
+        const float maxEyeRatio = (kind == oc::VehicleKind::SeoulBus) ? 0.85f : 0.65f;
+        ASSERT_TRUE(std::abs(eye.x) < spec.halfLength * maxEyeRatio);
     }
 
     // 2. Verify 1st-person strafing locks player.facingYaw 1:1 to input.aimYaw without 3rd-person hip-turn drift
@@ -839,8 +847,8 @@ void testFirstPersonAimAlignmentAndPrecisionSpread() {
 void testExpandedWeaponsVehiclesSniperAndEmergency() {
     oc::GameWorld world(20261107ULL);
 
-    // 1. Verify expanded roster sizes and valid cockpit eye coordinates for all 16 vehicles & 11 weapons
-    ASSERT_TRUE(static_cast<int>(oc::VehicleKind::Count) == 16);
+    // 1. Verify expanded roster sizes and valid cockpit eye coordinates for all 17 vehicles & 11 weapons
+    ASSERT_TRUE(static_cast<int>(oc::VehicleKind::Count) == 17);
     ASSERT_TRUE(static_cast<int>(oc::WeaponId::Count) == 11);
     ASSERT_TRUE(static_cast<int>(oc::kDealershipCatalog.size()) == 10);
 
@@ -2376,6 +2384,119 @@ void testV220WeaponAnimationsEdgesAndSeoulProps() {
 }
 
 
+void testV230SeoulBusMagDropAndSignPolish() {
+    oc::GameWorld world(20262300ULL);
+    const auto& city = world.city();
+
+    // 1. Verify Seoul City Bus (17th vehicle) CAD specs, driver seat eye position, and tactile boarding bounce!
+    const auto& busSpec = oc::getVehicleSpec(oc::VehicleKind::SeoulBus);
+    ASSERT_TRUE(busSpec.halfLength > 4.2f);
+    ASSERT_TRUE(busSpec.halfWidth > 1.2f);
+    ASSERT_TRUE(busSpec.maxHealth >= 500.0f);
+    const oc::Vec3 busEye = oc::driverSeatEyeLocal(oc::VehicleKind::SeoulBus);
+    ASSERT_TRUE(busEye.x > 3.0f && busEye.x < 4.2f);
+    ASSERT_TRUE(busEye.y > 1.7f && busEye.y < 2.3f);
+    ASSERT_TRUE(busEye.z < -0.35f && busEye.z > -0.90f);
+
+    // Spawn Seoul Blue Bus beside player and board it via real interactPressed input
+    const oc::Vec2 spawn = world.player().pos;
+    auto& bus = world.spawnCustomVehicle(oc::VehicleKind::SeoulBus, {spawn.x + 2.6f, spawn.z}, 0.0f, {30, 88, 176, 255});
+    const int busId = bus.id;
+    oc::PlayerInput enterIn{};
+    enterIn.interactPressed = true;
+    world.update(1.0f / 60.0f, enterIn);
+    ASSERT_TRUE(world.player().drivingVehicleId == busId);
+    const oc::Vehicle* drivenBus = world.findVehicle(busId);
+    ASSERT_TRUE(drivenBus != nullptr);
+    ASSERT_TRUE(std::abs(drivenBus->rollVel) > 0.50f || std::abs(drivenBus->bodyRoll) > 0.01f);
+
+    // Exit the bus cleanly
+    world.update(1.0f / 60.0f, enterIn);
+    ASSERT_TRUE(world.player().drivingVehicleId == -1);
+
+    // 2. Verify Ballistic Brass Casings on fire & Tumbling Dropped Magazine on reload!
+    auto& ar = world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)];
+    ar.owned = true;
+    ar.magAmmo = 30;
+    ar.reserveAmmo = 120;
+    oc::PlayerInput switchAr{};
+    switchAr.weaponSelectSlot = static_cast<int>(oc::WeaponId::AssaultRifle);
+    world.update(1.0f / 60.0f, switchAr);
+    world.player().fireCooldown = 0.0f;
+
+    oc::PlayerInput fireAr{};
+    fireAr.aimHeld = true;
+    fireAr.fireHeld = true;
+    world.update(1.0f / 60.0f, fireAr);
+    bool foundBrass = false;
+    for (const auto& pt : world.particles()) {
+        if (pt.kind == oc::ParticleKind::BrassCasing) {
+            foundBrass = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(foundBrass);
+
+    oc::PlayerInput reloadAr{};
+    reloadAr.reloadPressed = true;
+    world.update(1.0f / 60.0f, reloadAr);
+    bool foundDroppedMag = false;
+    for (const auto& pt : world.particles()) {
+        if (pt.kind == oc::ParticleKind::DroppedMag) {
+            foundDroppedMag = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(foundDroppedMag);
+
+    // Simulate 1.2s so dropped mag falls and settles on terrain cleanly without NaN
+    for (int f = 0; f < 72; ++f) {
+        world.update(1.0f / 60.0f, oc::PlayerInput{});
+    }
+    for (const auto& pt : world.particles()) {
+        ASSERT_TRUE(std::isfinite(pt.pos.x) && std::isfinite(pt.pos.y) && std::isfinite(pt.pos.z));
+    }
+
+    // 3. Verify Outer Ring Expressway IC gantries & Korean pine windbreak rows along East Border (+14280m)!
+    oc::CityMap edgeCity;
+    edgeCity.generate(20262300ULL);
+    edgeCity.updateStreaming({14280.0f, 900.0f}, true);
+    bool hasOuterIcGantry = false;
+    int outerPineCount = 0;
+    for (const auto& p : edgeCity.streetProps()) {
+        if (p.kind == oc::StreetPropKind::RoadGantry && p.pos.x > 14200.0f) {
+            hasOuterIcGantry = true;
+        }
+    }
+    for (const auto& t : edgeCity.trees()) {
+        if (t.pos.x > 14295.0f && t.pos.x < 14320.0f) {
+            ++outerPineCount;
+        }
+    }
+    ASSERT_TRUE(hasOuterIcGantry);
+    ASSERT_TRUE(outerPineCount >= 3);
+
+    // Verify 3rd-person building raycast returns -1.0f on open sky and positive distance when hitting a building
+    const float clearRay = city.raycastBuildings3D({spawn.x, 2.2f, spawn.z}, {0.0f, 1.0f, 0.0f}, 10.0f);
+    ASSERT_TRUE(clearRay < 0.0f);
+    bool hitAnyBuilding = false;
+    for (const auto& b : city.buildings()) {
+        if (b.height > 4.0f) {
+            const oc::Vec2 bc = (b.footprint.min + b.footprint.max) * 0.5f;
+            const oc::Vec3 from{bc.x - 40.0f, b.baseY + 2.5f, bc.z};
+            const float ht = city.raycastBuildings3D(from, {1.0f, 0.0f, 0.0f}, 60.0f);
+            if (ht > 0.0f && ht < 60.0f) {
+                hitAnyBuilding = true;
+                break;
+            }
+        }
+    }
+    ASSERT_TRUE(hitAnyBuilding);
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -2404,8 +2525,10 @@ int main() {
     testV200RealScaleSeoulAndEscapablePolice();
     testV210SeoulMapFidelityAndOrientations();
     testV220WeaponAnimationsEdgesAndSeoulProps();
+    testV230SeoulBusMagDropAndSignPolish();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v2.2.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v2.3.0 simulation test suites succeeded!\n";
     return 0;
 }
+
 

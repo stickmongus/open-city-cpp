@@ -100,6 +100,9 @@ struct VulkanContext::Impl {
     AllocatedImage fontAtlasImage{};
     VkSampler fontSampler = VK_NULL_HANDLE;
 
+    // 3D Seoul Hangul Sign Atlas RGBA8_UNORM texture (set=0, binding=2)
+    AllocatedImage signAtlasImage{};
+
     // Descriptors
     VkDescriptorPool descPool = VK_NULL_HANDLE;
     VkDescriptorSetLayout sceneDescLayout = VK_NULL_HANDLE;
@@ -1086,6 +1089,77 @@ struct VulkanContext::Impl {
         vkUpdateDescriptorSets(device, 1, &wds, 0, nullptr);
         return true;
     }
+
+    bool uploadSignRGBA8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h) {
+        if (!device || !pixels || w == 0 || h == 0) return false;
+        vkDeviceWaitIdle(device);
+        destroyImage(signAtlasImage);
+
+        if (!createImage(w, h, VK_FORMAT_R8G8B8A8_UNORM, VK_SAMPLE_COUNT_1_BIT,
+                         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                         VK_IMAGE_ASPECT_COLOR_BIT, signAtlasImage)) {
+            return false;
+        }
+
+        const VkDeviceSize byteSize = static_cast<VkDeviceSize>(w) * static_cast<VkDeviceSize>(h) * 4u;
+        AllocatedBuffer staging{};
+        if (!createBuffer(byteSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                          staging, true)) {
+            return false;
+        }
+        std::memcpy(staging.mapped, pixels, static_cast<std::size_t>(byteSize));
+
+        VkCommandBuffer cmd = beginSingleTimeCommands();
+        VkImageMemoryBarrier toTransfer{};
+        toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toTransfer.image = signAtlasImage.image;
+        toTransfer.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &toTransfer);
+
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageExtent = {w, h, 1};
+        vkCmdCopyBufferToImage(cmd, staging.buffer, signAtlasImage.image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+        VkImageMemoryBarrier toShader{};
+        toShader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        toShader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        toShader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        toShader.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toShader.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toShader.image = signAtlasImage.image;
+        toShader.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        toShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &toShader);
+        endSingleTimeCommands(cmd);
+        destroyBuffer(staging);
+
+        VkDescriptorImageInfo ii{};
+        ii.sampler = linearClampSampler;
+        ii.imageView = signAtlasImage.view;
+        ii.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        for (int i = 0; i < kMaxFramesInFlight; ++i) {
+            VkWriteDescriptorSet wds{};
+            wds.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            wds.dstSet = sceneDescSets[i];
+            wds.dstBinding = 2;
+            wds.descriptorCount = 1;
+            wds.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            wds.pImageInfo = &ii;
+            vkUpdateDescriptorSets(device, 1, &wds, 0, nullptr);
+        }
+        return true;
+    }
 };
 
 VulkanContext::VulkanContext() : impl_(new Impl()) {}
@@ -1289,14 +1363,16 @@ bool VulkanContext::init(const PlatformApp& app) {
 
     // Descriptor layouts
     {
-        std::array<VkDescriptorSetLayoutBinding, 2> sb{};
+        std::array<VkDescriptorSetLayoutBinding, 3> sb{};
         sb[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
                  VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
         sb[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                  VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+        sb[2] = {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                 VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
         VkDescriptorSetLayoutCreateInfo lci{};
         lci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        lci.bindingCount = 2;
+        lci.bindingCount = static_cast<std::uint32_t>(sb.size());
         lci.pBindings = sb.data();
         if (vkCreateDescriptorSetLayout(impl_->device, &lci, nullptr, &impl_->sceneDescLayout) != VK_SUCCESS) return false;
 
@@ -1312,7 +1388,7 @@ bool VulkanContext::init(const PlatformApp& app) {
     {
         std::array<VkDescriptorPoolSize, 2> ps{};
         ps[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<std::uint32_t>(kMaxFramesInFlight)};
-        ps[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<std::uint32_t>(kMaxFramesInFlight + 2)};
+        ps[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<std::uint32_t>(kMaxFramesInFlight * 2 + 2)};
         VkDescriptorPoolCreateInfo dpci{};
         dpci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         dpci.maxSets = static_cast<std::uint32_t>(kMaxFramesInFlight + 2);
@@ -1406,9 +1482,14 @@ bool VulkanContext::init(const PlatformApp& app) {
         }
     }
 
-    // Upload initial 2x2 white dummy font atlas so uiDescSet is always valid
+    // Upload initial 2x2 white dummy atlases so uiDescSet & sceneDescSets[binding=2] are always valid
     const std::uint8_t dummyWhite[4] = {255, 255, 255, 255};
     impl_->uploadFontR8(dummyWhite, 2, 2);
+    const std::uint8_t dummySignRGBA[16] = {
+        255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255
+    };
+    impl_->uploadSignRGBA8(dummySignRGBA, 2, 2);
 
     // Create all graphics pipelines
     if (!impl_->createPipelines()) {
@@ -1431,6 +1512,7 @@ void VulkanContext::shutdown() {
         if (impl_->shadowFramebuffer) { vkDestroyFramebuffer(impl_->device, impl_->shadowFramebuffer, nullptr); impl_->shadowFramebuffer = VK_NULL_HANDLE; }
         impl_->destroyImage(impl_->shadowImage);
         impl_->destroyImage(impl_->fontAtlasImage);
+        impl_->destroyImage(impl_->signAtlasImage);
 
         for (int i = 0; i < kMaxFramesInFlight; ++i) {
             impl_->destroyBuffer(impl_->sceneUboBufs[i]);
@@ -1548,6 +1630,10 @@ void VulkanContext::destroyMesh(GpuMesh& mesh) {
 
 bool VulkanContext::uploadFontAtlasR8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h) {
     return impl_->uploadFontR8(pixels, w, h);
+}
+
+bool VulkanContext::uploadSignAtlasRGBA8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h) {
+    return impl_->uploadSignRGBA8(pixels, w, h);
 }
 
 bool VulkanContext::beginFrame() {

@@ -31,7 +31,8 @@ public:
     Renderer3D(const Renderer3D&) = delete;
     Renderer3D& operator=(const Renderer3D&) = delete;
 
-    void init(VulkanContext& vk, const CityMap& city);
+    void init(VulkanContext& vk, const CityMap& city,
+              const std::vector<std::uint8_t>& fontBytes = {});
     void shutdown(VulkanContext& vk);
 
     GraphicsQuality quality() const { return quality_; }
@@ -65,10 +66,12 @@ private:
         WoodBark = 13,
         GraniteRock = 14,
         HanokGiwaRoof = 15,
-        KoreanAptFacade = 16
+        KoreanAptFacade = 16,
+        SignTextured = 17
     };
 
     void buildStaticPrimitives(VulkanContext& vk);
+    void buildSeoulSignAtlas(VulkanContext& vk, const std::vector<std::uint8_t>& fontBytes);
     void buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city);
 
     Vec3 computeSunDirection(const GameWorld& world) const;
@@ -86,6 +89,10 @@ private:
                  MatId matId, bool shadowPass,
                  WorldPipelineKind pipe = WorldPipelineKind::Opaque);
 
+    void drawSignQuad(VulkanContext& vk, const Vec3& center, const Vec3& outNormal,
+                      const Vec3& upAxis, float width, float height, int atlasSlot,
+                      float emissive, ColorRGBA tint = {255, 255, 255, 255});
+
     void drawSeoulTerrainAndRoads(VulkanContext& vk, const GameWorld& world,
                                   const Vec2& focus, bool shadowPass);
     void drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world,
@@ -94,7 +101,8 @@ private:
                            const Vec2& focus, const Vec3& camPos, bool shadowPass);
     void drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
                      bool nightMode, bool shadowPass, bool alphaPass,
-                     bool cockpitHoodOnly = false);
+                     bool cockpitHoodOnly = false,
+                     const PlayerState* playerDriver = nullptr);
 
     struct WeaponPoseState {
         float aimBlend = 0.0f;       // 0 = tactical low-ready carry, 1 = shoulder/eye aim
@@ -174,9 +182,11 @@ private:
     };
     std::vector<DistantSkylineBlock> distantSkyline_;
 
-    // 16 CAD-precision zero-jelly vehicles + sculpted 10-spoke wheels
+    // 17 CAD-precision zero-jelly vehicles + sculpted 10-spoke wheels
     CarMeshLibrary cars_{};
     mutable std::vector<int> visIdxBuf_;
+    Vec3 lastPlayerLaserOrigin_{};
+    bool hasPlayerLaserOrigin_ = false;
 };
 
 } // namespace oc

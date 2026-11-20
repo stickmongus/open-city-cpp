@@ -24,7 +24,8 @@ enum class VehicleKind : int {
     TrackPrototype = 13,
     Ambulance = 14,
     FireTruck = 15,
-    Count = 16
+    SeoulBus = 16,
+    Count = 17
 };
 
 struct VehicleSpec {
@@ -165,6 +166,9 @@ inline bool isEmergencySirenVehicle(const Vehicle& v) {
 }
 
 inline Vec3 driverSeatEyeLocal(VehicleKind kind) {
+    if (kind == VehicleKind::SeoulBus) {
+        return {3.55f, 1.98f, -0.58f};
+    }
     const auto& spec = getVehicleSpec(kind);
     float fwdX = 0.08f;
     if (kind == VehicleKind::DeliveryVan || kind == VehicleKind::Ambulance) fwdX = 0.58f;
@@ -538,7 +542,8 @@ enum class ParticleKind : std::uint8_t {
     Standard = 0,
     BrassCasing = 1,
     ShotgunShell = 2,
-    WaterSpray = 3
+    WaterSpray = 3,
+    DroppedMag = 4
 };
 
 struct Particle {

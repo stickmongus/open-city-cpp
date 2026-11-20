@@ -26,7 +26,8 @@ constexpr std::array<VehicleSpec, static_cast<std::size_t>(VehicleKind::Count)> 
     {VehicleKind::JdmTuner,        "SULTAN RS TUNER",   "설탄 RS 드리프트 튜너",   2.26f, 1.05f, 1.16f, 48.5f, 15.5f, 31.0f, 38.0f, 3.05f, 10.1f, 1.98f, 1290.0f, 185.0f, true,   7800},
     {VehicleKind::TrackPrototype,  "VALKYRIE LMP-R",    "발키리 LMP 트랙카",       2.44f, 1.10f, 1.00f, 58.5f, 17.5f, 37.5f, 45.0f, 3.10f, 12.6f, 2.45f, 1160.0f, 225.0f, true,  34000},
     {VehicleKind::Ambulance,       "SEOUL 119 EMS",     "서울 119 구급차",         2.76f, 1.15f, 1.90f, 38.0f, 13.0f, 22.5f, 32.0f, 2.20f, 9.2f,  2.60f, 2750.0f, 330.0f, false,     0},
-    {VehicleKind::FireTruck,       "SEOUL 119 FIRE",    "서울 119 소방차",         3.08f, 1.18f, 1.96f, 36.5f, 12.0f, 21.0f, 31.0f, 2.00f, 9.0f,  2.70f, 4200.0f, 520.0f, false,     0}
+    {VehicleKind::FireTruck,       "SEOUL 119 FIRE",    "서울 119 소방차",         3.08f, 1.18f, 1.96f, 36.5f, 12.0f, 21.0f, 31.0f, 2.00f, 9.0f,  2.70f, 4200.0f, 520.0f, false,     0},
+    {VehicleKind::SeoulBus,        "SEOUL CITY BUS",    "서울 시내버스",           4.55f, 1.24f, 2.48f, 27.5f, 10.5f, 14.5f, 24.0f, 1.72f, 8.2f,  2.85f, 9800.0f, 640.0f, false,     0}
 }};
 
 constexpr std::array<WeaponSpec, static_cast<std::size_t>(WeaponId::Count)> kWeaponSpecs = {{
@@ -97,6 +98,10 @@ ColorRGBA randomTrafficPaint(Rng& rng, VehicleKind kind) {
     }
     if (kind == VehicleKind::FireTruck) {
         return {184, 28, 34, 255};
+    }
+    if (kind == VehicleKind::SeoulBus) {
+        // Authentic Seoul Blue Trunk Bus (파랑 간선버스) & Seoul Green Branch Bus (초록 지선버스)
+        return rng.chance(0.65f) ? ColorRGBA{26, 86, 178, 255} : ColorRGBA{42, 134, 68, 255};
     }
     if (kind == VehicleKind::DeliveryVan) {
         return rng.chance(0.55f) ? ColorRGBA{214, 218, 222, 255} : ColorRGBA{58, 76, 98, 255};
@@ -1023,13 +1028,13 @@ void GameWorld::maintainTrafficPopulation() {
         ++attempts;
         const bool horiz = rng_.chance(0.5f);
         const int baseRoad = horiz ? centerRz : centerRx;
-        const int minR = horiz ? (CityMap::kMinRoadIndexZ + 1) : (CityMap::kMinRoadIndexX + 1);
-        const int maxR = horiz ? (CityMap::kMaxRoadIndexZ - 1) : (CityMap::kMaxRoadIndexX - 1);
+        const int minR = horiz ? -140 : -170;
+        const int maxR = horiz ?  140 :  170;
         const int roadIdx = std::clamp(baseRoad + rng_.rangeInt(-3, 3), minR, maxR);
         const int dir = rng_.chance(0.5f) ? 1 : -1;
         const float axisBase = horiz ? center.x : center.z;
-        const float axisMin = horiz ? (CityMap::kWorldMinX + 40.0f) : (CityMap::kWorldMinZ + 40.0f);
-        const float axisMax = horiz ? (CityMap::kWorldMaxX - 40.0f) : (CityMap::kWorldMaxZ - 40.0f);
+        const float axisMin = horiz ? -14280.0f : -11760.0f;
+        const float axisMax = horiz ?  14280.0f :  11760.0f;
         const float along = clampf(axisBase + rng_.range(-240.0f, 240.0f), axisMin, axisMax);
         const float rCoord = city_.roadCoord(roadIdx);
 
@@ -1061,7 +1066,7 @@ void GameWorld::maintainTrafficPopulation() {
         if (tooClose) continue;
 
         // Weighted realistic city traffic distribution across all civilian, performance & emergency classes
-        static constexpr std::array<VehicleKind, 22> kTrafficPool = {{
+        static constexpr std::array<VehicleKind, 24> kTrafficPool = {{
             VehicleKind::Compact,         VehicleKind::Compact,
             VehicleKind::Taxi,            VehicleKind::Taxi,
             VehicleKind::SUV,             VehicleKind::SUV,
@@ -1072,7 +1077,8 @@ void GameWorld::maintainTrafficPopulation() {
             VehicleKind::ClassicRoadster, VehicleKind::ClassicRoadster,
             VehicleKind::JdmTuner,        VehicleKind::JdmTuner,
             VehicleKind::DeliveryVan,     VehicleKind::Hypercar,
-            VehicleKind::Ambulance,       VehicleKind::FireTruck
+            VehicleKind::Ambulance,       VehicleKind::FireTruck,
+            VehicleKind::SeoulBus,        VehicleKind::SeoulBus
         }};
         const VehicleKind kind = kTrafficPool[static_cast<std::size_t>(rng_.rangeInt(0, static_cast<int>(kTrafficPool.size()) - 1))];
         const auto& spec = getVehicleSpec(kind);
@@ -1119,10 +1125,10 @@ void GameWorld::maintainCivilianPopulation() {
     }
 
     int attempts = 0;
-    const int minU = CityMap::kMinRoadIndexX * 2 + 1;
-    const int maxU = CityMap::kMaxRoadIndexX * 2 - 2;
-    const int minV = CityMap::kMinRoadIndexZ * 2 + 1;
-    const int maxV = CityMap::kMaxRoadIndexZ * 2 - 2;
+    const int minU = -170 * 2 + 1;
+    const int maxU =  170 * 2 - 2;
+    const int minV = -140 * 2 + 1;
+    const int maxV =  140 * 2 - 2;
     const int centerNodeU = std::clamp(city_.nearestSidewalkNodeIndex(center.x), minU, maxU);
     const int centerNodeV = std::clamp(city_.nearestSidewalkNodeIndex(center.z), minV, maxV);
     while (civCount < kTargetCivilians && attempts < 96) {
@@ -1404,16 +1410,16 @@ void GameWorld::maintainPolicePopulation(float dt) {
         ++attempts;
         const bool horiz = rng_.chance(0.5f);
         const int nearIdx = horiz ? centerRz : centerRx;
-        const int minR = horiz ? (CityMap::kMinRoadIndexZ + 1) : (CityMap::kMinRoadIndexX + 1);
-        const int maxR = horiz ? (CityMap::kMaxRoadIndexZ - 1) : (CityMap::kMaxRoadIndexX - 1);
+        const int minR = horiz ? -140 : -170;
+        const int maxR = horiz ?  140 :  170;
         const int spread = wanted ? 2 : 3;
         const int roadIdx = std::clamp(nearIdx + rng_.rangeInt(-spread, spread), minR, maxR);
         const float rCoord = city_.roadCoord(roadIdx);
         // Spawn reinforcements realistically down the boulevard (115m..225m away — zero popup ambush!)
         const float distOff = wanted ? (rng_.chance(0.5f) ? rng_.range(115.0f, 215.0f) : rng_.range(-215.0f, -115.0f))
                                      : rng_.range(-230.0f, 230.0f);
-        const float axisMin = horiz ? (CityMap::kWorldMinX + 40.0f) : (CityMap::kWorldMinZ + 40.0f);
-        const float axisMax = horiz ? (CityMap::kWorldMaxX - 40.0f) : (CityMap::kWorldMaxZ - 40.0f);
+        const float axisMin = horiz ? -14280.0f : -11760.0f;
+        const float axisMax = horiz ?  14280.0f :  11760.0f;
         const float along = clampf((horiz ? dispatchAnchor.x : dispatchAnchor.z) + distOff, axisMin, axisMax);
 
         int dir = rng_.chance(0.5f) ? 1 : -1;
@@ -1485,10 +1491,10 @@ void GameWorld::maintainPolicePopulation(float dt) {
     }
 
     attempts = 0;
-    const int minU = CityMap::kMinRoadIndexX * 2 + 1;
-    const int maxU = CityMap::kMaxRoadIndexX * 2 - 2;
-    const int minV = CityMap::kMinRoadIndexZ * 2 + 1;
-    const int maxV = CityMap::kMaxRoadIndexZ * 2 - 2;
+    const int minU = -170 * 2 + 1;
+    const int maxU =  170 * 2 - 2;
+    const int minV = -140 * 2 + 1;
+    const int maxV =  140 * 2 - 2;
     const int centerNodeU = std::clamp(city_.nearestSidewalkNodeIndex(dispatchAnchor.x), minU, maxU);
     const int centerNodeV = std::clamp(city_.nearestSidewalkNodeIndex(dispatchAnchor.z), minV, maxV);
     while (activeOfficers < targetOfficers && attempts < 48) {
@@ -1715,6 +1721,8 @@ bool GameWorld::tryEnterOrExitVehicle() {
     best->isParked = false;
     best->isPlayerDriving = true;
     best->driverPanicked = false;
+    best->rollVel -= 1.65f;   // Tactile driver-side suspension compression on boarding!
+    best->pitchVel += 0.45f;
     player_.drivingVehicleId = best->id;
     player_.reloadTimer = 0.0f;
     player_.onGround = true;
@@ -3532,9 +3540,36 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
         return;
     }
 
+    auto emitDroppedMagazine = [&]() {
+        if (particles_.size() >= 780) return;
+        const WeaponId wid = player_.currentWeapon;
+        if (wid == WeaponId::Fists || wid == WeaponId::HeavyRevolver ||
+            wid == WeaponId::Shotgun || wid == WeaponId::HeavyLauncher || wid == WeaponId::Minigun) {
+            return;
+        }
+        const Vec2 fwd2 = forwardFromHeading(player_.facingYaw);
+        const Vec2 right2 = rightFromHeading(player_.facingYaw);
+        Particle mag{};
+        mag.kind = ParticleKind::DroppedMag;
+        mag.pos = {player_.pos.x + fwd2.x * 0.32f + right2.x * 0.16f,
+                   surfaceHeightAt(player_.pos) + player_.posY + 1.18f,
+                   player_.pos.z + fwd2.z * 0.32f + right2.z * 0.16f};
+        mag.vel = {right2.x * rng_.range(-0.45f, 0.35f) + fwd2.x * rng_.range(0.15f, 0.55f),
+                   rng_.range(-0.35f, 0.30f),
+                   right2.z * rng_.range(-0.45f, 0.35f) + fwd2.z * rng_.range(0.15f, 0.55f)};
+        mag.color = {58, 62, 68, 255};
+        mag.size = (wid == WeaponId::Pistol) ? 0.085f : ((wid == WeaponId::CombatMG || wid == WeaponId::AutoShotgun) ? 0.135f : 0.115f);
+        mag.ttl = 3.2f;
+        mag.maxTtl = 3.2f;
+        mag.spinAngle = rng_.range(0.0f, kTwoPi);
+        mag.spinSpeed = rng_.range(7.0f, 13.0f) * (rng_.chance(0.5f) ? 1.0f : -1.0f);
+        particles_.push_back(mag);
+    };
+
     if (input.reloadPressed && magCap > 0 &&
         slot.magAmmo < magCap && slot.reserveAmmo > 0) {
         player_.reloadTimer = spec.reloadDuration;
+        emitDroppedMagazine();
         return;
     }
 
@@ -3546,12 +3581,14 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
         if (slot.magAmmo <= 0) {
             if (slot.reserveAmmo > 0) {
                 player_.reloadTimer = spec.reloadDuration;
+                emitDroppedMagazine();
             }
             return;
         }
         slot.magAmmo -= 1;
         if (slot.magAmmo == 0 && slot.reserveAmmo > 0) {
             player_.reloadTimer = spec.reloadDuration;
+            emitDroppedMagazine();
         }
     }
 
@@ -3728,6 +3765,23 @@ void GameWorld::fireWeapon(WeaponId weaponId, const Vec3& muzzle3D, const Vec3& 
         casing.spinAngle = rng_.range(0.0f, kTwoPi);
         casing.spinSpeed = rng_.range(14.0f, 26.0f) * (rng_.chance(0.5f) ? 1.0f : -1.0f);
         particles_.push_back(casing);
+    }
+    // Subtle translucent muzzle gunsmoke wisps drifting out of the barrel
+    if (weaponId != WeaponId::Fists && particles_.size() < 775) {
+        const int smokeN = silenced ? 1 : 2;
+        for (int s = 0; s < smokeN; ++s) {
+            Particle puff{};
+            puff.kind = ParticleKind::WaterSpray; // Expands softly with air drag like smoke!
+            puff.pos = muzzle3D + baseDir * rng_.range(0.06f, 0.22f);
+            puff.vel = baseDir * rng_.range(1.2f, 2.6f)
+                     + basisUp * rng_.range(0.45f, 1.05f)
+                     + basisRight * rng_.range(-0.45f, 0.45f);
+            puff.color = silenced ? ColorRGBA{196, 202, 210, 82} : ColorRGBA{218, 214, 206, 112};
+            puff.size = (weaponId == WeaponId::Shotgun || weaponId == WeaponId::AutoShotgun || weaponId == WeaponId::HeavyLauncher) ? 0.16f : 0.11f;
+            puff.ttl = rng_.range(0.24f, 0.42f);
+            puff.maxTtl = puff.ttl;
+            particles_.push_back(puff);
+        }
     }
 
     float spreadScale = (weaponId == WeaponId::SniperRifle && precisionAim)
@@ -4091,20 +4145,20 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
         const Vec2 probeAhead = interCenter + forwardFromHeading(desiredHeading) * (CityMap::kBlockPitch * 0.75f);
         const bool waterAhead = city_.isInHanRiverWater(probeAhead, -6.0f) && !city_.isOnBridge(probeAhead, 0.0f);
         const bool atCityEdge = waterAhead ||
-                                (v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRx >= CityMap::kMaxRoadIndexX - 1) ||
-                                                        (v.aiDirection < 0 && nearRx <= CityMap::kMinRoadIndexX + 1))) ||
-                                (!v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRz >= CityMap::kMaxRoadIndexZ - 1) ||
-                                                         (v.aiDirection < 0 && nearRz <= CityMap::kMinRoadIndexZ + 1)));
+                                (v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRx >= 170) ||
+                                                        (v.aiDirection < 0 && nearRx <= -170))) ||
+                                (!v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRz >= 140) ||
+                                                         (v.aiDirection < 0 && nearRz <= -140)));
         if (atCityEdge || rng_.chance(0.28f)) {
             v.aiHorizontalRoad = !v.aiHorizontalRoad;
             v.aiRoadIndex = v.aiHorizontalRoad ? nearRz : nearRx;
             if (v.aiHorizontalRoad) {
-                if (nearRx <= CityMap::kMinRoadIndexX + 1) v.aiDirection = 1;
-                else if (nearRx >= CityMap::kMaxRoadIndexX - 1) v.aiDirection = -1;
+                if (nearRx <= -170) v.aiDirection = 1;
+                else if (nearRx >= 170) v.aiDirection = -1;
                 else v.aiDirection = rng_.chance(0.5f) ? 1 : -1;
             } else {
-                if (nearRz <= CityMap::kMinRoadIndexZ + 1) v.aiDirection = 1;
-                else if (nearRz >= CityMap::kMaxRoadIndexZ - 1) v.aiDirection = -1;
+                if (nearRz <= -140) v.aiDirection = 1;
+                else if (nearRz >= 140) v.aiDirection = -1;
                 else v.aiDirection = rng_.chance(0.5f) ? 1 : -1;
             }
             v.lastTurnIntersectionKey = interKey;
@@ -5615,26 +5669,30 @@ void GameWorld::updateEffects(float dt) {
     for (auto& p : particles_) {
         p.ttl -= dt;
         p.pos = p.pos + p.vel * dt;
-        if (p.kind == ParticleKind::BrassCasing || p.kind == ParticleKind::ShotgunShell) {
+        if (p.kind == ParticleKind::BrassCasing || p.kind == ParticleKind::ShotgunShell || p.kind == ParticleKind::DroppedMag) {
             p.vel.y -= 9.8f * dt;
             p.spinAngle += p.spinSpeed * dt;
-            if (p.pos.y < 0.03f) {
-                p.pos.y = 0.03f;
-                p.vel.y = (std::abs(p.vel.y) > 0.65f) ? (-p.vel.y * 0.36f) : 0.0f;
-                p.vel.x *= 0.72f;
-                p.vel.z *= 0.72f;
-                p.spinSpeed *= 0.58f;
+            const float restH = surfaceHeightAt({p.pos.x, p.pos.z}) +
+                                ((p.kind == ParticleKind::DroppedMag) ? 0.045f : 0.03f);
+            if (p.pos.y < restH) {
+                p.pos.y = restH;
+                p.vel.y = (std::abs(p.vel.y) > 0.65f) ? (-p.vel.y * 0.32f) : 0.0f;
+                p.vel.x *= 0.68f;
+                p.vel.z *= 0.68f;
+                p.spinSpeed *= 0.52f;
             }
         } else if (p.kind == ParticleKind::WaterSpray) {
             p.vel.y -= 2.4f * dt;
             p.vel.x *= std::max(0.0f, 1.0f - 2.6f * dt);
             p.vel.z *= std::max(0.0f, 1.0f - 2.6f * dt);
             p.size += 0.55f * dt;
-            if (p.pos.y < 0.04f) p.pos.y = 0.04f;
+            const float floorH = surfaceHeightAt({p.pos.x, p.pos.z}) + 0.04f;
+            if (p.pos.y < floorH) p.pos.y = floorH;
         } else {
             p.vel.y -= 5.2f * dt;
-            if (p.pos.y < 0.05f) {
-                p.pos.y = 0.05f;
+            const float floorH = surfaceHeightAt({p.pos.x, p.pos.z}) + 0.05f;
+            if (p.pos.y < floorH) {
+                p.pos.y = floorH;
                 p.vel.y *= -0.25f;
             }
         }
