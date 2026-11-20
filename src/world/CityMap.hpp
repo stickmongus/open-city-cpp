@@ -109,7 +109,9 @@ enum class StreetPropKind {
     BeachUmbrella,
     Bollard,
     TrafficLight,    // 서울 교차로 4구 신호등 캔틸레버
-    SubwayEntrance   // 서울 지하철 유리 캐노피 출입구
+    SubwayEntrance,  // 서울 지하철 유리 캐노피 출입구 + 노선 폴사인
+    RoadGantry,      // 한국형 녹색 도로 이정표 갠트리 (반포대로·강남대로·테헤란로 등)
+    PedGuardrail     // 서울 대로변 보행자 방호울타리
 };
 
 struct StreetProp {
@@ -312,6 +314,7 @@ public:
     const std::vector<SeoulBridge>& bridges() const { return bridges_; }
     const std::vector<SeoulLandmark>& landmarks() const { return landmarks_; }
     const std::vector<SeoulMountain>& mountains() const { return mountains_; }
+    const std::vector<SeoulMountain>& perimeterMountains() const { return perimeterMountains_; }
     const std::vector<SeoulParkZone>& majorParks() const { return majorParks_; }
     const std::vector<SeoulTributary>& tributaries() const { return tributaries_; }
     const std::vector<SeoulArterialRoad>& arterials() const { return arterials_; }
@@ -330,8 +333,8 @@ public:
     float raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDist) const;
     float raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const;
 
-    // Default iconic Seoul spawn (Gangnam / Banpo Hangang Boulevard looking toward Banpo Bridge & N Seoul Tower!)
-    static Vec2 defaultSpawnPos() { return {600.0f, 1020.0f}; }
+    // Default iconic Seoul spawn (Banpo-daero clear sidewalk looking North toward Korean road gantry, Banpo Bridge & Namsan!)
+    static Vec2 defaultSpawnPos() { return {599.0f, 996.0f}; }
 
 private:
     void buildSeoulMacroGeography();
@@ -347,6 +350,7 @@ private:
     std::vector<SeoulBridge> bridges_;
     std::vector<SeoulLandmark> landmarks_;
     std::vector<SeoulMountain> mountains_;
+    std::vector<SeoulMountain> perimeterMountains_;
     std::vector<SeoulParkZone> majorParks_;
     std::vector<SeoulTributary> tributaries_;
     std::vector<SeoulArterialRoad> arterials_;

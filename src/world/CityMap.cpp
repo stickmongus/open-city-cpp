@@ -192,18 +192,32 @@ float CityMap::terrainElevationAt(const Vec2& p) const {
     if (isInHanRiverWater(p, -60.0f) || isOnYeouidoIsland(p)) {
         return 0.0f;
     }
-    float elev = 0.0f;
-    for (const auto& m : mountains_) {
-        const float nx = (p.x - m.center.x) / m.radiusX;
-        const float nz = (p.z - m.center.z) / m.radiusZ;
-        const float r2 = nx * nx + nz * nz;
-        if (r2 < 1.0f) {
-            const float u = 1.0f - r2;
-            const float ridge = u * u * (0.86f + 0.14f * std::sin(p.x * 0.0045f + p.z * 0.0038f));
-            elev = std::max(elev, m.peakHeight * ridge);
+    auto evalMountains = [&](const std::vector<SeoulMountain>& list, float curElev) {
+        for (const auto& m : list) {
+            const float nx = (p.x - m.center.x) / m.radiusX;
+            const float nz = (p.z - m.center.z) / m.radiusZ;
+            const float r2 = nx * nx + nz * nz;
+            if (r2 < 1.0f) {
+                const float u = 1.0f - r2;
+                const float ridge = u * u * (0.86f + 0.14f * std::sin(p.x * 0.0045f + p.z * 0.0038f));
+                curElev = std::max(curElev, m.peakHeight * ridge);
+            }
         }
+        return curElev;
+    };
+    float elev = evalMountains(mountains_, 0.0f);
+    elev = evalMountains(perimeterMountains_, elev);
+
+    // Smooth natural Seoul outer greenbelt basin rim right outside the outer ring expressway (|x|>14320 / |z|>11820)
+    const float edgeX = std::max(0.0f, (std::abs(p.x) - 14320.0f) / 1150.0f);
+    const float edgeZ = std::max(0.0f, (std::abs(p.z) - 11820.0f) / 1150.0f);
+    const float rimT = clampf(std::max(edgeX, edgeZ), 0.0f, 1.8f);
+    if (rimT > 0.001f) {
+        const float wave = 0.76f + 0.24f * std::sin(p.x * 0.0016f + p.z * 0.0014f);
+        elev = std::max(elev, rimT * rimT * 125.0f * wave);
     }
-    // Keep major urban valley corridors smooth and easily drivable
+
+    // Keep major urban valley corridors & Han River valley smooth and easily drivable
     const float riverDist = std::abs(p.z - hanRiverCenterZ(p.x)) - hanRiverHalfWidth(p.x);
     if (riverDist < 260.0f) {
         const float t = clampf((riverDist - 90.0f) / 170.0f, 0.0f, 1.0f);
@@ -400,6 +414,7 @@ void CityMap::buildSeoulMacroGeography() {
     bridges_.clear();
     landmarks_.clear();
     mountains_.clear();
+    perimeterMountains_.clear();
     majorParks_.clear();
     tributaries_.clear();
     arterials_.clear();
@@ -416,6 +431,28 @@ void CityMap::buildSeoulMacroGeography() {
         {"Gwanaksan Mountain",  "관악산 (632m)", {-2400.0f,  9700.0f}, 4100.0f, 2800.0f, 410.0f},
         {"Achasan Mountain",    "아차산 (295m)", { 9900.0f, -3400.0f}, 1900.0f, 1650.0f, 210.0f},
         {"Cheonggyesan",        "청계산 (540m)", { 4800.0f, 10200.0f}, 3400.0f, 2400.0f, 340.0f}
+    };
+
+    // 1B) 14 Outer Seoul Basin Ring Mountains enclosing ALL 4 map boundaries seamlessly (no flat cliff edges!)
+    perimeterMountains_ = {
+        // North Ridge (Dobongsan · Suraksan · Buramsan · Bongsan)
+        {"Dobongsan",   "도봉산", {  2200.0f, -13400.0f}, 4600.0f, 3200.0f, 510.0f},
+        {"Suraksan",    "수락산", {  7200.0f, -12900.0f}, 4400.0f, 3000.0f, 440.0f},
+        {"Buramsan",    "불암산", { 11800.0f, -11600.0f}, 4200.0f, 3200.0f, 390.0f},
+        {"Bongsan",     "봉산",   { -7600.0f, -12400.0f}, 4800.0f, 3200.0f, 340.0f},
+        {"Deogyangsan", "덕양산", {-13600.0f,  -8800.0f}, 4000.0f, 4200.0f, 290.0f},
+        // East Ridge (Yongmasan · Geomdansan · Namhansan · Yebongsan)
+        {"Yongmasan",   "용마산", { 15400.0f,  -6600.0f}, 3600.0f, 4400.0f, 360.0f},
+        {"Geomdansan",  "검단산", { 16200.0f,   2400.0f}, 3800.0f, 4600.0f, 420.0f},
+        {"Namhansan",   "남한산", { 14200.0f,   8800.0f}, 4600.0f, 4200.0f, 430.0f},
+        // South Ridge (Daemosan · Guryongsan · Samseongsan · Surisan)
+        {"Daemosan",    "대모산", {  9800.0f,  12400.0f}, 4400.0f, 3200.0f, 350.0f},
+        {"Samseongsan", "삼성산", { -7400.0f,  12600.0f}, 4800.0f, 3200.0f, 380.0f},
+        {"Surisan",     "수리산", {-12800.0f,  11200.0f}, 4600.0f, 3600.0f, 360.0f},
+        // West Hills flanking Gimpo/Gangseo & Incheon greenbelt
+        {"Gyeyangsan",  "계양산", {-16200.0f,   4600.0f}, 3600.0f, 4800.0f, 330.0f},
+        {"Gaehwasan",   "개화산", {-15900.0f,  -3600.0f}, 3200.0f, 3200.0f, 260.0f},
+        {"Aengbongsan", "앵봉산", {-11800.0f, -12400.0f}, 4400.0f, 3200.0f, 310.0f}
     };
 
     // 2) Real Seoul 4 Major Tributaries (안양천, 중랑천, 탄천, 청계천)!
@@ -836,9 +873,13 @@ void CityMap::generateChunk(int chunkX, int chunkZ) {
                                         district == DistrictType::SeongsuKonkuk ||
                                         district == DistrictType::Dongdaemun);
 
-            if (isKoreanAptZone && rng.chance(0.54f)) {
+            const bool onMajorArterialBlock = isMajorArterialRoad(bx, false) || isMajorArterialRoad(bx + 1, false) ||
+                                              isMajorArterialRoad(bz, true)  || isMajorArterialRoad(bz + 1, true);
+            const bool forceBanpoShopBlock  = (bx == 7 && bz == 11) || (bx == 6 && bz == 11);
+
+            if (isKoreanAptZone && !forceBanpoShopBlock && rng.chance(onMajorArterialBlock ? 0.34f : 0.56f)) {
                 // Iconic Korean Seoul Apartment Complex (대단지 아파트 — ALWAYS South-facing 남향 E-W slabs!)
-                // Wide south-facing verandas + solid concrete narrow East/West shear walls with brand color band!
+                // Outer sidewalk apron stays crisp Korean granite pavers; landscaped green courtyard sits strictly BETWEEN the two slabs!
                 const float aptH = rng.range(44.0f, 82.0f);
                 const ColorRGBA aptPal[5] = {
                     {208, 204, 196, 255}, // Warm Ivory Concrete (Raemian/Hillstate)
@@ -855,20 +896,24 @@ void CityMap::generateChunk(int chunkX, int chunkZ) {
                     {102,  86,  72, 255}  // Acro Warm Bronze
                 };
                 const int pIdx = rng.rangeInt(0, 4);
-                parks_.push_back(ParkPatch{{{x0 + 3.0f, z0 + 3.0f}, {x1 - 3.0f, z1 - 3.0f}}, groundY, {62, 94, 48, 255}});
+                // Cozy central landscaped garden strictly INSIDE the complex between the two residential slabs!
+                parks_.push_back(ParkPatch{{{x0 + 7.5f, z0 + 21.0f}, {x1 - 7.5f, z1 - 21.0f}}, groundY, {60, 96, 48, 255}});
                 for (int s = 0; s < 2; ++s) {
                     const float sz = (s == 0) ? (z0 + 13.5f) : (z1 - 13.5f);
+                    const float slabH = std::max(36.0f, aptH + (s == 0 ? 0.0f : rng.range(-6.0f, 6.0f)));
                     const AABB2D fp{{x0 + 6.5f, sz - 7.0f}, {x1 - 6.5f, sz + 7.0f}};
                     buildings_.push_back(Building{
-                        fp, groundY, aptH, 0.0f,
+                        fp, groundY, slabH, 0.0f,
                         aptPal[pIdx], aptAcc[pIdx], aptAcc[pIdx],
-                        BuildingStyle::KoreanApartment, true, false, true, aptH > 66.0f, false,
-                        static_cast<std::uint8_t>(s == 0 ? 0x0Cu : 0x0Cu), // South & North veranda facades!
-                        static_cast<std::uint8_t>(pIdx), kHalfPi            // Faces South (+Z)
+                        BuildingStyle::KoreanApartment, true, false, true, slabH > 66.0f, false,
+                        static_cast<std::uint8_t>(0x0Cu), // South & North veranda facades!
+                        static_cast<std::uint8_t>(pIdx), kHalfPi // Faces South (+Z)
                     });
                 }
-                trees_.push_back(TreeProp{{bc.x - 10.0f, bc.z}, groundY, 3.3f, 2.5f, false, TreeSpecies::GinkgoDeciduous});
-                trees_.push_back(TreeProp{{bc.x + 10.0f, bc.z}, groundY, 3.3f, 2.5f, false, TreeSpecies::KoreanPine});
+                trees_.push_back(TreeProp{{bc.x - 14.0f, bc.z - 2.0f}, groundY, 3.3f, 2.5f, false, TreeSpecies::GinkgoDeciduous});
+                trees_.push_back(TreeProp{{bc.x + 14.0f, bc.z + 2.0f}, groundY, 3.3f, 2.5f, false, TreeSpecies::KoreanPine});
+                trees_.push_back(TreeProp{{bc.x - 4.0f,  bc.z + 4.5f}, groundY, 2.9f, 2.2f, false, TreeSpecies::CherryBlossom});
+                trees_.push_back(TreeProp{{bc.x + 5.0f,  bc.z - 4.5f}, groundY, 3.1f, 2.4f, false, TreeSpecies::KoreanPine});
                 streetProps_.push_back(StreetProp{{bc.x, bc.z}, StreetPropKind::Bench, 0.0f, false, {}, 0.0f, {bc.x, bc.z}});
             } else {
                 // 2x2 Quadrant Seoul Urban Parcel Layout — EVERY building knows exact streetEdgeMask & facingYaw!
@@ -929,7 +974,9 @@ void CityMap::generateChunk(int chunkX, int chunkZ) {
                             };
                             b.primaryColor = vPal[rng.rangeInt(0, 3)];
                             b.accentColor = {92, 76, 68, 255};
+                            b.awningColor = kKoreaShopSigns[b.facadeVariant];
                             b.hasBalconies = true;
+                            b.hasStorefront = rng.chance(0.65f);
                         } else if (isTrendyBrick) {
                             b.style = rng.chance(0.65f) ? BuildingStyle::BrickCommercial : BuildingStyle::ModernOffice;
                             b.height = rng.range(14.0f, 38.0f);
@@ -946,10 +993,10 @@ void CityMap::generateChunk(int chunkX, int chunkZ) {
                             b.hasStorefront = true;
                         } else {
                             // Authentic Varied Seoul Neighborhood Mix (Guro · Gwanak · Seocho · Gangbuk · Gangseo!):
-                            // Mix of Korean 4-5F red-brick/stone Villas, 5-9F Granite/Brick Commercial, and 10-18F Glass Offices!
+                            // Mix of Korean 4-5F red-brick/stone Sangga-Villas, 5-9F Granite/Brick Commercial, and 10-18F Glass Offices!
                             const float roll = rng.nextFloat01();
-                            if (roll < 0.34f) {
-                                // Korean 4~5F Multi-Family Villa (다세대 빌라: warm brick/limestone + sloped charcoal roof!)
+                            if (roll < 0.30f && !forceBanpoShopBlock) {
+                                // Korean 4~5F Multi-Family / Sangga Villa (다세대·상가주택: warm brick/limestone + 1F shops + green waterproof roof!)
                                 b.style = BuildingStyle::VillaHouse;
                                 b.height = rng.range(11.5f, 17.5f);
                                 const ColorRGBA vPal[4] = {
@@ -960,8 +1007,9 @@ void CityMap::generateChunk(int chunkX, int chunkZ) {
                                 };
                                 b.primaryColor = vPal[rng.rangeInt(0, 3)];
                                 b.accentColor = {76, 80, 88, 255};
+                                b.awningColor = kKoreaShopSigns[b.facadeVariant];
                                 b.hasBalconies = true;
-                                b.hasStorefront = false;
+                                b.hasStorefront = rng.chance(0.68f); // Classic Seoul 1F convenience stores/cafes/laundromats!
                             } else if (roll < 0.78f) {
                                 // Korean 5~9F Neighborhood Commercial Building (근린생활 상가건물 — street-facing signs only!)
                                 b.style = rng.chance(0.55f) ? BuildingStyle::BrickCommercial : BuildingStyle::ModernOffice;
@@ -1026,15 +1074,41 @@ void CityMap::generateChunk(int chunkX, int chunkZ) {
                 streetProps_.push_back(StreetProp{sigSE, StreetPropKind::TrafficLight, 0.0f, false, {}, 0.0f, sigSE});
             }
 
+            // 2B. Iconic Korean Dark-Green Overhead Highway Directional Gantries spanning major Seoul avenues!
+            if (isMajorArterialRoad(bx, false) && ((bz % 3 == 0) || (bx == 7 && bz == 11))) {
+                const Vec2 ganPos{roadCoord(bx), bc.z};
+                if (!isInHanRiverWater(ganPos, -12.0f) && findBridgeAt(ganPos, 18.0f) == nullptr) {
+                    // Spans across N-S avenue (local X = East-West span, facing North/South drivers -> yaw = 0!)
+                    streetProps_.push_back(StreetProp{ganPos, StreetPropKind::RoadGantry, 0.0f, false, {}, 0.0f, ganPos});
+                }
+            }
+            if (isMajorArterialRoad(bz, true) && (bx % 3 == 0)) {
+                const Vec2 ganPos{bc.x, roadCoord(bz)};
+                if (!isInHanRiverWater(ganPos, -12.0f) && findBridgeAt(ganPos, 18.0f) == nullptr) {
+                    // Spans across E-W avenue (yaw = kHalfPi!)
+                    streetProps_.push_back(StreetProp{ganPos, StreetPropKind::RoadGantry, kHalfPi, false, {}, 0.0f, ganPos});
+                }
+            }
+
+            // 2C. Korean Sidewalk Steel Pedestrian Guardrails along major Seoul boulevards!
+            if (isMajorArterialRoad(bx, false)) {
+                const Vec2 grW{x0 + 0.55f, bc.z};
+                streetProps_.push_back(StreetProp{grW, StreetPropKind::PedGuardrail, kHalfPi, false, {}, 0.0f, grW});
+            }
+            if (isMajorArterialRoad(bz, true)) {
+                const Vec2 grN{bc.x, z0 + 0.55f};
+                streetProps_.push_back(StreetProp{grN, StreetPropKind::PedGuardrail, 0.0f, false, {}, 0.0f, grN});
+            }
+
             // 3. Seoul Bus Shelter facing OUTWARD toward the road curb!
-            if (rng.chance(0.42f)) {
+            if (rng.chance(0.45f)) {
                 // Placed on South sidewalk (z1 - 1.55), open front (+Z local) points +Z toward road -> yaw = 0!
                 const Vec2 bsPos{bc.x - 8.0f, z1 - 1.55f};
                 streetProps_.push_back(StreetProp{bsPos, StreetPropKind::BusShelter, 0.0f, false, {}, 0.0f, bsPos});
             }
 
-            // 4. Seoul Metro Glass Subway Entrance along major arterial boulevards!
-            if ((onMajorX || onMajorZ) && rng.chance(0.24f)) {
+            // 4. Seoul Metro Glass Subway Entrance + Line Pole Sign along major arterial boulevards!
+            if ((onMajorX || onMajorZ) && (rng.chance(0.32f) || (bx == 7 && bz == 11))) {
                 const Vec2 subPos{bc.x + 12.0f, z0 + 2.2f};
                 streetProps_.push_back(StreetProp{subPos, StreetPropKind::SubwayEntrance, 0.0f, false, {}, 0.0f, subPos});
             }

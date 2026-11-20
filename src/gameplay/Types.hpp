@@ -391,6 +391,12 @@ struct PlayerState {
     float fireCooldown = 0.0f;
     float reloadTimer = 0.0f;
     float muzzleFlashTimer = 0.0f;
+    float weaponAimBlend = 0.0f;     // Smooth 0..1 tactical low-ready -> shoulder-aim stance blend
+    float weaponRecoilAnim = 0.0f;   // 0..1 snappy shot kickback impulse
+    float weaponEquipAnim = 0.0f;    // 0..1 holster-to-ready weapon draw animation
+    float weaponCombatLinger = 0.0f; // Keeps combat aim raised smoothly after firing
+    float meleeSwingAnim = 0.0f;     // 0..1 Fists jab/cross punch animation
+    bool meleeSwingRight = true;     // Alternates right/left punches
     float minigunSpin = 0.0f;      // Accumulated 6-barrel gatling rotation radians
     float minigunSpinSpeed = 0.0f; // Live barrel spin velocity (rad/s)
     float aimPitch = 0.0f;

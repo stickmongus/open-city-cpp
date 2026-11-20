@@ -3051,8 +3051,14 @@ void GameWorld::update(float dt, const PlayerInput& input) {
     // Weapon slot selection (slots 0..10)
     if (input.weaponSelectSlot >= 0 && input.weaponSelectSlot < static_cast<int>(WeaponId::Count)) {
         if (player_.weapons[static_cast<std::size_t>(input.weaponSelectSlot)].owned) {
-            player_.currentWeapon = static_cast<WeaponId>(input.weaponSelectSlot);
-            player_.reloadTimer = 0.0f;
+            const WeaponId nextW = static_cast<WeaponId>(input.weaponSelectSlot);
+            if (nextW != player_.currentWeapon) {
+                player_.currentWeapon = nextW;
+                player_.reloadTimer = 0.0f;
+                player_.weaponEquipAnim = 1.0f;
+                player_.weaponRecoilAnim = 0.0f;
+                player_.weaponCombatLinger = 0.0f;
+            }
         }
     }
 
@@ -3407,6 +3413,16 @@ GameWorld::RayHit3D GameWorld::traceWorldRay3D(const Vec3& origin, const Vec3& d
 void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
     if (player_.fireCooldown > 0.0f) player_.fireCooldown -= dt;
     if (player_.muzzleFlashTimer > 0.0f) player_.muzzleFlashTimer -= dt;
+    if (player_.weaponRecoilAnim > 0.0f) player_.weaponRecoilAnim = std::max(0.0f, player_.weaponRecoilAnim - dt * 7.5f);
+    if (player_.weaponEquipAnim > 0.0f) player_.weaponEquipAnim = std::max(0.0f, player_.weaponEquipAnim - dt * 3.4f);
+    if (player_.weaponCombatLinger > 0.0f) player_.weaponCombatLinger = std::max(0.0f, player_.weaponCombatLinger - dt);
+    if (player_.meleeSwingAnim > 0.0f) player_.meleeSwingAnim = std::max(0.0f, player_.meleeSwingAnim - dt * 3.8f);
+
+    const bool wantAimStance = (player_.currentWeapon != WeaponId::Fists) &&
+                               (player_.reloadTimer <= 0.0f) &&
+                               (input.aimHeld || input.fireHeld || player_.weaponCombatLinger > 0.0f);
+    player_.aiming = input.aimHeld;
+    player_.weaponAimBlend = lerpf(player_.weaponAimBlend, wantAimStance ? 1.0f : 0.0f, std::min(1.0f, dt * 11.5f));
 
     // Spin 6-barrel rotary Minigun cluster when pre-spooling (ADS) or firing
     const bool spinBarrels = (player_.currentWeapon == WeaponId::Minigun &&
@@ -3542,6 +3558,13 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
     const bool silenced = slot.suppressor && weaponSupportsSuppressor(player_.currentWeapon);
     player_.fireCooldown = spec.fireInterval;
     player_.muzzleFlashTimer = (player_.currentWeapon == WeaponId::Fists || silenced) ? 0.0f : 0.055f;
+    if (player_.currentWeapon == WeaponId::Fists) {
+        player_.meleeSwingAnim = 1.0f;
+        player_.meleeSwingRight = !player_.meleeSwingRight;
+    } else {
+        player_.weaponRecoilAnim = 1.0f;
+        player_.weaponCombatLinger = 1.20f;
+    }
 
     Vec3 muzzle3D{};
     if (input.firstPerson && input.hasAimRay3D) {

@@ -95,6 +95,25 @@ private:
     void drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
                      bool nightMode, bool shadowPass, bool alphaPass,
                      bool cockpitHoodOnly = false);
+
+    struct WeaponPoseState {
+        float aimBlend = 0.0f;       // 0 = tactical low-ready carry, 1 = shoulder/eye aim
+        float recoilAnim = 0.0f;     // 0..1 shot recoil kickback
+        float reloadFrac = 0.0f;     // 0 = not reloading, (0..1] = reload cycle progress
+        float equipAnim = 0.0f;      // 0..1 holster draw animation
+        float meleeSwingAnim = 0.0f; // 0..1 Fists jab/cross punch
+        bool meleeSwingRight = true;
+        float minigunSpin = 0.0f;
+    };
+
+    void drawDetailedWeapon3D(VulkanContext& vk, WeaponId weapon, const WeaponSlotState* customWep,
+                              const Mat4& weaponWorldM, float muzzleFlash, float minigunSpin,
+                              bool shadowPass, bool isFirstPerson = false);
+
+    void drawArmIK(VulkanContext& vk, const Mat4& rootM, const Vec3& shoulderLocal,
+                   const Vec3& handLocal, const Vec3& elbowPoleLocal,
+                   ColorRGBA sleeveCol, ColorRGBA skinCol, bool shadowPass);
+
     void drawCharacter(VulkanContext& vk, const Vec2& pos, float groundY, float yaw,
                        float animPhase, ColorRGBA top, ColorRGBA bottom, ColorRGBA skin,
                        bool alive, bool armed, WeaponId weapon, float muzzleFlash,
@@ -104,7 +123,8 @@ private:
                        const CharacterCustomState* customChar = nullptr,
                        const WeaponSlotState* customWep = nullptr,
                        const NpcCharacter* npcPtr = nullptr,
-                       bool nightMode = false);
+                       bool nightMode = false,
+                       const WeaponPoseState* weaponPose = nullptr);
     void drawAlphaAndEffects(VulkanContext& vk, const GameWorld& world,
                              const CameraState& camera, const Vec2& focus);
     void drawFirstPersonOverlay(VulkanContext& vk, const GameWorld& world,
@@ -128,6 +148,7 @@ private:
 
     // Real-Scale 30km x 25km Seoul Static Macro Meshes (built once on init!)
     GpuMesh hanRiverWaterMesh_{};
+    GpuMesh hanEmbankmentMesh_{};
     GpuMesh tributaryWaterMesh_{};
     GpuMesh riversideExpresswayMesh_{};
     GpuMesh mountainForestMesh_{};
@@ -141,6 +162,17 @@ private:
     GpuMesh landmarkGiwaMesh_{};
     GpuMesh landmarkGlowMesh_{};
     GpuMesh banpoFountainMesh_{};
+
+    // Distant Seoul Skyline LOD massing clusters (drawn beyond 490m so streets never end in an empty void!)
+    struct DistantSkylineBlock {
+        Vec2 pos{};
+        Vec2 size{};
+        float baseY = 0.0f;
+        float height = 45.0f;
+        ColorRGBA col{};
+        bool isGlass = false;
+    };
+    std::vector<DistantSkylineBlock> distantSkyline_;
 
     // 16 CAD-precision zero-jelly vehicles + sculpted 10-spoke wheels
     CarMeshLibrary cars_{};

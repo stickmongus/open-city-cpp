@@ -2286,6 +2286,96 @@ void testV210SeoulMapFidelityAndOrientations() {
 }
 
 
+void testV220WeaponAnimationsEdgesAndSeoulProps() {
+    oc::GameWorld world(20262200ULL);
+    const auto& city = world.city();
+
+    // 1. Verify Polished Map Edges: 14 outer Seoul-basin ring mountains + natural perimeter rim uplift!
+    ASSERT_TRUE(city.mountains().size() == 7);
+    ASSERT_TRUE(city.perimeterMountains().size() == 14);
+    ASSERT_TRUE(city.terrainElevationAt({14950.0f,  4200.0f}) > 18.0f);
+    ASSERT_TRUE(city.terrainElevationAt({-14950.0f, -4200.0f}) > 18.0f);
+    ASSERT_TRUE(city.terrainElevationAt({ 2200.0f, -12450.0f}) > 18.0f);
+    ASSERT_TRUE(city.terrainElevationAt({ 2200.0f,  12450.0f}) > 18.0f);
+
+    // 2. Verify Unobstructed Banpo-daero Spawn & Authentic Seoul Streetscape Props (RoadGantry + PedGuardrail)
+    const oc::Vec2 spawn = city.defaultSpawnPos();
+    oc::Vec2 spawnCheck = spawn;
+    ASSERT_TRUE(!city.resolveCircleWorld(spawnCheck, 0.45f));
+
+    bool hasRoadGantry = false;
+    bool hasPedGuardrail = false;
+    for (const auto& p : city.streetProps()) {
+        if (p.kind == oc::StreetPropKind::RoadGantry) hasRoadGantry = true;
+        else if (p.kind == oc::StreetPropKind::PedGuardrail) hasPedGuardrail = true;
+        if (p.kind == oc::StreetPropKind::StreetLight || p.kind == oc::StreetPropKind::TrafficLight) {
+            ASSERT_TRUE((p.pos - spawn).length() > 1.2f); // Never spawn clipped inside a street pole!
+        }
+    }
+    ASSERT_TRUE(hasRoadGantry);
+    ASSERT_TRUE(hasPedGuardrail);
+
+    // 3. Verify Weapon Equip Draw, Smooth Aim Blend, Recoil Kickback & Alternating Fists Punch Animations!
+    // Unlock Assault Rifle & switch to it -> triggers weaponEquipAnim
+    auto& arSlot = world.player().weapons[static_cast<std::size_t>(oc::WeaponId::AssaultRifle)];
+    arSlot.owned = true;
+    arSlot.magAmmo = 30;
+    arSlot.reserveAmmo = 120;
+
+    oc::PlayerInput switchIn{};
+    switchIn.weaponSelectSlot = static_cast<int>(oc::WeaponId::AssaultRifle);
+    world.update(1.0f / 60.0f, switchIn);
+    ASSERT_TRUE(world.player().currentWeapon == oc::WeaponId::AssaultRifle);
+    ASSERT_TRUE(world.player().weaponEquipAnim > 0.70f);
+
+    // Let equip settle & hold aim -> weaponAimBlend smoothly rises toward 1.0
+    for (int f = 0; f < 25; ++f) {
+        oc::PlayerInput aimIn{};
+        aimIn.aimHeld = true;
+        world.update(1.0f / 60.0f, aimIn);
+    }
+    ASSERT_TRUE(world.player().weaponEquipAnim < 0.05f);
+    ASSERT_TRUE(world.player().weaponAimBlend > 0.70f);
+
+    // Fire a round -> snappy recoil kickback + combat linger
+    oc::PlayerInput fireIn{};
+    fireIn.aimHeld = true;
+    fireIn.fireHeld = true;
+    world.update(1.0f / 60.0f, fireIn);
+    ASSERT_TRUE(world.player().weaponRecoilAnim > 0.65f);
+    ASSERT_TRUE(world.player().weaponCombatLinger > 0.80f);
+
+    // Release aim & wait -> weapon smoothly lowers back to tactical low-ready carry!
+    for (int f = 0; f < 130; ++f) {
+        world.update(1.0f / 60.0f, oc::PlayerInput{});
+    }
+    ASSERT_TRUE(world.player().weaponAimBlend < 0.15f);
+    ASSERT_TRUE(world.player().weaponRecoilAnim < 0.05f);
+
+    // Switch to Fists and throw two punches -> meleeSwingAnim triggers & alternates right/left!
+    oc::PlayerInput fistsIn{};
+    fistsIn.weaponSelectSlot = static_cast<int>(oc::WeaponId::Fists);
+    world.update(1.0f / 60.0f, fistsIn);
+    ASSERT_TRUE(world.player().currentWeapon == oc::WeaponId::Fists);
+
+    world.player().fireCooldown = 0.0f;
+    oc::PlayerInput punchIn{};
+    punchIn.fireHeld = true;
+    world.update(1.0f / 60.0f, punchIn);
+    ASSERT_TRUE(world.player().meleeSwingAnim > 0.70f);
+    const bool firstHand = world.player().meleeSwingRight;
+
+    for (int f = 0; f < 28; ++f) {
+        world.update(1.0f / 60.0f, oc::PlayerInput{});
+    }
+    world.update(1.0f / 60.0f, punchIn);
+    ASSERT_TRUE(world.player().meleeSwingAnim > 0.70f);
+    ASSERT_TRUE(world.player().meleeSwingRight != firstHand);
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -2313,8 +2403,9 @@ int main() {
     testV120GunpointHandsUpReaction();
     testV200RealScaleSeoulAndEscapablePolice();
     testV210SeoulMapFidelityAndOrientations();
+    testV220WeaponAnimationsEdgesAndSeoulProps();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v2.1.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v2.2.0 simulation test suites succeeded!\n";
     return 0;
 }
 

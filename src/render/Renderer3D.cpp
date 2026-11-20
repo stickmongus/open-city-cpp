@@ -88,6 +88,7 @@ void Renderer3D::shutdown(VulkanContext& vk) {
     vk.destroyMesh(torsoMesh_);
 
     vk.destroyMesh(hanRiverWaterMesh_);
+    vk.destroyMesh(hanEmbankmentMesh_);
     vk.destroyMesh(tributaryWaterMesh_);
     vk.destroyMesh(riversideExpresswayMesh_);
     vk.destroyMesh(mountainForestMesh_);
@@ -101,6 +102,7 @@ void Renderer3D::shutdown(VulkanContext& vk) {
     vk.destroyMesh(landmarkGiwaMesh_);
     vk.destroyMesh(landmarkGlowMesh_);
     vk.destroyMesh(banpoFountainMesh_);
+    distantSkyline_.clear();
     initialized_ = false;
 }
 
@@ -200,28 +202,43 @@ void Renderer3D::buildStaticPrimitives(VulkanContext& vk) {
         mb.addSphere({0.0f, 0.90f, 0.0f}, 0.36f, 6, 12);
         torsoMesh_ = mb.upload(vk, 60.0f);
     }
-    // Organic Multi-Layered Seoul Street Tree Crown (12 asymmetric foliage clusters for natural Ginkgo/Cherry silhouette!)
+    // Organic Multi-Layered Seoul Street Tree Crown (24 irregular foliage clusters with sunlit top & shaded interior for authentic Ginkgo/Zelkova silhouette!)
     {
         MeshBuilder3D mb;
         struct LeafClump { Vec3 p; float r; ColorRGBA c; };
-        const LeafClump clumps[12] = {
-            {{ 0.00f,  0.42f,  0.00f}, 0.56f, {244, 248, 240, 255}},
-            {{ 0.48f,  0.16f,  0.22f}, 0.46f, {224, 236, 218, 255}},
-            {{-0.46f,  0.20f, -0.18f}, 0.48f, {234, 244, 228, 255}},
-            {{ 0.14f,  0.14f,  0.52f}, 0.44f, {218, 232, 212, 255}},
-            {{-0.18f,  0.18f, -0.50f}, 0.45f, {226, 238, 220, 255}},
-            {{ 0.42f,  0.48f, -0.28f}, 0.40f, {250, 252, 244, 255}},
-            {{-0.38f,  0.52f,  0.28f}, 0.42f, {248, 250, 242, 255}},
-            {{ 0.02f,  0.74f, -0.06f}, 0.38f, {255, 255, 250, 255}},
-            {{-0.54f, -0.02f,  0.26f}, 0.38f, {204, 218, 198, 255}},
-            {{ 0.52f, -0.04f, -0.24f}, 0.36f, {202, 216, 196, 255}},
-            {{ 0.12f,  0.64f,  0.34f}, 0.34f, {252, 254, 246, 255}},
-            {{-0.16f,  0.02f,  0.32f}, 0.36f, {210, 224, 204, 255}}
+        const LeafClump clumps[24] = {
+            // Shaded lower/interior boughs
+            {{ 0.00f,  0.04f,  0.00f}, 0.36f, {158, 178, 146, 255}},
+            {{-0.44f, -0.06f,  0.22f}, 0.30f, {164, 184, 152, 255}},
+            {{ 0.46f, -0.08f, -0.20f}, 0.29f, {162, 182, 150, 255}},
+            {{ 0.16f, -0.05f,  0.46f}, 0.28f, {168, 188, 154, 255}},
+            {{-0.20f, -0.04f, -0.45f}, 0.29f, {166, 186, 154, 255}},
+            {{ 0.48f,  0.02f,  0.28f}, 0.27f, {176, 196, 162, 255}},
+            {{-0.46f,  0.04f, -0.28f}, 0.28f, {178, 198, 164, 255}},
+            // Mid-canopy irregular leafy lobes
+            {{ 0.52f,  0.20f,  0.08f}, 0.32f, {196, 214, 178, 255}},
+            {{-0.50f,  0.24f,  0.06f}, 0.33f, {202, 220, 184, 255}},
+            {{ 0.06f,  0.22f,  0.50f}, 0.31f, {194, 212, 176, 255}},
+            {{-0.08f,  0.26f, -0.48f}, 0.32f, {198, 216, 180, 255}},
+            {{ 0.34f,  0.28f,  0.38f}, 0.29f, {208, 224, 188, 255}},
+            {{-0.36f,  0.30f,  0.34f}, 0.30f, {212, 228, 192, 255}},
+            {{ 0.36f,  0.26f, -0.36f}, 0.30f, {204, 220, 186, 255}},
+            {{-0.34f,  0.28f, -0.36f}, 0.29f, {206, 222, 188, 255}},
+            {{ 0.00f,  0.36f,  0.00f}, 0.38f, {214, 228, 194, 255}},
+            // Sunlit upper crown sprays
+            {{ 0.38f,  0.48f, -0.14f}, 0.28f, {228, 240, 204, 255}},
+            {{-0.34f,  0.52f,  0.18f}, 0.29f, {234, 244, 208, 255}},
+            {{ 0.14f,  0.54f,  0.32f}, 0.27f, {232, 242, 206, 255}},
+            {{-0.16f,  0.50f, -0.30f}, 0.28f, {226, 238, 202, 255}},
+            {{ 0.20f,  0.66f,  0.04f}, 0.26f, {244, 250, 218, 255}},
+            {{-0.18f,  0.68f, -0.08f}, 0.25f, {246, 252, 222, 255}},
+            {{ 0.02f,  0.78f,  0.06f}, 0.24f, {252, 255, 232, 255}},
+            {{-0.04f,  0.60f,  0.24f}, 0.23f, {240, 248, 214, 255}}
         };
         for (const auto& cl : clumps) {
-            mb.addSphere(cl.p, cl.r, 6, 9, cl.c);
+            mb.addSphere(cl.p, cl.r, 5, 7, cl.c);
         }
-        foliageMesh_ = mb.upload(vk, 55.0f);
+        foliageMesh_ = mb.upload(vk, 48.0f);
     }
     // Layered Korean Mountain Pine Tree (소나무)
     {
@@ -332,53 +349,176 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
     }
 
     // ------------------------------------------------------------------------
-    // 2. 7 REAL SEOUL MOUNTAINS (Namsan, Bukhansan, Inwangsan, Bugaksan,
-    //    Gwanaksan, Achasan, Cheonggyesan) with lush pine slopes & granite peaks!
+    // 1D. HAN RIVER CONCRETE REVETMENTS (한강 호안 석축) & OUTER SEOUL RING HIGHWAY BARRIER!
+    // ------------------------------------------------------------------------
+    {
+        MeshBuilder3D embMb;
+        const ColorRGBA kStoneEmb{146, 148, 152, 255};
+        const ColorRGBA kGuardWall{162, 166, 172, 255};
+        const int embSteps = 140;
+        const float xMin = CityMap::kWorldMinX - 200.0f;
+        const float xMax = CityMap::kWorldMaxX + 200.0f;
+        for (int i = 0; i < embSteps; ++i) {
+            const float x0 = lerpf(xMin, xMax, static_cast<float>(i) / static_cast<float>(embSteps));
+            const float x1 = lerpf(xMin, xMax, static_cast<float>(i + 1) / static_cast<float>(embSteps));
+            const float cz0 = city.hanRiverCenterZ(x0), cz1 = city.hanRiverCenterZ(x1);
+            const float hw0 = city.hanRiverHalfWidth(x0), hw1 = city.hanRiverHalfWidth(x1);
+            // Sloped stone embankments on North & South banks rising cleanly from water (-0.3m) to park (+0.35m)
+            embMb.addQuad({x0, -0.35f, cz0 - hw0 + 2.0f}, {x1, -0.35f, cz1 - hw1 + 2.0f},
+                          {x1,  0.35f, cz1 - hw1 - 8.0f}, {x0,  0.35f, cz0 - hw0 - 8.0f}, kStoneEmb);
+            embMb.addQuad({x0,  0.35f, cz0 + hw0 + 8.0f}, {x1,  0.35f, cz1 + hw1 + 8.0f},
+                          {x1, -0.35f, cz1 + hw1 - 2.0f}, {x0, -0.35f, cz0 + hw0 - 2.0f}, kStoneEmb);
+        }
+        // Clean Seoul Ring Expressway concrete retaining wall & acoustic barrier lining all 4 outer urban borders!
+        const float minX = -14320.0f, maxX = 14320.0f;
+        const float minZ = -11820.0f, maxZ = 11820.0f;
+        const int bSteps = 44;
+        for (int i = 0; i < bSteps; ++i) {
+            const float f0 = static_cast<float>(i) / static_cast<float>(bSteps);
+            const float f1 = static_cast<float>(i + 1) / static_cast<float>(bSteps);
+            const float bx0 = lerpf(minX, maxX, f0), bx1 = lerpf(minX, maxX, f1);
+            const float bz0 = lerpf(minZ, maxZ, f0), bz1 = lerpf(minZ, maxZ, f1);
+            const float midX = 0.5f * (bx0 + bx1), midZ = 0.5f * (bz0 + bz1);
+            const float segX = (bx1 - bx0) + 1.0f, segZ = (bz1 - bz0) + 1.0f;
+            const ColorRGBA kAcousticPanel{68, 92, 78, 255};
+            // North & South Ring Expressway barriers
+            const float yN = city.terrainElevationAt({midX, minZ});
+            const float yS = city.terrainElevationAt({midX, maxZ});
+            embMb.addBox({midX, yN + 1.0f, minZ}, {segX, 2.2f, 2.0f}, kGuardWall);
+            embMb.addBox({midX, yN + 2.7f, minZ}, {segX, 1.4f, 0.55f}, kAcousticPanel);
+            embMb.addBox({midX, yS + 1.0f, maxZ}, {segX, 2.2f, 2.0f}, kGuardWall);
+            embMb.addBox({midX, yS + 2.7f, maxZ}, {segX, 1.4f, 0.55f}, kAcousticPanel);
+            // West & East Ring Expressway barriers (cleanly bridged across Han River!)
+            if (!city.isInHanRiverWater({minX, midZ}, -12.0f)) {
+                const float yW = city.terrainElevationAt({minX, midZ});
+                embMb.addBox({minX, yW + 1.0f, midZ}, {2.0f, 2.2f, segZ}, kGuardWall);
+                embMb.addBox({minX, yW + 2.7f, midZ}, {0.55f, 1.4f, segZ}, kAcousticPanel);
+            }
+            if (!city.isInHanRiverWater({maxX, midZ}, -12.0f)) {
+                const float yE = city.terrainElevationAt({maxX, midZ});
+                embMb.addBox({maxX, yE + 1.0f, midZ}, {2.0f, 2.2f, segZ}, kGuardWall);
+                embMb.addBox({maxX, yE + 2.7f, midZ}, {0.55f, 1.4f, segZ}, kAcousticPanel);
+            }
+        }
+        hanEmbankmentMesh_ = embMb.upload(vk, 35.0f);
+    }
+
+    // ------------------------------------------------------------------------
+    // 2. 7 INNER SEOUL MOUNTAINS + 14 OUTER BASIN RING MOUNTAINS + CONTINUOUS 3D GREENBELT FOOTHILL SKIRT!
     // ------------------------------------------------------------------------
     {
         MeshBuilder3D forestMb, graniteMb;
-        for (const auto& m : city.mountains()) {
-            const int rings = 10;
-            const int slices = 24;
-            for (int r = 0; r < rings; ++r) {
-                const float f0 = static_cast<float>(r) / static_cast<float>(rings);
-                const float f1 = static_cast<float>(r + 1) / static_cast<float>(rings);
-                auto evalMtnPt = [&](float frac, float ang) -> Vec3 {
-                    const float rx = m.radiusX * frac;
-                    const float rz = m.radiusZ * frac;
-                    const float wx = m.center.x + std::cos(ang) * rx;
-                    const float wz = m.center.z + std::sin(ang) * rz;
-                    float h = (frac > 0.96f) ? -1.5f : city.terrainElevationAt({wx, wz});
-                    return {wx, h, wz};
-                };
+        auto addMountainList = [&](const std::vector<SeoulMountain>& mList, int rings, int slices) {
+            for (const auto& m : mList) {
+                for (int r = 0; r < rings; ++r) {
+                    const float f0 = static_cast<float>(r) / static_cast<float>(rings);
+                    const float f1 = static_cast<float>(r + 1) / static_cast<float>(rings);
+                    auto evalMtnPt = [&](float frac, float ang) -> Vec3 {
+                        const float rx = m.radiusX * frac;
+                        const float rz = m.radiusZ * frac;
+                        const float wx = m.center.x + std::cos(ang) * rx;
+                        const float wz = m.center.z + std::sin(ang) * rz;
+                        float h = (frac > 0.96f) ? -2.0f : city.terrainElevationAt({wx, wz});
+                        return {wx, h, wz};
+                    };
 
-                for (int s = 0; s < slices; ++s) {
-                    const float a0 = kTwoPi * static_cast<float>(s) / static_cast<float>(slices);
-                    const float a1 = kTwoPi * static_cast<float>(s + 1) / static_cast<float>(slices);
-                    const Vec3 p00 = evalMtnPt(f0, a0);
-                    const Vec3 p10 = evalMtnPt(f0, a1);
-                    const Vec3 p11 = evalMtnPt(f1, a1);
-                    const Vec3 p01 = evalMtnPt(f1, a0);
+                    for (int s = 0; s < slices; ++s) {
+                        const float a0 = kTwoPi * static_cast<float>(s) / static_cast<float>(slices);
+                        const float a1 = kTwoPi * static_cast<float>(s + 1) / static_cast<float>(slices);
+                        const Vec3 p00 = evalMtnPt(f0, a0);
+                        const Vec3 p10 = evalMtnPt(f0, a1);
+                        const Vec3 p11 = evalMtnPt(f1, a1);
+                        const Vec3 p01 = evalMtnPt(f1, a0);
 
-                    const float avgH = 0.25f * (p00.y + p10.y + p11.y + p01.y);
-                    const float hFrac = avgH / std::max(1.0f, m.peakHeight);
-                    if (hFrac > 0.68f && m.peakHeight > 300.0f) {
-                        const ColorRGBA cRock{148, 146, 142, 255};
-                        if (r == 0) graniteMb.addTri(p00, p01, p11, cRock);
-                        else        graniteMb.addQuad(p00, p01, p11, p10, cRock);
-                    } else {
-                        const std::uint8_t gR = static_cast<std::uint8_t>(lerpf(56.0f, 42.0f, hFrac));
-                        const std::uint8_t gG = static_cast<std::uint8_t>(lerpf(92.0f, 74.0f, hFrac));
-                        const std::uint8_t gB = static_cast<std::uint8_t>(lerpf(48.0f, 44.0f, hFrac));
-                        const ColorRGBA cFor{gR, gG, gB, 255};
-                        if (r == 0) forestMb.addTri(p00, p01, p11, cFor);
-                        else        forestMb.addQuad(p00, p01, p11, p10, cFor);
+                        const float avgH = 0.25f * (p00.y + p10.y + p11.y + p01.y);
+                        const float hFrac = avgH / std::max(1.0f, m.peakHeight);
+                        if (hFrac > 0.68f && m.peakHeight > 300.0f) {
+                            const ColorRGBA cRock{148, 146, 142, 255};
+                            if (r == 0) graniteMb.addTri(p00, p11, p01, cRock);
+                            else        graniteMb.addQuad(p00, p10, p11, p01, cRock);
+                        } else {
+                            const std::uint8_t gR = static_cast<std::uint8_t>(lerpf(56.0f, 42.0f, hFrac));
+                            const std::uint8_t gG = static_cast<std::uint8_t>(lerpf(94.0f, 74.0f, hFrac));
+                            const std::uint8_t gB = static_cast<std::uint8_t>(lerpf(48.0f, 44.0f, hFrac));
+                            const ColorRGBA cFor{gR, gG, gB, 255};
+                            if (r == 0) forestMb.addTri(p00, p11, p01, cFor);
+                            else        forestMb.addQuad(p00, p10, p11, p01, cFor);
+                        }
                     }
                 }
             }
-        }
+        };
+        addMountainList(city.mountains(), 10, 24);
+        addMountainList(city.perimeterMountains(), 7, 16);
+
+        // Continuous 3D triangulated greenbelt foothill terrain skirt sampling terrainElevationAt() vertex-for-vertex!
+        // Ensures ZERO floating, ZERO sharp void edges, and lush rolling forested hillsides beyond every outer road!
+        auto addTerrainBand = [&](float xA, float xB, int nx, float zA, float zB, int nz) {
+            for (int iz = 0; iz < nz; ++iz) {
+                const float z0 = lerpf(zA, zB, static_cast<float>(iz) / static_cast<float>(nz));
+                const float z1 = lerpf(zA, zB, static_cast<float>(iz + 1) / static_cast<float>(nz));
+                for (int ix = 0; ix < nx; ++ix) {
+                    const float x0 = lerpf(xA, xB, static_cast<float>(ix) / static_cast<float>(nx));
+                    const float x1 = lerpf(xA, xB, static_cast<float>(ix + 1) / static_cast<float>(nx));
+                    const Vec2 mid{0.5f * (x0 + x1), 0.5f * (z0 + z1)};
+                    if (city.isInHanRiverWater(mid, 12.0f)) continue;
+                    const float y00 = city.terrainElevationAt({x0, z0});
+                    const float y10 = city.terrainElevationAt({x1, z0});
+                    const float y11 = city.terrainElevationAt({x1, z1});
+                    const float y01 = city.terrainElevationAt({x0, z1});
+                    const float hAvg = 0.25f * (y00 + y10 + y11 + y01);
+                    const float hf = clampf(hAvg / 140.0f, 0.0f, 1.0f);
+                    const ColorRGBA col{
+                        static_cast<std::uint8_t>(lerpf(62.0f, 48.0f, hf)),
+                        static_cast<std::uint8_t>(lerpf(104.0f, 78.0f, hf)),
+                        static_cast<std::uint8_t>(lerpf(52.0f, 46.0f, hf)),
+                        255
+                    };
+                    // Counter-clockwise upward-facing quad (+Y normal)
+                    forestMb.addQuad({x0, y00, z0}, {x0, y01, z1}, {x1, y11, z1}, {x1, y10, z0}, col);
+                }
+            }
+        };
+        addTerrainBand( 14300.0f,  18400.0f, 10, -15800.0f,  15800.0f, 64); // East Gyeonggi hills
+        addTerrainBand(-18400.0f, -14300.0f, 10, -15800.0f,  15800.0f, 64); // West Gimpo/Incheon hills
+        addTerrainBand(-14300.0f,  14300.0f, 56, -15800.0f, -11800.0f, 10); // North Bukhansan/Dobong ridge
+        addTerrainBand(-14300.0f,  14300.0f, 56,  11800.0f,  15800.0f, 10); // South Gwanak/Cheonggye ridge
+
         mountainForestMesh_ = forestMb.upload(vk, 55.0f);
         mountainGraniteMesh_ = graniteMb.upload(vk, 35.0f);
+    }
+
+    // ------------------------------------------------------------------------
+    // 2B. DISTANT SEOUL SKYLINE LOD CLUSTERS (eliminates empty void horizon beyond 550m!)
+    // ------------------------------------------------------------------------
+    {
+        distantSkyline_.clear();
+        distantSkyline_.reserve(420);
+        Rng skRng(20262200ULL);
+        for (float wz = -10200.0f; wz <= 9600.0f; wz += 680.0f) {
+            for (float wx = -13200.0f; wx <= 13200.0f; wx += 740.0f) {
+                const Vec2 p{wx + skRng.range(-180.0f, 180.0f), wz + skRng.range(-180.0f, 180.0f)};
+                if (city.isInHanRiverWater(p, 45.0f) || city.isInHanRiverPark(p) ||
+                    city.isInSeokchonLake(p) || city.isInMajorSeoulPark(p) ||
+                    city.terrainElevationAt(p) > 30.0f) {
+                    continue;
+                }
+                const DistrictType dist = city.districtAtWorld(p);
+                const bool isCbd = (dist == DistrictType::GangnamTeheran || dist == DistrictType::YeouidoFinance ||
+                                    dist == DistrictType::MyeongdongCityHall || dist == DistrictType::JongnoCheonggye ||
+                                    dist == DistrictType::Yongsan);
+                const float h = isCbd ? skRng.range(64.0f, 152.0f) : skRng.range(36.0f, 78.0f);
+                const float bw = isCbd ? skRng.range(38.0f, 64.0f) : skRng.range(54.0f, 86.0f);
+                const float bd = isCbd ? skRng.range(38.0f, 62.0f) : skRng.range(24.0f, 44.0f);
+                const ColorRGBA cbdPal[3] = {{68, 92, 118, 255}, {84, 102, 118, 255}, {122, 126, 134, 255}};
+                const ColorRGBA aptPal[3] = {{206, 200, 190, 255}, {194, 196, 200, 255}, {182, 174, 162, 255}};
+                distantSkyline_.push_back(DistantSkylineBlock{
+                    p, {bw, bd}, city.terrainElevationAt(p), h,
+                    isCbd ? cbdPal[skRng.rangeInt(0, 2)] : aptPal[skRng.rangeInt(0, 2)],
+                    isCbd
+                });
+            }
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -968,15 +1108,15 @@ void Renderer3D::drawSeoulTerrainAndRoads(VulkanContext& vk, const GameWorld& wo
     const float pitch = CityMap::kBlockPitch;
 
     if (!shadowPass) {
-        // 1. Vast distant Seoul urban basin ground north & south of Han River
-        drawBox(vk, {0.0f, -0.45f, -7200.0f}, {32000.0f, 0.5f, 11800.0f}, 0.0f,
-                {116, 120, 126, 255}, 0.88f, 0.0f, 0.0f, MatId::SidewalkPavers, false);
-        drawBox(vk, {0.0f, -0.45f,  7200.0f}, {32000.0f, 0.5f, 11800.0f}, 0.0f,
-                {116, 120, 126, 255}, 0.88f, 0.0f, 0.0f, MatId::SidewalkPavers, false);
+        // 1. Seamless 40km x 34km Seoul Metropolitan Basin Floor (y = -0.52m, safely below Han River -0.18m — ZERO gap!)
+        drawBox(vk, {0.0f, -0.78f, 0.0f}, {40000.0f, 0.52f, 34000.0f}, 0.0f,
+                {102, 108, 102, 255}, 0.90f, 0.0f, 0.0f, MatId::SidewalkPavers, false);
 
-        // 2. Shimmering 30km Han River S-curve + Seokchon Lake + 4 Real Seoul Tributaries!
+        // 2. Shimmering 30km Han River S-curve + Stone Revetments + Seokchon Lake + 4 Real Seoul Tributaries!
         drawMesh(vk, hanRiverWaterMesh_, Mat4::identity(), {255, 255, 255, 255},
                  0.06f, 0.06f, 0.0f, MatId::HanRiverWater, false);
+        drawMesh(vk, hanEmbankmentMesh_, Mat4::identity(), {255, 255, 255, 255},
+                 0.82f, 0.04f, 0.0f, MatId::Standard, false);
         drawMesh(vk, tributaryWaterMesh_, Mat4::identity(), {255, 255, 255, 255},
                  0.06f, 0.06f, 0.0f, MatId::HanRiverWater, false);
 
@@ -984,11 +1124,21 @@ void Renderer3D::drawSeoulTerrainAndRoads(VulkanContext& vk, const GameWorld& wo
         drawMesh(vk, riversideExpresswayMesh_, Mat4::identity(), {255, 255, 255, 255},
                  0.56f, 0.0f, 0.0f, MatId::RoadAsphalt, false);
 
-        // 3. 7 Real Seoul Mountains
+        // 3. 7 Inner Seoul Mountains + 14 Outer Basin Perimeter Ring Mountains!
         drawMesh(vk, mountainForestMesh_, Mat4::identity(), {255, 255, 255, 255},
                  0.90f, 0.0f, 0.0f, MatId::FoliageGrass, false);
         drawMesh(vk, mountainGraniteMesh_, Mat4::identity(), {255, 255, 255, 255},
                  0.85f, 0.02f, 0.0f, MatId::GraniteRock, false);
+
+        // 3B. Distant Seoul Metropolitan Skyline Silhouettes (drawn between 520m and 5800m so avenues NEVER end in empty void!)
+        for (const auto& ds : distantSkyline_) {
+            const float dSq = (ds.pos - focus).lengthSq();
+            if (dSq < 520.0f * 520.0f || dSq > 5800.0f * 5800.0f) continue;
+            drawBox(vk, {ds.pos.x, ds.baseY + ds.height * 0.5f, ds.pos.z},
+                    {ds.size.x, ds.height, ds.size.z}, 0.0f, ds.col,
+                    ds.isGlass ? 0.25f : 0.78f, ds.isGlass ? 0.35f : 0.04f, 0.0f,
+                    ds.isGlass ? MatId::GlassSkyscraper : MatId::KoreanAptFacade, false);
+        }
     }
 
     // 4. All 15 Real Han River Bridges (Asphalt decks + concrete piers + steel arches/cables!)
@@ -1009,8 +1159,10 @@ void Renderer3D::drawSeoulTerrainAndRoads(VulkanContext& vk, const GameWorld& wo
 
     for (int iz = centerRz - radiusBlocks; iz <= centerRz + radiusBlocks; ++iz) {
         const float rz = city.roadCoord(iz);
+        if (std::abs(rz) > 11780.0f) continue;
         for (int ix = centerRx - radiusBlocks; ix <= centerRx + radiusBlocks; ++ix) {
             const float rx = city.roadCoord(ix);
+            if (std::abs(rx) > 14290.0f) continue;
             const Vec2 cellCenter{rx + pitch * 0.5f, rz + pitch * 0.5f};
 
             const Vec2 roadCenter{rx, rz};
@@ -1151,14 +1303,17 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
             drawMesh(vk, giwaRoofMesh_, rm, {255, 255, 255, 255}, 0.56f, 0.08f, 0.0f,
                      MatId::HanokGiwaRoof, shadowPass);
         } else if (b.style == BuildingStyle::VillaHouse) {
-            // Korean 4~5F Multi-Family Villa: sloped dark charcoal slate roof + rooftop stair cube!
-            drawBox(vk, {c.x, roofY + 0.35f, c.z}, {sz.x + 0.45f, 0.72f, sz.z + 0.45f}, 0.0f,
-                    {64, 68, 76, 255}, 0.68f, 0.08f, 0.0f, MatId::Standard, shadowPass);
-            drawBox(vk, {c.x, roofY + 1.15f, c.z}, {sz.x * 0.84f, 1.05f, sz.z * 0.84f}, 0.0f,
-                    {54, 58, 66, 255}, 0.72f, 0.08f, 0.0f, MatId::Standard, shadowPass);
+            // Korean 4~5F Multi-Family Villa: iconic Korean green urethane waterproof roof + parapet + rooftop stair penthouse (옥탑방) + water tank!
+            drawBox(vk, {c.x, roofY + 0.16f, c.z}, {sz.x - 0.35f, 0.24f, sz.z - 0.35f}, 0.0f,
+                    {62, 122, 86, 255}, 0.52f, 0.04f, 0.0f, MatId::Standard, shadowPass);
+            drawBox(vk, {c.x, roofY + 0.42f, c.z}, {sz.x + 0.25f, 0.68f, sz.z + 0.25f}, 0.0f,
+                    {192, 188, 182, 255}, 0.78f, 0.04f, 0.0f, MatId::Standard, shadowPass);
             if (!shadowPass && distSq < 220.0f * 220.0f) {
-                drawBox(vk, {c.x + sz.x * 0.18f, roofY + 2.3f, c.z - sz.z * 0.12f}, {3.6f, 2.2f, 3.2f}, 0.0f,
+                drawBox(vk, {c.x + sz.x * 0.18f, roofY + 1.8f, c.z - sz.z * 0.12f}, {3.6f, 2.4f, 3.2f}, 0.0f,
                         b.primaryColor, 0.78f, 0.04f, 0.0f, MatId::Standard, false);
+                // Classic Korean stainless rooftop water tank (옥상 물탱크)
+                drawMesh(vk, cylMesh_, Mat4::translation(c.x - sz.x * 0.20f, roofY + 0.35f, c.z + sz.z * 0.16f) *
+                         Mat4::scale(1.45f, 1.8f, 1.45f), {196, 204, 212, 255}, 0.26f, 0.82f, 0.0f, MatId::Standard, false);
             }
         } else if (!shadowPass && distSq < 260.0f * 260.0f) {
             // Crisp rooftop parapet coping wall + realistic Seoul elevator penthouse & HVAC units!
@@ -1166,13 +1321,22 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
                     b.accentColor, 0.66f, 0.12f, 0.0f, MatId::Standard, false);
 
             if (b.style == BuildingStyle::KoreanApartment) {
-                // Iconic Korean apartment twin rooftop elevator cores + brand top color band!
+                // Iconic Korean apartment twin rooftop elevator cores + angled brand crown fin + side dong-number badge!
                 drawBox(vk, {c.x - sz.x * 0.24f, roofY + 2.1f, c.z}, {6.4f, 3.6f, sz.z * 0.44f}, 0.0f,
                         b.accentColor, 0.72f, 0.06f, 0.0f, MatId::Standard, false);
                 drawBox(vk, {c.x + sz.x * 0.24f, roofY + 2.1f, c.z}, {6.4f, 3.6f, sz.z * 0.44f}, 0.0f,
                         b.accentColor, 0.72f, 0.06f, 0.0f, MatId::Standard, false);
+                // Signature Korean luxury apartment rooftop pergola / crown frame (래미안·자이·아크로 스카이라인!)
+                drawBox(vk, {c.x, roofY + 4.1f, c.z}, {sz.x * 0.74f, 0.65f, sz.z * 0.56f}, 0.0f,
+                        b.accentColor, 0.52f, 0.28f, 0.0f, MatId::Standard, false);
                 drawBox(vk, {c.x, roofY - 1.1f, c.z}, {sz.x + 0.16f, 1.4f, sz.z + 0.16f}, 0.0f,
                         b.accentColor, 0.74f, 0.06f, 0.0f, MatId::Standard, false);
+                // Distinctive side shear-wall dong-number architectural accent panel (아파트 동 번호 판넬)
+                for (float sx : {-1.0f, 1.0f}) {
+                    drawBox(vk, {c.x + sx * (sz.x * 0.5f + 0.12f), roofY - 5.2f, c.z},
+                            {0.20f, 3.8f, sz.z * 0.46f}, 0.0f, b.accentColor, 0.48f, 0.12f,
+                            nightMode ? 0.55f : 0.0f, nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
+                }
             } else {
                 // Rooftop stairwell penthouse + silver HVAC chiller units
                 drawBox(vk, {c.x - sz.x * 0.18f, roofY + 1.6f, c.z - sz.z * 0.16f},
@@ -1188,53 +1352,64 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
                 }
             }
 
-            // ORIENTATION-AWARE STREET-FACING KOREAN STOREFRONTS & SIGNBOARDS!
+            // ORIENTATION-AWARE MULTI-BAY KOREAN 1F~3F STOREFRONTS & SIGNBOARDS (한국 상가 다중 간판 & 돌출간판)!
             // ONLY placed on facade edges actually bordering a street (b.streetEdgeMask)!
-            // Eliminates the ugly wrap-around red stripe on all 4 sides!
-            if (b.hasStorefront && distSq < 195.0f * 195.0f) {
+            if (b.hasStorefront && distSq < 210.0f * 210.0f) {
                 const float signY = b.baseY + 3.92f;
                 const float canopyY = b.baseY + 3.35f;
                 const ColorRGBA canopyCol{48, 54, 64, 255};
-                const float signEm = nightMode ? 0.72f : 0.04f;
+                const float signEm = nightMode ? 0.85f : 0.08f;
                 const MatId signMat = nightMode ? MatId::EmissiveGlow : MatId::Standard;
+                // Secondary contrasting Korean shop unit sign palette (CU green/purple, GS blue, Pharmacy mint, Cafe amber, Bakery navy)
+                static constexpr ColorRGBA kAltShopSigns[8] = {
+                    { 24, 134,  92, 255}, // Pharmacy / Mart Mint Green
+                    { 32,  96, 186, 255}, // Convenience Store / Bank Blue
+                    {196, 132,  36, 255}, // Korean Cafe Warm Ochre
+                    {102,  54, 152, 255}, // Convenience Store Purple
+                    {188,  52,  46, 255}, // Korean Diner Crimson
+                    { 36, 118, 128, 255}, // Clinic / Academy Teal
+                    { 46,  52,  66, 255}, // Modern Bakery Charcoal
+                    {212,  92,  32, 255}  // Chicken / Street Food Orange
+                };
+                const ColorRGBA shopB = kAltShopSigns[(b.facadeVariant + 3u) & 7u];
+                const ColorRGBA shop2F = kAltShopSigns[(b.facadeVariant + 5u) & 7u];
 
-                // bit 0: West (-X) street edge
-                if (b.streetEdgeMask & 0x01u) {
-                    drawBox(vk, {b.footprint.min.x - 0.18f, signY, c.z}, {0.32f, 0.78f, sz.z * 0.84f}, 0.0f,
-                            b.awningColor, 0.42f, 0.15f, signEm, signMat, false);
-                    drawBox(vk, {b.footprint.min.x - 0.55f, canopyY, c.z}, {1.05f, 0.12f, sz.z * 0.62f}, 0.0f,
-                            canopyCol, 0.34f, 0.55f, 0.0f, MatId::Standard, false);
-                    // Vertical projecting Korean commercial signbox (돌출간판) on 2F~3F!
-                    if (b.height > 12.0f && (b.facadeVariant & 1) == 0) {
-                        drawBox(vk, {b.footprint.min.x - 0.52f, b.baseY + 7.8f, c.z + sz.z * 0.30f},
-                                {0.85f, 3.6f, 0.26f}, 0.0f, b.awningColor, 0.32f, 0.12f, nightMode ? 1.05f : 0.06f, signMat, false);
+                auto drawStreetEdgeShops = [&](float edgeX, float edgeZ, float span, bool alongZ, float outSign) {
+                    const float halfUnit = span * 0.40f;
+                    const float off = span * 0.22f;
+                    const float ox1 = alongZ ? (edgeX + outSign * 0.18f) : (edgeX - off);
+                    const float oz1 = alongZ ? (edgeZ - off) : (edgeZ + outSign * 0.18f);
+                    const float ox2 = alongZ ? (edgeX + outSign * 0.18f) : (edgeX + off);
+                    const float oz2 = alongZ ? (edgeZ + off) : (edgeZ + outSign * 0.18f);
+                    const Vec3 s1 = alongZ ? Vec3{0.34f, 0.86f, halfUnit} : Vec3{halfUnit, 0.86f, 0.34f};
+                    const Vec3 sCan = alongZ ? Vec3{1.05f, 0.12f, span * 0.78f} : Vec3{span * 0.78f, 0.12f, 1.05f};
+                    // 2 distinct neighboring 1F Korean shop fascia signboards!
+                    drawBox(vk, {ox1, signY, oz1}, s1, 0.0f, b.awningColor, 0.38f, 0.12f, signEm, signMat, false);
+                    drawBox(vk, {ox2, signY, oz2}, s1, 0.0f, shopB,         0.38f, 0.12f, signEm, signMat, false);
+                    // Crisp white lettering trim bar centered on each Korean signboard
+                    const Vec3 sTrim = alongZ ? Vec3{0.38f, 0.20f, halfUnit * 0.68f} : Vec3{halfUnit * 0.68f, 0.20f, 0.38f};
+                    drawBox(vk, {ox1, signY, oz1}, sTrim, 0.0f, {244, 246, 250, 255}, 0.30f, 0.05f, nightMode ? 1.15f : 0.12f, signMat, false);
+                    drawBox(vk, {ox2, signY, oz2}, sTrim, 0.0f, {248, 244, 232, 255}, 0.30f, 0.05f, nightMode ? 1.15f : 0.12f, signMat, false);
+                    // Metallic rain canopy above 1F storefronts
+                    drawBox(vk, {alongZ ? (edgeX + outSign * 0.55f) : edgeX, canopyY, alongZ ? edgeZ : (edgeZ + outSign * 0.55f)},
+                            sCan, 0.0f, canopyCol, 0.34f, 0.55f, 0.0f, MatId::Standard, false);
+                    // 2F horizontal Korean academy/clinic fascia + vertical projecting signbox (돌출간판)!
+                    if (b.height > 11.0f) {
+                        const Vec3 s2F = alongZ ? Vec3{0.28f, 0.72f, halfUnit * 0.92f} : Vec3{halfUnit * 0.92f, 0.72f, 0.28f};
+                        drawBox(vk, {ox2, b.baseY + 7.35f, oz2}, s2F, 0.0f, shop2F, 0.36f, 0.10f, signEm, signMat, false);
+                        const float px = alongZ ? (edgeX + outSign * 0.58f) : (edgeX + off * 1.45f);
+                        const float pz = alongZ ? (edgeZ + off * 1.45f) : (edgeZ + outSign * 0.58f);
+                        const Vec3 sProj = alongZ ? Vec3{0.92f, 3.8f, 0.26f} : Vec3{0.26f, 3.8f, 0.92f};
+                        drawBox(vk, {px, b.baseY + 8.1f, pz}, sProj, 0.0f,
+                                (b.facadeVariant & 1) ? shopB : b.awningColor,
+                                0.30f, 0.12f, nightMode ? 1.15f : 0.10f, signMat, false);
                     }
-                }
-                // bit 1: East (+X) street edge
-                if (b.streetEdgeMask & 0x02u) {
-                    drawBox(vk, {b.footprint.max.x + 0.18f, signY, c.z}, {0.32f, 0.78f, sz.z * 0.84f}, 0.0f,
-                            b.awningColor, 0.42f, 0.15f, signEm, signMat, false);
-                    drawBox(vk, {b.footprint.max.x + 0.55f, canopyY, c.z}, {1.05f, 0.12f, sz.z * 0.62f}, 0.0f,
-                            canopyCol, 0.34f, 0.55f, 0.0f, MatId::Standard, false);
-                    if (b.height > 12.0f && (b.facadeVariant & 1) == 1) {
-                        drawBox(vk, {b.footprint.max.x + 0.52f, b.baseY + 7.8f, c.z - sz.z * 0.30f},
-                                {0.85f, 3.6f, 0.26f}, 0.0f, b.awningColor, 0.32f, 0.12f, nightMode ? 1.05f : 0.06f, signMat, false);
-                    }
-                }
-                // bit 2: North (-Z) street edge
-                if (b.streetEdgeMask & 0x04u) {
-                    drawBox(vk, {c.x, signY, b.footprint.min.z - 0.18f}, {sz.x * 0.84f, 0.78f, 0.32f}, 0.0f,
-                            b.awningColor, 0.42f, 0.15f, signEm, signMat, false);
-                    drawBox(vk, {c.x, canopyY, b.footprint.min.z - 0.55f}, {sz.x * 0.62f, 0.12f, 1.05f}, 0.0f,
-                            canopyCol, 0.34f, 0.55f, 0.0f, MatId::Standard, false);
-                }
-                // bit 3: South (+Z) street edge
-                if (b.streetEdgeMask & 0x08u) {
-                    drawBox(vk, {c.x, signY, b.footprint.max.z + 0.18f}, {sz.x * 0.84f, 0.78f, 0.32f}, 0.0f,
-                            b.awningColor, 0.42f, 0.15f, signEm, signMat, false);
-                    drawBox(vk, {c.x, canopyY, b.footprint.max.z + 0.55f}, {sz.x * 0.62f, 0.12f, 1.05f}, 0.0f,
-                            canopyCol, 0.34f, 0.55f, 0.0f, MatId::Standard, false);
-                }
+                };
+
+                if (b.streetEdgeMask & 0x01u) drawStreetEdgeShops(b.footprint.min.x, c.z, sz.z, true,  -1.0f);
+                if (b.streetEdgeMask & 0x02u) drawStreetEdgeShops(b.footprint.max.x, c.z, sz.z, true,   1.0f);
+                if (b.streetEdgeMask & 0x04u) drawStreetEdgeShops(c.x, b.footprint.min.z, sz.x, false, -1.0f);
+                if (b.streetEdgeMask & 0x08u) drawStreetEdgeShops(c.x, b.footprint.max.z, sz.x, false,  1.0f);
             }
 
             if (b.style == BuildingStyle::NightclubBuilding || b.style == BuildingStyle::DealershipBuilding) {
@@ -1367,34 +1542,43 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 break;
             }
             case StreetPropKind::BusShelter: {
-                // Seoul Bus Shelter: Glass back wall (-Z) on building side, Open boarding side & Bench (+Z) facing ROAD!
+                // Seoul Bus Shelter: Glass back wall (-Z) on building side, Open boarding side (+Z) facing ROAD + glowing BIS totem!
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 2.62f, 0) * Mat4::scale(4.6f, 0.18f, 1.65f),
                          {42, 48, 58, 255}, 0.34f, 0.68f, 0.0f, MatId::Standard, shadowPass);
                 // Signature Seoul Blue Bus Route Header Strip facing the road (+Z)!
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 2.76f, 0.72f) * Mat4::scale(4.5f, 0.24f, 0.12f),
-                         {32, 108, 214, 255}, 0.25f, 0.15f, nightMode ? 1.1f : 0.12f,
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 2.76f, 0.72f) * Mat4::scale(4.5f, 0.26f, 0.14f),
+                         {28, 108, 222, 255}, 0.25f, 0.15f, nightMode ? 1.1f : 0.15f,
                          nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 1.30f, -0.72f) * Mat4::scale(4.2f, 2.45f, 0.10f),
                          {74, 118, 152, 255}, 0.12f, 0.28f, 0.0f, MatId::GlassSkyscraper, shadowPass);
-                // Side pillars
                 for (float sx : {-2.05f, 2.05f}) {
                     drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx, 1.30f, -0.68f) * Mat4::scale(0.14f, 2.60f, 0.14f),
                              {48, 54, 64, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, shadowPass);
                 }
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.52f, -0.25f) * Mat4::scale(3.0f, 0.12f, 0.45f),
                          {136, 96, 60, 255}, 0.75f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
+                // Seoul BIS (Bus Information System) digital LED arrival totem beside shelter!
+                if (!shadowPass) {
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.65f, 1.35f, 0.15f) * Mat4::scale(0.46f, 2.70f, 0.24f),
+                             {38, 44, 54, 255}, 0.34f, 0.65f, 0.0f, MatId::Standard, false);
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.65f, 1.92f, 0.28f) * Mat4::scale(0.36f, 0.78f, 0.04f),
+                             {24, 154, 242, 255}, 0.15f, 0.0f, nightMode ? 1.4f : 0.45f, MatId::EmissiveGlow, false);
+                }
                 break;
             }
             case StreetPropKind::SubwayEntrance: {
-                // Authentic Seoul Metro Glass-Canopy Subway Entrance aligned neatly along the sidewalk!
+                // Authentic Seoul Metro Glass-Canopy Subway Entrance + Tall Line-Color Pole Sign (지하철 폴사인)!
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.55f, 0.0f) * Mat4::scale(5.4f, 0.20f, 2.6f),
                          {52, 58, 68, 255}, 0.30f, 0.74f, 0.0f, MatId::Standard, shadowPass);
-                // Line 2 Seoul Metro Green / Line 1 Navy illuminated header fascia
-                const ColorRGBA lineCol = ((static_cast<int>(p.pos.x) & 1) == 0)
-                    ? ColorRGBA{42, 166, 78, 255}  // Seoul Metro Line 2 Green
-                    : ColorRGBA{36, 98, 198, 255}; // Seoul Metro Line 1 Blue
+                static constexpr ColorRGBA kMetroLines[4] = {
+                    { 42, 168,  78, 255}, // Line 2 Green
+                    {236, 118,  28, 255}, // Line 3 Orange
+                    {192, 162,  66, 255}, // Line 9 Gold
+                    { 36,  98, 198, 255}  // Line 1 Navy Blue
+                };
+                const ColorRGBA lineCol = kMetroLines[static_cast<unsigned>(std::abs(static_cast<int>(p.pos.x + p.pos.z))) & 3u];
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.74f, 0.0f) * Mat4::scale(5.5f, 0.32f, 2.7f),
-                         lineCol, 0.24f, 0.18f, nightMode ? 1.25f : 0.15f,
+                         lineCol, 0.24f, 0.18f, nightMode ? 1.25f : 0.18f,
                          nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
                 // Glass side balustrades + dark stairwell opening
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.25f, -1.20f) * Mat4::scale(5.2f, 2.4f, 0.10f),
@@ -1403,6 +1587,67 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                          {78, 128, 162, 255}, 0.12f, 0.28f, 0.0f, MatId::GlassSkyscraper, shadowPass);
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-1.0f, 0.35f, 0.0f) * Mat4::scale(3.0f, 0.65f, 2.1f),
                          {32, 36, 42, 255}, 0.80f, 0.0f, 0.0f, MatId::Standard, false);
+                // Tall iconic Seoul Metro circular colored line-number pole sign at entrance mouth!
+                drawMesh(vk, cylMesh_, baseM * Mat4::translation(3.15f, 0.0f, 0.0f) * Mat4::scale(0.14f, 4.4f, 0.14f),
+                         {64, 70, 80, 255}, 0.34f, 0.72f, 0.0f, MatId::Standard, shadowPass);
+                if (!shadowPass) {
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.15f, 4.45f, 0.0f) * Mat4::scale(0.95f, 0.95f, 0.26f),
+                             lineCol, 0.22f, 0.10f, nightMode ? 1.55f : 0.25f,
+                             nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.15f, 4.45f, 0.0f) * Mat4::scale(0.42f, 0.42f, 0.30f),
+                             {246, 248, 252, 255}, 0.25f, 0.0f, nightMode ? 1.3f : 0.15f,
+                             nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
+                }
+                break;
+            }
+            case StreetPropKind::RoadGantry: {
+                // Iconic Korean Dark-Green Overhead Highway Directional Sign Gantry (한국형 도로 이정표 갠트리)!
+                // Twin galvanized steel portal columns sitting on left/right sidewalks (+/-9.6m) + overhead truss at 6.3m!
+                const ColorRGBA kSteel{168, 174, 182, 255};
+                const ColorRGBA kKrSignGreen{14, 112, 74, 255};
+                const ColorRGBA kKrBorderWhite{242, 246, 248, 255};
+                for (float sx : {-9.55f, 9.55f}) {
+                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(sx, 0.0f, 0.0f) * Mat4::scale(0.38f, 6.7f, 0.38f),
+                             kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
+                }
+                // Horizontal twin steel gantry truss beams spanning 19.6m cleanly over 6 lanes
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 6.45f, 0.0f) * Mat4::scale(19.6f, 0.30f, 0.30f),
+                         kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 5.75f, 0.0f) * Mat4::scale(19.4f, 0.22f, 0.22f),
+                         kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
+                // 2 large signature Korean dark-green overhead road directional panels with crisp white frame & lane text bars!
+                for (float px : {-4.2f, 4.2f}) {
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, 6.15f, 0.0f) * Mat4::scale(6.4f, 2.15f, 0.16f),
+                             kKrBorderWhite, 0.32f, 0.15f, nightMode ? 0.45f : 0.04f, MatId::Standard, shadowPass);
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, 6.15f, 0.0f) * Mat4::scale(6.16f, 1.92f, 0.20f),
+                             kKrSignGreen, 0.34f, 0.12f, nightMode ? 0.55f : 0.05f,
+                             nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
+                    if (!shadowPass) {
+                        // Crisp white destination lettering lines & blue highway route shield on BOTH front & back faces!
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px - 0.6f, 6.52f, 0.0f) * Mat4::scale(3.6f, 0.26f, 0.23f),
+                                 kKrBorderWhite, 0.26f, 0.05f, nightMode ? 0.95f : 0.08f, MatId::Standard, false);
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px + 0.2f, 6.02f, 0.0f) * Mat4::scale(2.8f, 0.20f, 0.23f),
+                                 kKrBorderWhite, 0.26f, 0.05f, nightMode ? 0.95f : 0.08f, MatId::Standard, false);
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px - 2.1f, 6.02f, 0.0f) * Mat4::scale(0.82f, 0.54f, 0.23f),
+                                 {28, 102, 214, 255}, 0.28f, 0.10f, nightMode ? 0.85f : 0.06f, MatId::Standard, false);
+                        // White downward lane arrow bar at bottom of sign
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, 5.52f, 0.0f) * Mat4::scale(0.32f, 0.42f, 0.23f),
+                                 kKrBorderWhite, 0.26f, 0.05f, nightMode ? 0.95f : 0.08f, MatId::Standard, false);
+                    }
+                }
+                break;
+            }
+            case StreetPropKind::PedGuardrail: {
+                // Sleek Korean dark-graphite pedestrian safety guardrail along boulevard sidewalks!
+                const ColorRGBA kRailCol{68, 74, 84, 255};
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.88f, 0.0f) * Mat4::scale(16.0f, 0.08f, 0.08f),
+                         kRailCol, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.50f, 0.0f) * Mat4::scale(16.0f, 0.05f, 0.05f),
+                         kRailCol, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
+                for (float gx = -7.5f; gx <= 7.6f; gx += 2.5f) {
+                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(gx, 0.0f, 0.0f) * Mat4::scale(0.08f, 0.92f, 0.08f),
+                             kRailCol, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
+                }
                 break;
             }
             case StreetPropKind::Bench:
@@ -1607,6 +1852,422 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
     }
 }
 
+namespace {
+
+inline Vec3 cross3(const Vec3& a, const Vec3& b) {
+    return {
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x
+    };
+}
+
+inline float dot3(const Vec3& a, const Vec3& b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+inline Vec3 lerp3(const Vec3& a, const Vec3& b, float t) {
+    return {lerpf(a.x, b.x, t), lerpf(a.y, b.y, t), lerpf(a.z, b.z, t)};
+}
+
+inline bool isTwoHandedFirearm(WeaponId w) {
+    return w == WeaponId::SMG || w == WeaponId::Shotgun || w == WeaponId::AutoShotgun ||
+           w == WeaponId::AssaultRifle || w == WeaponId::SniperRifle || w == WeaponId::CombatMG ||
+           w == WeaponId::Minigun || w == WeaponId::HeavyLauncher;
+}
+
+// Left-hand support grip anchor in weapon-local space (origin = right-hand pistol grip center, +X = muzzle)
+inline Vec3 weaponForegripLocal(WeaponId w) {
+    switch (w) {
+        case WeaponId::Pistol:        return { 0.015f, -0.025f, -0.022f};
+        case WeaponId::HeavyRevolver: return { 0.018f, -0.028f, -0.022f};
+        case WeaponId::SMG:           return { 0.215f,  0.032f, -0.015f};
+        case WeaponId::Shotgun:       return { 0.310f,  0.036f, -0.015f};
+        case WeaponId::AutoShotgun:   return { 0.275f,  0.034f, -0.018f};
+        case WeaponId::AssaultRifle:  return { 0.285f,  0.022f, -0.015f};
+        case WeaponId::SniperRifle:   return { 0.320f,  0.028f, -0.015f};
+        case WeaponId::CombatMG:      return { 0.295f,  0.012f, -0.024f};
+        case WeaponId::Minigun:       return { 0.165f,  0.165f, -0.030f}; // Top chainsaw carry handle!
+        case WeaponId::HeavyLauncher: return { 0.210f, -0.010f, -0.015f};
+        default:                      return { 0.020f,  0.000f, -0.020f};
+    }
+}
+
+// Magazine insertion well in weapon-local space for authentic left-hand reload animation
+inline Vec3 weaponMagWellLocal(WeaponId w) {
+    switch (w) {
+        case WeaponId::Pistol:        return {-0.010f, -0.085f,  0.000f};
+        case WeaponId::HeavyRevolver: return { 0.075f,  0.045f, -0.025f};
+        case WeaponId::SMG:           return { 0.150f, -0.085f,  0.000f};
+        case WeaponId::Shotgun:       return { 0.120f,  0.015f,  0.000f};
+        case WeaponId::AutoShotgun:   return { 0.165f, -0.085f,  0.000f};
+        case WeaponId::AssaultRifle:  return { 0.145f, -0.095f,  0.000f};
+        case WeaponId::SniperRifle:   return { 0.145f, -0.070f,  0.000f};
+        case WeaponId::CombatMG:      return { 0.155f, -0.100f,  0.000f};
+        case WeaponId::Minigun:       return { 0.080f, -0.060f, -0.050f};
+        case WeaponId::HeavyLauncher: return { 0.560f,  0.055f,  0.000f};
+        default:                      return { 0.000f, -0.060f,  0.000f};
+    }
+}
+
+// Builds a right-handed transform for capsuleLimbMesh_ (origin at Y=0, extends along -Y to Y=-1)
+inline Mat4 buildCapsuleSegmentMatrix(const Vec3& a, const Vec3& b, float radius) {
+    const Vec3 diff = b - a;
+    const float len = std::max(0.02f, diff.length());
+    const Vec3 dir = diff / len;
+    const Vec3 yAxis = dir * -1.0f; // Local -Y points from a toward b
+    const Vec3 ref = (std::abs(dir.y) < 0.92f) ? Vec3{0.0f, 1.0f, 0.0f} : Vec3{1.0f, 0.0f, 0.0f};
+    const Vec3 xAxis = cross3(ref, yAxis).normalized();
+    const Vec3 zAxis = cross3(xAxis, yAxis).normalized();
+
+    Mat4 r{};
+    r.m[0]  = xAxis.x * radius; r.m[1]  = xAxis.y * radius; r.m[2]  = xAxis.z * radius; r.m[3]  = 0.0f;
+    r.m[4]  = yAxis.x * len;    r.m[5]  = yAxis.y * len;    r.m[6]  = yAxis.z * len;    r.m[7]  = 0.0f;
+    r.m[8]  = zAxis.x * radius; r.m[9]  = zAxis.y * radius; r.m[10] = zAxis.z * radius; r.m[11] = 0.0f;
+    r.m[12] = a.x;              r.m[13] = a.y;              r.m[14] = a.z;              r.m[15] = 1.0f;
+    return r;
+}
+
+} // namespace
+
+void Renderer3D::drawDetailedWeapon3D(VulkanContext& vk, WeaponId weapon, const WeaponSlotState* customWep,
+                                      const Mat4& weaponWorldM, float muzzleFlash, float minigunSpin,
+                                      bool shadowPass, bool isFirstPerson) {
+    if (weapon == WeaponId::Fists) return;
+
+    auto mat = customWep
+        ? getWeaponFinishMaterial(weapon, customWep->skinIndex)
+        : WeaponFinishMaterial{{86, 94, 108, 255}, {148, 158, 172, 255}, 0.24f, 0.82f, 0.0f};
+    if (!customWep || customWep->skinIndex == 0) {
+        // Crisp two-tone anodized gunmetal & satin titanium finish so firearms pop cleanly in both 3P and 1P!
+        mat.primary   = {82, 90, 104, 255};
+        mat.secondary = {144, 154, 168, 255};
+        mat.roughness = 0.24f;
+        mat.metallic  = 0.82f;
+    }
+    const bool hasSuppressor = customWep && customWep->suppressor && weaponSupportsSuppressor(weapon);
+    const bool extMag = customWep && customWep->extendedMag;
+    const int laserColIdx = customWep ? customWep->laserSightColor : 0;
+
+    const ColorRGBA polymerCol{34, 38, 44, 255};
+    const ColorRGBA steelCol{128, 138, 152, 255};
+    const ColorRGBA darkIron{46, 52, 60, 255};
+    const ColorRGBA woodCol{132, 82, 46, 255};
+    const ColorRGBA oliveCol{76, 96, 66, 255};
+    const ColorRGBA brassCol{212, 176, 82, 255};
+    const ColorRGBA chromeBolt{186, 194, 204, 255};
+
+    auto boxPart = [&](const Vec3& c, const Vec3& sz, ColorRGBA col,
+                       float rough, float metal, float em = 0.0f, float pitchZ = 0.0f) {
+        Mat4 m = weaponWorldM * Mat4::translation(c.x, c.y, c.z);
+        if (std::abs(pitchZ) > 0.001f) m = m * Mat4::rotationAxis({0, 0, 1}, pitchZ);
+        drawMesh(vk, cubeMesh_, m * Mat4::scale(sz.x, sz.y, sz.z),
+                 col, rough, metal, em, (em > 0.1f) ? MatId::EmissiveGlow : MatId::Standard, shadowPass);
+    };
+    // Cylinder starting at (x0, y, z) extending +len along +X with diameter diam
+    auto cylX = [&](float x0, float y, float z, float len, float diam, ColorRGBA col,
+                    float rough, float metal, float em = 0.0f) {
+        const Mat4 m = weaponWorldM * Mat4::translation(x0, y, z) *
+                       Mat4::rotationAxis({0, 0, 1}, -kHalfPi) *
+                       Mat4::scale(diam, len, diam);
+        drawMesh(vk, cylMesh_, m, col, rough, metal, em,
+                 (em > 0.1f) ? MatId::EmissiveGlow : MatId::Standard, shadowPass);
+    };
+
+    float muzzleX = 0.24f;
+    float muzzleY = 0.068f;
+    float flashScale = 0.16f;
+
+    switch (weapon) {
+        case WeaponId::Pistol: {
+            // Ergonomic angled polymer pistol grip + metallic mag baseplate
+            boxPart({-0.012f, -0.025f, 0.0f}, {0.044f, 0.118f, 0.032f}, polymerCol, 0.72f, 0.08f, 0.0f, -0.22f);
+            if (extMag) {
+                boxPart({-0.022f, -0.095f, 0.0f}, {0.038f, 0.052f, 0.028f}, steelCol, 0.36f, 0.78f, 0.0f, -0.22f);
+            }
+            // Lower polymer frame + trigger guard
+            boxPart({0.072f, 0.040f, 0.0f}, {0.195f, 0.026f, 0.031f}, polymerCol, 0.65f, 0.12f);
+            boxPart({0.052f, 0.008f, 0.0f}, {0.052f, 0.010f, 0.018f}, polymerCol, 0.65f, 0.12f);
+            boxPart({0.076f, 0.022f, 0.0f}, {0.010f, 0.030f, 0.018f}, polymerCol, 0.65f, 0.12f);
+            // Brushed satin metallic upper slide + stainless ejection port & barrel tip!
+            boxPart({0.078f, 0.064f, 0.0f}, {0.208f, 0.032f, 0.034f}, mat.secondary, 0.20f, 0.88f, mat.emissive);
+            boxPart({0.088f, 0.068f, 0.0f}, {0.046f, 0.022f, 0.036f}, chromeBolt, 0.18f, 0.94f);
+            cylX(0.165f, 0.065f, 0.0f, 0.036f, 0.018f, chromeBolt, 0.22f, 0.92f);
+            // Crisp white/green tritium 3-dot iron sights (very legible in 1st-person!)
+            if (!shadowPass) {
+                boxPart({-0.016f, 0.085f, -0.010f}, {0.012f, 0.012f, 0.007f}, {235, 240, 245, 255}, 0.2f, 0.1f, 0.35f);
+                boxPart({-0.016f, 0.085f,  0.010f}, {0.012f, 0.012f, 0.007f}, {235, 240, 245, 255}, 0.2f, 0.1f, 0.35f);
+                boxPart({ 0.172f, 0.086f,  0.000f}, {0.010f, 0.013f, 0.007f}, {110, 255, 130, 255}, 0.2f, 0.1f, 0.85f);
+            }
+            muzzleX = 0.205f;
+            muzzleY = 0.066f;
+            flashScale = 0.15f;
+            break;
+        }
+        case WeaponId::HeavyRevolver: {
+            // Classic walnut curved grip + polished stainless Magnum frame
+            boxPart({-0.018f, -0.030f, 0.0f}, {0.046f, 0.122f, 0.034f}, woodCol, 0.56f, 0.05f, 0.0f, -0.34f);
+            boxPart({0.070f, 0.042f, 0.0f}, {0.135f, 0.066f, 0.032f}, chromeBolt, 0.18f, 0.92f, mat.emissive);
+            cylX(0.038f, 0.048f, 0.0f, 0.068f, 0.056f, mat.secondary, 0.20f, 0.92f);
+            cylX(0.105f, 0.068f, 0.0f, 0.215f, 0.026f, chromeBolt, 0.16f, 0.94f, mat.emissive);
+            boxPart({0.208f, 0.052f, 0.0f}, {0.195f, 0.022f, 0.024f}, mat.secondary, 0.22f, 0.90f);
+            if (!shadowPass) {
+                boxPart({0.305f, 0.088f, 0.0f}, {0.016f, 0.016f, 0.008f}, {248, 92, 48, 255}, 0.3f, 0.1f, 0.65f);
+            }
+            muzzleX = 0.325f;
+            muzzleY = 0.068f;
+            flashScale = 0.21f;
+            break;
+        }
+        case WeaponId::SMG: {
+            // Compact Korean K7 / MP5 Tactical SMG
+            boxPart({-0.010f, -0.028f, 0.0f}, {0.042f, 0.115f, 0.034f}, polymerCol, 0.72f, 0.08f, 0.0f, -0.24f);
+            boxPart({-0.145f, 0.052f, 0.0f}, {0.195f, 0.022f, 0.032f}, steelCol, 0.32f, 0.82f);
+            boxPart({-0.238f, 0.025f, 0.0f}, {0.026f, 0.098f, 0.038f}, polymerCol, 0.74f, 0.06f);
+            boxPart({0.115f, 0.056f, 0.0f}, {0.265f, 0.064f, 0.046f}, mat.primary, mat.roughness, mat.metallic, mat.emissive);
+            boxPart({0.115f, 0.089f, 0.0f}, {0.210f, 0.010f, 0.030f}, steelCol, 0.28f, 0.84f);
+            boxPart({0.155f, -0.065f, 0.0f}, {0.036f, extMag ? 0.22f : 0.165f, 0.028f}, darkIron, 0.38f, 0.76f, 0.0f, 0.16f);
+            boxPart({0.255f, 0.048f, 0.0f}, {0.135f, 0.046f, 0.042f}, polymerCol, 0.68f, 0.14f);
+            cylX(0.310f, 0.058f, 0.0f, 0.105f, 0.022f, steelCol, 0.24f, 0.90f);
+            if (!shadowPass) {
+                boxPart({0.095f, 0.104f, 0.0f}, {0.062f, 0.032f, 0.036f}, darkIron, 0.34f, 0.74f);
+                const ColorRGBA dotCol = getOpticReticleColorRGBA(customWep ? customWep->opticColorIdx : 0, {255, 62, 62, 255});
+                boxPart({0.095f, 0.107f, 0.0f}, {0.006f, 0.008f, 0.008f}, dotCol, 0.1f, 0.0f, 2.0f);
+            }
+            muzzleX = 0.420f;
+            muzzleY = 0.058f;
+            flashScale = 0.18f;
+            break;
+        }
+        case WeaponId::Shotgun: {
+            // Pump-Action Tactical Shotgun (M870 style)
+            boxPart({-0.015f, -0.022f, 0.0f}, {0.046f, 0.105f, 0.038f}, polymerCol, 0.72f, 0.06f, 0.0f, -0.36f);
+            boxPart({-0.165f, 0.022f, 0.0f}, {0.265f, 0.072f, 0.044f}, woodCol, 0.62f, 0.04f, 0.0f, 0.08f);
+            boxPart({0.105f, 0.056f, 0.0f}, {0.225f, 0.064f, 0.048f}, mat.primary, mat.roughness, mat.metallic, mat.emissive);
+            boxPart({0.135f, 0.064f, 0.024f}, {0.068f, 0.022f, 0.008f}, chromeBolt, 0.18f, 0.94f);
+            cylX(0.205f, 0.072f, 0.0f, 0.485f, 0.028f, steelCol, 0.22f, 0.90f);
+            cylX(0.205f, 0.040f, 0.0f, 0.425f, 0.026f, darkIron, 0.32f, 0.85f);
+            boxPart({0.335f, 0.042f, 0.0f}, {0.185f, 0.048f, 0.046f}, woodCol, 0.64f, 0.06f);
+            muzzleX = 0.695f;
+            muzzleY = 0.072f;
+            flashScale = 0.28f;
+            break;
+        }
+        case WeaponId::AutoShotgun: {
+            // Korean Daewoo USAS-12 / AA-12 Drum Combat Shotgun
+            boxPart({-0.010f, -0.028f, 0.0f}, {0.044f, 0.115f, 0.038f}, polymerCol, 0.70f, 0.10f, 0.0f, -0.22f);
+            boxPart({-0.165f, 0.048f, 0.0f}, {0.245f, 0.102f, 0.052f}, mat.primary, mat.roughness, mat.metallic, mat.emissive);
+            boxPart({0.135f, 0.062f, 0.0f}, {0.355f, 0.086f, 0.056f}, mat.primary, mat.roughness, mat.metallic, mat.emissive);
+            const Mat4 drumM = weaponWorldM * Mat4::translation(0.165f, -0.058f, -0.038f) *
+                               Mat4::rotationAxis({1, 0, 0}, kHalfPi) *
+                               Mat4::scale(extMag ? 0.165f : 0.138f, 0.076f, extMag ? 0.165f : 0.138f);
+            drawMesh(vk, cylMesh_, drumM, darkIron, 0.42f, 0.68f, 0.0f, MatId::Standard, shadowPass);
+            boxPart({0.145f, 0.125f, 0.0f}, {0.225f, 0.024f, 0.032f}, polymerCol, 0.65f, 0.12f);
+            boxPart({0.335f, 0.058f, 0.0f}, {0.195f, 0.054f, 0.048f}, mat.secondary, 0.34f, 0.72f);
+            cylX(0.415f, 0.064f, 0.0f, 0.155f, 0.032f, steelCol, 0.24f, 0.90f);
+            muzzleX = 0.575f;
+            muzzleY = 0.064f;
+            flashScale = 0.26f;
+            break;
+        }
+        case WeaponId::AssaultRifle: {
+            // Korean K2C1 / M4A1 Tactical Carbine with rich anodized gunmetal + satin steel two-tone finish!
+            boxPart({-0.012f, -0.028f, 0.0f}, {0.044f, 0.118f, 0.036f}, polymerCol, 0.72f, 0.08f, 0.0f, -0.26f);
+            // Buffer tube + angled collapsible buttstock
+            cylX(-0.235f, 0.062f, 0.0f, 0.205f, 0.032f, steelCol, 0.28f, 0.84f);
+            boxPart({-0.215f, 0.032f, 0.0f}, {0.115f, 0.108f, 0.042f}, polymerCol, 0.70f, 0.10f);
+            // Two-tone Upper (satin gunmetal) + Lower Receiver + Chrome Bolt Carrier + Top Picatinny Rail!
+            boxPart({0.105f, 0.042f, 0.0f}, {0.245f, 0.042f, 0.046f}, darkIron, 0.38f, 0.74f);
+            boxPart({0.105f, 0.074f, 0.0f}, {0.250f, 0.034f, 0.048f}, mat.primary, mat.roughness, mat.metallic, mat.emissive);
+            boxPart({0.135f, 0.072f, 0.024f}, {0.066f, 0.018f, 0.008f}, chromeBolt, 0.18f, 0.94f);
+            boxPart({0.205f, 0.093f, 0.0f}, {0.420f, 0.011f, 0.030f}, steelCol, 0.26f, 0.86f);
+            // Iconic curved 30-rd STANAG magazine (metallic gunmetal)
+            boxPart({0.145f, -0.048f, 0.0f}, {0.056f, extMag ? 0.165f : 0.125f, 0.030f}, mat.secondary, 0.30f, 0.82f, 0.0f, 0.14f);
+            boxPart({0.162f, -0.122f, 0.0f}, {0.052f, 0.072f, 0.028f}, steelCol, 0.34f, 0.80f, 0.0f, 0.30f);
+            // Tactical M-LOK / Quad-Rail Handguard (flat dark earth / gunmetal trim) + Vertical Foregrip!
+            boxPart({0.315f, 0.058f, 0.0f}, {0.225f, 0.054f, 0.048f}, {92, 86, 76, 255}, 0.56f, 0.28f);
+            boxPart({0.295f, 0.004f, 0.0f}, {0.032f, 0.072f, 0.032f}, polymerCol, 0.74f, 0.08f);
+            // Heavy barrel + gas block + chrome-trimmed flash hider
+            cylX(0.415f, 0.062f, 0.0f, 0.185f, 0.022f, steelCol, 0.22f, 0.92f);
+            cylX(0.585f, 0.062f, 0.0f, 0.048f, 0.028f, chromeBolt, 0.22f, 0.92f);
+            // Holographic / EOTech combat optic on top Picatinny rail + glowing reticle window!
+            if (!shadowPass) {
+                boxPart({0.115f, 0.114f, 0.0f}, {0.105f, 0.038f, 0.042f}, {56, 62, 72, 255}, 0.28f, 0.78f);
+                const ColorRGBA optCol = getOpticReticleColorRGBA(customWep ? customWep->opticColorIdx : 0, {72, 236, 138, 255});
+                boxPart({0.115f, 0.118f, 0.0f}, {0.010f, 0.012f, 0.012f}, optCol, 0.1f, 0.0f, 2.4f);
+            }
+            muzzleX = 0.635f;
+            muzzleY = 0.062f;
+            flashScale = 0.22f;
+            break;
+        }
+        case WeaponId::SniperRifle: {
+            // Korean K14 Precision Bolt-Action Sniper Rifle
+            boxPart({-0.012f, -0.028f, 0.0f}, {0.044f, 0.115f, 0.036f}, oliveCol, 0.68f, 0.10f, 0.0f, -0.24f);
+            // Precision stock with cheek riser
+            boxPart({-0.195f, 0.034f, 0.0f}, {0.295f, 0.084f, 0.044f}, oliveCol, 0.66f, 0.12f);
+            boxPart({-0.175f, 0.086f, 0.0f}, {0.125f, 0.028f, 0.042f}, polymerCol, 0.72f, 0.06f);
+            // Chassis + heavy fluted long barrel + rectangular muzzle brake
+            boxPart({0.155f, 0.052f, 0.0f}, {0.365f, 0.066f, 0.050f}, mat.primary, mat.roughness, mat.metallic, mat.emissive);
+            boxPart({0.145f, -0.042f, 0.0f}, {0.068f, 0.092f, 0.032f}, darkIron, 0.36f, 0.78f);
+            cylX(0.320f, 0.064f, 0.0f, 0.510f, 0.026f, steelCol, 0.22f, 0.92f);
+            boxPart({0.835f, 0.064f, 0.0f}, {0.062f, 0.034f, 0.042f}, darkIron, 0.28f, 0.88f);
+            // High-magnification telescopic scope + twin mounts + folded bipod
+            cylX(0.035f, 0.126f, 0.0f, 0.295f, 0.036f, darkIron, 0.24f, 0.84f);
+            cylX(0.285f, 0.126f, 0.0f, 0.085f, 0.052f, darkIron, 0.22f, 0.86f);
+            boxPart({0.105f, 0.096f, 0.0f}, {0.024f, 0.038f, 0.028f}, steelCol, 0.3f, 0.82f);
+            boxPart({0.235f, 0.096f, 0.0f}, {0.024f, 0.038f, 0.028f}, steelCol, 0.3f, 0.82f);
+            cylX(0.380f, 0.014f, -0.028f, 0.175f, 0.014f, darkIron, 0.36f, 0.78f);
+            cylX(0.380f, 0.014f,  0.028f, 0.175f, 0.014f, darkIron, 0.36f, 0.78f);
+            muzzleX = 0.875f;
+            muzzleY = 0.064f;
+            flashScale = 0.28f;
+            break;
+        }
+        case WeaponId::CombatMG: {
+            // Korean K3 / M249 Belt-Fed Light Machine Gun
+            boxPart({-0.012f, -0.028f, 0.0f}, {0.046f, 0.118f, 0.038f}, polymerCol, 0.70f, 0.10f, 0.0f, -0.22f);
+            boxPart({-0.185f, 0.045f, 0.0f}, {0.255f, 0.085f, 0.048f}, polymerCol, 0.68f, 0.14f);
+            // Heavy box receiver + big olive ammo drum box + gleaming brass belt
+            boxPart({0.145f, 0.068f, 0.0f}, {0.365f, 0.094f, 0.074f}, mat.primary, mat.roughness, mat.metallic, mat.emissive);
+            boxPart({0.165f, -0.056f, 0.0f}, {0.145f, 0.132f, extMag ? 0.138f : 0.106f}, oliveCol, 0.62f, 0.18f);
+            if (!shadowPass) {
+                boxPart({0.165f, 0.032f, -0.050f}, {0.072f, 0.048f, 0.018f}, brassCol, 0.22f, 0.92f);
+            }
+            // Ventilated barrel jacket + heavy LMG barrel + top carry handle
+            boxPart({0.365f, 0.062f, 0.0f}, {0.245f, 0.064f, 0.062f}, mat.secondary, 0.38f, 0.76f);
+            cylX(0.475f, 0.068f, 0.0f, 0.225f, 0.030f, darkIron, 0.24f, 0.92f);
+            boxPart({0.255f, 0.136f, 0.0f}, {0.145f, 0.022f, 0.028f}, steelCol, 0.36f, 0.78f);
+            muzzleX = 0.705f;
+            muzzleY = 0.068f;
+            flashScale = 0.26f;
+            break;
+        }
+        case WeaponId::Minigun: {
+            // M134 6-Barrel Rotary Gatling Minigun!
+            // Rear electric drive motor + dual trigger spade grip
+            cylX(-0.085f, 0.052f, 0.0f, 0.245f, 0.138f, mat.primary, mat.roughness, mat.metallic, mat.emissive);
+            boxPart({0.000f, 0.000f, 0.0f}, {0.045f, 0.115f, 0.040f}, polymerCol, 0.70f, 0.12f);
+            // Iconic top chainsaw carry bar (left hand IK grips here!)
+            boxPart({0.155f, 0.165f, 0.0f}, {0.205f, 0.026f, 0.032f}, steelCol, 0.34f, 0.80f);
+            boxPart({0.065f, 0.125f, 0.0f}, {0.024f, 0.085f, 0.028f}, steelCol, 0.34f, 0.80f);
+            boxPart({0.245f, 0.125f, 0.0f}, {0.024f, 0.085f, 0.028f}, steelCol, 0.34f, 0.80f);
+            // Under-slung ammo feed chute
+            boxPart({0.075f, -0.058f, -0.055f}, {0.135f, 0.085f, 0.085f}, oliveCol, 0.62f, 0.18f);
+            // 6 individually rotating steel gatling barrels + 2 clamp rings!
+            for (int b = 0; b < 6; ++b) {
+                const float ang = minigunSpin + kTwoPi * (static_cast<float>(b) / 6.0f);
+                const float by = 0.052f + std::cos(ang) * 0.042f;
+                const float bz = std::sin(ang) * 0.042f;
+                cylX(0.155f, by, bz, 0.620f, 0.020f, mat.secondary, 0.22f, 0.92f);
+            }
+            cylX(0.365f, 0.052f, 0.0f, 0.032f, 0.116f, darkIron, 0.30f, 0.86f);
+            cylX(0.710f, 0.052f, 0.0f, 0.032f, 0.116f, darkIron, 0.30f, 0.86f);
+            muzzleX = 0.785f;
+            muzzleY = 0.052f;
+            flashScale = 0.34f;
+            break;
+        }
+        case WeaponId::HeavyLauncher: {
+            // Shoulder-Fired Rocket Launcher (RPG-7 / AT4 style)
+            // Main olive launch tube (extends behind shoulder & forward)
+            cylX(-0.520f, 0.068f, 0.0f, 1.080f, 0.084f, oliveCol, 0.56f, 0.26f);
+            // Flared rear exhaust venturi cone + protective wood heat-shield band
+            cylX(-0.565f, 0.068f, 0.0f, 0.065f, 0.112f, darkIron, 0.38f, 0.78f);
+            cylX(-0.080f, 0.068f, 0.0f, 0.340f, 0.096f, woodCol, 0.66f, 0.06f);
+            // Twin pistol grips (right hand at origin, left hand forward)
+            boxPart({0.000f, -0.015f, 0.0f}, {0.044f, 0.115f, 0.034f}, polymerCol, 0.72f, 0.08f, 0.0f, -0.18f);
+            boxPart({0.210f, -0.012f, 0.0f}, {0.040f, 0.105f, 0.034f}, polymerCol, 0.72f, 0.08f, 0.0f, 0.12f);
+            // Protruding tapered warhead nosecone!
+            cylX(0.555f, 0.068f, 0.0f, 0.085f, 0.118f, mat.primary, 0.44f, 0.45f, mat.emissive);
+            const Mat4 noseM = weaponWorldM * Mat4::translation(0.635f, 0.068f, 0.0f) *
+                               Mat4::rotationAxis({0, 0, 1}, -kHalfPi) *
+                               Mat4::scale(0.118f, 0.165f, 0.118f);
+            drawMesh(vk, coneMesh_, noseM, mat.secondary, 0.40f, 0.48f, mat.emissive, MatId::Standard, shadowPass);
+            muzzleX = 0.815f;
+            muzzleY = 0.068f;
+            flashScale = 0.36f;
+            break;
+        }
+        default: break;
+    }
+
+    // Optional Tactical Suppressor Cylinder
+    if (hasSuppressor) {
+        const float supLen = (weapon == WeaponId::Pistol || weapon == WeaponId::HeavyRevolver) ? 0.135f : 0.175f;
+        cylX(muzzleX - 0.01f, muzzleY, 0.0f, supLen, 0.036f, {24, 26, 30, 255}, 0.42f, 0.72f);
+        muzzleX += supLen;
+        flashScale *= 0.42f;
+    }
+
+    // Optional Laser Sight Module & Crisp Glowing Beam
+    if (!shadowPass && laserColIdx > 0) {
+        const ColorRGBA lCol = getLaserSightColorRGBA(laserColIdx);
+        boxPart({muzzleX * 0.62f, muzzleY - 0.026f, 0.022f}, {0.055f, 0.022f, 0.022f}, darkIron, 0.36f, 0.74f);
+        const float beamLen = isFirstPerson ? 2.6f : 1.6f;
+        cylX(muzzleX * 0.68f, muzzleY - 0.026f, 0.022f, beamLen, 0.0055f, lCol, 0.1f, 0.0f, 2.8f);
+    }
+
+    // Starburst Muzzle Flash!
+    if (!shadowPass && muzzleFlash > 0.01f) {
+        const float s = flashScale * (0.75f + 0.55f * clampf(muzzleFlash / 0.08f, 0.0f, 1.0f));
+        const Mat4 fm = weaponWorldM * Mat4::translation(muzzleX + s * 0.32f, muzzleY, 0.0f);
+        drawMesh(vk, sphereMesh_, fm * Mat4::scale(s * 1.45f, s * 0.65f, s * 0.65f),
+                 {255, 224, 108, 245}, 0.1f, 0.0f, 3.6f, MatId::EmissiveGlow, false, WorldPipelineKind::Additive);
+        drawMesh(vk, sphereMesh_, fm * Mat4::scale(s * 0.65f, s * 1.30f, s * 0.65f),
+                 {255, 172, 64, 210}, 0.1f, 0.0f, 3.0f, MatId::EmissiveGlow, false, WorldPipelineKind::Additive);
+    }
+}
+
+void Renderer3D::drawArmIK(VulkanContext& vk, const Mat4& rootM, const Vec3& shoulderLocal,
+                           const Vec3& handLocal, const Vec3& elbowPoleLocal,
+                           ColorRGBA sleeveCol, ColorRGBA skinCol, bool shadowPass) {
+    constexpr float L1 = 0.275f; // Upper arm length (m)
+    constexpr float L2 = 0.265f; // Forearm length (m)
+
+    Vec3 toHand = handLocal - shoulderLocal;
+    float d = toHand.length();
+    if (d < 0.04f) {
+        toHand = {0.0f, -0.04f, 0.0f};
+        d = 0.04f;
+    }
+    const float maxReach = L1 + L2 - 0.012f;
+    const float minReach = std::abs(L1 - L2) + 0.04f;
+    Vec3 clampedHand = handLocal;
+    if (d > maxReach) {
+        clampedHand = shoulderLocal + (toHand / d) * maxReach;
+        d = maxReach;
+    } else if (d < minReach) {
+        clampedHand = shoulderLocal + (toHand / d) * minReach;
+        d = minReach;
+    }
+
+    const Vec3 fwdDir = (clampedHand - shoulderLocal) / d;
+    // Law of cosines for exact elbow projection along shoulder->hand + bend perpendicular toward pole
+    const float a = clampf((L1 * L1 + d * d - L2 * L2) / (2.0f * d), -L1, L1);
+    const float h = std::sqrt(std::max(0.0f, L1 * L1 - a * a));
+
+    Vec3 poleVec = elbowPoleLocal - shoulderLocal;
+    poleVec = poleVec - fwdDir * dot3(poleVec, fwdDir);
+    if (poleVec.lengthSq() < 1e-5f) {
+        poleVec = {0.0f, -1.0f, 0.0f};
+        poleVec = poleVec - fwdDir * dot3(poleVec, fwdDir);
+    }
+    const Vec3 bendDir = poleVec.normalized();
+    const Vec3 elbowLocal = shoulderLocal + fwdDir * a + bendDir * h;
+
+    // Draw smooth upper arm + forearm + contoured hand!
+    const Mat4 upperM = rootM * buildCapsuleSegmentMatrix(shoulderLocal, elbowLocal, 0.114f);
+    drawMesh(vk, capsuleLimbMesh_, upperM, sleeveCol, 0.74f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
+
+    const Mat4 foreM = rootM * buildCapsuleSegmentMatrix(elbowLocal, clampedHand, 0.098f);
+    drawMesh(vk, capsuleLimbMesh_, foreM, sleeveCol, 0.74f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
+
+    const Mat4 handM = rootM * Mat4::translation(clampedHand.x, clampedHand.y, clampedHand.z) *
+                       Mat4::scale(0.095f, 0.092f, 0.086f);
+    drawMesh(vk, sphereMesh_, handM, skinCol, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, shadowPass);
+}
+
 void Renderer3D::drawCharacter(VulkanContext& vk, const Vec2& pos, float groundY, float yaw,
                                float animPhase, ColorRGBA top, ColorRGBA bottom, ColorRGBA skin,
                                bool alive, bool armed, WeaponId weapon, float muzzleFlash,
@@ -1614,8 +2275,19 @@ void Renderer3D::drawCharacter(VulkanContext& vk, const Vec2& pos, float groundY
                                bool jumping, bool panicking, bool isPolice, bool isSwat,
                                const CharacterCustomState* customChar,
                                const WeaponSlotState* customWep,
-                               const NpcCharacter* npcPtr, bool nightMode) {
+                               const NpcCharacter* npcPtr, bool nightMode,
+                               const WeaponPoseState* weaponPose) {
     const float hScale = npcPtr ? npcPtr->heightScale : 1.0f;
+    const WeaponPoseState defPose{};
+    const WeaponPoseState& pose = weaponPose ? *weaponPose : defPose;
+
+    // Subtle combat torso turn when aiming firearms or throwing a punch (authentic athletic shooting stance!)
+    const float meleeCurve = std::sin(clampf(pose.meleeSwingAnim, 0.0f, 1.0f) * kPi);
+    const float aimTorsoTwist = (alive && armed && weapon != WeaponId::Fists)
+        ? (-0.24f * clampf(pose.aimBlend, 0.0f, 1.0f)) : 0.0f;
+    const float torsoPunchTwist = (weapon == WeaponId::Fists && meleeCurve > 0.01f)
+        ? (pose.meleeSwingRight ? 0.24f : -0.24f) * meleeCurve : aimTorsoTwist;
+
     Mat4 root = Mat4::translation(pos.x, groundY, pos.z) *
                 Mat4::rotationAxis({0, 1, 0}, -yaw) *
                 Mat4::scale(hScale, hScale, hScale);
@@ -1636,44 +2308,52 @@ void Renderer3D::drawCharacter(VulkanContext& vk, const Vec2& pos, float groundY
         const float kneeAng = alive ? std::max(0.0f, -s * std::cos(animPhase) * 0.36f) : 0.0f;
         const Mat4 hipM = root * Mat4::translation(0.0f, 0.86f, s * 0.115f) *
                           Mat4::rotationAxis({0, 0, 1}, hipAng);
-        // Upper thigh capsule
         drawMesh(vk, capsuleLimbMesh_, hipM * Mat4::scale(0.165f, 0.41f, 0.165f),
                  bottom, 0.78f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
-        // Lower shin capsule with natural knee articulation
         const Mat4 kneeM = hipM * Mat4::translation(0.0f, -0.41f, 0.0f) *
                            Mat4::rotationAxis({0, 0, 1}, -kneeAng);
         drawMesh(vk, capsuleLimbMesh_, kneeM * Mat4::scale(0.135f, 0.38f, 0.135f),
                  bottom, 0.78f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
-        // Contoured sneaker/dress shoe
         drawMesh(vk, sphereMesh_, kneeM * Mat4::translation(0.05f, -0.41f, 0.0f) * Mat4::scale(0.26f, 0.10f, 0.13f),
                  shoeCol, 0.56f, 0.06f, 0.0f, MatId::Standard, shadowPass);
     }
 
-    // 2. Sculpted Pelvis, Belt & Anatomical Tapered Torso (Athletic Shoulders -> Waist!)
+    // 2. Sculpted Pelvis, Belt & Anatomical Tapered Torso (with punch/aim twist)
+    const Mat4 upperRoot = (std::abs(torsoPunchTwist) > 0.001f)
+        ? (root * Mat4::rotationAxis({0, 1, 0}, torsoPunchTwist))
+        : root;
+
     drawMesh(vk, sphereMesh_, root * Mat4::translation(0.0f, 0.86f, 0.0f) * Mat4::scale(0.24f, 0.18f, 0.36f),
              bottom, 0.78f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
     if (!shadowPass) {
         drawMesh(vk, cylMesh_, root * Mat4::translation(0.0f, 0.88f, 0.0f) * Mat4::scale(0.245f, 0.055f, 0.365f),
                  beltCol, 0.42f, 0.25f, 0.0f, MatId::Standard, false);
     }
-    drawMesh(vk, torsoMesh_, root * Mat4::translation(0.0f, 0.90f, 0.0f) * Mat4::scale(0.30f, 0.58f, 0.45f),
+    drawMesh(vk, torsoMesh_, upperRoot * Mat4::translation(0.0f, 0.90f, 0.0f) * Mat4::scale(0.30f, 0.58f, 0.45f),
              top, 0.74f, 0.04f, 0.0f, MatId::FabricCloth, shadowPass);
     if (!shadowPass) {
-        // Subtle inner shirt collar / lapel accent at chest V
-        drawMesh(vk, sphereMesh_, root * Mat4::translation(0.09f, 1.38f, 0.0f) * Mat4::scale(0.11f, 0.14f, 0.14f),
+        drawMesh(vk, sphereMesh_, upperRoot * Mat4::translation(0.09f, 1.38f, 0.0f) * Mat4::scale(0.11f, 0.14f, 0.14f),
                  {228, 232, 238, 255}, 0.72f, 0.02f, 0.0f, MatId::FabricCloth, false);
     }
     if (isSwat || outfit == OutfitId::TacOpsArmor) {
-        drawMesh(vk, torsoMesh_, root * Mat4::translation(0.0f, 0.96f, 0.0f) * Mat4::scale(0.34f, 0.46f, 0.47f),
+        drawMesh(vk, torsoMesh_, upperRoot * Mat4::translation(0.0f, 0.96f, 0.0f) * Mat4::scale(0.34f, 0.46f, 0.47f),
                  {30, 34, 42, 255}, 0.56f, 0.18f, 0.0f, MatId::Standard, shadowPass);
+    }
+    // Optional player tactical backpack / duffle gear
+    if (!shadowPass && customChar && customChar->backGearStyle > 0) {
+        const ColorRGBA bgCol = (customChar->backGearStyle == 1) ? ColorRGBA{46, 52, 46, 255}
+                              : ((customChar->backGearStyle == 2) ? ColorRGBA{32, 34, 40, 255}
+                                                                  : ColorRGBA{48, 178, 224, 255});
+        drawMesh(vk, cubeMesh_, upperRoot * Mat4::translation(-0.185f, 1.18f, 0.0f) * Mat4::scale(0.15f, 0.34f, 0.28f),
+                 bgCol, 0.65f, 0.12f, (customChar->backGearStyle == 3) ? 0.5f : 0.0f, MatId::FabricCloth, false);
     }
 
     // 3. Neck, Sculpted Head, Hair & Flush Conformal Eyewear!
-    drawMesh(vk, cylMesh_, root * Mat4::translation(0.0f, 1.43f, 0.0f) * Mat4::scale(0.11f, 0.13f, 0.11f),
+    drawMesh(vk, cylMesh_, upperRoot * Mat4::translation(0.0f, 1.43f, 0.0f) * Mat4::scale(0.11f, 0.13f, 0.11f),
              skin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, shadowPass);
 
     const float headLook = npcPtr ? npcPtr->headLookYaw : 0.0f;
-    const Mat4 headM = root * Mat4::translation(0.0f, 1.63f, 0.0f) * Mat4::rotationAxis({0, 1, 0}, -headLook);
+    const Mat4 headM = upperRoot * Mat4::translation(0.0f, 1.63f, 0.0f) * Mat4::rotationAxis({0, 1, 0}, -headLook);
     drawMesh(vk, sphereMesh_, headM * Mat4::scale(0.22f, 0.26f, 0.20f),
              skin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, shadowPass);
 
@@ -1687,13 +2367,11 @@ void Renderer3D::drawCharacter(VulkanContext& vk, const Vec2& pos, float groundY
             drawMesh(vk, cubeMesh_, headM * Mat4::translation(0.10f, 0.03f, 0.0f) * Mat4::scale(0.11f, 0.022f, 0.16f),
                      {20, 22, 26, 255}, 0.35f, 0.15f, 0.0f, MatId::Standard, false);
         } else {
-            // Natural contoured hair crown + back hair volume (never covers eyes!)
             drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.02f, 0.055f, 0.0f) * Mat4::scale(0.23f, 0.18f, 0.215f),
                      hairCol, 0.72f, 0.04f, 0.0f, MatId::Standard, false);
             drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.055f, -0.01f, 0.0f) * Mat4::scale(0.17f, 0.16f, 0.19f),
                      hairCol, 0.72f, 0.04f, 0.0f, MatId::Standard, false);
         }
-        // Subtle twin dark eyes / flush conformal twin-lens sunglasses (NEVER a floating brick!)
         if ((customChar && customChar->glassesStyle > 0) || (npcPtr && npcPtr->glassesStyle > 0)) {
             for (float es : {-1.0f, 1.0f}) {
                 drawMesh(vk, sphereMesh_, headM * Mat4::translation(0.098f, 0.014f, es * 0.042f) * Mat4::scale(0.025f, 0.038f, 0.058f),
@@ -1709,57 +2387,173 @@ void Renderer3D::drawCharacter(VulkanContext& vk, const Vec2& pos, float groundY
         }
     }
 
-    // 4. Articulated Two-Segment Arms (Upper Arm + Elbow + Forearm + Hand)
-    for (float s : {-1.0f, 1.0f}) {
-        float shoulderPitch = s * armSwing;
-        float elbowBend = 0.14f;
-        const bool raisingGun = (armed && s > 0.0f && weapon != WeaponId::Fists);
-        if (panicking) {
-            shoulderPitch = -2.35f;
-            elbowBend = 0.35f;
-        } else if (raisingGun) {
-            shoulderPitch = -kHalfPi + aimPitch;
-            elbowBend = 0.08f;
-        } else if (npcPtr && npcPtr->holdingUmbrella && s > 0.0f) {
-            shoulderPitch = -1.15f;
-            elbowBend = 0.45f;
+    // 4. Articulated 2-Bone Analytical IK Arms + Full Weapon-Holding & Handling Animations!
+    const Vec3 shLeft {0.0f, 1.365f, -0.214f};
+    const Vec3 shRight{0.0f, 1.365f,  0.214f};
+
+    const bool handsUp = alive && (panicking || (npcPtr && npcPtr->activity == NpcActivity::HandsUp));
+    const bool holdingFirearm = alive && armed && (weapon != WeaponId::Fists);
+
+    if (handsUp) {
+        drawArmIK(vk, upperRoot, shLeft,  {0.20f, 1.72f, -0.32f}, {-0.08f, 1.38f, -0.45f}, top, skin, shadowPass);
+        drawArmIK(vk, upperRoot, shRight, {0.20f, 1.72f,  0.32f}, {-0.08f, 1.38f,  0.45f}, top, skin, shadowPass);
+    } else if (holdingFirearm) {
+        const float aimT = clampf(pose.aimBlend, 0.0f, 1.0f);
+        const float smoothAim = aimT * aimT * (3.0f - 2.0f * aimT);
+        const float recoil = clampf(pose.recoilAnim, 0.0f, 1.0f);
+        const float equip = clampf(pose.equipAnim, 0.0f, 1.0f);
+        const float reloadBell = (pose.reloadFrac > 0.001f)
+            ? std::sin(clampf(pose.reloadFrac, 0.0f, 1.0f) * kPi) : 0.0f;
+        const float walkBobY = std::sin(animPhase * 2.0f) * 0.014f * (1.0f - smoothAim * 0.72f);
+        const float walkSwayZ = std::sin(animPhase) * 0.018f * (1.0f - smoothAim * 0.75f);
+
+        Vec3 carryPos{}, aimPos{};
+        float carryYaw = 0.0f, carryPitch = -0.35f, carryRoll = 0.0f;
+        float aimYaw = 0.0f, aimRoll = 0.0f;
+
+        if (weapon == WeaponId::Pistol || weapon == WeaponId::HeavyRevolver) {
+            // Tactical right-hand low-ready clearly visible beside right hip -> raised two-handed Weaver combat stance!
+            carryPos   = {0.29f, 1.06f, 0.30f};
+            carryYaw   = 0.08f;
+            carryPitch = -0.36f;
+            aimPos     = {0.44f, 1.37f, 0.22f};
+            aimYaw     = 0.20f;
+        } else if (weapon == WeaponId::Minigun) {
+            // Heavy hip-slung gatling carry -> braced firing stance
+            carryPos   = {0.28f, 0.92f, 0.28f};
+            carryYaw   = 0.14f;
+            carryPitch = -0.10f;
+            aimPos     = {0.32f, 0.99f, 0.26f};
+            aimYaw     = 0.18f;
+        } else if (weapon == WeaponId::HeavyLauncher) {
+            // Over-the-right-shoulder RPG rocket tube carry!
+            carryPos   = {0.18f, 1.46f, 0.25f};
+            carryYaw   = 0.05f;
+            carryPitch = 0.10f;
+            aimPos     = {0.22f, 1.48f, 0.24f};
+            aimYaw     = 0.20f;
+        } else {
+            // Two-handed Carbine / SMG / Shotgun / Sniper / LMG:
+            // Right-flank tactical low-ready (stock, mag & barrel clearly visible!) -> shouldered combat aim!
+            carryPos   = {0.28f, 1.15f, 0.26f};
+            carryYaw   = 0.22f;
+            carryPitch = -0.26f;
+            carryRoll  = -0.08f;
+            aimPos     = {0.33f, 1.36f, 0.26f};
+            aimYaw     = 0.24f; // Compensates for -0.24 rad athletic torso aim twist so muzzle aims straight ahead!
         }
 
-        const Mat4 shoulderM = root * Mat4::translation(0.0f, 1.365f, s * 0.214f) *
-                               Mat4::rotationAxis({0, 0, 1}, shoulderPitch);
-        // Upper arm capsule
-        drawMesh(vk, capsuleLimbMesh_, shoulderM * Mat4::scale(0.115f, 0.27f, 0.115f),
-                 top, 0.74f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
-        // Forearm capsule with natural elbow angle
-        const Mat4 elbowM = shoulderM * Mat4::translation(0.0f, -0.27f, 0.0f) *
-                            Mat4::rotationAxis({0, 0, 1}, elbowBend);
-        drawMesh(vk, capsuleLimbMesh_, elbowM * Mat4::scale(0.098f, 0.25f, 0.098f),
-                 top, 0.74f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
-        // Hand
-        drawMesh(vk, sphereMesh_, elbowM * Mat4::translation(0.0f, -0.27f, 0.0f) * Mat4::scale(0.095f, 0.105f, 0.085f),
-                 skin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, shadowPass);
+        // Smooth blend from carry -> aim + recoil kickback + reload inspection + holster draw sweep!
+        Vec3 wPos = lerp3(carryPos, aimPos, smoothAim);
+        float wYaw   = lerpf(carryYaw, aimYaw, smoothAim);
+        float wPitch = lerpf(carryPitch, clampf(aimPitch, -0.58f, 0.58f), smoothAim);
+        float wRoll  = lerpf(carryRoll, aimRoll, smoothAim);
 
-        // Held Weapon on Right Arm (only drawn raised when aiming/firing or armed NPC!)
-        if (raisingGun && !shadowPass) {
-            const float gunLen = (weapon == WeaponId::Pistol || weapon == WeaponId::HeavyRevolver) ? 0.24f
-                               : ((weapon == WeaponId::SniperRifle || weapon == WeaponId::HeavyLauncher) ? 0.88f : 0.58f);
-            const ColorRGBA wCol = customWep ? getWeaponFinishMaterial(weapon, customWep->skinIndex).primary
-                                             : ColorRGBA{38, 42, 48, 255};
-            drawMesh(vk, cubeMesh_, elbowM * Mat4::translation(0.05f, -0.29f - gunLen * 0.35f, 0.0f) *
-                     Mat4::scale(0.06f, gunLen, 0.065f), wCol, 0.30f, 0.78f, 0.0f, MatId::Standard, false);
-            if (muzzleFlash > 0.01f) {
-                drawMesh(vk, sphereMesh_, elbowM * Mat4::translation(0.05f, -0.31f - gunLen * 0.88f, 0.0f) *
-                         Mat4::scale(0.22f, 0.22f, 0.22f), {255, 224, 102, 240}, 0.1f, 0.0f, 3.2f,
-                         MatId::EmissiveGlow, false, WorldPipelineKind::Additive);
+        wPos.y += walkBobY;
+        wPos.z += walkSwayZ;
+
+        // Recoil kickback pushes stock back into shoulder & kicks muzzle upward!
+        wPos.x -= recoil * 0.055f;
+        wPos.y += recoil * 0.015f;
+        wPitch += recoil * 0.19f;
+
+        // Reload tilt elevates weapon slightly & rolls ejection port/mag well open for left hand
+        if (reloadBell > 0.001f) {
+            wPos.x += reloadBell * 0.04f;
+            wPos.y += reloadBell * 0.06f;
+            wYaw   += reloadBell * 0.34f;
+            wPitch += reloadBell * 0.26f;
+            wRoll  -= reloadBell * 0.52f;
+        }
+
+        // Holster draw sweep when switching weapons!
+        if (equip > 0.001f) {
+            const float e2 = equip * equip;
+            wPos.y -= e2 * 0.32f;
+            wPos.x -= e2 * 0.10f;
+            wPitch -= e2 * 0.72f;
+            wYaw   -= e2 * 0.35f;
+        }
+
+        constexpr float kThirdPersonWepScale = 1.26f;
+        const Mat4 weaponLocalM =
+            Mat4::translation(wPos.x, wPos.y, wPos.z) *
+            Mat4::rotationAxis({0, 1, 0}, wYaw) *
+            Mat4::rotationAxis({0, 0, 1}, wPitch) *
+            Mat4::rotationAxis({1, 0, 0}, wRoll) *
+            Mat4::scale(kThirdPersonWepScale, kThirdPersonWepScale, kThirdPersonWepScale);
+
+        const Mat4 weaponWorldM = upperRoot * weaponLocalM;
+        drawDetailedWeapon3D(vk, weapon, customWep, weaponWorldM, muzzleFlash, pose.minigunSpin, shadowPass, false);
+
+        // Right hand ALWAYS locked onto the weapon's pistol grip (local origin)!
+        const Vec3 rHandLocal = weaponLocalM.transformPoint({-0.010f, -0.025f, 0.006f});
+        const Vec3 rPoleLocal = {wPos.x - 0.18f, wPos.y - 0.24f, 0.48f};
+        drawArmIK(vk, upperRoot, shRight, rHandLocal, rPoleLocal, top, skin, shadowPass);
+
+        // Left hand: grips foregrip (rifles/SMG/shotgun/minigun/RPG), joins two-handed pistol aim,
+        // swaps magazine during reload, or swings naturally during casual pistol carry!
+        Vec3 lHandLocal{};
+        Vec3 lPoleLocal{-0.14f, 1.04f, -0.44f};
+        const bool twoHand = isTwoHandedFirearm(weapon);
+        const Vec3 naturalLeftWalk{
+            0.05f + std::sin(-armSwing) * 0.36f,
+            0.90f + std::abs(armSwing) * 0.04f,
+            -0.25f
+        };
+
+        if (reloadBell > 0.001f) {
+            // Left hand drops to hip pouch (0..0.45) then slaps fresh mag into mag well (0.45..1.0)!
+            const Vec3 hipPouch{0.06f, 0.88f, -0.22f};
+            const Vec3 magWell = weaponLocalM.transformPoint(weaponMagWellLocal(weapon));
+            const float rf = clampf(pose.reloadFrac, 0.0f, 1.0f);
+            if (rf < 0.45f) {
+                const float k = std::sin((rf / 0.45f) * kHalfPi);
+                lHandLocal = lerp3(weaponLocalM.transformPoint(weaponForegripLocal(weapon)), hipPouch, k);
+            } else {
+                const float k = std::sin(((rf - 0.45f) / 0.55f) * kPi);
+                lHandLocal = lerp3(hipPouch, magWell, clampf(k * 1.15f, 0.0f, 1.0f));
             }
+            lPoleLocal = {0.02f, 0.96f, -0.46f};
+        } else if (twoHand) {
+            lHandLocal = weaponLocalM.transformPoint(weaponForegripLocal(weapon));
+            lPoleLocal = {wPos.x - 0.10f, wPos.y - 0.34f, -0.42f};
+        } else {
+            // Pistol / Revolver: natural left walk swing at low-ready -> snaps to two-handed Weaver grip on aim!
+            const Vec3 twoHandPistolGrip = weaponLocalM.transformPoint(weaponForegripLocal(weapon));
+            lHandLocal = lerp3(naturalLeftWalk, twoHandPistolGrip, smoothAim);
+            lPoleLocal = lerp3({-0.12f, 1.06f, -0.38f}, {0.08f, 1.05f, -0.46f}, smoothAim);
         }
+        drawArmIK(vk, upperRoot, shLeft, lHandLocal, lPoleLocal, top, skin, shadowPass);
+    } else if (alive && weapon == WeaponId::Fists && meleeCurve > 0.01f) {
+        // Athletic Boxing Jab / Cross Punch Animation!
+        const Vec3 guardL{0.26f, 1.38f, -0.15f};
+        const Vec3 guardR{0.26f, 1.38f,  0.15f};
+        const Vec3 punchL{0.54f, 1.42f, -0.04f};
+        const Vec3 punchR{0.54f, 1.42f,  0.04f};
+        const Vec3 lHand = pose.meleeSwingRight ? guardL : lerp3(guardL, punchL, meleeCurve);
+        const Vec3 rHand = pose.meleeSwingRight ? lerp3(guardR, punchR, meleeCurve) : guardR;
+        drawArmIK(vk, upperRoot, shLeft,  lHand, {0.02f, 1.12f, -0.44f}, top, skin, shadowPass);
+        drawArmIK(vk, upperRoot, shRight, rHand, {0.02f, 1.12f,  0.44f}, top, skin, shadowPass);
+    } else {
+        // Natural walking arms + NPC rain umbrella grip!
+        const Vec3 lHand{
+            0.04f + std::sin(-armSwing) * 0.36f,
+            0.88f + std::abs(armSwing) * 0.04f,
+            -0.245f
+        };
+        const Vec3 rHand = (npcPtr && npcPtr->holdingUmbrella && alive)
+            ? Vec3{0.16f, 1.24f, 0.24f}
+            : Vec3{0.04f + std::sin(armSwing) * 0.36f, 0.88f + std::abs(armSwing) * 0.04f, 0.245f};
+        drawArmIK(vk, upperRoot, shLeft,  lHand, {-0.12f, 1.08f, -0.34f}, top, skin, shadowPass);
+        drawArmIK(vk, upperRoot, shRight, rHand, {-0.12f, 1.08f,  0.34f}, top, skin, shadowPass);
     }
 
     // 5. Korean Rain Umbrella when raining!
     if (npcPtr && npcPtr->holdingUmbrella && alive && !shadowPass) {
-        drawMesh(vk, cylMesh_, root * Mat4::translation(0.14f, 1.35f, 0.24f) * Mat4::scale(0.028f, 0.95f, 0.028f),
+        drawMesh(vk, cylMesh_, root * Mat4::translation(0.16f, 1.22f, 0.24f) * Mat4::scale(0.028f, 0.96f, 0.028f),
                  {44, 48, 54, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, false);
-        drawMesh(vk, coneMesh_, root * Mat4::translation(0.14f, 2.15f, 0.24f) * Mat4::scale(1.22f, 0.32f, 1.22f),
+        drawMesh(vk, coneMesh_, root * Mat4::translation(0.16f, 2.04f, 0.24f) * Mat4::scale(1.22f, 0.32f, 1.22f),
                  npcPtr->umbrellaColor, 0.56f, 0.05f, 0.0f, MatId::FabricCloth, false);
     }
     (void)nightMode;
@@ -1783,21 +2577,21 @@ void Renderer3D::drawAlphaAndEffects(VulkanContext& vk, const GameWorld& world,
         drawVehicle(vk, v, gy, nightMode, false, true, false);
     }
 
-    // 3. Hollow Ground POI Rings & Active Mission / GPS Waypoint Rings!
+    // 3. Sleek Compact Curb POI Beacons (no immersion-breaking giant arcade rings!) + Mission / GPS Markers
     for (const auto& poi : city.pois()) {
-        if ((poi.pos - focus).lengthSq() > 260.0f * 260.0f) continue;
-        const float gy = city.surfaceHeightAt(poi.pos) + 0.14f;
-        const float pulse = 1.0f + 0.06f * std::sin(t * 3.4f);
+        if ((poi.pos - focus).lengthSq() > 85.0f * 85.0f) continue;
+        const float gy = city.surfaceHeightAt(poi.pos) + 0.08f;
+        const float pulse = 1.0f + 0.04f * std::sin(t * 3.0f);
         ColorRGBA rc = poi.markerColor;
-        rc.a = 195;
-        Mat4 rm = Mat4::translation(poi.pos.x, gy, poi.pos.z) *
-                  Mat4::scale(poi.radius * pulse, 1.0f, poi.radius * pulse);
-        drawMesh(vk, ringMesh_, rm, rc, 0.2f, 0.0f, 1.35f, MatId::EmissiveGlow, false, WorldPipelineKind::Alpha);
+        rc.a = 115;
+        const float r = std::min(1.55f, poi.radius * 0.32f) * pulse;
+        Mat4 rm = Mat4::translation(poi.pos.x, gy, poi.pos.z) * Mat4::scale(r, 1.0f, r);
+        drawMesh(vk, ringMesh_, rm, rc, 0.2f, 0.0f, 0.65f, MatId::EmissiveGlow, false, WorldPipelineKind::Alpha);
     }
     if (world.mission().kind != ActiveMissionKind::None) {
         const Vec2 mp = world.mission().currentObjectivePos;
         if ((mp - focus).lengthSq() < 1200.0f * 1200.0f) {
-            const float gy = city.surfaceHeightAt(mp) + 0.18f;
+            const float gy = city.surfaceHeightAt(mp) + 0.16f;
             Mat4 rm = Mat4::translation(mp.x, gy, mp.z) * Mat4::scale(world.mission().objectiveRadius, 1.0f, world.mission().objectiveRadius);
             drawMesh(vk, ringMesh_, rm, {255, 206, 48, 210}, 0.2f, 0.0f, 1.8f, MatId::EmissiveGlow, false, WorldPipelineKind::Alpha);
         }
@@ -1805,12 +2599,11 @@ void Renderer3D::drawAlphaAndEffects(VulkanContext& vk, const GameWorld& world,
     if (world.player().hasWaypoint) {
         const Vec2 wp = world.player().waypointPos;
         if ((wp - focus).lengthSq() < 2500.0f * 2500.0f) {
-            const float gy = city.surfaceHeightAt(wp) + 0.22f;
-            Mat4 rm = Mat4::translation(wp.x, gy, wp.z) * Mat4::scale(5.5f, 1.0f, 5.5f);
+            const float gy = city.surfaceHeightAt(wp) + 0.20f;
+            Mat4 rm = Mat4::translation(wp.x, gy, wp.z) * Mat4::scale(5.0f, 1.0f, 5.0f);
             drawMesh(vk, ringMesh_, rm, {72, 226, 255, 220}, 0.2f, 0.0f, 2.0f, MatId::EmissiveGlow, false, WorldPipelineKind::Alpha);
-            // Tall slender GPS light pillar visible from blocks away
-            drawBox(vk, {wp.x, gy + 45.0f, wp.z}, {0.9f, 90.0f, 0.9f}, 0.0f,
-                    {72, 226, 255, 92}, 0.1f, 0.0f, 1.8f, MatId::EmissiveGlow, false, WorldPipelineKind::Additive);
+            drawBox(vk, {wp.x, gy + 45.0f, wp.z}, {0.8f, 90.0f, 0.8f}, 0.0f,
+                    {72, 226, 255, 86}, 0.1f, 0.0f, 1.8f, MatId::EmissiveGlow, false, WorldPipelineKind::Additive);
         }
     }
 
@@ -1904,42 +2697,119 @@ void Renderer3D::drawAlphaAndEffects(VulkanContext& vk, const GameWorld& world,
 
 void Renderer3D::drawFirstPersonOverlay(VulkanContext& vk, const GameWorld& world,
                                         const CameraState& camera, float adsBlend) {
-    if (world.player().drivingVehicleId >= 0) return;
-    if (world.player().currentWeapon == WeaponId::Fists) return;
+    const auto& pl = world.player();
+    if (pl.drivingVehicleId >= 0) return;
 
-    // Clear depth cleanly so 1st-person weapon never clips into Seoul walls!
+    // Clear depth cleanly so 1st-person arms & weapon never clip into Seoul walls!
     vk.clearSceneDepth();
 
     const Vec3 fwd = (camera.target - camera.position).normalized();
-    const Vec3 right = Vec3{fwd.y * camera.up.z - fwd.z * camera.up.y,
-                            fwd.z * camera.up.x - fwd.x * camera.up.z,
-                            fwd.x * camera.up.y - fwd.y * camera.up.x}.normalized();
-    const Vec3 up = Vec3{right.y * fwd.z - right.z * fwd.y,
-                         right.z * fwd.x - right.x * fwd.z,
-                         right.x * fwd.y - right.y * fwd.x}.normalized();
+    const Vec3 right = cross3(fwd, camera.up).normalized();
+    const Vec3 up = cross3(right, fwd).normalized();
 
-    const float sideX = lerpf(0.22f, 0.0f, adsBlend);
-    const float downY = lerpf(-0.18f, -0.11f, adsBlend);
-    const float fwdZ  = lerpf(0.42f, 0.34f, adsBlend);
-    const Vec3 gunPos = camera.position + right * sideX + up * downY + fwd * fwdZ;
+    // Camera-attached local frame where +X = forward, +Y = up, +Z = right (matches drawDetailedWeapon3D!)
+    Mat4 camBasis{};
+    camBasis.m[0] = fwd.x;   camBasis.m[1] = fwd.y;   camBasis.m[2]  = fwd.z;   camBasis.m[3]  = 0.0f;
+    camBasis.m[4] = up.x;    camBasis.m[5] = up.y;    camBasis.m[6]  = up.z;    camBasis.m[7]  = 0.0f;
+    camBasis.m[8] = right.x; camBasis.m[9] = right.y; camBasis.m[10] = right.z; camBasis.m[11] = 0.0f;
+    camBasis.m[12] = camera.position.x;
+    camBasis.m[13] = camera.position.y;
+    camBasis.m[14] = camera.position.z;
+    camBasis.m[15] = 1.0f;
 
-    Mat4 basis{};
-    basis.m[0] = fwd.x;   basis.m[1] = fwd.y;   basis.m[2] = fwd.z;
-    basis.m[4] = up.x;    basis.m[5] = up.y;    basis.m[6] = up.z;
-    basis.m[8] = right.x; basis.m[9] = right.y; basis.m[10] = right.z;
-    basis.m[12] = gunPos.x; basis.m[13] = gunPos.y; basis.m[14] = gunPos.z;
+    const ColorRGBA sleeveCol = getPlayerTopColor(pl.currentOutfit, pl.characterCustom.customTopColorIdx);
+    const ColorRGBA skinCol   = getPlayerSkinColor(pl.characterCustom.skinToneIdx);
 
-    const auto& slot = world.player().weapons[static_cast<std::size_t>(world.player().currentWeapon)];
-    const auto mat = getWeaponFinishMaterial(world.player().currentWeapon, slot.skinIndex);
+    const float spdFrac = clampf(pl.velocity.length() / 7.5f, 0.0f, 1.0f);
+    const float bobX = std::sin(pl.walkAnimPhase) * 0.014f * spdFrac * (1.0f - adsBlend * 0.78f);
+    const float bobY = std::abs(std::cos(pl.walkAnimPhase)) * -0.015f * spdFrac * (1.0f - adsBlend * 0.78f);
 
-    drawMesh(vk, cubeMesh_, basis * Mat4::scale(0.42f, 0.075f, 0.055f),
-             mat.primary, mat.roughness, mat.metallic, mat.emissive, MatId::Standard, false);
-    drawMesh(vk, cubeMesh_, basis * Mat4::translation(0.14f, 0.025f, 0.0f) * Mat4::scale(0.32f, 0.032f, 0.032f),
-             mat.secondary, mat.roughness, mat.metallic, 0.0f, MatId::Standard, false);
-    if (world.player().muzzleFlashTimer > 0.01f) {
-        drawMesh(vk, sphereMesh_, basis * Mat4::translation(0.34f, 0.02f, 0.0f) * Mat4::scale(0.16f, 0.16f, 0.16f),
-                 {255, 224, 110, 255}, 0.1f, 0.0f, 3.2f, MatId::EmissiveGlow, false, WorldPipelineKind::Additive);
+    if (pl.currentWeapon == WeaponId::Fists) {
+        // 1st-Person Boxing Fists & Forearms with Alternating Jab / Cross Animation!
+        const float punch = std::sin(clampf(pl.meleeSwingAnim, 0.0f, 1.0f) * kPi);
+        const float pL = pl.meleeSwingRight ? 0.0f : punch;
+        const float pR = pl.meleeSwingRight ? punch : 0.0f;
+
+        const Vec3 shL{-0.05f, -0.34f, -0.36f};
+        const Vec3 shR{-0.05f, -0.34f,  0.36f};
+        const Vec3 fL{0.34f + pL * 0.26f, -0.17f + pL * 0.08f + bobY, -0.17f + pL * 0.11f + bobX};
+        const Vec3 fR{0.34f + pR * 0.26f, -0.17f + pR * 0.08f + bobY,  0.17f - pR * 0.11f + bobX};
+
+        drawMesh(vk, capsuleLimbMesh_, camBasis * buildCapsuleSegmentMatrix(shL, fL, 0.095f),
+                 sleeveCol, 0.74f, 0.02f, 0.0f, MatId::FabricCloth, false);
+        drawMesh(vk, capsuleLimbMesh_, camBasis * buildCapsuleSegmentMatrix(shR, fR, 0.095f),
+                 sleeveCol, 0.74f, 0.02f, 0.0f, MatId::FabricCloth, false);
+        drawMesh(vk, sphereMesh_, camBasis * Mat4::translation(fL.x, fL.y, fL.z) * Mat4::scale(0.11f, 0.105f, 0.105f),
+                 skinCol, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, false);
+        drawMesh(vk, sphereMesh_, camBasis * Mat4::translation(fR.x, fR.y, fR.z) * Mat4::scale(0.11f, 0.105f, 0.105f),
+                 skinCol, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, false);
+        return;
     }
+
+    const auto& spec = getWeaponSpec(pl.currentWeapon);
+    const auto& slot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
+    const float reloadFrac = (pl.reloadTimer > 0.001f && spec.reloadDuration > 0.01f)
+        ? clampf(1.0f - (pl.reloadTimer / spec.reloadDuration), 0.0f, 1.0f) : 0.0f;
+    const float reloadBell = (reloadFrac > 0.001f) ? std::sin(reloadFrac * kPi) : 0.0f;
+    const float recoil = clampf(pl.weaponRecoilAnim, 0.0f, 1.0f);
+    const float equip = clampf(pl.weaponEquipAnim, 0.0f, 1.0f);
+    const float smoothAds = adsBlend * adsBlend * (3.0f - 2.0f * adsBlend);
+
+    // Weapon-specific 1st-person hip-fire & iron-sight/optic ADS offsets
+    float hipFwd = 0.42f, hipY = -0.22f, hipZ = 0.22f;
+    float adsFwd = 0.34f, adsY = -0.108f, adsZ = 0.0f;
+    if (pl.currentWeapon == WeaponId::Pistol || pl.currentWeapon == WeaponId::HeavyRevolver) {
+        hipFwd = 0.45f; hipY = -0.19f; hipZ = 0.19f;
+        adsFwd = 0.38f; adsY = -0.088f; adsZ = 0.0f;
+    } else if (pl.currentWeapon == WeaponId::Minigun) {
+        hipFwd = 0.42f; hipY = -0.30f; hipZ = 0.24f;
+        adsFwd = 0.38f; adsY = -0.24f; adsZ = 0.15f;
+    } else if (pl.currentWeapon == WeaponId::HeavyLauncher) {
+        hipFwd = 0.38f; hipY = -0.17f; hipZ = 0.25f;
+        adsFwd = 0.34f; adsY = -0.11f; adsZ = 0.13f;
+    }
+
+    float wx = lerpf(hipFwd, adsFwd, smoothAds) - recoil * 0.065f;
+    float wy = lerpf(hipY, adsY, smoothAds) + bobY - equip * equip * 0.26f - reloadBell * 0.06f;
+    float wz = lerpf(hipZ, adsZ, smoothAds) + bobX;
+
+    const float pitchZ = recoil * 0.16f - equip * equip * 0.65f + reloadBell * 0.28f;
+    const float yawY   = lerpf(0.085f, 0.0f, smoothAds) + reloadBell * 0.32f;
+    const float rollX  = -reloadBell * 0.58f;
+
+    const Mat4 wepLocalM =
+        Mat4::translation(wx, wy, wz) *
+        Mat4::rotationAxis({0, 1, 0}, yawY) *
+        Mat4::rotationAxis({0, 0, 1}, pitchZ) *
+        Mat4::rotationAxis({1, 0, 0}, rollX);
+    const Mat4 wepWorldM = camBasis * wepLocalM;
+
+    // 1. Render Detailed Multi-Part 3D Firearm Viewmodel!
+    drawDetailedWeapon3D(vk, pl.currentWeapon, &slot, wepWorldM, pl.muzzleFlashTimer, pl.minigunSpin, false, true);
+
+    // 2. Render 1st-Person Sleeves + Hands Gripping Pistol Grip & Foregrip/Mag!
+    const Vec3 rAnchor = wepLocalM.transformPoint({-0.012f, -0.028f, 0.008f});
+    const Vec3 rShoulder{-0.06f, -0.44f, 0.36f};
+    drawMesh(vk, capsuleLimbMesh_, camBasis * buildCapsuleSegmentMatrix(rShoulder, rAnchor, 0.088f),
+             sleeveCol, 0.74f, 0.02f, 0.0f, MatId::FabricCloth, false);
+    drawMesh(vk, sphereMesh_, camBasis * Mat4::translation(rAnchor.x, rAnchor.y, rAnchor.z) * Mat4::scale(0.088f, 0.086f, 0.082f),
+             skinCol, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, false);
+
+    Vec3 lAnchor = wepLocalM.transformPoint(weaponForegripLocal(pl.currentWeapon));
+    if (reloadBell > 0.001f) {
+        const Vec3 lowPouch{0.18f, -0.44f, -0.14f};
+        const Vec3 magWell = wepLocalM.transformPoint(weaponMagWellLocal(pl.currentWeapon));
+        if (reloadFrac < 0.45f) {
+            lAnchor = lerp3(lAnchor, lowPouch, std::sin((reloadFrac / 0.45f) * kHalfPi));
+        } else {
+            lAnchor = lerp3(lowPouch, magWell, std::sin(((reloadFrac - 0.45f) / 0.55f) * kPi));
+        }
+    }
+    const Vec3 lShoulder{-0.06f, -0.44f, -0.34f};
+    drawMesh(vk, capsuleLimbMesh_, camBasis * buildCapsuleSegmentMatrix(lShoulder, lAnchor, 0.086f),
+             sleeveCol, 0.74f, 0.02f, 0.0f, MatId::FabricCloth, false);
+    drawMesh(vk, sphereMesh_, camBasis * Mat4::translation(lAnchor.x, lAnchor.y, lAnchor.z) * Mat4::scale(0.086f, 0.084f, 0.080f),
+             skinCol, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, false);
 }
 
 void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& world,
@@ -1981,7 +2851,7 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
             drawVehicle(vk, v, gy, nightMode, shadowPass, false, hoodOnly);
         }
 
-        // Draw Player (unless 1st-person on foot or driving)
+        // Draw Player with live 3D weapon carry / shoulder-aim / recoil / reload / equip / punch animations!
         const auto& pl = world.player();
         if (pl.drivingVehicleId < 0 && (!firstPerson || shadowPass)) {
             const float gy = world.city().surfaceHeightAt(pl.pos) + pl.posY;
@@ -1989,11 +2859,24 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
             const ColorRGBA bot = getPlayerBottomColor(pl.currentOutfit, pl.characterCustom.customBottomColorIdx);
             const ColorRGBA skin = getPlayerSkinColor(pl.characterCustom.skinToneIdx);
             const auto& wepSlot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
-            const bool raisingWeapon = (adsBlend > 0.04f || pl.muzzleFlashTimer > 0.01f);
+            const auto& wepSpec = getWeaponSpec(pl.currentWeapon);
+
+            WeaponPoseState wPose{};
+            wPose.aimBlend = std::max(pl.weaponAimBlend, adsBlend);
+            wPose.recoilAnim = pl.weaponRecoilAnim;
+            wPose.reloadFrac = (pl.reloadTimer > 0.001f && wepSpec.reloadDuration > 0.01f)
+                ? clampf(1.0f - (pl.reloadTimer / wepSpec.reloadDuration), 0.0f, 1.0f) : 0.0f;
+            wPose.equipAnim = pl.weaponEquipAnim;
+            wPose.meleeSwingAnim = pl.meleeSwingAnim;
+            wPose.meleeSwingRight = pl.meleeSwingRight;
+            wPose.minigunSpin = pl.minigunSpin;
+
+            // Player ALWAYS visibly holds any equipped firearm (low-ready carry -> smooth combat aim)!
+            const bool armed = (pl.currentWeapon != WeaponId::Fists);
             drawCharacter(vk, pl.pos, gy, pl.facingYaw, pl.walkAnimPhase, top, bot, skin,
-                          !pl.wasted, raisingWeapon, pl.currentWeapon, pl.muzzleFlashTimer, pl.aimPitch,
+                          !pl.wasted, armed, pl.currentWeapon, pl.muzzleFlashTimer, pl.aimPitch,
                           pl.currentOutfit, shadowPass, !pl.onGround, false, false, false,
-                          &pl.characterCustom, &wepSlot, nullptr, nightMode);
+                          &pl.characterCustom, &wepSlot, nullptr, nightMode, &wPose);
         }
 
         // Draw Living Seoul Citizens, Gangsters & Police Officers!
@@ -2003,13 +2886,16 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
             const float gy = world.city().surfaceHeightAt(npc.pos);
             const bool npcCombat = (npc.role != NpcRole::Civilian) &&
                                    (npc.behavior == NpcBehavior::CombatEngage || npc.muzzleFlashTimer > 0.01f);
+            WeaponPoseState npcPose{};
+            npcPose.aimBlend = npcCombat ? 1.0f : 0.0f;
+            npcPose.recoilAnim = clampf(npc.muzzleFlashTimer * 8.0f, 0.0f, 1.0f);
             drawCharacter(vk, npc.pos, gy, npc.facingYaw, npc.animPhase,
                           npc.outfitTop, npc.outfitBottom, npc.skinColor,
                           npc.alive, npcCombat, npc.weapon,
                           npc.muzzleFlashTimer, 0.0f, npc.outfitStyle, shadowPass,
                           false, (npc.behavior == NpcBehavior::PanicFlee),
                           (npc.role == NpcRole::Police), npc.isSwat,
-                          nullptr, nullptr, &npc, nightMode);
+                          nullptr, nullptr, &npc, nightMode, &npcPose);
         }
     };
 
@@ -2034,10 +2920,10 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
     // Opaque Seoul World + CAD Vehicles + Characters
     renderWorldPass(false);
 
-    // Translucent Glass, Rainbow Fountain, Rain, Particles, Tracers & POI Rings
+    // Translucent Glass, Rainbow Fountain, Rain, Particles, Tracers & Sleek Curb Beacons
     drawAlphaAndEffects(vk, world, camera, focus);
 
-    // 1st-Person Weapon Viewmodel
+    // 1st-Person Weapon Viewmodel + Forearms/Hands
     if (firstPerson && !lookBack) {
         drawFirstPersonOverlay(vk, world, camera, adsBlend);
     }

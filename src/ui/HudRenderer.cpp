@@ -521,15 +521,53 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
     for (float gx = -15000.0f; gx <= 15000.0f; gx += 3000.0f) {
         const Vec2 a = toScr({gx, CityMap::kWorldMinZ});
         const Vec2 b = toScr({gx, CityMap::kWorldMaxZ});
-        ui.drawLine(a.x, a.z, b.x, b.z, 1.0f, {34, 44, 58, 110});
+        ui.drawLine(a.x, a.z, b.x, b.z, 1.0f, {30, 40, 54, 95});
     }
     for (float gz = -12000.0f; gz <= 12000.0f; gz += 3000.0f) {
         const Vec2 a = toScr({CityMap::kWorldMinX, gz});
         const Vec2 b = toScr({CityMap::kWorldMaxX, gz});
-        ui.drawLine(a.x, a.z, b.x, b.z, 1.0f, {34, 44, 58, 110});
+        ui.drawLine(a.x, a.z, b.x, b.z, 1.0f, {30, 40, 54, 95});
     }
 
-    // 2. 7 Real Seoul Mountains (topographic green contour ovals!)
+    // 1B. Authentic Seoul Special City (서울특별시) 25-gu Municipal Basin Fill & Border + Ring Expressway!
+    {
+        static constexpr Vec2 kSeoulBorder[24] = {
+            {-14400.0f,  -2200.0f}, {-12800.0f,  -4600.0f}, {-9600.0f,  -5600.0f}, {-6400.0f,  -7200.0f},
+            { -3600.0f, -10400.0f}, {  -400.0f, -11800.0f}, { 3400.0f, -11600.0f}, { 6800.0f, -10200.0f},
+            {  9200.0f,  -7200.0f}, { 11200.0f,  -4600.0f}, {13600.0f,  -3200.0f}, {14500.0f,   -600.0f},
+            { 14200.0f,   2800.0f}, { 12600.0f,   6200.0f}, { 9800.0f,   8600.0f}, { 6400.0f,  10400.0f},
+            {  2200.0f,  10600.0f}, { -1800.0f,   9600.0f}, {-5600.0f,   9400.0f}, {-8800.0f,   7600.0f},
+            {-11600.0f,   5600.0f}, {-13600.0f,   3200.0f}, {-14400.0f,    800.0f}, {-14400.0f,  -2200.0f}
+        };
+        const Vec2 seoulCenter = toScr({0.0f, 0.0f});
+        for (int i = 0; i < 23; ++i) {
+            const Vec2 a = toScr(kSeoulBorder[i]);
+            const Vec2 b = toScr(kSeoulBorder[i + 1]);
+            ui.drawTriangle(seoulCenter.x, seoulCenter.z, a.x, a.z, b.x, b.z, {28, 36, 48, 205});
+        }
+        // Subtle Gyeonggi greenbelt perimeter mountain contours (14 outer Seoul-basin peaks!)
+        for (const auto& pm : city.perimeterMountains()) {
+            const Vec2 c = toScr(pm.center);
+            const Vec2 edge = toScr({pm.center.x + pm.radiusX, pm.center.z});
+            const float rPx = std::max(10.0f, std::abs(edge.x - c.x));
+            ui.drawCircle(c.x, c.z, rPx, {26, 56, 38, 120}, 20);
+            ui.drawCircle(c.x, c.z, rPx * 0.56f, {36, 74, 48, 145}, 16);
+            if (mapZoom_ >= 1.25f) {
+                ui.drawTextCentered(pickText(pm.nameEn.c_str(), pm.nameKo.c_str()), c.x, c.z - 6.0f, 10.5f, {140, 196, 152, 195});
+            }
+        }
+        // Crisp Seoul Special City municipal border stroke + outer Capital Region 1st Ring Expressway loop!
+        for (int i = 0; i < 23; ++i) {
+            const Vec2 a = toScr(kSeoulBorder[i]);
+            const Vec2 b = toScr(kSeoulBorder[i + 1]);
+            ui.drawLine(a.x, a.z, b.x, b.z, 2.2f, {118, 168, 218, 195});
+            const Vec2 oa = toScr(kSeoulBorder[i] * 1.045f);
+            const Vec2 ob = toScr(kSeoulBorder[i + 1] * 1.045f);
+            ui.drawLine(oa.x, oa.z, ob.x, ob.z, 1.4f, {202, 154, 72, 125});
+        }
+    }
+
+    // 2. 7 Inner Seoul Mountains (topographic green contour ovals!)
     for (const auto& m : city.mountains()) {
         const Vec2 c = toScr(m.center);
         const Vec2 edge = toScr({m.center.x + m.radiusX, m.center.z});
@@ -1114,20 +1152,21 @@ void HudRenderer::drawBannerToast(Vulkan2D& ui, const GameWorld& world, int scre
 void HudRenderer::drawHelpOverlay(Vulkan2D& ui, const GameWorld& world, int screenW, int /*screenH*/, bool /*cursorLocked*/) {
     if (!showHelp_ || mobileUi_ || isAnyModalOpen()) return;
     const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
-    const float w = 310.0f, h = 156.0f;
+    const float w = 316.0f, h = 172.0f;
     ui.drawRoundedRect(18.0f, 16.0f, w, h, 10.0f, {10, 14, 22, 198});
     ui.drawRoundedRectOutline(18.0f, 16.0f, w, h, 10.0f, 1.2f, accent);
-    ui.drawText(pickText("OPEN CITY SEOUL v2.0 (VULKAN)", "오픈 시티 서울 v2.0 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
-    const char* lines[6] = {
+    ui.drawText(pickText("OPEN CITY SEOUL v2.2 (VULKAN)", "오픈 시티 서울 v2.2 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
+    const char* lines[7] = {
         "WASD: 이동/운전 | Space: 점프/핸드브레이크",
         "Shift: 달리기/니트로 | F/E: 차량 탑승/상점",
+        "1~0: 무기 교체 | 우클릭: 조준 | R: 재장전",
         "M 또는 미니맵 클릭: 서울 전체 지도 & 빠른이동",
         "V: 1인칭/3인칭 | P: 스마트폰 | K: 커스텀",
         "Y: 날씨 변경 | T: 시간 이동 | U: Vulkan 품질",
         "H: 도움말 숨기기 | Tab: 마우스 잠금 해제"
     };
-    for (int i = 0; i < 6; ++i) {
-        ui.drawText(lines[i], 28.0f, 48.0f + static_cast<float>(i) * 18.5f, 12.5f, {214, 226, 242, 235});
+    for (int i = 0; i < 7; ++i) {
+        ui.drawText(lines[i], 28.0f, 47.0f + static_cast<float>(i) * 18.2f, 12.5f, {214, 226, 242, 235});
     }
     (void)screenW;
 }

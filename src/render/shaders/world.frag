@@ -310,7 +310,16 @@ void main() {
                 if (isBlueBusVert) {
                     blueMask = max(blueMask, aaBand(abs(dx - 6.65), 0.085));
                 }
-                whiteMask = max(whiteMask, aaBand(abs(dx - 8.55), 0.07) * 0.62);
+                // Korean road shoulder yellow no-parking edge line
+                yellowMask = max(yellowMask, aaBand(abs(dx - 8.62), 0.075) * 0.72);
+                // Crisp Korean white straight-lane directional arrow ahead of stop line!
+                if (fragPosition.y < 3.5 && dz > 15.2 && dz < 19.6) {
+                    float laneDist = abs(abs(dx - 4.35) - 2.15);
+                    float shaft = aaBand(laneDist, 0.14) * step(15.6, dz) * step(dz, 18.8);
+                    float headW = clamp((dz - 15.2) * 0.42, 0.0, 0.62);
+                    float head = aaBand(laneDist, headW) * step(15.2, dz) * step(dz, 16.5);
+                    whiteMask = max(whiteMask, max(shaft, head) * 0.85);
+                }
             }
         } else if (onHoriz && !onVert) {
             if (dx >= 9.35 && dx <= 12.15 && dz < 8.0) {
@@ -328,7 +337,14 @@ void main() {
                 if (isBlueBusHoriz) {
                     blueMask = max(blueMask, aaBand(abs(dz - 6.65), 0.085));
                 }
-                whiteMask = max(whiteMask, aaBand(abs(dz - 8.55), 0.07) * 0.62);
+                yellowMask = max(yellowMask, aaBand(abs(dz - 8.62), 0.075) * 0.72);
+                if (dx > 15.2 && dx < 19.6) {
+                    float laneDist = abs(abs(dz - 4.35) - 2.15);
+                    float shaft = aaBand(laneDist, 0.14) * step(15.6, dx) * step(dx, 18.8);
+                    float headW = clamp((dx - 15.2) * 0.42, 0.0, 0.62);
+                    float head = aaBand(laneDist, headW) * step(15.2, dx) * step(dx, 16.5);
+                    whiteMask = max(whiteMask, max(shaft, head) * 0.85);
+                }
             }
         } else if (onVert && onHoriz) {
             float mh = length(vec2(dx, dz));
@@ -376,18 +392,47 @@ void main() {
         }
     }
     else if (matId == 5) {
-        // MAT 5: Seoul Concrete Sidewalk Pavers
+        // MAT 5: Authentic Seoul Sidewalk Interlocking Brick Pavers (보도블럭) + Granite Curbs + Yellow Tactile Paving (점자블록)!
         vec2 p = fragPosition.xz;
-        float distFade = 1.0 - smoothstep(20.0, 90.0, length(viewPos - fragPosition));
-        vec2 cell = fract(p * 0.45);
-        vec2 tileId = floor(p * 0.45);
-        float seamDist = min(min(cell.x, 1.0 - cell.x), min(cell.y, 1.0 - cell.y));
-        float seam = 1.0 - smoothstep(0.0, max(fwidth(seamDist), 0.015) * 1.4, seamDist - 0.016);
-        float tileVar = hash12(tileId) * 0.11 - 0.055;
-        float grain = valueNoise(p * 12.0) * 0.07 + valueNoise(p * 36.0) * 0.04;
-        albedo *= (0.94 + tileVar + grain * distFade);
-        albedo *= (1.0 - seam * 0.28);
-        roughness = mix(0.84, 0.58, wetRoadFactor * 0.72);
+        float distFade = 1.0 - smoothstep(18.0, 95.0, length(viewPos - fragPosition));
+        float rx = round(p.x / 84.0) * 84.0;
+        float rz = round(p.y / 84.0) * 84.0;
+        float dx = abs(p.x - rx);
+        float dz = abs(p.y - rz);
+        float edgeDist = min(dx, dz);
+
+        // Interlocking Seoul rectangular brick pavers (running-bond terracotta-beige & warm grey!)
+        float rowIdx = floor(p.y * 4.2);
+        vec2 brickUv = vec2(fract(p.x * 2.1 + mod(rowIdx, 2.0) * 0.5), fract(p.y * 4.2));
+        vec2 brickId = vec2(floor(p.x * 2.1 + mod(rowIdx, 2.0) * 0.5), rowIdx);
+        float seamDist = min(min(brickUv.x, 1.0 - brickUv.x) * 2.0, min(brickUv.y, 1.0 - brickUv.y));
+        float seam = 1.0 - smoothstep(0.0, max(fwidth(seamDist), 0.03) * 1.5, seamDist - 0.035);
+        float bRnd = hash12(brickId);
+        // Warm Seoul street paver palette (subtle mix of warm sandstone grey & terracotta brick!)
+        vec3 warmBrick = mix(vec3(0.40, 0.37, 0.35), vec3(0.47, 0.35, 0.31), smoothstep(0.50, 0.90, bRnd));
+        vec3 baseCol = mix(albedo, warmBrick, 0.68 * distFade);
+        float grain = valueNoise(p * 14.0) * 0.07 + valueNoise(p * 36.0) * 0.04;
+        albedo = baseCol * (0.94 + (bRnd - 0.5) * 0.12 + grain * distFade) * (1.0 - seam * 0.28 * distFade);
+
+        // Crisp Korean Granite Curbstone Band (화강암 경계석) along road perimeter (edgeDist in 9.0..9.58)
+        if (edgeDist < 9.58 && fragPosition.y > -0.20) {
+            float curbJoint = smoothstep(0.92, 0.98, abs(sin((dx < dz ? p.y : p.x) * 3.14)));
+            albedo = mix(vec3(0.48, 0.49, 0.51), vec3(0.28, 0.29, 0.31), curbJoint) * (0.95 + grain);
+            roughness = 0.62;
+        } else {
+            // Iconic Korean Yellow Tactile Paving Strip (노란 점자블록): neat 0.38m guiding strip + crosswalk pads!
+            bool onTactileBand = (abs(dx - 10.65) < 0.19 && dz > 10.46) || (abs(dz - 10.65) < 0.19 && dx > 10.46);
+            bool atCrossPad    = (dx > 9.65 && dx < 10.22 && abs(dz - 12.2) < 1.35) ||
+                                 (dz > 9.65 && dz < 10.22 && abs(dx - 12.2) < 1.35);
+            if ((onTactileBand || atCrossPad) && fragPosition.y > -0.20) {
+                float bumps = 0.86 + 0.14 * sin(p.x * 42.0) * sin(p.y * 42.0);
+                vec3 tactileYellow = pow(vec3(0.92, 0.72, 0.10), vec3(2.2)) * bumps;
+                albedo = mix(albedo, tactileYellow, 0.88);
+                roughness = 0.58;
+            } else {
+                roughness = mix(0.84, 0.58, wetRoadFactor * 0.72);
+            }
+        }
         puddleMask = wetRoadFactor * smoothstep(0.45, 0.78, fbm2(p * 0.22)) * 0.42 * (1.0 - seam);
         albedo *= (1.0 - wetRoadFactor * 0.18 - puddleMask * 0.18);
         roughness = mix(roughness, 0.09, puddleMask);
@@ -572,8 +617,15 @@ void main() {
             }
         } else {
             float tarNoise = valueNoise(fragPosition.xz * 0.85) * 0.14;
-            albedo *= (0.64 + tarNoise);
-            roughness = 0.86;
+            if (matId == 2) {
+                // Signature Korean green urethane rooftop waterproofing (옥상 초록 방수 페인트)!
+                vec3 krRoofGreen = pow(vec3(0.24, 0.47, 0.34), vec3(2.2));
+                albedo = krRoofGreen * (0.86 + tarNoise);
+                roughness = 0.52;
+            } else {
+                albedo *= (0.64 + tarNoise);
+                roughness = 0.86;
+            }
             metallic = 0.04;
         }
     }

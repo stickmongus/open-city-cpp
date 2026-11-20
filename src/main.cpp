@@ -42,6 +42,8 @@ struct CliOptions {
     bool firstPerson = false;
     int carHeroKind = -1; // >=0 spawns & frames that exact VehicleKind at 3/4 hero angle!
     bool fleetLineup = false;
+    int weaponId = -1;    // >=0 unlocks & equips that exact WeaponId
+    bool forceAim = false;
 };
 
 #if !defined(__ANDROID__)
@@ -73,6 +75,8 @@ CliOptions parseArgs(int argc, char** argv) {
         else if (a == "--fps") o.firstPerson = true;
         else if (a == "--car-hero" && i + 1 < argc) o.carHeroKind = std::atoi(argv[++i]);
         else if (a == "--fleet-lineup") o.fleetLineup = true;
+        else if (a == "--weapon" && i + 1 < argc) o.weaponId = std::atoi(argv[++i]);
+        else if (a == "--aim") o.forceAim = true;
     }
     return o;
 }
@@ -101,6 +105,23 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
 
     if (cli.hasPos) {
         world.fastTravelTo(cli.pos, "Seoul");
+    }
+
+    if (cli.weaponId >= 0 && cli.weaponId < static_cast<int>(WeaponId::Count)) {
+        const auto wid = static_cast<WeaponId>(cli.weaponId);
+        auto& slot = world.player().weapons[static_cast<std::size_t>(wid)];
+        slot.owned = true;
+        const auto& spec = getWeaponSpec(wid);
+        if (spec.magazineSize > 0) {
+            slot.magAmmo = spec.magazineSize;
+            slot.reserveAmmo = spec.magazineSize * 4;
+        }
+        world.player().currentWeapon = wid;
+        world.player().weaponEquipAnim = 0.0f;
+    }
+    if (cli.forceAim) {
+        world.player().weaponAimBlend = 1.0f;
+        world.player().aiming = true;
     }
 
     if (cli.drive) {
@@ -173,7 +194,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
     const bool useMobileUi = app.isAndroid() || cli.mobileUi;
     hud.setMobileUi(useMobileUi);
     if (cli.noHelp || !cli.screenshotPath.empty()) hud.setShowHelp(false);
-    hud.setShowCrosshair(!useHeroCam && (cli.screenshotPath.empty() || cli.firstPerson));
+    hud.setShowCrosshair(!useHeroCam && (cli.screenshotPath.empty() || cli.firstPerson || cli.forceAim));
     if (cli.openMap) hud.setFullMapOpen(true, world.player().pos);
 
     TouchControls touch;
@@ -188,7 +209,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         world.player().facingYaw = camYaw;
     }
     bool firstPerson = cli.firstPerson;
-    float adsBlend = 0.0f;
+    float adsBlend = cli.forceAim ? 1.0f : 0.0f;
     float smoothKeySteer = 0.0f;
     float smoothKeyThrottle = 0.0f;
     int screenshotWarmupFrames = cli.screenshotPath.empty() ? 0 : 3;
@@ -345,7 +366,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
             gameIn.jumpPressed = pi.isPressed(KeyCode::Space) || tr.jumpPressed;
             gameIn.interactPressed = pi.isPressed(KeyCode::F) || tr.interactPressed;
             gameIn.fireHeld = (app.isCursorLocked() && pi.mouseLeftDown) || tr.fireHeld;
-            gameIn.aimHeld = (app.isCursorLocked() && pi.mouseRightDown) || tr.aimToggled;
+            gameIn.aimHeld = (app.isCursorLocked() && pi.mouseRightDown) || tr.aimToggled || cli.forceAim;
             gameIn.reloadPressed = pi.isPressed(KeyCode::R) || tr.reloadPressed;
             gameIn.hornPressed = pi.isPressed(KeyCode::G) || tr.hornPressed;
             gameIn.abortMissionPressed = pi.isPressed(KeyCode::Backspace);
@@ -424,14 +445,15 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
                                                      std::sin(camPitch),
                                                      std::sin(camYaw) * std::cos(camPitch)} * 20.0f;
                 } else {
-                    const float dist = 4.6f - adsBlend * 1.8f;
+                    const float dist = 4.35f - adsBlend * 1.75f;
                     const Vec2 right = rightFromHeading(camYaw);
+                    const float shoulderOff = lerpf(0.50f, 0.60f, adsBlend);
                     const float upLift = std::max(0.0f, camPitch) * dist * 0.92f;
-                    cam.target = {pl.pos.x + right.x * 0.42f, gy + 1.48f + upLift, pl.pos.z + right.z * 0.42f};
+                    cam.target = {pl.pos.x + right.x * shoulderOff, gy + 1.48f + upLift, pl.pos.z + right.z * shoulderOff};
                     cam.position = {
-                        pl.pos.x + right.x * 0.42f - std::cos(camYaw) * dist * std::cos(camPitch),
-                        std::max(gy + 0.65f, gy + 1.48f + 0.65f - std::sin(camPitch) * dist * 0.75f),
-                        pl.pos.z + right.z * 0.42f - std::sin(camYaw) * dist * std::cos(camPitch)
+                        pl.pos.x + right.x * shoulderOff - std::cos(camYaw) * dist * std::cos(camPitch),
+                        std::max(gy + 0.65f, gy + 1.48f + 0.62f - std::sin(camPitch) * dist * 0.75f),
+                        pl.pos.z + right.z * shoulderOff - std::sin(camYaw) * dist * std::cos(camPitch)
                     };
                 }
             }
@@ -508,7 +530,7 @@ extern "C" void android_main(struct android_app* state) {
 int main(int argc, char** argv) {
     const oc::CliOptions cli = oc::parseArgs(argc, argv);
     oc::PlatformApp app;
-    if (!app.initDesktop(1440, 864, "Open City Seoul v2.1 — Native Vulkan 3D")) {
+    if (!app.initDesktop(1440, 864, "Open City Seoul v2.2 — Native Vulkan 3D")) {
         return 1;
     }
     const int rc = oc::runApplication(app, cli);
