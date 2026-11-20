@@ -1320,7 +1320,8 @@ bool VulkanContext::init(const PlatformApp& app) {
         dpci.pPoolSizes = ps.data();
         if (vkCreateDescriptorPool(impl_->device, &dpci, nullptr, &impl_->descPool) != VK_SUCCESS) return false;
 
-        std::array<VkDescriptorSetLayout, kMaxFramesInFlight> sLayouts{impl_->sceneDescLayout, impl_->sceneDescLayout};
+        std::array<VkDescriptorSetLayout, kMaxFramesInFlight> sLayouts{};
+        sLayouts.fill(impl_->sceneDescLayout);
         VkDescriptorSetAllocateInfo dsai{};
         dsai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         dsai.descriptorPool = impl_->descPool;

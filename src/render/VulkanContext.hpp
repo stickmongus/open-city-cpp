@@ -83,7 +83,7 @@ enum class WorldPipelineKind {
 
 class VulkanContext {
 public:
-    static constexpr int kMaxFramesInFlight = 2;
+    static constexpr int kMaxFramesInFlight = 1;
     static constexpr std::uint32_t kShadowMapSize = 2048;
 
     VulkanContext();

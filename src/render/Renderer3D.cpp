@@ -84,8 +84,12 @@ void Renderer3D::shutdown(VulkanContext& vk) {
     vk.destroyMesh(pineMesh_);
     vk.destroyMesh(ringMesh_);
     vk.destroyMesh(giwaRoofMesh_);
+    vk.destroyMesh(capsuleLimbMesh_);
+    vk.destroyMesh(torsoMesh_);
 
     vk.destroyMesh(hanRiverWaterMesh_);
+    vk.destroyMesh(tributaryWaterMesh_);
+    vk.destroyMesh(riversideExpresswayMesh_);
     vk.destroyMesh(mountainForestMesh_);
     vk.destroyMesh(mountainGraniteMesh_);
     vk.destroyMesh(bridgeDecksMesh_);
@@ -154,22 +158,77 @@ void Renderer3D::buildStaticPrimitives(VulkanContext& vk) {
         mb.addSphere({0, 0, 0}, 0.5f, 10, 16);
         sphereMesh_ = mb.upload(vk, 65.0f);
     }
-    // Multi-lobe Ginkgo / Cherry Blossom Tree Canopy
+    // Smooth tapered anatomical limb segment (origin at top joint Y=0, extends down to Y=-1!)
+    // Uses compact ellipsoidal endcaps (ry=0.16) so slender limb scaling (0.11, 0.27, 0.11) forms round joints without shoulder spikes!
     {
         MeshBuilder3D mb;
-        mb.addSphere({0.0f, 0.25f, 0.0f}, 0.72f, 7, 11, {245, 248, 240, 255});
-        mb.addSphere({0.42f, 0.05f, 0.24f}, 0.54f, 6, 10, {228, 236, 224, 255});
-        mb.addSphere({-0.44f, 0.08f, -0.22f}, 0.52f, 6, 10, {236, 244, 232, 255});
-        mb.addSphere({-0.16f, 0.10f, 0.44f}, 0.48f, 6, 10, {220, 232, 218, 255});
-        mb.addSphere({0.18f, 0.48f, -0.28f}, 0.46f, 6, 10, {255, 255, 248, 255});
-        foliageMesh_ = mb.upload(vk, 65.0f);
+        const int slices = 12;
+        const float yRings[7] = { 0.16f,  0.09f,  0.00f, -0.50f, -1.00f, -1.09f, -1.14f};
+        const float rRings[7] = { 0.04f,  0.40f,  0.50f,  0.44f,  0.38f,  0.30f,  0.04f};
+        for (int r = 0; r < 6; ++r) {
+            for (int s = 0; s < slices; ++s) {
+                const float a0 = kTwoPi * static_cast<float>(s) / static_cast<float>(slices);
+                const float a1 = kTwoPi * static_cast<float>(s + 1) / static_cast<float>(slices);
+                const Vec3 p00{std::cos(a0) * rRings[r],     yRings[r],     std::sin(a0) * rRings[r]};
+                const Vec3 p10{std::cos(a1) * rRings[r],     yRings[r],     std::sin(a1) * rRings[r]};
+                const Vec3 p11{std::cos(a1) * rRings[r + 1], yRings[r + 1], std::sin(a1) * rRings[r + 1]};
+                const Vec3 p01{std::cos(a0) * rRings[r + 1], yRings[r + 1], std::sin(a0) * rRings[r + 1]};
+                mb.addQuad(p00, p01, p11, p10);
+            }
+        }
+        capsuleLimbMesh_ = mb.upload(vk, 65.0f);
     }
-    // Layered Korean Mountain Pine Tree
+    // Sculpted anatomical human torso (broader athletic shoulders tapering cleanly to waist, Y in [0..1]!)
     {
         MeshBuilder3D mb;
-        mb.addCylinderY({0, 0.00f, 0}, 0.54f, 0.16f, 0.55f, 10, {218, 228, 218, 255});
-        mb.addCylinderY({0, 0.34f, 0}, 0.44f, 0.12f, 0.52f, 10, {234, 242, 232, 255});
-        mb.addCylinderY({0, 0.66f, 0}, 0.32f, 0.02f, 0.48f, 10, {248, 255, 246, 255});
+        const int slices = 16;
+        const float yLvl[5]  = {0.00f, 0.22f, 0.55f, 0.88f, 1.00f};
+        const float rxLvl[5] = {0.36f, 0.38f, 0.44f, 0.48f, 0.34f}; // Front-back chest depth
+        const float rzLvl[5] = {0.38f, 0.40f, 0.48f, 0.54f, 0.36f}; // Left-right shoulder width
+        for (int r = 0; r < 4; ++r) {
+            for (int s = 0; s < slices; ++s) {
+                const float a0 = kTwoPi * static_cast<float>(s) / static_cast<float>(slices);
+                const float a1 = kTwoPi * static_cast<float>(s + 1) / static_cast<float>(slices);
+                const Vec3 p00{std::cos(a0) * rxLvl[r],     yLvl[r],     std::sin(a0) * rzLvl[r]};
+                const Vec3 p10{std::cos(a1) * rxLvl[r],     yLvl[r],     std::sin(a1) * rzLvl[r]};
+                const Vec3 p11{std::cos(a1) * rxLvl[r + 1], yLvl[r + 1], std::sin(a1) * rzLvl[r + 1]};
+                const Vec3 p01{std::cos(a0) * rxLvl[r + 1], yLvl[r + 1], std::sin(a0) * rzLvl[r + 1]};
+                mb.addQuad(p00, p01, p11, p10);
+            }
+        }
+        // Shoulder cap dome
+        mb.addSphere({0.0f, 0.90f, 0.0f}, 0.36f, 6, 12);
+        torsoMesh_ = mb.upload(vk, 60.0f);
+    }
+    // Organic Multi-Layered Seoul Street Tree Crown (12 asymmetric foliage clusters for natural Ginkgo/Cherry silhouette!)
+    {
+        MeshBuilder3D mb;
+        struct LeafClump { Vec3 p; float r; ColorRGBA c; };
+        const LeafClump clumps[12] = {
+            {{ 0.00f,  0.42f,  0.00f}, 0.56f, {244, 248, 240, 255}},
+            {{ 0.48f,  0.16f,  0.22f}, 0.46f, {224, 236, 218, 255}},
+            {{-0.46f,  0.20f, -0.18f}, 0.48f, {234, 244, 228, 255}},
+            {{ 0.14f,  0.14f,  0.52f}, 0.44f, {218, 232, 212, 255}},
+            {{-0.18f,  0.18f, -0.50f}, 0.45f, {226, 238, 220, 255}},
+            {{ 0.42f,  0.48f, -0.28f}, 0.40f, {250, 252, 244, 255}},
+            {{-0.38f,  0.52f,  0.28f}, 0.42f, {248, 250, 242, 255}},
+            {{ 0.02f,  0.74f, -0.06f}, 0.38f, {255, 255, 250, 255}},
+            {{-0.54f, -0.02f,  0.26f}, 0.38f, {204, 218, 198, 255}},
+            {{ 0.52f, -0.04f, -0.24f}, 0.36f, {202, 216, 196, 255}},
+            {{ 0.12f,  0.64f,  0.34f}, 0.34f, {252, 254, 246, 255}},
+            {{-0.16f,  0.02f,  0.32f}, 0.36f, {210, 224, 204, 255}}
+        };
+        for (const auto& cl : clumps) {
+            mb.addSphere(cl.p, cl.r, 6, 9, cl.c);
+        }
+        foliageMesh_ = mb.upload(vk, 55.0f);
+    }
+    // Layered Korean Mountain Pine Tree (소나무)
+    {
+        MeshBuilder3D mb;
+        mb.addCylinderY({0, 0.00f, 0}, 0.56f, 0.16f, 0.52f, 10, {210, 222, 210, 255});
+        mb.addCylinderY({0, 0.32f, 0}, 0.46f, 0.12f, 0.50f, 10, {228, 238, 226, 255});
+        mb.addCylinderY({0, 0.62f, 0}, 0.34f, 0.02f, 0.48f, 10, {246, 255, 244, 255});
         pineMesh_ = mb.upload(vk, 38.0f);
     }
     // Hollow Ground Ring (for POIs / Mission Checkpoints / GPS beacons)
@@ -192,7 +251,7 @@ void Renderer3D::buildStaticPrimitives(VulkanContext& vk) {
 
 void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
     // ------------------------------------------------------------------------
-    // 1. REAL S-CURVE HAN RIVER WATER + SEOKCHON LAKE + CHEONGGYECHEON (30 km!)
+    // 1. REAL S-CURVE HAN RIVER WATER + SEOKCHON LAKE + 4 SEOUL TRIBUTARIES!
     // ------------------------------------------------------------------------
     {
         MeshBuilder3D waterMb;
@@ -210,13 +269,12 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
             const float hw0 = city.hanRiverHalfWidth(x0) + 18.0f;
             const float hw1 = city.hanRiverHalfWidth(x1) + 18.0f;
 
-            // North half & South half of river ribbon
             waterMb.addQuad({x0, waterY, cz0 - hw0}, {x1, waterY, cz1 - hw1},
                             {x1, waterY, cz1},       {x0, waterY, cz0}, kHanWater);
             waterMb.addQuad({x0, waterY, cz0},       {x1, waterY, cz1},
                             {x1, waterY, cz1 + hw1}, {x0, waterY, cz0 + hw0}, kHanWater);
         }
-        // Seokchon Lake + Cheonggyecheon urban stream
+        // Seokchon Lake twin basins
         for (const auto& lake : city.lakes()) {
             waterMb.addQuad({lake.bounds.min.x, lake.waterY, lake.bounds.min.z},
                             {lake.bounds.max.x, lake.waterY, lake.bounds.min.z},
@@ -225,6 +283,52 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                             {32, 92, 138, 255});
         }
         hanRiverWaterMesh_ = waterMb.upload(vk, 30.0f);
+
+        // 4 Real Seoul Tributaries (Anyangcheon, Jungnangcheon, Tancheon, Cheonggyecheon!)
+        MeshBuilder3D tribMb;
+        const ColorRGBA kTribWater{30, 86, 134, 255};
+        for (const auto& trib : city.tributaries()) {
+            for (std::size_t i = 1; i < trib.points.size(); ++i) {
+                const Vec2 a = trib.points[i - 1];
+                const Vec2 b = trib.points[i];
+                const Vec2 dir = (b - a).normalized();
+                const Vec2 perp{-dir.z, dir.x};
+                const float hw = trib.halfWidth;
+                const float wy = -0.10f;
+                tribMb.addQuad({a.x - perp.x * hw, wy, a.z - perp.z * hw},
+                               {a.x + perp.x * hw, wy, a.z + perp.z * hw},
+                               {b.x + perp.x * hw, wy, b.z + perp.z * hw},
+                               {b.x - perp.x * hw, wy, b.z - perp.z * hw}, kTribWater);
+            }
+        }
+        tributaryWaterMesh_ = tribMb.upload(vk, 30.0f);
+    }
+
+    // ------------------------------------------------------------------------
+    // 1B. REAL CURVED RIVERSIDE EXPRESSWAYS (강변북로 & 올림픽대로 — 30km!)
+    // ------------------------------------------------------------------------
+    {
+        MeshBuilder3D expMb;
+        const ColorRGBA kExpAsphalt{66, 68, 74, 255};
+        for (const auto& art : city.arterials()) {
+            if (!art.isExpressway || art.points.size() < 2) continue;
+            // Only build curved riverside expressways (first 2: Gangbyeonbuk-ro & Olympic-daero) as continuous ribbons
+            if (art.nameEn != "Gangbyeonbuk-ro" && art.nameEn != "Olympic-daero") continue;
+            for (std::size_t i = 1; i < art.points.size(); ++i) {
+                const Vec2 a = art.points[i - 1];
+                const Vec2 b = art.points[i];
+                const Vec2 dir = (b - a).normalized();
+                const Vec2 perp{-dir.z, dir.x};
+                const float hw = art.halfWidth;
+                const float yA = city.terrainElevationAt(a) + 0.08f;
+                const float yB = city.terrainElevationAt(b) + 0.08f;
+                expMb.addQuad({a.x - perp.x * hw, yA, a.z - perp.z * hw},
+                              {a.x + perp.x * hw, yA, a.z + perp.z * hw},
+                              {b.x + perp.x * hw, yB, b.z + perp.z * hw},
+                              {b.x - perp.x * hw, yB, b.z - perp.z * hw}, kExpAsphalt);
+            }
+        }
+        riversideExpresswayMesh_ = expMb.upload(vk, 25.0f);
     }
 
     // ------------------------------------------------------------------------
@@ -258,7 +362,6 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
 
                     const float avgH = 0.25f * (p00.y + p10.y + p11.y + p01.y);
                     const float hFrac = avgH / std::max(1.0f, m.peakHeight);
-                    // Exposed granite rock outcrops near peak of Bukhansan/Inwangsan/Gwanaksan!
                     if (hFrac > 0.68f && m.peakHeight > 300.0f) {
                         const ColorRGBA cRock{148, 146, 142, 255};
                         if (r == 0) graniteMb.addTri(p00, p01, p11, cRock);
@@ -301,21 +404,17 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                 const float xL = br.centerX - br.halfWidth;
                 const float xR = br.centerX + br.halfWidth;
 
-                // Top asphalt driving surface (matId=1 draws Korean yellow double centerline + lanes!)
                 deckMb.addQuad({xL, y0, z0}, {xR, y0, z0}, {xR, y1, z1}, {xL, y1, z1}, kAsphalt);
 
-                // Concrete girder fascia & side safety parapet barriers
                 const float thick = 1.65f;
                 concMb.addQuad({xL, y0 - thick, z0}, {xL, y0, z0}, {xL, y1, z1}, {xL, y1 - thick, z1}, kConcrete);
                 concMb.addQuad({xR, y0, z0}, {xR, y0 - thick, z0}, {xR, y1 - thick, z1}, {xR, y1, z1}, kConcrete);
-                // Side parapets (1.05m tall)
                 for (float s : {-1.0f, 1.0f}) {
                     const float px = br.centerX + s * (br.halfWidth + 0.35f);
                     concMb.addQuad({px, y0, z0}, {px, y0 + 1.05f, z0}, {px, y1 + 1.05f, z1}, {px, y1, z1}, kConcrete);
                 }
             }
 
-            // River concrete piers plunging cleanly into the Han River every ~75m!
             const float spanLen = br.zSouth - br.zNorth;
             const int piers = std::max(5, static_cast<int>(spanLen / 78.0f));
             for (int p = 1; p < piers; ++p) {
@@ -328,9 +427,7 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                     concMb.addBox({br.centerX + s * (br.halfWidth * 0.58f), 0.5f * (pierBot + pierTop), pz},
                                   {2.6f, pierH, 4.2f}, kPierDark);
                 }
-                // Cross pier cap beam tucked cleanly under bridge girder!
                 concMb.addBox({br.centerX, py - 2.2f, pz}, {br.halfWidth * 1.95f, 1.3f, 3.6f}, kConcrete);
-                // Bridge light poles on outer curb
                 for (float s : {-1.0f, 1.0f}) {
                     steelMb.addBox({br.centerX + s * (br.halfWidth + 0.4f), py + 4.4f, pz},
                                    {0.24f, 8.6f, 0.24f}, kSteelSilver);
@@ -340,11 +437,9 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
             const float midZ = 0.5f * (br.zNorth + br.zSouth);
             const float midY = br.deckHeight;
 
-            // Cable-stayed bridge monumental central A-pylon + fanned stay cables (Olympic / Seongsu!)
             if (br.isCableStayed) {
                 const float pylonH = 74.0f;
                 steelMb.addCylinderY({br.centerX, midY - 1.5f, midZ}, 3.6f, 1.4f, pylonH, 8, br.accentColor);
-                // Torch crown (Olympic Bridge iconic flame monument!)
                 steelMb.addCylinderY({br.centerX, midY + pylonH - 2.0f, midZ}, 1.8f, 3.4f, 11.0f, 8, {236, 198, 72, 255});
                 for (int c = 1; c <= 12; ++c) {
                     const float frac = static_cast<float>(c) / 12.0f;
@@ -354,16 +449,12 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                         const Vec3 a{br.centerX, topY, midZ};
                         const Vec3 bPt{br.centerX, midY + 0.6f, midZ + dirZ * cableZOff};
                         const Vec3 dir = (bPt - a).normalized();
-                        const Vec3 side{1.0f, 0.0f, 0.0f};
-                        const Vec3 up = {0.0f, 1.0f, 0.0f};
-                        const Vec3 mid = (a + bPt) * 0.5f;
-                        const float len = (bPt - a).length();
-                        steelMb.addOrientedBox(mid, {0.22f, 0.22f, len * 0.5f}, side, up, dir, kSteelSilver);
+                        steelMb.addOrientedBox((a + bPt) * 0.5f, {0.22f, 0.22f, (bPt - a).length() * 0.5f},
+                                               {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, dir, kSteelSilver);
                     }
                 }
             }
 
-            // Steel Arch Bridge (Seogang / Hangang iconic red-orange arches!)
             if (br.isArchBridge) {
                 const int archSegs = 16;
                 const float archHalfZ = 145.0f;
@@ -381,7 +472,6 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                         const Vec3 dir = (p1 - p0).normalized();
                         steelMb.addOrientedBox((p0 + p1) * 0.5f, {0.85f, 1.25f, (p1 - p0).length() * 0.52f},
                                                {1, 0, 0}, {0, 1, 0}, dir, br.accentColor);
-                        // Vertical hanger cables
                         if (k > 0 && k < archSegs && (k % 2 == 0)) {
                             steelMb.addBox({ax, 0.5f * (midY + y0), z0}, {0.26f, y0 - midY, 0.26f}, kSteelSilver);
                         }
@@ -389,11 +479,8 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                 }
             }
 
-            // Banpo Bridge Moonlight Rainbow Fountain (반포대교 달빛무지개분수!)
             if (br.hasRainbowFountain) {
-                // Lower Jamsu submerged deck beneath Banpo Bridge
                 concMb.addBox({br.centerX, 2.2f, midZ}, {br.halfWidth * 1.75f, 1.1f, spanLen * 0.90f}, kPierDark);
-                // Translucent colorful arcing water curtains pouring off BOTH flanks into Han River!
                 const int jets = 36;
                 const ColorRGBA rainbow[6] = {
                     {84, 210, 255, 145}, {122, 162, 255, 145}, {198, 118, 255, 145},
@@ -422,13 +509,27 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
     }
 
     // ------------------------------------------------------------------------
-    // 4. ALL 12 ICONIC REAL SEOUL MACRO LANDMARKS (Always visible across 30km!)
+    // 4. ALL 12 ICONIC REAL SEOUL MACRO LANDMARKS WITH TRUE ORIENTATION!
     // ------------------------------------------------------------------------
     {
         MeshBuilder3D glassMb, stoneMb, metalMb, giwaMb, glowMb;
 
+        auto rotXZ = [](float cx, float cz, float dx, float dz, float yaw) -> Vec2 {
+            const float c = std::cos(yaw), s = std::sin(yaw);
+            return {cx + dx * c - dz * s, cz + dx * s + dz * c};
+        };
+
+        auto addRotBox = [&](MeshBuilder3D& mb, float cx, float yMid, float cz,
+                             float dx, float dz, Vec3 fullSize, float yaw, ColorRGBA col) {
+            const Vec2 p = rotXZ(cx, cz, dx, dz, yaw);
+            const Vec3 axX{std::cos(yaw), 0.0f, std::sin(yaw)};
+            const Vec3 axY{0.0f, 1.0f, 0.0f};
+            const Vec3 axZ{-std::sin(yaw), 0.0f, std::cos(yaw)};
+            mb.addOrientedBox({p.x, yMid, p.z}, fullSize * 0.5f, axX, axY, axZ, col);
+        };
+
         auto addPalaceGiwaRoof = [&](float cx, float yBase, float cz, float spanX, float spanZ, float roofH) {
-            const ColorRGBA kRoof{56, 62, 70, 255};
+            const ColorRGBA kRoof{54, 60, 68, 255};
             const ColorRGBA kRidge{96, 102, 114, 255};
             const int steps = 5;
             for (int i = 0; i < steps; ++i) {
@@ -458,12 +559,12 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
             const float lx = lm.pos.x;
             const float lz = lm.pos.z;
             const float baseY = city.terrainElevationAt(lm.pos);
+            const float yaw = lm.yawRad;
 
             switch (lm.kind) {
                 case SeoulLandmarkKind::LotteWorldTower: {
-                    // 555m Lotte World Tower (롯데월드타워): convex tapering silver-blue glass spire with iconic split lantern top!
+                    // 555m Lotte World Tower rotated to real Jamsil axis (-0.42 rad) with East Lotte World Mall!
                     const int tiers = 14;
-                    const float totalH = 555.0f;
                     const ColorRGBA kLotteGlass{162, 198, 226, 255};
                     const ColorRGBA kLotteFin{212, 224, 236, 255};
                     for (int t = 0; t < tiers; ++t) {
@@ -473,10 +574,9 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                         const float y1 = baseY + f1 * 505.0f;
                         const float w0 = lerpf(34.0f, 11.5f, std::pow(f0, 0.88f));
                         const float w1 = lerpf(34.0f, 11.5f, std::pow(f1, 0.88f));
-                        // 8-sided chamfered square profile (authentic Lotte World Tower silhouette!)
                         for (int s = 0; s < 8; ++s) {
-                            const float a0 = kTwoPi * (static_cast<float>(s) + 0.5f) / 8.0f;
-                            const float a1 = kTwoPi * (static_cast<float>(s + 1) + 0.5f) / 8.0f;
+                            const float a0 = yaw + kTwoPi * (static_cast<float>(s) + 0.5f) / 8.0f;
+                            const float a1 = yaw + kTwoPi * (static_cast<float>(s + 1) + 0.5f) / 8.0f;
                             const Vec3 p00{lx + std::cos(a0) * w0, y0, lz + std::sin(a0) * w0};
                             const Vec3 p10{lx + std::cos(a1) * w0, y0, lz + std::sin(a1) * w0};
                             const Vec3 p11{lx + std::cos(a1) * w1, y1, lz + std::sin(a1) * w1};
@@ -484,175 +584,235 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                             glassMb.addQuad(p00, p01, p11, p10, kLotteGlass);
                         }
                     }
-                    // Iconic notched split-lantern crown (505m -> 555m!)
+                    // Iconic notched split-lantern crown oriented SW toward Seokchon Lake!
                     for (float side : {-1.0f, 1.0f}) {
-                        metalMb.addBox({lx + side * 6.5f, baseY + 528.0f, lz}, {5.2f, 48.0f, 16.0f}, kLotteFin);
+                        addRotBox(metalMb, lx, baseY + 528.0f, lz, side * 6.5f, 0.0f, {5.2f, 48.0f, 16.0f}, yaw, kLotteFin);
                     }
-                    // Vertical glowing silver-blue architectural crown fins
-                    glowMb.addBox({lx, baseY + 552.0f, lz}, {16.0f, 5.5f, 16.0f}, {195, 228, 255, 255});
-                    // Lotte World Mall podium base
-                    stoneMb.addBox({lx - 58.0f, baseY + 18.0f, lz + 12.0f}, {82.0f, 36.0f, 76.0f}, {222, 224, 228, 255});
-                    (void)totalH;
+                    addRotBox(glowMb, lx, baseY + 552.0f, lz, 0.0f, 0.0f, {16.0f, 5.5f, 16.0f}, yaw, {195, 228, 255, 255});
+                    // Lotte World Mall Podium on the EAST (+X) side of the tower (real Jamsil layout!)
+                    stoneMb.addBox({lx + 76.0f, baseY + 18.0f, lz - 6.0f}, {84.0f, 36.0f, 76.0f}, {222, 224, 228, 255});
+                    glassMb.addBox({lx + 76.0f, baseY + 26.0f, lz - 6.0f}, {86.0f, 12.0f, 78.0f}, {148, 186, 218, 255});
                     break;
                 }
 
                 case SeoulLandmarkKind::NSeoulTower: {
-                    // N Seoul Tower atop Namsan Peak (base ~240m + 236m tower!)
-                    // Stone Namsan Plaza base & octagonal pavilion
-                    stoneMb.addCylinderY({lx, baseY - 6.0f, lz}, 22.0f, 20.0f, 16.0f, 8, {178, 174, 168, 255});
-                    // Tall slender white concrete shaft (142m!)
+                    // N Seoul Tower + Traditional Namsan Octagonal Pavilion (팔각정) + Observation Deck!
+                    stoneMb.addCylinderY({lx, baseY - 6.0f, lz}, 24.0f, 22.0f, 16.0f, 8, {178, 174, 168, 255});
                     stoneMb.addCylinderY({lx, baseY + 10.0f, lz}, 6.2f, 5.4f, 138.0f, 16, {236, 238, 242, 255});
-                    // Iconic multi-tiered glowing observation pod (Digital Observatory + N.Grill!)
                     glassMb.addCylinderY({lx, baseY + 148.0f, lz}, 12.5f, 16.5f, 11.0f, 16, {74, 132, 188, 255});
                     metalMb.addCylinderY({lx, baseY + 159.0f, lz}, 17.5f, 17.5f, 4.0f, 16, {220, 225, 232, 255});
                     glassMb.addCylinderY({lx, baseY + 163.0f, lz}, 16.0f, 14.5f, 12.0f, 16, {82, 142, 198, 255});
                     metalMb.addCylinderY({lx, baseY + 175.0f, lz}, 14.8f, 9.5f, 6.5f, 16, {214, 218, 226, 255});
-                    // Famous glowing Namsan LED beacon ring (Seoul clear air blue-cyan glow!)
                     glowMb.addCylinderY({lx, baseY + 145.0f, lz}, 14.0f, 14.0f, 3.5f, 16, {86, 212, 255, 255});
                     glowMb.addCylinderY({lx, baseY + 181.0f, lz}, 9.8f, 9.8f, 3.0f, 16, {120, 224, 255, 255});
-                    // Tall steel broadcast antenna spire (+76m) + red aviation beacon
                     metalMb.addCylinderY({lx, baseY + 182.0f, lz}, 3.2f, 0.55f, 76.0f, 12, {226, 230, 236, 255});
                     glowMb.addSphere({lx, baseY + 259.0f, lz}, 2.4f, 8, 12, {255, 58, 52, 255});
+                    // Iconic Namsan Octagonal Pavilion (팔각정) on SW terrace!
+                    const float px = lx - 28.0f, pz = lz + 18.0f;
+                    const float py = city.terrainElevationAt({px, pz});
+                    stoneMb.addCylinderY({px, py - 2.0f, pz}, 10.0f, 9.5f, 4.0f, 8, {194, 190, 184, 255});
+                    stoneMb.addCylinderY({px, py + 2.0f, pz}, 7.6f, 7.6f, 6.8f, 8, {164, 48, 40, 255});
+                    addPalaceGiwaRoof(px, py + 8.6f, pz, 20.0f, 20.0f, 5.2f);
                     break;
                 }
 
                 case SeoulLandmarkKind::GyeongbokgungPalace: {
-                    // Gyeongbokgung Geunjeongjeon Throne Hall + Gwanghwamun Gate with sweeping upturned Giwa roofs!
+                    // Gyeongbokgung Geunjeongjeon Throne Hall + 3-Arch Gwanghwamun Gate + Gwanghwamun Square Statues (Facing South +Z!)
                     stoneMb.addBox({lx, baseY + 2.0f, lz}, {68.0f, 4.0f, 52.0f}, {206, 202, 194, 255});
                     stoneMb.addBox({lx, baseY + 5.2f, lz}, {56.0f, 2.8f, 42.0f}, {214, 210, 202, 255});
-                    // Crimson timber colonnade & palace hall body
                     stoneMb.addBox({lx, baseY + 11.5f, lz}, {40.0f, 10.5f, 28.0f}, {162, 46, 38, 255});
-                    // Turquoise Dancheong under-eave bracket band
                     stoneMb.addBox({lx, baseY + 16.8f, lz}, {42.5f, 1.8f, 30.5f}, {44, 136, 118, 255});
-                    // Lower sweeping curved Giwa Korean tile roof
                     addPalaceGiwaRoof(lx, baseY + 17.6f, lz, 48.0f, 36.0f, 6.2f);
-                    // Upper throne tier + upper curved Giwa roof!
                     stoneMb.addBox({lx, baseY + 24.5f, lz}, {30.0f, 5.8f, 20.0f}, {168, 48, 40, 255});
                     stoneMb.addBox({lx, baseY + 27.6f, lz}, {32.0f, 1.4f, 22.0f}, {44, 136, 118, 255});
                     addPalaceGiwaRoof(lx, baseY + 28.3f, lz, 38.0f, 27.0f, 8.2f);
 
-                    // Gwanghwamun Gate 142m south of Geunjeongjeon!
+                    // Gwanghwamun Gate 142m south of Geunjeongjeon (z = -5654, 3 Hongyemun stone piers + palace walls!)
                     const float gz = lz + 142.0f;
-                    stoneMb.addBox({lx - 18.0f, baseY + 4.5f, gz}, {18.0f, 9.0f, 14.0f}, {204, 198, 188, 255});
-                    stoneMb.addBox({lx + 18.0f, baseY + 4.5f, gz}, {18.0f, 9.0f, 14.0f}, {204, 198, 188, 255});
-                    stoneMb.addBox({lx, baseY + 8.5f, gz}, {54.0f, 3.0f, 14.0f}, {204, 198, 188, 255});
-                    stoneMb.addBox({lx, baseY + 13.2f, gz}, {34.0f, 6.8f, 12.0f}, {166, 46, 38, 255});
-                    stoneMb.addBox({lx, baseY + 16.6f, gz}, {36.0f, 1.3f, 13.5f}, {44, 136, 118, 255});
-                    addPalaceGiwaRoof(lx, baseY + 17.2f, gz, 44.0f, 19.0f, 6.4f);
+                    stoneMb.addBox({lx - 22.0f, baseY + 4.5f, gz}, {14.0f, 9.0f, 14.0f}, {204, 198, 188, 255});
+                    stoneMb.addBox({lx -  6.5f, baseY + 4.5f, gz}, { 4.8f, 9.0f, 14.0f}, {204, 198, 188, 255});
+                    stoneMb.addBox({lx +  6.5f, baseY + 4.5f, gz}, { 4.8f, 9.0f, 14.0f}, {204, 198, 188, 255});
+                    stoneMb.addBox({lx + 22.0f, baseY + 4.5f, gz}, {14.0f, 9.0f, 14.0f}, {204, 198, 188, 255});
+                    stoneMb.addBox({lx, baseY + 9.2f, gz}, {58.0f, 2.8f, 14.2f}, {208, 202, 192, 255});
+                    stoneMb.addBox({lx, baseY + 13.8f, gz}, {34.0f, 6.6f, 12.0f}, {166, 46, 38, 255});
+                    stoneMb.addBox({lx, baseY + 17.2f, gz}, {36.0f, 1.3f, 13.5f}, {44, 136, 118, 255});
+                    addPalaceGiwaRoof(lx, baseY + 17.8f, gz, 44.0f, 19.0f, 6.4f);
+                    // Palace Stone Rampart Walls (궁장) running East & West from Gwanghwamun!
+                    stoneMb.addBox({lx - 86.0f, baseY + 2.8f, gz}, {116.0f, 5.6f, 2.4f}, {202, 196, 186, 255});
+                    stoneMb.addBox({lx + 86.0f, baseY + 2.8f, gz}, {116.0f, 5.6f, 2.4f}, {202, 196, 186, 255});
+                    // Gwanghwamun Square Iconic Statues along Sejong-daero facing South (+Z)!
+                    // King Sejong the Great (세종대왕상 — seated royal bronze statue on carved granite plinth!)
+                    const float sjZ = gz + 205.0f;
+                    stoneMb.addBox({lx, baseY + 1.1f, sjZ}, {7.6f, 2.2f, 6.8f}, {198, 194, 186, 255});
+                    stoneMb.addBox({lx, baseY + 2.55f, sjZ}, {5.4f, 0.85f, 4.8f}, {184, 180, 172, 255});
+                    const ColorRGBA kSejongBronze{184, 144, 62, 255};
+                    metalMb.addBox({lx, baseY + 3.65f, sjZ}, {3.2f, 1.4f, 2.8f}, kSejongBronze); // Seated royal robe base
+                    metalMb.addBox({lx, baseY + 4.95f, sjZ - 0.15f}, {2.0f, 1.55f, 1.45f}, kSejongBronze); // Royal torso
+                    metalMb.addSphere({lx, baseY + 6.05f, sjZ - 0.10f}, 0.56f, 7, 10, kSejongBronze); // Head + 익선관
+                    // Admiral Yi Sun-sin (충무공 이순신 장군상 — tall granite pedestal + standing dark bronze statue!)
+                    const float yiZ = gz + 415.0f;
+                    stoneMb.addBox({lx, baseY + 1.2f, yiZ}, {6.8f, 2.4f, 6.8f}, {188, 184, 176, 255});
+                    stoneMb.addBox({lx, baseY + 5.2f, yiZ}, {3.8f, 5.8f, 3.8f}, {178, 174, 168, 255});
+                    const ColorRGBA kYiBronze{72, 68, 58, 255};
+                    metalMb.addCylinderY({lx, baseY + 8.1f, yiZ}, 0.85f, 0.72f, 3.6f, 10, kYiBronze);
+                    metalMb.addSphere({lx, baseY + 12.1f, yiZ}, 0.48f, 7, 10, kYiBronze);
                     break;
                 }
 
                 case SeoulLandmarkKind::Building63: {
-                    // Iconic Yeouido 63 Building (249m golden-bronze tapered wedge!)
-                    const ColorRGBA kGoldGlass{224, 178, 76, 255};
-                    const int segs = 10;
-                    for (int s = 0; s < segs; ++s) {
-                        const float f0 = static_cast<float>(s) / static_cast<float>(segs);
-                        const float f1 = static_cast<float>(s + 1) / static_cast<float>(segs);
-                        const float y0 = baseY + f0 * 249.0f;
-                        const float y1 = baseY + f1 * 249.0f;
-                        const float hx0 = lerpf(24.0f, 16.0f, f0);
-                        const float hx1 = lerpf(24.0f, 16.0f, f1);
-                        const float hz0 = lerpf(16.0f, 6.2f, f0);
-                        const float hz1 = lerpf(16.0f, 6.2f, f1);
-                        glassMb.addBox({lx, 0.5f * (y0 + y1), lz}, {hx0 + hx1, (y1 - y0) + 0.5f, hz0 + hz1}, kGoldGlass);
-                    }
-                    glowMb.addBox({lx, baseY + 250.0f, lz}, {30.0f, 3.5f, 11.0f}, {255, 224, 128, 255});
+                    // Iconic Yeouido 63 Building: TRUE smooth continuous golden tapered wedge prism rotated 27.5 deg facing Han River!
+                    const ColorRGBA kGoldGlass{226, 182, 78, 255};
+                    const float hTop = 249.0f;
+                    const float hxBot = 28.0f, hxTop = 19.5f;
+                    const float hzBot = 16.5f, hzTop =  4.8f;
+                    const Vec2 b0 = rotXZ(lx, lz, -hxBot, -hzBot, yaw);
+                    const Vec2 b1 = rotXZ(lx, lz,  hxBot, -hzBot, yaw);
+                    const Vec2 b2 = rotXZ(lx, lz,  hxBot,  hzBot, yaw);
+                    const Vec2 b3 = rotXZ(lx, lz, -hxBot,  hzBot, yaw);
+                    const Vec2 t0 = rotXZ(lx, lz, -hxTop, -hzTop, yaw);
+                    const Vec2 t1 = rotXZ(lx, lz,  hxTop, -hzTop, yaw);
+                    const Vec2 t2 = rotXZ(lx, lz,  hxTop,  hzTop, yaw);
+                    const Vec2 t3 = rotXZ(lx, lz, -hxTop,  hzTop, yaw);
+                    // 4 continuous smooth sloped golden glass facades!
+                    glassMb.addQuad({b0.x, baseY, b0.z}, {t0.x, baseY + hTop, t0.z}, {t1.x, baseY + hTop, t1.z}, {b1.x, baseY, b1.z}, kGoldGlass);
+                    glassMb.addQuad({b1.x, baseY, b1.z}, {t1.x, baseY + hTop, t1.z}, {t2.x, baseY + hTop, t2.z}, {b2.x, baseY, b2.z}, kGoldGlass);
+                    glassMb.addQuad({b2.x, baseY, b2.z}, {t2.x, baseY + hTop, t2.z}, {t3.x, baseY + hTop, t3.z}, {b3.x, baseY, b3.z}, kGoldGlass);
+                    glassMb.addQuad({b3.x, baseY, b3.z}, {t3.x, baseY + hTop, t3.z}, {t0.x, baseY + hTop, t0.z}, {b0.x, baseY, b0.z}, kGoldGlass);
+                    // Roof cap & golden crown glow
+                    glassMb.addQuad({t0.x, baseY + hTop, t0.z}, {t3.x, baseY + hTop, t3.z}, {t2.x, baseY + hTop, t2.z}, {t1.x, baseY + hTop, t1.z}, kGoldGlass);
+                    addRotBox(glowMb, lx, baseY + hTop + 1.8f, lz, 0.0f, 0.0f, {36.0f, 3.2f, 9.2f}, yaw, {255, 224, 128, 255});
                     break;
                 }
 
                 case SeoulLandmarkKind::NationalAssembly: {
-                    // National Assembly of South Korea (국회의사당): classical colonnade + ribbed mint-copper dome!
-                    stoneMb.addBox({lx, baseY + 14.0f, lz}, {78.0f, 28.0f, 54.0f}, {214, 212, 206, 255});
-                    // 24 vertical perimeter classical granite columns
+                    // National Assembly of South Korea: Oriented facing EAST-SOUTHEAST (+X/+Z, yaw=0.18) down Uisadang-daero!
+                    addRotBox(stoneMb, lx, baseY + 14.0f, lz, 0.0f, 0.0f, {56.0f, 28.0f, 82.0f}, yaw, {214, 212, 206, 255});
+                    // Monumental East-facing ceremonial granite staircase (+X front)!
+                    for (int st = 0; st < 4; ++st) {
+                        const float sf = static_cast<float>(st);
+                        addRotBox(stoneMb, lx, baseY + 0.9f + sf * 1.4f, lz, 32.0f + (3.0f - sf) * 3.8f, 0.0f,
+                                  {6.0f, 1.5f, 38.0f}, yaw, {222, 220, 214, 255});
+                    }
+                    // 24 vertical classical granite columns around perimeter (front & back face East/West!)
                     for (int c = -5; c <= 5; ++c) {
-                        stoneMb.addBox({lx + static_cast<float>(c) * 6.8f, baseY + 14.5f, lz + 28.0f},
-                                       {2.2f, 27.0f, 2.2f}, {228, 226, 220, 255});
-                        stoneMb.addBox({lx + static_cast<float>(c) * 6.8f, baseY + 14.5f, lz - 28.0f},
-                                       {2.2f, 27.0f, 2.2f}, {228, 226, 220, 255});
+                        const float czOff = static_cast<float>(c) * 7.2f;
+                        addRotBox(stoneMb, lx, baseY + 14.5f, lz,  29.2f, czOff, {2.3f, 27.5f, 2.3f}, yaw, {228, 226, 220, 255});
+                        addRotBox(stoneMb, lx, baseY + 14.5f, lz, -29.2f, czOff, {2.3f, 27.5f, 2.3f}, yaw, {228, 226, 220, 255});
                     }
                     // Iconic ribbed mint-green oxidized copper dome!
-                    metalMb.addCylinderY({lx, baseY + 28.0f, lz}, 24.0f, 22.0f, 8.0f, 16, {196, 194, 188, 255});
-                    metalMb.addSphere({lx, baseY + 36.0f, lz}, 22.5f, 8, 16, {74, 152, 134, 255});
+                    metalMb.addCylinderY({lx, baseY + 28.0f, lz}, 24.0f, 22.0f, 8.0f, 20, {196, 194, 188, 255});
+                    metalMb.addSphere({lx, baseY + 36.0f, lz}, 22.5f, 10, 20, {72, 154, 134, 255});
                     break;
                 }
 
                 case SeoulLandmarkKind::Parc1RedTower: {
-                    // Yeouido Parc1 Towers (333m + 256m) with signature vivid crimson diagonal exoskeleton!
-                    glassMb.addBox({lx - 26.0f, baseY + 166.0f, lz}, {34.0f, 332.0f, 34.0f}, {132, 164, 192, 255});
-                    glassMb.addBox({lx + 34.0f, baseY + 128.0f, lz + 10.0f}, {32.0f, 256.0f, 32.0f}, {136, 168, 196, 255});
+                    // Yeouido Parc1 Towers (333m + 256m) rotated along Yeouido-daero with signature crimson exoskeleton!
+                    addRotBox(glassMb, lx, baseY + 166.0f, lz, -28.0f, 0.0f, {34.0f, 332.0f, 34.0f}, yaw, {132, 164, 192, 255});
+                    addRotBox(glassMb, lx, baseY + 128.0f, lz,  34.0f, 8.0f, {32.0f, 256.0f, 32.0f}, yaw, {136, 168, 196, 255});
                     const ColorRGBA kParcRed{208, 36, 44, 255};
                     for (float sx : {-1.0f, 1.0f}) {
                         for (float sz : {-1.0f, 1.0f}) {
-                            metalMb.addBox({lx - 26.0f + sx * 17.5f, baseY + 166.0f, lz + sz * 17.5f},
-                                           {2.8f, 334.0f, 2.8f}, kParcRed);
-                            metalMb.addBox({lx + 34.0f + sx * 16.5f, baseY + 128.0f, lz + 10.0f + sz * 16.5f},
-                                           {2.6f, 258.0f, 2.6f}, kParcRed);
+                            addRotBox(metalMb, lx, baseY + 166.0f, lz, -28.0f + sx * 17.6f, sz * 17.6f, {2.8f, 334.0f, 2.8f}, yaw, kParcRed);
+                            addRotBox(metalMb, lx, baseY + 128.0f, lz,  34.0f + sx * 16.6f, 8.0f + sz * 16.6f, {2.6f, 258.0f, 2.6f}, yaw, kParcRed);
                         }
                     }
-                    // Horizontal crimson structural belt trusses
                     for (int h = 1; h <= 5; ++h) {
-                        metalMb.addBox({lx - 26.0f, baseY + static_cast<float>(h) * 58.0f, lz}, {37.0f, 3.2f, 37.0f}, kParcRed);
+                        addRotBox(metalMb, lx, baseY + static_cast<float>(h) * 58.0f, lz, -28.0f, 0.0f, {37.5f, 3.2f, 37.5f}, yaw, kParcRed);
                     }
                     break;
                 }
 
                 case SeoulLandmarkKind::CoexTradeTower: {
-                    // Samseong-dong COEX Trade Tower (228m iconic stepped chevron glass tower!)
-                    glassMb.addBox({lx, baseY + 100.0f, lz}, {36.0f, 200.0f, 32.0f}, {152, 186, 214, 255});
-                    glassMb.addBox({lx, baseY + 214.0f, lz}, {24.0f, 28.0f, 24.0f}, {168, 200, 226, 255});
-                    stoneMb.addBox({lx + 54.0f, baseY + 16.0f, lz}, {68.0f, 32.0f, 64.0f}, {198, 204, 212, 255});
-                    glowMb.addBox({lx, baseY + 229.0f, lz}, {20.0f, 3.0f, 20.0f}, {122, 212, 255, 255});
+                    // Samseong-dong COEX Trade Tower (228m stepped chevron facing East onto Yeongdong-daero!) + NW COEX Mall
+                    glassMb.addBox({lx, baseY + 95.0f, lz}, {34.0f, 190.0f, 38.0f}, {148, 184, 214, 255});
+                    glassMb.addBox({lx, baseY + 206.0f, lz}, {26.0f, 32.0f, 28.0f}, {162, 196, 224, 255});
+                    glassMb.addBox({lx, baseY + 225.0f, lz}, {18.0f, 12.0f, 20.0f}, {176, 208, 232, 255});
+                    // COEX Convention Center sprawling Northwest behind Trade Tower
+                    stoneMb.addBox({lx - 64.0f, baseY + 15.0f, lz - 42.0f}, {86.0f, 30.0f, 72.0f}, {198, 204, 212, 255});
+                    glassMb.addBox({lx - 64.0f, baseY + 31.0f, lz - 42.0f}, {82.0f, 4.5f, 68.0f}, {132, 174, 208, 255});
+                    glowMb.addBox({lx, baseY + 232.0f, lz}, {18.5f, 2.8f, 20.5f}, {122, 212, 255, 255});
                     break;
                 }
 
                 case SeoulLandmarkKind::SeoulCityHall: {
-                    // Seoul City Hall: sweeping curved wave-glass modern hall + historic stone library front
-                    glassMb.addBox({lx, baseY + 22.0f, lz - 14.0f}, {62.0f, 44.0f, 26.0f}, {126, 178, 218, 255});
-                    glassMb.addBox({lx, baseY + 46.0f, lz - 4.0f},  {64.0f, 10.0f, 36.0f}, {142, 194, 232, 255});
-                    stoneMb.addBox({lx, baseY + 11.0f, lz + 18.0f}, {48.0f, 22.0f, 18.0f}, {204, 196, 184, 255});
+                    // Seoul City Hall facing SOUTH (+Z) over Seoul Metropolitan Library & green Seoul Plaza!
+                    // Curving stepped overhang wave glass hall behind (North of) historic library
+                    for (int tier = 0; tier < 5; ++tier) {
+                        const float tf = static_cast<float>(tier) / 4.0f;
+                        const float yMid = baseY + 6.0f + tf * 44.0f;
+                        const float zPush = -20.0f + std::pow(tf, 1.45f) * 18.0f; // Iconic southward wave overhang!
+                        glassMb.addBox({lx, yMid, lz + zPush}, {66.0f, 11.5f, 22.0f + tf * 10.0f}, {126, 182, 224, 255});
+                    }
+                    // Historic stone Seoul Metropolitan Library (Old City Hall) directly South facing Seoul Plaza!
+                    stoneMb.addBox({lx, baseY + 11.0f, lz + 18.0f}, {54.0f, 22.0f, 18.0f}, {208, 200, 186, 255});
+                    stoneMb.addBox({lx, baseY + 25.0f, lz + 18.0f}, {16.0f, 9.0f, 14.0f}, {214, 206, 192, 255});
+                    metalMb.addCylinderY({lx, baseY + 29.5f, lz + 18.0f}, 6.2f, 2.2f, 5.5f, 12, {82, 134, 122, 255});
                     break;
                 }
 
                 case SeoulLandmarkKind::SungnyemunGate: {
-                    // Sungnyemun (Namdaemun): granite stone fortress arch + 2-story curved Giwa gatehouse
-                    stoneMb.addBox({lx - 11.0f, baseY + 4.5f, lz}, {12.0f, 9.0f, 14.0f}, {188, 182, 174, 255});
-                    stoneMb.addBox({lx + 11.0f, baseY + 4.5f, lz}, {12.0f, 9.0f, 14.0f}, {188, 182, 174, 255});
-                    stoneMb.addBox({lx, baseY + 8.5f, lz}, {34.0f, 2.8f, 14.0f}, {188, 182, 174, 255});
-                    stoneMb.addBox({lx, baseY + 13.0f, lz}, {24.0f, 6.2f, 11.0f}, {162, 46, 38, 255});
-                    addPalaceGiwaRoof(lx, baseY + 16.0f, lz, 31.0f, 16.0f, 4.8f);
-                    stoneMb.addBox({lx, baseY + 22.0f, lz}, {18.0f, 4.2f, 9.0f}, {162, 46, 38, 255});
-                    addPalaceGiwaRoof(lx, baseY + 24.0f, lz, 25.0f, 13.0f, 5.2f);
+                    // Sungnyemun (Namdaemun): centered on Sejong-daero (x=-924) with N-S stone arch & E-W fortress wall wings!
+                    stoneMb.addBox({lx - 12.0f, baseY + 4.5f, lz}, {13.0f, 9.0f, 14.0f}, {188, 182, 174, 255});
+                    stoneMb.addBox({lx + 12.0f, baseY + 4.5f, lz}, {13.0f, 9.0f, 14.0f}, {188, 182, 174, 255});
+                    stoneMb.addBox({lx, baseY + 8.8f, lz}, {37.0f, 2.8f, 14.0f}, {192, 186, 178, 255});
+                    // Short Hanyangdoseong stone wall wings extending East & West
+                    stoneMb.addBox({lx - 26.0f, baseY + 2.8f, lz}, {16.0f, 5.6f, 3.6f}, {182, 176, 168, 255});
+                    stoneMb.addBox({lx + 26.0f, baseY + 2.8f, lz}, {16.0f, 5.6f, 3.6f}, {182, 176, 168, 255});
+                    stoneMb.addBox({lx, baseY + 13.4f, lz}, {25.0f, 6.2f, 11.0f}, {164, 46, 38, 255});
+                    stoneMb.addBox({lx, baseY + 16.4f, lz}, {26.5f, 1.2f, 12.2f}, {44, 136, 118, 255});
+                    addPalaceGiwaRoof(lx, baseY + 16.8f, lz, 32.0f, 16.5f, 4.8f);
+                    stoneMb.addBox({lx, baseY + 22.8f, lz}, {18.5f, 4.2f, 9.0f}, {164, 46, 38, 255});
+                    addPalaceGiwaRoof(lx, baseY + 24.8f, lz, 26.0f, 13.5f, 5.4f);
                     break;
                 }
 
                 case SeoulLandmarkKind::DongdaemunDDP: {
-                    // Dongdaemun Design Plaza (DDP): sleek silver matte-aluminum curved sculptural pavilion!
-                    metalMb.addCylinderY({lx - 18.0f, baseY, lz}, 32.0f, 28.0f, 24.0f, 16, {212, 218, 226, 255});
-                    metalMb.addCylinderY({lx + 24.0f, baseY, lz + 10.0f}, 26.0f, 22.0f, 20.0f, 16, {218, 224, 232, 255});
-                    glowMb.addCylinderY({lx - 18.0f, baseY + 24.2f, lz}, 24.0f, 24.0f, 1.4f, 16, {188, 228, 255, 255});
-                    break;
-                }
-
-                case SeoulLandmarkKind::JamsilStadium: {
-                    // Jamsil Olympic Stadium: monumental sweeping curved stadium bowl ring!
-                    const int segs = 24;
+                    // Dongdaemun Design Plaza (DDP): continuous sweeping curved silver-aluminum Zaha Hadid pavilion E-W!
+                    const int segs = 14;
                     for (int s = 0; s < segs; ++s) {
-                        const float a0 = kTwoPi * static_cast<float>(s) / static_cast<float>(segs);
-                        const float a1 = kTwoPi * static_cast<float>(s + 1) / static_cast<float>(segs);
-                        const float am = 0.5f * (a0 + a1);
-                        const float h = 34.0f + 12.0f * std::abs(std::cos(am));
-                        const float r = 82.0f;
-                        stoneMb.addBox({lx + std::cos(am) * r, baseY + h * 0.5f, lz + std::sin(am) * r},
-                                       {24.0f, h, 24.0f}, {208, 212, 218, 255});
+                        const float u = static_cast<float>(s) / static_cast<float>(segs - 1);
+                        const float dx = lerpf(-58.0f, 58.0f, u);
+                        const float dz = std::sin(u * kPi * 1.4f) * 18.0f;
+                        const float w = 22.0f + 10.0f * std::sin(u * kPi);
+                        const float h = 16.0f + 11.0f * std::sin(u * kPi);
+                        addRotBox(metalMb, lx, baseY + h * 0.5f, lz, dx, dz, {14.0f, h, w}, yaw + std::cos(u * kPi * 1.4f) * 0.25f, {214, 220, 228, 255});
+                        if (s % 2 == 0) {
+                            addRotBox(glowMb, lx, baseY + h + 0.5f, lz, dx, dz, {12.0f, 0.9f, w * 0.72f}, yaw + std::cos(u * kPi * 1.4f) * 0.25f, {192, 228, 255, 255});
+                        }
                     }
                     break;
                 }
 
+                case SeoulLandmarkKind::JamsilStadium: {
+                    // Jamsil Olympic Stadium: TRUE continuous curved oval concrete bowl (N-S major axis) + green pitch & red track!
+                    const int segs = 32;
+                    const float rxOut = 72.0f, rzOut = 92.0f;
+                    const float rxIn  = 52.0f, rzIn  = 70.0f;
+                    for (int s = 0; s < segs; ++s) {
+                        const float a0 = kTwoPi * static_cast<float>(s) / static_cast<float>(segs);
+                        const float a1 = kTwoPi * static_cast<float>(s + 1) / static_cast<float>(segs);
+                        const float h0 = 28.0f + 14.0f * std::abs(std::cos(a0)); // Iconic sweeping roof saddle!
+                        const float h1 = 28.0f + 14.0f * std::abs(std::cos(a1));
+                        const Vec3 o0b{lx + std::cos(a0) * rxOut, baseY,      lz + std::sin(a0) * rzOut};
+                        const Vec3 o1b{lx + std::cos(a1) * rxOut, baseY,      lz + std::sin(a1) * rzOut};
+                        const Vec3 o0t{lx + std::cos(a0) * rxOut, baseY + h0, lz + std::sin(a0) * rzOut};
+                        const Vec3 o1t{lx + std::cos(a1) * rxOut, baseY + h1, lz + std::sin(a1) * rzOut};
+                        const Vec3 i0t{lx + std::cos(a0) * rxIn,  baseY + h0 * 0.95f, lz + std::sin(a0) * rzIn};
+                        const Vec3 i1t{lx + std::cos(a1) * rxIn,  baseY + h1 * 0.95f, lz + std::sin(a1) * rzIn};
+                        stoneMb.addQuad(o0b, o0t, o1t, o1b, {212, 216, 222, 255});
+                        metalMb.addQuad(o0t, i0t, i1t, o1t, {194, 200, 210, 255});
+                    }
+                    // Red oval running track & lush green soccer pitch inside!
+                    stoneMb.addCylinderY({lx, baseY + 0.12f, lz}, 50.0f, 50.0f, 0.25f, 24, {168, 68, 54, 255});
+                    stoneMb.addBox({lx, baseY + 0.42f, lz}, {56.0f, 0.22f, 92.0f}, {52, 128, 58, 255});
+                    break;
+                }
+
                 case SeoulLandmarkKind::GangnamStationPlaza: {
-                    // Gangnam Station twin modern glass media towers!
-                    glassMb.addBox({lx - 42.0f, baseY + 72.0f, lz - 36.0f}, {32.0f, 144.0f, 32.0f}, {122, 168, 214, 255});
-                    glassMb.addBox({lx + 42.0f, baseY + 86.0f, lz + 36.0f}, {34.0f, 172.0f, 34.0f}, {114, 158, 206, 255});
+                    // Gangnam Station 4-corner modern glass media skyscrapers framing Gangnam-daero x Teheran-ro!
+                    glassMb.addBox({lx - 42.0f, baseY + 72.0f, lz - 36.0f}, {32.0f, 144.0f, 32.0f}, {118, 164, 210, 255});
+                    glassMb.addBox({lx + 42.0f, baseY + 86.0f, lz + 36.0f}, {34.0f, 172.0f, 34.0f}, {110, 154, 204, 255});
+                    glassMb.addBox({lx + 44.0f, baseY + 62.0f, lz - 40.0f}, {30.0f, 124.0f, 30.0f}, {132, 166, 198, 255});
                     glowMb.addBox({lx - 42.0f, baseY + 145.0f, lz - 36.0f}, {33.0f, 3.2f, 33.0f}, {86, 208, 255, 255});
                     glowMb.addBox({lx + 42.0f, baseY + 173.0f, lz + 36.0f}, {35.0f, 3.2f, 35.0f}, {110, 224, 255, 255});
                     break;
@@ -672,10 +832,10 @@ Vec3 Renderer3D::computeSunDirection(const GameWorld& world) const {
     const float h = world.timeOfDayHours();
     const float sunAngle = (h - 6.0f) * (kPi / 12.0f);
     if (h >= 5.5f && h <= 18.8f) {
-        const float elev = clampf(std::sin(sunAngle), 0.14f, 0.94f);
+        // Authentic Seoul latitude (37.5 deg N): max solar elevation ~49 deg -> crisp architectural shadows all day!
+        const float elev = clampf(std::sin(sunAngle) * 0.78f, 0.16f, 0.76f);
         const float horiz = std::sqrt(std::max(0.01f, 1.0f - elev * elev));
-        const float az = -0.72f + (h - 12.0f) * 0.22f;
-        // Direction FROM sun TOWARD scene (pointing down into ground!)
+        const float az = -0.68f + (h - 12.0f) * 0.24f;
         return Vec3{-std::cos(az) * horiz, -elev, -std::sin(az) * horiz}.normalized();
     }
     // Crisp moonlight angle at night
@@ -700,7 +860,7 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     const float wet = world.wetRoadFactor();
 
     // Sun / moon directional color (linear HDR!)
-    Vec3 sunDay{1.15f, 1.08f, 0.98f};
+    Vec3 sunDay{1.18f, 1.10f, 0.99f};
     Vec3 sunSet{1.35f, 0.68f, 0.34f};
     Vec3 sunNight{0.22f, 0.30f, 0.48f};
     Vec3 sunCol = Vec3{
@@ -710,14 +870,14 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     } * (1.0f - wet * 0.42f);
 
     Vec3 skyAmb{
-        lerpf(0.06f, lerpf(0.32f, 0.46f, clampf(sunset, 0.0f, 1.0f)), dayF),
-        lerpf(0.09f, lerpf(0.46f, 0.34f, clampf(sunset, 0.0f, 1.0f)), dayF),
-        lerpf(0.16f, lerpf(0.72f, 0.36f, clampf(sunset, 0.0f, 1.0f)), dayF)
+        lerpf(0.06f, lerpf(0.28f, 0.42f, clampf(sunset, 0.0f, 1.0f)), dayF),
+        lerpf(0.09f, lerpf(0.42f, 0.32f, clampf(sunset, 0.0f, 1.0f)), dayF),
+        lerpf(0.16f, lerpf(0.68f, 0.34f, clampf(sunset, 0.0f, 1.0f)), dayF)
     };
     Vec3 gndAmb{
-        lerpf(0.04f, 0.16f, dayF),
-        lerpf(0.05f, 0.17f, dayF),
-        lerpf(0.07f, 0.19f, dayF)
+        lerpf(0.04f, 0.14f, dayF),
+        lerpf(0.05f, 0.15f, dayF),
+        lerpf(0.07f, 0.17f, dayF)
     };
     Vec3 fogCol{
         lerpf(0.09f, lerpf(0.68f, 0.88f, clampf(sunset, 0.0f, 1.0f)), dayF),
@@ -808,17 +968,23 @@ void Renderer3D::drawSeoulTerrainAndRoads(VulkanContext& vk, const GameWorld& wo
     const float pitch = CityMap::kBlockPitch;
 
     if (!shadowPass) {
-        // 1. Vast distant Seoul urban basin ground north & south of Han River (keeps 30km x 25km skyline grounded!)
+        // 1. Vast distant Seoul urban basin ground north & south of Han River
         drawBox(vk, {0.0f, -0.45f, -7200.0f}, {32000.0f, 0.5f, 11800.0f}, 0.0f,
                 {116, 120, 126, 255}, 0.88f, 0.0f, 0.0f, MatId::SidewalkPavers, false);
         drawBox(vk, {0.0f, -0.45f,  7200.0f}, {32000.0f, 0.5f, 11800.0f}, 0.0f,
                 {116, 120, 126, 255}, 0.88f, 0.0f, 0.0f, MatId::SidewalkPavers, false);
 
-        // 2. Shimmering 30km Han River S-curve + Seokchon Lake + Cheonggyecheon Water!
+        // 2. Shimmering 30km Han River S-curve + Seokchon Lake + 4 Real Seoul Tributaries!
         drawMesh(vk, hanRiverWaterMesh_, Mat4::identity(), {255, 255, 255, 255},
                  0.06f, 0.06f, 0.0f, MatId::HanRiverWater, false);
+        drawMesh(vk, tributaryWaterMesh_, Mat4::identity(), {255, 255, 255, 255},
+                 0.06f, 0.06f, 0.0f, MatId::HanRiverWater, false);
 
-        // 3. 7 Real Seoul Mountains (Namsan, Bukhansan, Inwangsan, Bugaksan, Gwanaksan, Achasan, Cheonggyesan)
+        // 2B. Real Curved 30km 강변북로 (Gangbyeonbuk-ro) & 올림픽대로 (Olympic-daero)!
+        drawMesh(vk, riversideExpresswayMesh_, Mat4::identity(), {255, 255, 255, 255},
+                 0.56f, 0.0f, 0.0f, MatId::RoadAsphalt, false);
+
+        // 3. 7 Real Seoul Mountains
         drawMesh(vk, mountainForestMesh_, Mat4::identity(), {255, 255, 255, 255},
                  0.90f, 0.0f, 0.0f, MatId::FoliageGrass, false);
         drawMesh(vk, mountainGraniteMesh_, Mat4::identity(), {255, 255, 255, 255},
@@ -836,7 +1002,7 @@ void Renderer3D::drawSeoulTerrainAndRoads(VulkanContext& vk, const GameWorld& wo
     if (shadowPass) return;
 
     // 5. Crisp local 84m Korean Road Grid & Concrete Sidewalk Blocks around camera focus!
-    // Automatically skips cells submerged in the Han River while preserving Yeouido Island!
+    // Automatically skips cells submerged in Han River, Tributaries, or inside Major Parks!
     const int centerRx = city.nearestRoadIndex(focus.x);
     const int centerRz = city.nearestRoadIndex(focus.z);
     const int radiusBlocks = 7;
@@ -847,15 +1013,20 @@ void Renderer3D::drawSeoulTerrainAndRoads(VulkanContext& vk, const GameWorld& wo
             const float rx = city.roadCoord(ix);
             const Vec2 cellCenter{rx + pitch * 0.5f, rz + pitch * 0.5f};
 
-            // Draw road tile centered on (rx, rz) if dry ground & arm endpoints stay out of Han River!
             const Vec2 roadCenter{rx, rz};
-            if (!city.isInHanRiverWater(roadCenter, -12.0f) && !city.isInSeokchonLake(roadCenter)) {
+            if (!city.isInHanRiverWater(roadCenter, -12.0f) &&
+                !city.isInSeokchonLake(roadCenter) &&
+                !city.isInTributaryWater(roadCenter, -6.0f)) {
                 const float elev = city.terrainElevationAt(roadCenter);
                 if (elev < 28.0f) {
                     const bool horizDry = !city.isInHanRiverWater({rx - pitch * 0.48f, rz}, -4.0f) &&
-                                          !city.isInHanRiverWater({rx + pitch * 0.48f, rz}, -4.0f);
+                                          !city.isInHanRiverWater({rx + pitch * 0.48f, rz}, -4.0f) &&
+                                          !city.isInTributaryWater({rx - pitch * 0.48f, rz}, -2.0f) &&
+                                          !city.isInTributaryWater({rx + pitch * 0.48f, rz}, -2.0f);
                     const bool vertDry  = !city.isInHanRiverWater({rx, rz - pitch * 0.48f}, -4.0f) &&
-                                          !city.isInHanRiverWater({rx, rz + pitch * 0.48f}, -4.0f);
+                                          !city.isInHanRiverWater({rx, rz + pitch * 0.48f}, -4.0f) &&
+                                          !city.isInTributaryWater({rx, rz - pitch * 0.48f}, -2.0f) &&
+                                          !city.isInTributaryWater({rx, rz + pitch * 0.48f}, -2.0f);
                     if (horizDry) {
                         drawBox(vk, {rx, elev - 0.06f, rz}, {pitch + 1.0f, 0.12f, CityMap::kRoadWidth}, 0.0f,
                                 {74, 76, 82, 255}, 0.56f, 0.0f, 0.0f, MatId::RoadAsphalt, false);
@@ -867,16 +1038,18 @@ void Renderer3D::drawSeoulTerrainAndRoads(VulkanContext& vk, const GameWorld& wo
                 }
             }
 
-            // Draw raised Korean sidewalk block pad inside (ix, iz) block if not in Han River!
-            if (!city.isInHanRiverWater(cellCenter, 8.0f) && !city.isInSeokchonLake(cellCenter)) {
+            if (!city.isInHanRiverWater(cellCenter, 8.0f) &&
+                !city.isInSeokchonLake(cellCenter) &&
+                !city.isInTributaryWater(cellCenter, 4.0f)) {
                 const float bElev = city.terrainElevationAt(cellCenter);
                 if (bElev < 26.0f) {
                     const float innerSpan = pitch - CityMap::kRoadWidth; // 66m block pad
-                    const bool isRiverPark = city.isInHanRiverPark(cellCenter);
-                    const ColorRGBA padCol = isRiverPark
-                        ? ColorRGBA{66, 108, 56, 255}
-                        : ColorRGBA{164, 166, 170, 255};
-                    const MatId padMat = isRiverPark ? MatId::FoliageGrass : MatId::SidewalkPavers;
+                    const SeoulParkZone* majPk = city.findMajorSeoulPark(cellCenter);
+                    const bool isRiverPark = city.isInHanRiverPark(cellCenter) || (majPk != nullptr);
+                    const ColorRGBA padCol = majPk
+                        ? majPk->grassColor
+                        : (isRiverPark ? ColorRGBA{66, 108, 56, 255} : ColorRGBA{164, 166, 170, 255});
+                    const MatId padMat = (isRiverPark && padCol.r < 130) ? MatId::FoliageGrass : MatId::SidewalkPavers;
                     drawBox(vk, {cellCenter.x, bElev + 0.05f, cellCenter.z},
                             {innerSpan, 0.14f, innerSpan}, 0.0f, padCol, 0.84f, 0.0f, 0.0f, padMat, false);
                 }
@@ -890,8 +1063,7 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
     const CityMap& city = world.city();
     const bool nightMode = world.isNight();
 
-    // 1. Always-visible 12 Real Seoul Macro Landmarks (Lotte World Tower 555m, N Seoul Tower,
-    //    Gyeongbokgung Palace, 63 Building, National Assembly, Parc1, COEX, City Hall, DDP, etc.)!
+    // 1. Always-visible 12 Real Seoul Macro Landmarks!
     drawMesh(vk, landmarkGlassMesh_, Mat4::identity(), {255, 255, 255, 255},
              0.10f, 0.32f, 0.0f, MatId::GlassSkyscraper, shadowPass);
     drawMesh(vk, landmarkStoneMesh_, Mat4::identity(), {255, 255, 255, 255},
@@ -911,48 +1083,52 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
             const Vec2 c = park.bounds.center();
             if ((c - focus).lengthSq() > 560.0f * 560.0f) continue;
             const Vec2 sz = park.bounds.size();
+            const MatId pm = (park.grassColor.r > 130) ? MatId::SidewalkPavers : MatId::FoliageGrass;
             drawBox(vk, {c.x, park.baseY + 0.14f, c.z}, {sz.x, 0.08f, sz.z}, 0.0f,
-                    park.grassColor, 0.88f, 0.0f, 0.0f, MatId::FoliageGrass, false);
+                    park.grassColor, 0.88f, 0.0f, 0.0f, pm, false);
         }
     }
 
-    // 3. Streamed Seoul Buildings (Korean Apartments, Glass Skyscrapers, Brick Shops, Hanok, Villas!)
+    // 3. Streamed Seoul Buildings — Orientation-Aware Storefronts, Korean Apt Shear-Walls & Rooftop Detail!
     const float queryRadius = shadowPass ? 165.0f : 580.0f;
     visIdxBuf_.clear();
     city.queryBuildingsInRadius(focus, queryRadius, visIdxBuf_);
 
     for (int bi : visIdxBuf_) {
         const Building& b = city.buildings()[static_cast<std::size_t>(bi)];
-        if (b.isMacroLandmark) continue; // Already drawn by crisp macro landmark geometry above!
+        if (b.isMacroLandmark) continue;
 
         const Vec2 c = b.footprint.center();
         const Vec2 sz = b.footprint.size();
         const float distSq = (c - focus).lengthSq();
 
         MatId facadeMat = MatId::ModernConcrete;
-        float rough = 0.68f, metal = 0.10f;
+        float rough = 0.60f, metal = 0.10f;
         switch (b.style) {
             case BuildingStyle::GlassTower:
             case BuildingStyle::SupertallSpire:
             case BuildingStyle::DealershipBuilding:
                 facadeMat = MatId::GlassSkyscraper;
-                rough = 0.14f; metal = 0.38f;
+                rough = 0.12f; metal = 0.42f;
                 break;
             case BuildingStyle::KoreanApartment:
+                facadeMat = MatId::KoreanAptFacade; // South-facing verandas + windowless E/W concrete shear-walls!
+                rough = 0.78f; metal = 0.03f;
+                break;
             case BuildingStyle::BrickCommercial:
             case BuildingStyle::ShopBuilding:
             case BuildingStyle::BoutiqueBuilding:
             case BuildingStyle::VillaHouse:
-                facadeMat = MatId::KoreanApartmentBrick;
-                rough = 0.74f; metal = 0.05f;
+                facadeMat = MatId::KoreanApartmentBrick; // Authentic running-bond brick + granite 1F plinth!
+                rough = 0.80f; metal = 0.04f;
                 break;
             case BuildingStyle::HanokPalace:
                 facadeMat = MatId::ModernConcrete;
                 rough = 0.78f; metal = 0.04f;
                 break;
             default:
-                facadeMat = MatId::ModernConcrete;
-                rough = 0.66f; metal = 0.14f;
+                facadeMat = MatId::ModernConcrete; // Honed Korean granite panel cladding!
+                rough = 0.54f; metal = 0.12f;
                 break;
         }
 
@@ -969,32 +1145,98 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
 
         const float roofY = b.baseY + b.height + b.upperTierHeight;
 
-        // Authentic Korean Hanok curved Giwa tiled roof!
         if (b.style == BuildingStyle::HanokPalace) {
             Mat4 rm = Mat4::translation(c.x, roofY - 0.1f, c.z) *
                       Mat4::scale(sz.x * 1.15f, std::min(5.2f, b.height * 0.45f), sz.z * 1.15f);
             drawMesh(vk, giwaRoofMesh_, rm, {255, 255, 255, 255}, 0.56f, 0.08f, 0.0f,
                      MatId::HanokGiwaRoof, shadowPass);
+        } else if (b.style == BuildingStyle::VillaHouse) {
+            // Korean 4~5F Multi-Family Villa: sloped dark charcoal slate roof + rooftop stair cube!
+            drawBox(vk, {c.x, roofY + 0.35f, c.z}, {sz.x + 0.45f, 0.72f, sz.z + 0.45f}, 0.0f,
+                    {64, 68, 76, 255}, 0.68f, 0.08f, 0.0f, MatId::Standard, shadowPass);
+            drawBox(vk, {c.x, roofY + 1.15f, c.z}, {sz.x * 0.84f, 1.05f, sz.z * 0.84f}, 0.0f,
+                    {54, 58, 66, 255}, 0.72f, 0.08f, 0.0f, MatId::Standard, shadowPass);
+            if (!shadowPass && distSq < 220.0f * 220.0f) {
+                drawBox(vk, {c.x + sz.x * 0.18f, roofY + 2.3f, c.z - sz.z * 0.12f}, {3.6f, 2.2f, 3.2f}, 0.0f,
+                        b.primaryColor, 0.78f, 0.04f, 0.0f, MatId::Standard, false);
+            }
         } else if (!shadowPass && distSq < 260.0f * 260.0f) {
-            // Rooftop parapet trim + elevator/HVAC penthouse box (signature Seoul apartment & office detail!)
-            drawBox(vk, {c.x, roofY + 0.35f, c.z}, {sz.x * 0.99f, 0.72f, sz.z * 0.99f}, 0.0f,
-                    b.accentColor, 0.74f, 0.12f, 0.0f, MatId::ModernConcrete, false);
+            // Crisp rooftop parapet coping wall + realistic Seoul elevator penthouse & HVAC units!
+            drawBox(vk, {c.x, roofY + 0.42f, c.z}, {sz.x + 0.25f, 0.85f, sz.z + 0.25f}, 0.0f,
+                    b.accentColor, 0.66f, 0.12f, 0.0f, MatId::Standard, false);
+
             if (b.style == BuildingStyle::KoreanApartment) {
-                // Iconic Korean apartment rooftop elevator core + painted stripe crown!
-                drawBox(vk, {c.x, roofY + 1.85f, c.z}, {sz.x * 0.28f, 3.1f, sz.z * 0.36f}, 0.0f,
-                        b.accentColor, 0.72f, 0.06f, 0.0f, MatId::ModernConcrete, false);
-            } else if (b.hasHelipad) {
-                drawBox(vk, {c.x, roofY + 0.76f, c.z}, {sz.x * 0.46f, 0.14f, sz.z * 0.46f}, 0.0f,
-                        {58, 62, 70, 255}, 0.80f, 0.05f, 0.0f, MatId::Standard, false);
-                drawBox(vk, {c.x, roofY + 0.85f, c.z}, {sz.x * 0.24f, 0.04f, 0.75f}, 0.0f,
-                        {242, 206, 56, 255}, 0.40f, 0.0f, nightMode ? 0.6f : 0.0f, MatId::EmissiveGlow, false);
+                // Iconic Korean apartment twin rooftop elevator cores + brand top color band!
+                drawBox(vk, {c.x - sz.x * 0.24f, roofY + 2.1f, c.z}, {6.4f, 3.6f, sz.z * 0.44f}, 0.0f,
+                        b.accentColor, 0.72f, 0.06f, 0.0f, MatId::Standard, false);
+                drawBox(vk, {c.x + sz.x * 0.24f, roofY + 2.1f, c.z}, {6.4f, 3.6f, sz.z * 0.44f}, 0.0f,
+                        b.accentColor, 0.72f, 0.06f, 0.0f, MatId::Standard, false);
+                drawBox(vk, {c.x, roofY - 1.1f, c.z}, {sz.x + 0.16f, 1.4f, sz.z + 0.16f}, 0.0f,
+                        b.accentColor, 0.74f, 0.06f, 0.0f, MatId::Standard, false);
+            } else {
+                // Rooftop stairwell penthouse + silver HVAC chiller units
+                drawBox(vk, {c.x - sz.x * 0.18f, roofY + 1.6f, c.z - sz.z * 0.16f},
+                        {std::min(7.5f, sz.x * 0.34f), 2.8f, std::min(6.5f, sz.z * 0.34f)}, 0.0f,
+                        {158, 162, 168, 255}, 0.74f, 0.10f, 0.0f, MatId::Standard, false);
+                drawBox(vk, {c.x + sz.x * 0.20f, roofY + 1.15f, c.z + sz.z * 0.14f},
+                        {2.4f, 1.4f, 1.8f}, 0.0f, {178, 184, 192, 255}, 0.46f, 0.52f, 0.0f, MatId::Standard, false);
+                if (b.hasHelipad) {
+                    drawBox(vk, {c.x, roofY + 0.88f, c.z}, {sz.x * 0.46f, 0.14f, sz.z * 0.46f}, 0.0f,
+                            {58, 62, 70, 255}, 0.80f, 0.05f, 0.0f, MatId::Standard, false);
+                    drawBox(vk, {c.x, roofY + 0.97f, c.z}, {sz.x * 0.24f, 0.04f, 0.75f}, 0.0f,
+                            {242, 206, 56, 255}, 0.40f, 0.0f, nightMode ? 0.6f : 0.0f, MatId::EmissiveGlow, false);
+                }
             }
-            // Storefront awning / illuminated Korean shop signage band on lower floors
-            if (b.hasStorefront) {
-                drawBox(vk, {c.x, b.baseY + 3.85f, c.z}, {sz.x + 0.7f, 0.55f, sz.z + 0.7f}, 0.0f,
-                        b.awningColor, 0.65f, 0.05f, nightMode ? 0.55f : 0.05f, MatId::Standard, false);
+
+            // ORIENTATION-AWARE STREET-FACING KOREAN STOREFRONTS & SIGNBOARDS!
+            // ONLY placed on facade edges actually bordering a street (b.streetEdgeMask)!
+            // Eliminates the ugly wrap-around red stripe on all 4 sides!
+            if (b.hasStorefront && distSq < 195.0f * 195.0f) {
+                const float signY = b.baseY + 3.92f;
+                const float canopyY = b.baseY + 3.35f;
+                const ColorRGBA canopyCol{48, 54, 64, 255};
+                const float signEm = nightMode ? 0.72f : 0.04f;
+                const MatId signMat = nightMode ? MatId::EmissiveGlow : MatId::Standard;
+
+                // bit 0: West (-X) street edge
+                if (b.streetEdgeMask & 0x01u) {
+                    drawBox(vk, {b.footprint.min.x - 0.18f, signY, c.z}, {0.32f, 0.78f, sz.z * 0.84f}, 0.0f,
+                            b.awningColor, 0.42f, 0.15f, signEm, signMat, false);
+                    drawBox(vk, {b.footprint.min.x - 0.55f, canopyY, c.z}, {1.05f, 0.12f, sz.z * 0.62f}, 0.0f,
+                            canopyCol, 0.34f, 0.55f, 0.0f, MatId::Standard, false);
+                    // Vertical projecting Korean commercial signbox (돌출간판) on 2F~3F!
+                    if (b.height > 12.0f && (b.facadeVariant & 1) == 0) {
+                        drawBox(vk, {b.footprint.min.x - 0.52f, b.baseY + 7.8f, c.z + sz.z * 0.30f},
+                                {0.85f, 3.6f, 0.26f}, 0.0f, b.awningColor, 0.32f, 0.12f, nightMode ? 1.05f : 0.06f, signMat, false);
+                    }
+                }
+                // bit 1: East (+X) street edge
+                if (b.streetEdgeMask & 0x02u) {
+                    drawBox(vk, {b.footprint.max.x + 0.18f, signY, c.z}, {0.32f, 0.78f, sz.z * 0.84f}, 0.0f,
+                            b.awningColor, 0.42f, 0.15f, signEm, signMat, false);
+                    drawBox(vk, {b.footprint.max.x + 0.55f, canopyY, c.z}, {1.05f, 0.12f, sz.z * 0.62f}, 0.0f,
+                            canopyCol, 0.34f, 0.55f, 0.0f, MatId::Standard, false);
+                    if (b.height > 12.0f && (b.facadeVariant & 1) == 1) {
+                        drawBox(vk, {b.footprint.max.x + 0.52f, b.baseY + 7.8f, c.z - sz.z * 0.30f},
+                                {0.85f, 3.6f, 0.26f}, 0.0f, b.awningColor, 0.32f, 0.12f, nightMode ? 1.05f : 0.06f, signMat, false);
+                    }
+                }
+                // bit 2: North (-Z) street edge
+                if (b.streetEdgeMask & 0x04u) {
+                    drawBox(vk, {c.x, signY, b.footprint.min.z - 0.18f}, {sz.x * 0.84f, 0.78f, 0.32f}, 0.0f,
+                            b.awningColor, 0.42f, 0.15f, signEm, signMat, false);
+                    drawBox(vk, {c.x, canopyY, b.footprint.min.z - 0.55f}, {sz.x * 0.62f, 0.12f, 1.05f}, 0.0f,
+                            canopyCol, 0.34f, 0.55f, 0.0f, MatId::Standard, false);
+                }
+                // bit 3: South (+Z) street edge
+                if (b.streetEdgeMask & 0x08u) {
+                    drawBox(vk, {c.x, signY, b.footprint.max.z + 0.18f}, {sz.x * 0.84f, 0.78f, 0.32f}, 0.0f,
+                            b.awningColor, 0.42f, 0.15f, signEm, signMat, false);
+                    drawBox(vk, {c.x, canopyY, b.footprint.max.z + 0.55f}, {sz.x * 0.62f, 0.12f, 1.05f}, 0.0f,
+                            canopyCol, 0.34f, 0.55f, 0.0f, MatId::Standard, false);
+                }
             }
-            // Nightclub / Dealership glowing neon architectural trim
+
             if (b.style == BuildingStyle::NightclubBuilding || b.style == BuildingStyle::DealershipBuilding) {
                 const ColorRGBA neonC = (b.style == BuildingStyle::NightclubBuilding)
                     ? ColorRGBA{236, 56, 198, 255}
@@ -1029,40 +1271,45 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
     const bool nightMode = world.isNight();
     const float treeRadius = shadowPass ? 115.0f : 280.0f;
 
-    // 1. Seoul Street Trees (Ginkgo, Cherry Blossom, Korean Pine!)
+    // 1. Seoul Street Trees (Organic multi-cluster Ginkgo, Cherry Blossom, Korean Pine!)
     visIdxBuf_.clear();
     city.queryTreesInRadius(focus, treeRadius, visIdxBuf_);
     for (int ti : visIdxBuf_) {
         const TreeProp& t = city.trees()[static_cast<std::size_t>(ti)];
         const float y0 = t.baseY;
 
-        // Planter curb box if roadside street tree
         if (t.inPlanter && !shadowPass) {
-            drawBox(vk, {t.pos.x, y0 + 0.18f, t.pos.z}, {1.65f, 0.36f, 1.65f}, 0.0f,
-                    {136, 138, 144, 255}, 0.84f, 0.0f, 0.0f, MatId::SidewalkPavers, false);
+            // Crisp Korean granite tree curb surround + dark mulch soil bed
+            drawBox(vk, {t.pos.x, y0 + 0.16f, t.pos.z}, {1.85f, 0.28f, 1.85f}, 0.0f,
+                    {142, 144, 148, 255}, 0.82f, 0.0f, 0.0f, MatId::SidewalkPavers, false);
+            drawBox(vk, {t.pos.x, y0 + 0.24f, t.pos.z}, {1.45f, 0.16f, 1.45f}, 0.0f,
+                    {68, 54, 42, 255}, 0.94f, 0.0f, 0.0f, MatId::Standard, false);
         }
-        // Tapered bark trunk
+        // Tapered bark trunk with subtle natural yaw variation per tree
+        const float treeYaw = std::fmod(std::abs(t.pos.x * 0.17f + t.pos.z * 0.31f), kTwoPi);
         Mat4 trunkM = Mat4::translation(t.pos.x, y0, t.pos.z) *
-                      Mat4::scale(0.42f, t.trunkHeight, 0.42f);
-        drawMesh(vk, cylMesh_, trunkM, {94, 70, 52, 255}, 0.90f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
+                      Mat4::scale(0.36f, t.trunkHeight, 0.36f);
+        drawMesh(vk, cylMesh_, trunkM, {88, 66, 48, 255}, 0.90f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
 
-        // Species-specific canopy
         if (t.species == TreeSpecies::KoreanPine) {
             Mat4 cm = Mat4::translation(t.pos.x, y0 + t.trunkHeight * 0.65f, t.pos.z) *
-                      Mat4::scale(t.crownRadius * 1.4f, t.crownRadius * 2.1f, t.crownRadius * 1.4f);
-            drawMesh(vk, pineMesh_, cm, {42, 86, 52, 255}, 0.88f, 0.0f, 0.0f, MatId::FoliageGrass, shadowPass);
+                      Mat4::rotationAxis({0, 1, 0}, treeYaw) *
+                      Mat4::scale(t.crownRadius * 1.42f, t.crownRadius * 2.15f, t.crownRadius * 1.42f);
+            drawMesh(vk, pineMesh_, cm, {40, 82, 48, 255}, 0.88f, 0.0f, 0.0f, MatId::FoliageGrass, shadowPass);
         } else {
             const ColorRGBA crownCol = (t.species == TreeSpecies::CherryBlossom)
-                ? ColorRGBA{242, 186, 206, 255} // Iconic Yeouido & Seokchon Cherry Blossoms!
-                : ColorRGBA{84, 128, 52, 255};  // Seoul Ginkgo / Zelkova urban canopy
-            Mat4 cm = Mat4::translation(t.pos.x, y0 + t.trunkHeight + t.crownRadius * 0.25f, t.pos.z) *
-                      Mat4::scale(t.crownRadius, t.crownRadius * 0.92f, t.crownRadius);
+                ? ColorRGBA{244, 192, 210, 255}
+                : ColorRGBA{78, 122, 48, 255};
+            Mat4 cm = Mat4::translation(t.pos.x, y0 + t.trunkHeight + t.crownRadius * 0.16f, t.pos.z) *
+                      Mat4::rotationAxis({0, 1, 0}, treeYaw) *
+                      Mat4::scale(t.crownRadius * 1.15f, t.crownRadius * 1.05f, t.crownRadius * 1.15f);
             drawMesh(vk, foliageMesh_, cm, crownCol, 0.86f, 0.0f, 0.0f, MatId::FoliageGrass, shadowPass);
         }
     }
 
-    // 2. Street Props (Seoul streetlamps, bus shelters, benches, hydrants, Han River sunshades!)
-    const float propRadius = shadowPass ? 95.0f : 210.0f;
+    // 2. Properly Oriented Seoul Street Props (Streetlamps, 4-Aspect Korean Traffic Lights, Bus Shelters, Subway Entrances!)
+    const float propRadius = shadowPass ? 95.0f : 220.0f;
+    const int sigPhase = static_cast<int>(std::fmod(world.elapsedTime(), 18.0f));
     visIdxBuf_.clear();
     city.queryPropsInRadius(focus, propRadius, visIdxBuf_);
     for (int pi : visIdxBuf_) {
@@ -1079,23 +1326,83 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
 
         switch (p.kind) {
             case StreetPropKind::StreetLight: {
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.18f, 6.8f, 0.18f),
-                         {78, 84, 94, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.85f, 6.7f, 0.0f) * Mat4::scale(1.8f, 0.14f, 0.22f),
-                         {82, 88, 98, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, shadowPass);
+                // Tapered steel Seoul streetlamp post + outward luminaire arm extending OVER the roadway (+X local)!
+                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.18f, 7.2f, 0.18f),
+                         {82, 88, 98, 255}, 0.36f, 0.74f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(1.05f, 7.12f, 0.0f) * Mat4::scale(2.25f, 0.13f, 0.20f),
+                         {86, 92, 102, 255}, 0.36f, 0.74f, 0.0f, MatId::Standard, shadowPass);
                 if (!shadowPass) {
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(1.55f, 6.58f, 0.0f) * Mat4::scale(0.55f, 0.12f, 0.28f),
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(1.92f, 7.00f, 0.0f) * Mat4::scale(0.62f, 0.12f, 0.28f),
                              {255, 240, 206, 255}, 0.15f, 0.0f, nightMode ? 2.6f : 0.2f, MatId::EmissiveGlow, false);
                 }
                 break;
             }
+            case StreetPropKind::TrafficLight: {
+                // Authentic Korean horizontal 4-aspect cantilevered traffic signal extending OVER the intersection (+X local)!
+                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.24f, 6.2f, 0.24f),
+                         {52, 56, 64, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.6f, 5.95f, 0.0f) * Mat4::scale(5.3f, 0.18f, 0.18f),
+                         {56, 60, 68, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, shadowPass);
+                // Horizontal black Korean 4-lamp signal housing
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(3.5f, 5.65f, 0.0f) * Mat4::scale(1.85f, 0.48f, 0.34f),
+                         {24, 26, 30, 255}, 0.42f, 0.25f, 0.0f, MatId::Standard, shadowPass);
+                if (!shadowPass) {
+                    // Alternating live Red / Yellow / Green Korean traffic lamps!
+                    const bool isGreen = (sigPhase < 9);
+                    const bool isAmber = (sigPhase >= 9 && sigPhase < 11);
+                    const bool isRed   = (sigPhase >= 11);
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(2.85f, 5.65f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.38f),
+                             isRed ? ColorRGBA{255, 48, 48, 255} : ColorRGBA{58, 20, 20, 255},
+                             0.15f, 0.0f, isRed ? 2.6f : 0.0f, isRed ? MatId::EmissiveGlow : MatId::Standard, false);
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.45f, 5.65f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.38f),
+                             isAmber ? ColorRGBA{255, 198, 36, 255} : ColorRGBA{58, 48, 16, 255},
+                             0.15f, 0.0f, isAmber ? 2.4f : 0.0f, isAmber ? MatId::EmissiveGlow : MatId::Standard, false);
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(4.05f, 5.65f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.38f),
+                             isGreen ? ColorRGBA{42, 242, 118, 255} : ColorRGBA{18, 52, 32, 255},
+                             0.15f, 0.0f, isGreen ? 2.6f : 0.0f, isGreen ? MatId::EmissiveGlow : MatId::Standard, false);
+                    // Pedestrian crossing signal box at 3.1m height on vertical pole
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.15f, 0.24f) * Mat4::scale(0.32f, 0.68f, 0.24f),
+                             {26, 28, 32, 255}, 0.42f, 0.20f, 0.0f, MatId::Standard, false);
+                }
+                break;
+            }
             case StreetPropKind::BusShelter: {
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 2.55f, 0) * Mat4::scale(4.2f, 0.18f, 1.55f),
-                         {48, 56, 68, 255}, 0.35f, 0.65f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 1.25f, -0.68f) * Mat4::scale(4.0f, 2.4f, 0.10f),
-                         {74, 118, 152, 255}, 0.15f, 0.25f, 0.0f, MatId::GlassSkyscraper, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.52f, -0.25f) * Mat4::scale(2.8f, 0.12f, 0.45f),
-                         {132, 92, 58, 255}, 0.75f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
+                // Seoul Bus Shelter: Glass back wall (-Z) on building side, Open boarding side & Bench (+Z) facing ROAD!
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 2.62f, 0) * Mat4::scale(4.6f, 0.18f, 1.65f),
+                         {42, 48, 58, 255}, 0.34f, 0.68f, 0.0f, MatId::Standard, shadowPass);
+                // Signature Seoul Blue Bus Route Header Strip facing the road (+Z)!
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 2.76f, 0.72f) * Mat4::scale(4.5f, 0.24f, 0.12f),
+                         {32, 108, 214, 255}, 0.25f, 0.15f, nightMode ? 1.1f : 0.12f,
+                         nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 1.30f, -0.72f) * Mat4::scale(4.2f, 2.45f, 0.10f),
+                         {74, 118, 152, 255}, 0.12f, 0.28f, 0.0f, MatId::GlassSkyscraper, shadowPass);
+                // Side pillars
+                for (float sx : {-2.05f, 2.05f}) {
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx, 1.30f, -0.68f) * Mat4::scale(0.14f, 2.60f, 0.14f),
+                             {48, 54, 64, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, shadowPass);
+                }
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.52f, -0.25f) * Mat4::scale(3.0f, 0.12f, 0.45f),
+                         {136, 96, 60, 255}, 0.75f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
+                break;
+            }
+            case StreetPropKind::SubwayEntrance: {
+                // Authentic Seoul Metro Glass-Canopy Subway Entrance aligned neatly along the sidewalk!
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.55f, 0.0f) * Mat4::scale(5.4f, 0.20f, 2.6f),
+                         {52, 58, 68, 255}, 0.30f, 0.74f, 0.0f, MatId::Standard, shadowPass);
+                // Line 2 Seoul Metro Green / Line 1 Navy illuminated header fascia
+                const ColorRGBA lineCol = ((static_cast<int>(p.pos.x) & 1) == 0)
+                    ? ColorRGBA{42, 166, 78, 255}  // Seoul Metro Line 2 Green
+                    : ColorRGBA{36, 98, 198, 255}; // Seoul Metro Line 1 Blue
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.74f, 0.0f) * Mat4::scale(5.5f, 0.32f, 2.7f),
+                         lineCol, 0.24f, 0.18f, nightMode ? 1.25f : 0.15f,
+                         nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
+                // Glass side balustrades + dark stairwell opening
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.25f, -1.20f) * Mat4::scale(5.2f, 2.4f, 0.10f),
+                         {78, 128, 162, 255}, 0.12f, 0.28f, 0.0f, MatId::GlassSkyscraper, shadowPass);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.25f,  1.20f) * Mat4::scale(5.2f, 2.4f, 0.10f),
+                         {78, 128, 162, 255}, 0.12f, 0.28f, 0.0f, MatId::GlassSkyscraper, shadowPass);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-1.0f, 0.35f, 0.0f) * Mat4::scale(3.0f, 0.65f, 2.1f),
+                         {32, 36, 42, 255}, 0.80f, 0.0f, 0.0f, MatId::Standard, false);
                 break;
             }
             case StreetPropKind::Bench:
@@ -1318,88 +1625,139 @@ void Renderer3D::drawCharacter(VulkanContext& vk, const Vec2& pos, float groundY
         root = root * Mat4::translation(0.0f, 0.14f, 0.0f) * Mat4::rotationAxis({0, 0, 1}, -kHalfPi * fp);
     }
 
-    const float stride = alive ? std::sin(animPhase) * (jumping ? 0.18f : 0.48f) : 0.0f;
-    const float armSwing = alive ? -stride * 0.72f : 0.0f;
-    const ColorRGBA shoeCol{30, 32, 38, 255};
+    const float stride = alive ? std::sin(animPhase) * (jumping ? 0.16f : 0.44f) : 0.0f;
+    const float armSwing = alive ? -stride * 0.65f : 0.0f;
+    const ColorRGBA shoeCol{28, 30, 36, 255};
+    const ColorRGBA beltCol{32, 30, 28, 255};
 
-    // Legs & shoes
+    // 1. Articulated Two-Segment Legs (Thigh + Shin + Knee Bend + Contoured Shoe!)
     for (float s : {-1.0f, 1.0f}) {
-        const float legAng = s * stride;
-        const Mat4 legM = root * Mat4::translation(0.0f, 0.82f, s * 0.125f) *
-                          Mat4::rotationAxis({0, 0, 1}, legAng);
-        drawMesh(vk, cubeMesh_, legM * Mat4::translation(0.0f, -0.38f, 0.0f) * Mat4::scale(0.18f, 0.78f, 0.17f),
+        const float hipAng = s * stride;
+        const float kneeAng = alive ? std::max(0.0f, -s * std::cos(animPhase) * 0.36f) : 0.0f;
+        const Mat4 hipM = root * Mat4::translation(0.0f, 0.86f, s * 0.115f) *
+                          Mat4::rotationAxis({0, 0, 1}, hipAng);
+        // Upper thigh capsule
+        drawMesh(vk, capsuleLimbMesh_, hipM * Mat4::scale(0.165f, 0.41f, 0.165f),
                  bottom, 0.78f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
-        drawMesh(vk, cubeMesh_, legM * Mat4::translation(0.04f, -0.78f, 0.0f) * Mat4::scale(0.24f, 0.11f, 0.15f),
-                 shoeCol, 0.60f, 0.05f, 0.0f, MatId::Standard, shadowPass);
+        // Lower shin capsule with natural knee articulation
+        const Mat4 kneeM = hipM * Mat4::translation(0.0f, -0.41f, 0.0f) *
+                           Mat4::rotationAxis({0, 0, 1}, -kneeAng);
+        drawMesh(vk, capsuleLimbMesh_, kneeM * Mat4::scale(0.135f, 0.38f, 0.135f),
+                 bottom, 0.78f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
+        // Contoured sneaker/dress shoe
+        drawMesh(vk, sphereMesh_, kneeM * Mat4::translation(0.05f, -0.41f, 0.0f) * Mat4::scale(0.26f, 0.10f, 0.13f),
+                 shoeCol, 0.56f, 0.06f, 0.0f, MatId::Standard, shadowPass);
     }
 
-    // Torso / Jacket / Vest
-    drawMesh(vk, cubeMesh_, root * Mat4::translation(0.0f, 1.15f, 0.0f) * Mat4::scale(0.28f, 0.64f, 0.44f),
-             top, 0.76f, 0.04f, 0.0f, MatId::FabricCloth, shadowPass);
+    // 2. Sculpted Pelvis, Belt & Anatomical Tapered Torso (Athletic Shoulders -> Waist!)
+    drawMesh(vk, sphereMesh_, root * Mat4::translation(0.0f, 0.86f, 0.0f) * Mat4::scale(0.24f, 0.18f, 0.36f),
+             bottom, 0.78f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
+    if (!shadowPass) {
+        drawMesh(vk, cylMesh_, root * Mat4::translation(0.0f, 0.88f, 0.0f) * Mat4::scale(0.245f, 0.055f, 0.365f),
+                 beltCol, 0.42f, 0.25f, 0.0f, MatId::Standard, false);
+    }
+    drawMesh(vk, torsoMesh_, root * Mat4::translation(0.0f, 0.90f, 0.0f) * Mat4::scale(0.30f, 0.58f, 0.45f),
+             top, 0.74f, 0.04f, 0.0f, MatId::FabricCloth, shadowPass);
+    if (!shadowPass) {
+        // Subtle inner shirt collar / lapel accent at chest V
+        drawMesh(vk, sphereMesh_, root * Mat4::translation(0.09f, 1.38f, 0.0f) * Mat4::scale(0.11f, 0.14f, 0.14f),
+                 {228, 232, 238, 255}, 0.72f, 0.02f, 0.0f, MatId::FabricCloth, false);
+    }
     if (isSwat || outfit == OutfitId::TacOpsArmor) {
-        drawMesh(vk, cubeMesh_, root * Mat4::translation(0.0f, 1.17f, 0.0f) * Mat4::scale(0.32f, 0.46f, 0.46f),
-                 {32, 36, 44, 255}, 0.58f, 0.18f, 0.0f, MatId::Standard, shadowPass);
+        drawMesh(vk, torsoMesh_, root * Mat4::translation(0.0f, 0.96f, 0.0f) * Mat4::scale(0.34f, 0.46f, 0.47f),
+                 {30, 34, 42, 255}, 0.56f, 0.18f, 0.0f, MatId::Standard, shadowPass);
     }
 
-    // Head & Hair / Cap / Police Helmet
+    // 3. Neck, Sculpted Head, Hair & Flush Conformal Eyewear!
+    drawMesh(vk, cylMesh_, root * Mat4::translation(0.0f, 1.43f, 0.0f) * Mat4::scale(0.11f, 0.13f, 0.11f),
+             skin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, shadowPass);
+
     const float headLook = npcPtr ? npcPtr->headLookYaw : 0.0f;
-    const Mat4 headM = root * Mat4::translation(0.0f, 1.62f, 0.0f) * Mat4::rotationAxis({0, 1, 0}, -headLook);
-    drawMesh(vk, sphereMesh_, headM * Mat4::scale(0.27f, 0.30f, 0.25f),
+    const Mat4 headM = root * Mat4::translation(0.0f, 1.63f, 0.0f) * Mat4::rotationAxis({0, 1, 0}, -headLook);
+    drawMesh(vk, sphereMesh_, headM * Mat4::scale(0.22f, 0.26f, 0.20f),
              skin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, shadowPass);
 
     if (!shadowPass) {
         const ColorRGBA hairCol = customChar
             ? getPlayerHairColor(outfit, customChar->hairColorIdx)
-            : (isPolice ? ColorRGBA{24, 42, 86, 255} : ColorRGBA{32, 28, 26, 255});
+            : (isPolice ? ColorRGBA{24, 42, 86, 255} : ColorRGBA{28, 24, 22, 255});
         if (isPolice || isSwat) {
-            // Seoul Police peaked cap / SWAT tactical helmet
-            drawMesh(vk, sphereMesh_, headM * Mat4::translation(0, 0.08f, 0) * Mat4::scale(0.29f, 0.18f, 0.27f),
+            drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.01f, 0.06f, 0.0f) * Mat4::scale(0.24f, 0.16f, 0.22f),
                      isSwat ? ColorRGBA{28, 32, 38, 255} : ColorRGBA{22, 42, 92, 255}, 0.45f, 0.15f, 0.0f, MatId::Standard, false);
-            drawMesh(vk, cubeMesh_, headM * Mat4::translation(0.14f, 0.04f, 0) * Mat4::scale(0.14f, 0.03f, 0.20f),
+            drawMesh(vk, cubeMesh_, headM * Mat4::translation(0.10f, 0.03f, 0.0f) * Mat4::scale(0.11f, 0.022f, 0.16f),
                      {20, 22, 26, 255}, 0.35f, 0.15f, 0.0f, MatId::Standard, false);
         } else {
-            drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.02f, 0.07f, 0.0f) * Mat4::scale(0.28f, 0.20f, 0.26f),
+            // Natural contoured hair crown + back hair volume (never covers eyes!)
+            drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.02f, 0.055f, 0.0f) * Mat4::scale(0.23f, 0.18f, 0.215f),
+                     hairCol, 0.72f, 0.04f, 0.0f, MatId::Standard, false);
+            drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.055f, -0.01f, 0.0f) * Mat4::scale(0.17f, 0.16f, 0.19f),
                      hairCol, 0.72f, 0.04f, 0.0f, MatId::Standard, false);
         }
+        // Subtle twin dark eyes / flush conformal twin-lens sunglasses (NEVER a floating brick!)
         if ((customChar && customChar->glassesStyle > 0) || (npcPtr && npcPtr->glassesStyle > 0)) {
-            drawMesh(vk, cubeMesh_, headM * Mat4::translation(0.12f, 0.02f, 0.0f) * Mat4::scale(0.05f, 0.06f, 0.22f),
-                     {16, 18, 24, 255}, 0.08f, 0.35f, 0.0f, MatId::CarGlass, false);
+            for (float es : {-1.0f, 1.0f}) {
+                drawMesh(vk, sphereMesh_, headM * Mat4::translation(0.098f, 0.014f, es * 0.042f) * Mat4::scale(0.025f, 0.038f, 0.058f),
+                         {14, 16, 22, 255}, 0.06f, 0.45f, 0.0f, MatId::CarGlass, false);
+            }
+            drawMesh(vk, cubeMesh_, headM * Mat4::translation(0.104f, 0.018f, 0.0f) * Mat4::scale(0.012f, 0.012f, 0.042f),
+                     {24, 26, 30, 255}, 0.30f, 0.75f, 0.0f, MatId::Standard, false);
+        } else {
+            for (float es : {-1.0f, 1.0f}) {
+                drawMesh(vk, sphereMesh_, headM * Mat4::translation(0.098f, 0.014f, es * 0.038f) * Mat4::scale(0.016f, 0.018f, 0.022f),
+                         {22, 20, 20, 255}, 0.25f, 0.0f, 0.0f, MatId::Standard, false);
+            }
         }
     }
 
-    // Arms + Weapon / Rain Umbrella
+    // 4. Articulated Two-Segment Arms (Upper Arm + Elbow + Forearm + Hand)
     for (float s : {-1.0f, 1.0f}) {
-        float pitchA = s * armSwing;
-        if (panicking) pitchA = -2.4f;
-        else if (armed && s > 0.0f) pitchA = -kHalfPi + aimPitch;
-        else if (npcPtr && npcPtr->holdingUmbrella && s > 0.0f) pitchA = -1.25f;
+        float shoulderPitch = s * armSwing;
+        float elbowBend = 0.14f;
+        const bool raisingGun = (armed && s > 0.0f && weapon != WeaponId::Fists);
+        if (panicking) {
+            shoulderPitch = -2.35f;
+            elbowBend = 0.35f;
+        } else if (raisingGun) {
+            shoulderPitch = -kHalfPi + aimPitch;
+            elbowBend = 0.08f;
+        } else if (npcPtr && npcPtr->holdingUmbrella && s > 0.0f) {
+            shoulderPitch = -1.15f;
+            elbowBend = 0.45f;
+        }
 
-        const Mat4 armM = root * Mat4::translation(0.0f, 1.38f, s * 0.27f) *
-                          Mat4::rotationAxis({0, 0, 1}, pitchA);
-        drawMesh(vk, cubeMesh_, armM * Mat4::translation(0.0f, -0.26f, 0.0f) * Mat4::scale(0.13f, 0.56f, 0.13f),
-                 top, 0.76f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
-        drawMesh(vk, sphereMesh_, armM * Mat4::translation(0.0f, -0.56f, 0.0f) * Mat4::scale(0.11f, 0.11f, 0.11f),
+        const Mat4 shoulderM = root * Mat4::translation(0.0f, 1.365f, s * 0.214f) *
+                               Mat4::rotationAxis({0, 0, 1}, shoulderPitch);
+        // Upper arm capsule
+        drawMesh(vk, capsuleLimbMesh_, shoulderM * Mat4::scale(0.115f, 0.27f, 0.115f),
+                 top, 0.74f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
+        // Forearm capsule with natural elbow angle
+        const Mat4 elbowM = shoulderM * Mat4::translation(0.0f, -0.27f, 0.0f) *
+                            Mat4::rotationAxis({0, 0, 1}, elbowBend);
+        drawMesh(vk, capsuleLimbMesh_, elbowM * Mat4::scale(0.098f, 0.25f, 0.098f),
+                 top, 0.74f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
+        // Hand
+        drawMesh(vk, sphereMesh_, elbowM * Mat4::translation(0.0f, -0.27f, 0.0f) * Mat4::scale(0.095f, 0.105f, 0.085f),
                  skin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, shadowPass);
 
-        // Held Weapon on Right Arm
-        if (armed && s > 0.0f && weapon != WeaponId::Fists && !shadowPass) {
-            const float gunLen = (weapon == WeaponId::Pistol || weapon == WeaponId::HeavyRevolver) ? 0.28f
-                               : ((weapon == WeaponId::SniperRifle || weapon == WeaponId::HeavyLauncher) ? 0.92f : 0.62f);
+        // Held Weapon on Right Arm (only drawn raised when aiming/firing or armed NPC!)
+        if (raisingGun && !shadowPass) {
+            const float gunLen = (weapon == WeaponId::Pistol || weapon == WeaponId::HeavyRevolver) ? 0.24f
+                               : ((weapon == WeaponId::SniperRifle || weapon == WeaponId::HeavyLauncher) ? 0.88f : 0.58f);
             const ColorRGBA wCol = customWep ? getWeaponFinishMaterial(weapon, customWep->skinIndex).primary
                                              : ColorRGBA{38, 42, 48, 255};
-            drawMesh(vk, cubeMesh_, armM * Mat4::translation(0.06f, -0.58f - gunLen * 0.35f, 0.0f) *
-                     Mat4::scale(0.07f, gunLen, 0.08f), wCol, 0.32f, 0.78f, 0.0f, MatId::Standard, false);
+            drawMesh(vk, cubeMesh_, elbowM * Mat4::translation(0.05f, -0.29f - gunLen * 0.35f, 0.0f) *
+                     Mat4::scale(0.06f, gunLen, 0.065f), wCol, 0.30f, 0.78f, 0.0f, MatId::Standard, false);
             if (muzzleFlash > 0.01f) {
-                drawMesh(vk, sphereMesh_, armM * Mat4::translation(0.06f, -0.60f - gunLen * 0.88f, 0.0f) *
-                         Mat4::scale(0.24f, 0.24f, 0.24f), {255, 224, 102, 240}, 0.1f, 0.0f, 3.2f,
+                drawMesh(vk, sphereMesh_, elbowM * Mat4::translation(0.05f, -0.31f - gunLen * 0.88f, 0.0f) *
+                         Mat4::scale(0.22f, 0.22f, 0.22f), {255, 224, 102, 240}, 0.1f, 0.0f, 3.2f,
                          MatId::EmissiveGlow, false, WorldPipelineKind::Additive);
             }
         }
     }
 
-    // Korean Rain Umbrella when raining!
+    // 5. Korean Rain Umbrella when raining!
     if (npcPtr && npcPtr->holdingUmbrella && alive && !shadowPass) {
-        drawMesh(vk, cylMesh_, root * Mat4::translation(0.14f, 1.35f, 0.24f) * Mat4::scale(0.03f, 0.95f, 0.03f),
+        drawMesh(vk, cylMesh_, root * Mat4::translation(0.14f, 1.35f, 0.24f) * Mat4::scale(0.028f, 0.95f, 0.028f),
                  {44, 48, 54, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, false);
         drawMesh(vk, coneMesh_, root * Mat4::translation(0.14f, 2.15f, 0.24f) * Mat4::scale(1.22f, 0.32f, 1.22f),
                  npcPtr->umbrellaColor, 0.56f, 0.05f, 0.0f, MatId::FabricCloth, false);
@@ -1631,8 +1989,9 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
             const ColorRGBA bot = getPlayerBottomColor(pl.currentOutfit, pl.characterCustom.customBottomColorIdx);
             const ColorRGBA skin = getPlayerSkinColor(pl.characterCustom.skinToneIdx);
             const auto& wepSlot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
+            const bool raisingWeapon = (adsBlend > 0.04f || pl.muzzleFlashTimer > 0.01f);
             drawCharacter(vk, pl.pos, gy, pl.facingYaw, pl.walkAnimPhase, top, bot, skin,
-                          !pl.wasted, true, pl.currentWeapon, pl.muzzleFlashTimer, pl.aimPitch,
+                          !pl.wasted, raisingWeapon, pl.currentWeapon, pl.muzzleFlashTimer, pl.aimPitch,
                           pl.currentOutfit, shadowPass, !pl.onGround, false, false, false,
                           &pl.characterCustom, &wepSlot, nullptr, nightMode);
         }
@@ -1642,9 +2001,11 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
         for (const auto& npc : world.npcs()) {
             if ((npc.pos - focus).lengthSq() > npcCull * npcCull) continue;
             const float gy = world.city().surfaceHeightAt(npc.pos);
+            const bool npcCombat = (npc.role != NpcRole::Civilian) &&
+                                   (npc.behavior == NpcBehavior::CombatEngage || npc.muzzleFlashTimer > 0.01f);
             drawCharacter(vk, npc.pos, gy, npc.facingYaw, npc.animPhase,
                           npc.outfitTop, npc.outfitBottom, npc.skinColor,
-                          npc.alive, (npc.role != NpcRole::Civilian), npc.weapon,
+                          npc.alive, npcCombat, npc.weapon,
                           npc.muzzleFlashTimer, 0.0f, npc.outfitStyle, shadowPass,
                           false, (npc.behavior == NpcBehavior::PanicFlee),
                           (npc.role == NpcRole::Police), npc.isSwat,

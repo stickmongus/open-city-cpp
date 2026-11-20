@@ -347,7 +347,7 @@ void HudRenderer::drawRadarMinimap(Vulkan2D& ui, VulkanContext& vk, const GameWo
         return {cx + (wp.x - pPos.x) * pxPerM, cy + (wp.z - pPos.z) * pxPerM};
     };
 
-    // Draw Han River ribbon across radar!
+    // 1. Draw Han River ribbon across radar!
     const int riverSegs = 16;
     for (int i = 0; i < riverSegs; ++i) {
         const float wx0 = pPos.x - spanMeters * 0.6f + spanMeters * 1.2f * (static_cast<float>(i) / riverSegs);
@@ -360,32 +360,78 @@ void HudRenderer::drawRadarMinimap(Vulkan2D& ui, VulkanContext& vk, const GameWo
         const Vec2 b = toMap({wx1, cz1 - hw1});
         const Vec2 c = toMap({wx1, cz1 + hw1});
         const Vec2 d = toMap({wx0, cz0 + hw0});
-        ui.drawTriangle(a.x, a.z, b.x, b.z, c.x, c.z, {26, 78, 138, 225});
-        ui.drawTriangle(a.x, a.z, c.x, c.z, d.x, d.z, {26, 78, 138, 225});
+        ui.drawTriangle(a.x, a.z, b.x, b.z, c.x, c.z, {26, 82, 146, 232});
+        ui.drawTriangle(a.x, a.z, c.x, c.z, d.x, d.z, {26, 82, 146, 232});
     }
 
-    // Draw local road grid lines
+    // 1B. Draw 4 Real Seoul Tributaries & Seokchon Lake on minimap!
+    for (const auto& trib : city.tributaries()) {
+        const float wPx = std::max(2.0f, trib.halfWidth * 2.0f * pxPerM);
+        for (std::size_t i = 1; i < trib.points.size(); ++i) {
+            const Vec2 p0 = toMap(trib.points[i - 1]);
+            const Vec2 p1 = toMap(trib.points[i]);
+            ui.drawLine(p0.x, p0.z, p1.x, p1.z, wPx, {30, 96, 162, 225});
+        }
+    }
+    for (const auto& lake : city.lakes()) {
+        const Vec2 p0 = toMap(lake.bounds.min);
+        const Vec2 p1 = toMap(lake.bounds.max);
+        ui.drawRect(p0.x, p0.z, std::max(2.0f, p1.x - p0.x), std::max(2.0f, p1.z - p0.z), {34, 112, 184, 235});
+    }
+
+    // 1C. Draw Parks & Green Spaces on minimap!
+    for (const auto& park : city.parks()) {
+        const Vec2 c = park.bounds.center();
+        if (std::abs(c.x - pPos.x) > spanMeters * 0.65f || std::abs(c.z - pPos.z) > spanMeters * 0.65f) continue;
+        const Vec2 p0 = toMap(park.bounds.min);
+        const Vec2 p1 = toMap(park.bounds.max);
+        ui.drawRect(p0.x, p0.z, std::max(2.0f, p1.x - p0.x), std::max(2.0f, p1.z - p0.z), {38, 86, 52, 180});
+    }
+
+    // 1D. Draw actual streamed Seoul Building Footprints on minimap (Naver Map / GTA V style!)
+    for (const auto& b : city.buildings()) {
+        const Vec2 bc = b.footprint.center();
+        if (std::abs(bc.x - pPos.x) > spanMeters * 0.56f || std::abs(bc.z - pPos.z) > spanMeters * 0.56f) continue;
+        const Vec2 p0 = toMap(b.footprint.min);
+        const Vec2 p1 = toMap(b.footprint.max);
+        const ColorRGBA bCol = b.isMacroLandmark
+            ? ColorRGBA{176, 154, 92, 225}
+            : (b.style == BuildingStyle::GlassTower ? ColorRGBA{58, 76, 98, 210}
+            : (b.style == BuildingStyle::KoreanApartment ? ColorRGBA{72, 78, 90, 205}
+                                                         : ColorRGBA{54, 62, 74, 195}));
+        ui.drawRect(p0.x, p0.z, std::max(2.0f, p1.x - p0.x), std::max(2.0f, p1.z - p0.z), bCol);
+    }
+
+    // 2. Draw local road grid lines + real curved expressways (강변북로 / 올림픽대로)!
     const int rxC = city.nearestRoadIndex(pPos.x);
     const int rzC = city.nearestRoadIndex(pPos.z);
     for (int ix = rxC - 7; ix <= rxC + 7; ++ix) {
         const float rx = city.roadCoord(ix);
         const float sx = cx + (rx - pPos.x) * pxPerM;
         const bool major = city.isMajorArterialRoad(ix, false);
-        ui.drawLine(sx, r.y, sx, r.y + r.h, major ? 2.4f : 1.1f, major ? ColorRGBA{82, 92, 108, 190} : ColorRGBA{52, 60, 74, 150});
+        ui.drawLine(sx, r.y, sx, r.y + r.h, major ? 2.6f : 1.0f, major ? ColorRGBA{112, 126, 148, 205} : ColorRGBA{52, 60, 74, 130});
     }
     for (int iz = rzC - 7; iz <= rzC + 7; ++iz) {
         const float rz = city.roadCoord(iz);
         const float sy = cy + (rz - pPos.z) * pxPerM;
         const bool major = city.isMajorArterialRoad(iz, true);
-        ui.drawLine(r.x, sy, r.x + r.w, sy, major ? 2.4f : 1.1f, major ? ColorRGBA{82, 92, 108, 190} : ColorRGBA{52, 60, 74, 150});
+        ui.drawLine(r.x, sy, r.x + r.w, sy, major ? 2.6f : 1.0f, major ? ColorRGBA{112, 126, 148, 205} : ColorRGBA{52, 60, 74, 130});
+    }
+    for (const auto& art : city.arterials()) {
+        if (!art.isExpressway) continue;
+        for (std::size_t i = 1; i < art.points.size(); ++i) {
+            const Vec2 p0 = toMap(art.points[i - 1]);
+            const Vec2 p1 = toMap(art.points[i]);
+            ui.drawLine(p0.x, p0.z, p1.x, p1.z, 3.0f, {214, 162, 68, 225});
+        }
     }
 
-    // Bridges crossing Han River
+    // 3. Bridges crossing Han River
     for (const auto& br : city.bridges()) {
         if (std::abs(br.centerX - pPos.x) > spanMeters * 0.7f) continue;
         const Vec2 p0 = toMap({br.centerX, br.zNorth});
         const Vec2 p1 = toMap({br.centerX, br.zSouth});
-        ui.drawLine(p0.x, p0.z, p1.x, p1.z, 4.0f, {222, 184, 92, 235});
+        ui.drawLine(p0.x, p0.z, p1.x, p1.z, 4.0f, {236, 194, 88, 240});
     }
 
     // Police Search Zone & Active Cruisers
@@ -471,16 +517,16 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
         return mapWorldToScreen(l, wp, mapCenterWorld_, mapZoom_);
     };
 
-    // 1. Subtle 5km cartographic coordinate grid
+    // 1. Subtle 3km cartographic coordinate grid
     for (float gx = -15000.0f; gx <= 15000.0f; gx += 3000.0f) {
         const Vec2 a = toScr({gx, CityMap::kWorldMinZ});
         const Vec2 b = toScr({gx, CityMap::kWorldMaxZ});
-        ui.drawLine(a.x, a.z, b.x, b.z, 1.0f, {36, 46, 62, 120});
+        ui.drawLine(a.x, a.z, b.x, b.z, 1.0f, {34, 44, 58, 110});
     }
     for (float gz = -12000.0f; gz <= 12000.0f; gz += 3000.0f) {
         const Vec2 a = toScr({CityMap::kWorldMinX, gz});
         const Vec2 b = toScr({CityMap::kWorldMaxX, gz});
-        ui.drawLine(a.x, a.z, b.x, b.z, 1.0f, {36, 46, 62, 120});
+        ui.drawLine(a.x, a.z, b.x, b.z, 1.0f, {34, 44, 58, 110});
     }
 
     // 2. 7 Real Seoul Mountains (topographic green contour ovals!)
@@ -488,13 +534,42 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
         const Vec2 c = toScr(m.center);
         const Vec2 edge = toScr({m.center.x + m.radiusX, m.center.z});
         const float rPx = std::max(12.0f, std::abs(edge.x - c.x));
-        ui.drawCircle(c.x, c.z, rPx, {36, 76, 48, 130}, 24);
-        ui.drawCircle(c.x, c.z, rPx * 0.65f, {48, 96, 60, 155}, 20);
-        ui.drawCircle(c.x, c.z, rPx * 0.30f, {72, 118, 78, 175}, 16);
+        ui.drawCircle(c.x, c.z, rPx, {34, 72, 46, 130}, 24);
+        ui.drawCircle(c.x, c.z, rPx * 0.65f, {46, 94, 58, 155}, 20);
+        ui.drawCircle(c.x, c.z, rPx * 0.30f, {70, 116, 76, 175}, 16);
         ui.drawTextCentered(pickText(m.nameEn.c_str(), m.nameKo.c_str()), c.x, c.z - 7.0f, 12.5f, {168, 224, 178, 230});
     }
 
-    // 3. Real S-Curve Han River (한강) across all 30 km!
+    // 2B. 9 Real Iconic Seoul Parks & Plazas (여의도공원, 서울숲, 올림픽공원, 용산공원, 보라매공원, 월드컵공원 등!)
+    for (const auto& pk : city.majorParks()) {
+        const Vec2 p0 = toScr(pk.center - pk.halfSize);
+        const Vec2 p1 = toScr(pk.center + pk.halfSize);
+        const float pw = std::max(6.0f, p1.x - p0.x);
+        const float ph = std::max(5.0f, p1.z - p0.z);
+        const ColorRGBA col = (pk.grassColor.r > 130) ? ColorRGBA{128, 134, 146, 190} : ColorRGBA{44, 112, 62, 185};
+        ui.drawRoundedRect(p0.x, p0.z, pw, ph, 4.0f, col);
+        const bool isCenterPlaza = (pk.halfSize.x < 120.0f);
+        const bool isLakePark = (pk.nameEn == "Seokchon Lake Park");
+        if (!isCenterPlaza && (!isLakePark || mapZoom_ >= 1.75f) && (mapZoom_ >= 1.45f || pk.halfSize.x >= 320.0f)) {
+            const Vec2 sc = toScr(pk.center);
+            ui.drawTextCentered(pickText(pk.nameEn.c_str(), pk.nameKo.c_str()), sc.x, sc.z - 6.0f, 11.0f, {168, 234, 176, 225});
+        }
+    }
+
+    // 3. Real S-Curve Han River (한강) + 4 Real Seoul Tributaries (안양천·중랑천·탄천·청계천)!
+    for (const auto& trib : city.tributaries()) {
+        const float lw = std::max(2.2f, (trib.halfWidth * 0.06f) * mapZoom_);
+        for (std::size_t i = 1; i < trib.points.size(); ++i) {
+            const Vec2 a = toScr(trib.points[i - 1]);
+            const Vec2 b = toScr(trib.points[i]);
+            ui.drawLine(a.x, a.z, b.x, b.z, lw, {34, 108, 178, 225});
+        }
+        if (trib.points.size() >= 2) {
+            const Vec2 mid = toScr(trib.points[trib.points.size() / 2]);
+            ui.drawTextCentered(pickText(trib.nameEn.c_str(), trib.nameKo.c_str()), mid.x, mid.z - 6.0f, 11.0f, {132, 198, 250, 220});
+        }
+    }
+
     const int riverSteps = 90;
     for (int i = 0; i < riverSteps; ++i) {
         const float x0 = CityMap::kWorldMinX + (CityMap::kWorldMaxX - CityMap::kWorldMinX) * (static_cast<float>(i) / riverSteps);
@@ -511,33 +586,66 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
         ui.drawTriangle(a.x, a.z, c.x, c.z, d.x, d.z, {26, 94, 168, 240});
     }
 
-    // Yeouido Island (여의도) perched cleanly inside the Han River!
+    // Tilted Yeouido Island (여의도) matching true 14 deg WNW-ESE real-world angle!
     {
-        const Vec2 yC = toScr({-4500.0f, 320.0f});
-        const Vec2 yR = toScr({-4500.0f + 1320.0f, 320.0f});
-        const float rx = std::max(14.0f, std::abs(yR.x - yC.x));
-        ui.drawRoundedRect(yC.x - rx, yC.z - rx * 0.34f, rx * 2.0f, rx * 0.68f, rx * 0.28f, {58, 68, 82, 250});
-        ui.drawTextCentered(pickText("Yeouido", "여의도"), yC.x, yC.z - 7.0f, 12.5f, {236, 242, 250, 255});
+        const float cxW = -4800.0f;
+        const float czW = city.hanRiverCenterZ(cxW) + 165.0f;
+        const Vec2 yC = toScr({cxW, czW});
+        const int segs = 16;
+        const float cA = 0.9703f, sA = 0.2419f;
+        for (int i = 0; i < segs; ++i) {
+            const float a0 = kTwoPi * static_cast<float>(i) / static_cast<float>(segs);
+            const float a1 = kTwoPi * static_cast<float>(i + 1) / static_cast<float>(segs);
+            const float lx0 = std::cos(a0) * 1920.0f, lz0 = std::sin(a0) * 535.0f;
+            const float lx1 = std::cos(a1) * 1920.0f, lz1 = std::sin(a1) * 535.0f;
+            const Vec2 p0 = toScr({cxW + lx0 * cA - lz0 * sA, czW + lx0 * sA + lz0 * cA});
+            const Vec2 p1 = toScr({cxW + lx1 * cA - lz1 * sA, czW + lx1 * sA + lz1 * cA});
+            ui.drawTriangle(yC.x, yC.z, p0.x, p0.z, p1.x, p1.z, {58, 68, 82, 250});
+        }
+        // Yeouido Park green spine inside Yeouido!
+        const Vec2 yp0 = toScr({-5420.0f, 160.0f});
+        const Vec2 yp1 = toScr({-4180.0f, 460.0f});
+        ui.drawLine(yp0.x, yp0.z, yp1.x, yp1.z, std::max(3.0f, 4.5f * mapZoom_), {56, 126, 68, 220});
     }
 
-    // Seokchon Lake & Cheonggyecheon
+    // Seokchon Lake twin basins
     for (const auto& lake : city.lakes()) {
         const Vec2 p0 = toScr(lake.bounds.min);
         const Vec2 p1 = toScr(lake.bounds.max);
         ui.drawRect(p0.x, p0.z, std::max(4.0f, p1.x - p0.x), std::max(3.0f, p1.z - p0.z), {42, 134, 212, 235});
     }
 
-    // 4. Major Seoul Arterial Corridors (Gangnam-daero, Teheran-ro, Sejong-daero, Olympic-daero, Gangbyeonbuk-ro)
-    auto drawArterial = [&](Vec2 wA, Vec2 wB, ColorRGBA col) {
-        const Vec2 sA = toScr(wA), sB = toScr(wB);
-        ui.drawLine(sA.x, sA.z, sB.x, sB.z, 2.2f, col);
+    // 4. All Real Seoul Expressways (강변북로, 올림픽대로, 남부순환로, 서부간선도로) & Named Boulevards!
+    for (const auto& art : city.arterials()) {
+        const ColorRGBA col = art.isExpressway ? ColorRGBA{218, 164, 68, 195} : ColorRGBA{128, 142, 166, 185};
+        const float lw = art.isExpressway ? 2.6f : 2.0f;
+        for (std::size_t i = 1; i < art.points.size(); ++i) {
+            const Vec2 sA = toScr(art.points[i - 1]);
+            const Vec2 sB = toScr(art.points[i]);
+            ui.drawLine(sA.x, sA.z, sB.x, sB.z, lw, col);
+        }
+    }
+
+    // 4B. Real Seoul District Watermark Labels across the 30km x 25km Metropolitan Map!
+    struct DistLbl { Vec2 pos; const char* en; const char* ko; };
+    const DistLbl kDistLbls[12] = {
+        {{-9800.0f,  -400.0f}, "Gangseo · Magok",  "강서 · 마곡"},
+        {{-6600.0f, -2600.0f}, "Mapo · Hongdae",   "마포 · 홍대"},
+        {{-5200.0f,  4600.0f}, "Guro · G-Valley",  "구로 · 디지털단지"},
+        {{-2100.0f,  5900.0f}, "Gwanak · Sillim",  "관악 · 신림"},
+        {{-1200.0f, -1500.0f}, "Yongsan",          "용산"},
+        {{  200.0f,  3600.0f}, "Seocho · Banpo",   "서초 · 반포"},
+        {{ 3600.0f,  4400.0f}, "Gangnam",          "강남 · 테헤란로"},
+        {{ 4200.0f, -2400.0f}, "Seongsu · Konkuk", "성수 · 건대"},
+        {{ 9200.0f,  3800.0f}, "Songpa · Jamsil",  "송파 · 잠실"},
+        {{ 3200.0f, -8400.0f}, "Nowon · Gangbuk",  "강북 · 노원"},
+        {{ 2800.0f, -4900.0f}, "Dongdaemun",       "동대문"},
+        {{11800.0f,  -400.0f}, "Gangdong",         "강동"}
     };
-    const ColorRGBA kArtCol{112, 124, 146, 170};
-    drawArterial({-13000.0f, 2940.0f}, {13000.0f, 2940.0f}, kArtCol);   // 테헤란로 / 남부순환축
-    drawArterial({-13000.0f, -4620.0f}, {13000.0f, -4620.0f}, kArtCol); // 종로 / 퇴계로 / 을지로축
-    drawArterial({588.0f, -9000.0f}, {588.0f, 9500.0f}, kArtCol);       // 반포대로 / 강남대로축
-    drawArterial({-924.0f, -9500.0f}, {-924.0f, 8000.0f}, kArtCol);     // 세종대로 / 한강대로축
-    drawArterial({2436.0f, -8000.0f}, {2436.0f, 9500.0f}, kArtCol);     // 영동대로 / 성수축
+    for (const auto& dl : kDistLbls) {
+        const Vec2 sp = toScr(dl.pos);
+        ui.drawTextCentered(pickText(dl.en, dl.ko), sp.x, sp.z - 6.0f, 12.0f, {146, 164, 192, 165});
+    }
 
     // 5. All 15 Real Drivable Han River Bridges!
     for (const auto& br : city.bridges()) {
@@ -550,17 +658,38 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
         }
     }
 
-    // 6. All 12 Iconic Real Seoul Landmarks (clickable gold/cyan pins!)
+    // 6. All 12 Iconic Real Seoul Landmarks (clickable gold/cyan pins with overlap-free staggered labels!)
     for (const auto& lm : city.landmarks()) {
         const Vec2 sp = toScr(lm.pos);
         const bool isSel = mapHasSelection_ && (lm.pos - mapSelectedWorld_).length() < 60.0f;
         const ColorRGBA pinCol = isSel ? ColorRGBA{72, 232, 255, 255} : ColorRGBA{255, 206, 62, 255};
         ui.drawCircle(sp.x, sp.z, isSel ? 7.5f : 5.5f, pinCol, 14);
         ui.drawCircleRing(sp.x, sp.z, isSel ? 9.5f : 7.0f, isSel ? 12.0f : 8.5f, pinCol, 16);
+
+        float dx = 0.0f, dy = -25.0f;
+        switch (lm.kind) {
+            case SeoulLandmarkKind::NationalAssembly:    dx = -44.0f; dy = -24.0f; break;
+            case SeoulLandmarkKind::Parc1RedTower:       dx =  -4.0f; dy =  12.0f; break;
+            case SeoulLandmarkKind::Building63:          dx =  34.0f; dy =  14.0f; break;
+            case SeoulLandmarkKind::SeoulCityHall:       dx = -46.0f; dy = -21.0f; break;
+            case SeoulLandmarkKind::SungnyemunGate:      dx = -44.0f; dy =   9.0f; break;
+            case SeoulLandmarkKind::DongdaemunDDP:       dx =  32.0f; dy = -23.0f; break;
+            case SeoulLandmarkKind::NSeoulTower:         dx =  44.0f; dy = -12.0f; break;
+            case SeoulLandmarkKind::JamsilStadium:       dx = -34.0f; dy = -25.0f; break;
+            case SeoulLandmarkKind::LotteWorldTower:     dx =  48.0f; dy =  12.0f; break;
+            case SeoulLandmarkKind::CoexTradeTower:      dx =  16.0f; dy =  12.0f; break;
+            case SeoulLandmarkKind::GangnamStationPlaza: dx = -34.0f; dy =  12.0f; break;
+            case SeoulLandmarkKind::GyeongbokgungPalace: dx =   0.0f; dy = -26.0f; break;
+        }
         const std::string lbl = pickText(lm.nameEn.c_str(), lm.nameKo.c_str());
-        const float lw = ui.measureTextWidth(lbl, 12.5f) + 8.0f;
-        ui.drawRoundedRect(sp.x - lw * 0.5f, sp.z - 25.0f, lw, 17.0f, 4.0f, {10, 16, 26, 210});
-        ui.drawTextCentered(lbl, sp.x, sp.z - 23.0f, 12.5f, {245, 248, 255, 255});
+        const float lw = ui.measureTextWidth(lbl, 12.0f) + 8.0f;
+        const float lx = sp.x + dx;
+        const float ly = sp.z + dy;
+        if (std::abs(dx) > 10.0f) {
+            ui.drawLine(sp.x, sp.z, lx, ly + 8.0f, 1.1f, {255, 206, 62, 135});
+        }
+        ui.drawRoundedRect(lx - lw * 0.5f, ly, lw, 16.5f, 4.0f, {10, 16, 26, 224});
+        ui.drawTextCentered(lbl, lx, ly + 1.8f, 12.0f, {245, 248, 255, 255});
     }
 
     // 7. Active Police Last-Known Search Zone & Cruisers
@@ -667,19 +796,19 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
 void HudRenderer::drawTopRightStatus(Vulkan2D& ui, const GameWorld& world, int screenW, bool firstPerson) {
     const auto& pl = world.player();
     const ColorRGBA accent = getHudThemeColorRGBA(pl.hudCustom.hudThemeIdx);
-    const float panelW = 286.0f;
+    const float panelW = 294.0f;
     const float x = static_cast<float>(screenW) - panelW - 18.0f;
     const float y = 16.0f;
 
-    ui.drawRoundedRect(x, y, panelW, 118.0f, 11.0f, {10, 14, 22, 208});
-    ui.drawRoundedRectOutline(x, y, panelW, 118.0f, 11.0f, 1.5f, accent);
+    ui.drawRoundedRect(x, y, panelW, 120.0f, 11.0f, {10, 14, 22, 212});
+    ui.drawRoundedRectOutline(x, y, panelW, 120.0f, 11.0f, 1.5f, accent);
 
     // Cash & Clock & Weather
-    ui.drawText(fmtCash(pl.cash), x + 12.0f, y + 8.0f, 22.0f, {92, 238, 136, 255});
+    ui.drawText(fmtCash(pl.cash), x + 12.0f, y + 8.0f, 22.5f, {92, 238, 136, 255});
     const std::string clk = fmtClock(world.timeOfDayHours()) + "  " +
         pickText(world.weatherNameEn(), world.weatherNameKo());
-    const float cw = ui.measureTextWidth(clk, 13.5f);
-    ui.drawText(clk, x + panelW - cw - 12.0f, y + 12.0f, 13.5f, {208, 222, 242, 240});
+    const float cw = ui.measureTextWidth(clk, 14.0f);
+    ui.drawText(clk, x + panelW - cw - 12.0f, y + 12.0f, 14.0f, {214, 226, 244, 245});
 
     // HP Bar
     const float barW = panelW - 24.0f;
@@ -700,11 +829,11 @@ void HudRenderer::drawTopRightStatus(Vulkan2D& ui, const GameWorld& world, int s
     } else {
         std::snprintf(wBuf, sizeof(wBuf), "%s  %d / %d", pickText(ws.nameEn, ws.nameKo), slot.magAmmo, slot.reserveAmmo);
     }
-    ui.drawText(wBuf, x + 12.0f, y + 76.0f, 14.5f, {240, 244, 252, 255});
+    ui.drawText(wBuf, x + 12.0f, y + 75.0f, 15.5f, {244, 248, 255, 255});
 
     const std::string tag = std::string("Vulkan 1.0  |  ") +
                             (firstPerson ? pickText("1ST PERSON", "1인칭") : pickText("3RD PERSON", "3인칭"));
-    ui.drawText(tag, x + 12.0f, y + 96.0f, 12.0f, {148, 178, 216, 220});
+    ui.drawText(tag, x + 12.0f, y + 97.0f, 13.0f, {158, 188, 224, 230});
 
     // --- REALISTIC ESCAPABLE SEOUL POLICE WANTED & EVASION HUD ---
     if (pl.wantedLevel > 0) {
@@ -912,7 +1041,7 @@ void HudRenderer::drawSmartphoneModal(Vulkan2D& ui, const GameWorld& world, int 
                 "[7] 서울 해치 택시 호출", "[8] 내 차로 즉시 복귀"
             };
             label = srv[i];
-        } else {
+        } else if (phoneTab_ == 3) {
             const char* mis[8] = {
                 "[1] 강남 슈퍼카 배달 시작", "[2] 한강변 스트리트 레이스",
                 "[3] 갱단 아지트 소탕 작전", "[4] 현재 미션 포기",

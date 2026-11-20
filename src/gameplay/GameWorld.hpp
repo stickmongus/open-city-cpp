@@ -239,7 +239,7 @@ private:
     BannerNotification banner_{};
     const PointOfInterest* activePoi_ = nullptr;
 
-    float timeOfDayHours_ = 10.0f; // 10:00 AM bright sunny start
+    float timeOfDayHours_ = 14.5f; // 14:30 crisp afternoon Seoul sunlight & shadows
     float elapsedTime_ = 0.0f;
     float wetRoadFactor_ = 0.0f;
     float trafficSignalTimer_ = 0.0f; // [0, 24) intersection traffic/crosswalk cycle

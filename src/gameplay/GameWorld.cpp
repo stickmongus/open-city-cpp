@@ -87,10 +87,10 @@ constexpr std::array<PaintPreset, 12> kCustomPaints = {{
 
 ColorRGBA randomTrafficPaint(Rng& rng, VehicleKind kind) {
     if (kind == VehicleKind::PoliceCruiser) {
-        return {20, 24, 32, 255};
+        return {244, 246, 250, 255}; // Authentic Seoul Metropolitan Police Crisp White!
     }
     if (kind == VehicleKind::Taxi) {
-        return {226, 174, 34, 255};
+        return {244, 126, 24, 255};  // Authentic Seoul Haechi Orange Taxi!
     }
     if (kind == VehicleKind::Ambulance) {
         return {232, 234, 238, 255};
@@ -389,7 +389,7 @@ void GameWorld::reset() {
     raceCheckpoints_.clear();
     banner_ = BannerNotification{};
     activePoi_ = nullptr;
-    timeOfDayHours_ = 10.0f;
+    timeOfDayHours_ = 14.5f;
     trafficSignalTimer_ = 0.0f;
     policeSpawnCooldown_ = 0.0f;
     panicScreamCooldown_ = 0.0f;
@@ -1151,7 +1151,14 @@ void GameWorld::maintainCivilianPopulation() {
         const Vec2 laneOffset = rightFromHeading(edgeYaw) * 0.45f;
         const float frac = rng_.range(0.15f, 0.85f);
         Vec2 p = a + (b - a) * frac + laneOffset;
-        if (city_.isInHanRiverWater(p, -8.0f) || city_.terrainElevationAt(p) > 36.0f) continue;
+        const Vec2 mid = (a + b) * 0.5f;
+        const Vec2 q1 = a + (b - a) * 0.25f;
+        const Vec2 q3 = a + (b - a) * 0.75f;
+        if (city_.isInHanRiverWater(p, -8.0f) || city_.isInTributaryWater(p, 2.0f) ||
+            city_.isOnRiversideExpressway(p) || city_.isOnRiversideExpressway(a) ||
+            city_.isOnRiversideExpressway(b) || city_.isOnRiversideExpressway(mid) ||
+            city_.isOnRiversideExpressway(q1) || city_.isOnRiversideExpressway(q3) ||
+            city_.terrainElevationAt(p) > 36.0f) continue;
 
         const float d = (p - center).length();
         if (d < 20.0f || d > 185.0f) continue;
@@ -1506,7 +1513,14 @@ void GameWorld::maintainPolicePopulation(float dt) {
         const Vec2 segDir = (b - a).normalized();
         const float edgeYaw = std::atan2(segDir.z, segDir.x);
         const Vec2 p = a + (b - a) * rng_.range(0.2f, 0.8f) + rightFromHeading(edgeYaw) * 0.45f;
-        if (city_.isInHanRiverWater(p, -8.0f) || city_.terrainElevationAt(p) > 36.0f) continue;
+        const Vec2 mid = (a + b) * 0.5f;
+        const Vec2 q1 = a + (b - a) * 0.25f;
+        const Vec2 q3 = a + (b - a) * 0.75f;
+        if (city_.isInHanRiverWater(p, -8.0f) || city_.isInTributaryWater(p, 2.0f) ||
+            city_.isOnRiversideExpressway(p) || city_.isOnRiversideExpressway(a) ||
+            city_.isOnRiversideExpressway(b) || city_.isOnRiversideExpressway(mid) ||
+            city_.isOnRiversideExpressway(q1) || city_.isOnRiversideExpressway(q3) ||
+            city_.terrainElevationAt(p) > 36.0f) continue;
 
         const float d = (p - center).length();
         if (wanted) {
@@ -4610,7 +4624,12 @@ void GameWorld::chooseNextSidewalkTarget(NpcCharacter& npc, bool fleeing, const 
         const int nv = curV + dv;
         if (nu < minU || nu > maxU || nv < minV || nv > maxV) continue;
         const Vec2 probe{city_.sidewalkCoord(nu), city_.sidewalkCoord(nv)};
-        if (city_.isInHanRiverWater(probe, -6.0f)) continue;
+        const Vec2 mid = (curWorld + probe) * 0.5f;
+        const Vec2 q1 = curWorld + (probe - curWorld) * 0.25f;
+        const Vec2 q3 = curWorld + (probe - curWorld) * 0.75f;
+        if (city_.isInHanRiverWater(probe, -6.0f) || city_.isInTributaryWater(probe, 2.0f) ||
+            city_.isOnRiversideExpressway(probe) || city_.isOnRiversideExpressway(mid) ||
+            city_.isOnRiversideExpressway(q1) || city_.isOnRiversideExpressway(q3)) continue;
 
         const bool isCrosswalk = CityMap::isCrosswalkEdge(curU, nu) || CityMap::isCrosswalkEdge(curV, nv);
         const bool safeEdge = isCrosswalkSafeForPedestrian(curU, curV, nu, nv);

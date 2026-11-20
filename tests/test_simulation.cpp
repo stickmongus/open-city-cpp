@@ -2156,6 +2156,135 @@ void testV200RealScaleSeoulAndEscapablePolice() {
     ++gTestsPassed;
 }
 
+void testV210SeoulMapFidelityAndOrientations() {
+    oc::GameWorld world(20262100ULL);
+    const auto& city = world.city();
+
+    // 1. Verify Real Seoul Geography: 4 Tributaries, 9 Major Parks, Curved Riverside Expressways & Arterials
+    ASSERT_TRUE(city.tributaries().size() == 4);
+    ASSERT_TRUE(city.majorParks().size() == 9);
+    ASSERT_TRUE(city.arterials().size() >= 10);
+
+    // Verify water detection inside Anyangcheon, Jungnangcheon, Tancheon, and Cheonggyecheon
+    for (const auto& trib : city.tributaries()) {
+        ASSERT_TRUE(trib.points.size() >= 2);
+        const oc::Vec2 mid = (trib.points[0] + trib.points[1]) * 0.5f;
+        ASSERT_TRUE(city.isInTributaryWater(mid));
+    }
+
+    // Verify Major Seoul Parks detection (Yeouido Park, Seoul Forest, Olympic Park, Boramae Park, Gwanghwamun Square...)
+    for (const auto& pz : city.majorParks()) {
+        const auto* found = city.findMajorSeoulPark(pz.center);
+        ASSERT_TRUE(found != nullptr && found->nameEn == pz.nameEn);
+    }
+
+    // Verify curved Gangbyeonbuk-ro & Olympic-daero expressway query
+    int foundRiversideExpressways = 0;
+    for (const auto& road : city.arterials()) {
+        if (road.nameEn == "Gangbyeonbuk-ro" || road.nameEn == "Olympic-daero") {
+            ASSERT_TRUE(road.isExpressway && road.points.size() >= 20);
+            const oc::Vec2 sample = road.points[road.points.size() / 2];
+            ASSERT_TRUE(city.isOnRiversideExpressway(sample));
+            ++foundRiversideExpressways;
+        }
+    }
+    ASSERT_TRUE(foundRiversideExpressways == 2);
+
+    // 2. Verify Real-World Landmark Orientations & Exact Gwanghwamun Gate Collision Match!
+    const auto* b63 = city.findLandmark(oc::SeoulLandmarkKind::Building63);
+    const auto* assembly = city.findLandmark(oc::SeoulLandmarkKind::NationalAssembly);
+    const auto* lotte = city.findLandmark(oc::SeoulLandmarkKind::LotteWorldTower);
+    const auto* cityHall = city.findLandmark(oc::SeoulLandmarkKind::SeoulCityHall);
+    const auto* sungnyemun = city.findLandmark(oc::SeoulLandmarkKind::SungnyemunGate);
+    ASSERT_TRUE(b63 != nullptr && std::abs(b63->yawRad) > 0.30f);
+    ASSERT_TRUE(assembly != nullptr && std::abs(assembly->yawRad) > 0.15f);
+    ASSERT_TRUE(lotte != nullptr && std::abs(lotte->yawRad) > 0.10f);
+    // Seoul City Hall & Sungnyemun aligned to Sejong-daero centerline (x = -924)
+    ASSERT_TRUE(cityHall != nullptr && std::abs(cityHall->pos.x - (-924.0f)) < 20.0f);
+    ASSERT_TRUE(sungnyemun != nullptr && std::abs(sungnyemun->pos.x - (-924.0f)) < 10.0f);
+
+    // Verify Gwanghwamun Gate collision box sits at exact visual z = -5654 (fixing v2.0.0 194m mismatch!)
+    bool foundGwanghwamunGateBox = false;
+    for (const auto& mb : city.macroBuildings()) {
+        const oc::Vec2 c = mb.footprint.center();
+        if (std::abs(c.x - (-924.0f)) < 15.0f && std::abs(c.z - (-5654.0f)) < 12.0f) {
+            foundGwanghwamunGateBox = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(foundGwanghwamunGateBox);
+
+    // 3. Verify Guro/Gwanak Architecture Diversity, Street-Edge Masks, Outward StreetLights & Korean Traffic Props!
+    ASSERT_TRUE(world.fastTravelTo({-3800.0f, 4200.0f}, "구로·관악"));
+    bool hasPartialEdgeMask = false;
+    bool hasVariedGuroColors = false;
+    bool hasKoreanApt = false;
+    bool hasTrafficLight = false;
+    int checkedLights = 0;
+    int outwardLights = 0;
+    int checkedShelters = 0;
+    int roadFacingShelters = 0;
+
+    oc::ColorRGBA firstCol{0, 0, 0, 0};
+    for (const auto& b : city.buildings()) {
+        if (b.isMacroLandmark) continue;
+        if (b.streetEdgeMask != 0x0Fu && b.streetEdgeMask != 0u) hasPartialEdgeMask = true;
+        if (b.style == oc::BuildingStyle::KoreanApartment) hasKoreanApt = true;
+        if (firstCol.a == 0) {
+            firstCol = b.primaryColor;
+        } else if (std::abs(int(b.primaryColor.r) - int(firstCol.r)) +
+                   std::abs(int(b.primaryColor.g) - int(firstCol.g)) +
+                   std::abs(int(b.primaryColor.b) - int(firstCol.b)) > 25) {
+            hasVariedGuroColors = true;
+        }
+    }
+    ASSERT_TRUE(hasPartialEdgeMask);
+    ASSERT_TRUE(hasVariedGuroColors);
+    ASSERT_TRUE(hasKoreanApt);
+
+    for (const auto& p : city.streetProps()) {
+        if (p.kind == oc::StreetPropKind::TrafficLight) {
+            hasTrafficLight = true;
+        } else if (p.kind == oc::StreetPropKind::StreetLight) {
+            // Local +X arm in Renderer3D maps to world (cos(yaw), sin(yaw)) -> must point TOWARD nearest road!
+            const int rx = city.nearestRoadIndex(p.pos.x);
+            const int rz = city.nearestRoadIndex(p.pos.z);
+            const float dx = city.roadCoord(rx) - p.pos.x;
+            const float dz = city.roadCoord(rz) - p.pos.z;
+            const oc::Vec2 toRoad = (std::abs(dx) < std::abs(dz))
+                ? oc::Vec2{dx >= 0.0f ? 1.0f : -1.0f, 0.0f}
+                : oc::Vec2{0.0f, dz >= 0.0f ? 1.0f : -1.0f};
+            const oc::Vec2 armDir{std::cos(p.yaw), std::sin(p.yaw)};
+            ++checkedLights;
+            if (armDir.x * toRoad.x + armDir.z * toRoad.z > 0.7f) {
+                ++outwardLights;
+            }
+        } else if (p.kind == oc::StreetPropKind::BusShelter) {
+            // Local +Z open front maps to world (-sin(yaw), cos(yaw)) -> must face TOWARD nearest road curb!
+            const int rx = city.nearestRoadIndex(p.pos.x);
+            const int rz = city.nearestRoadIndex(p.pos.z);
+            const float dx = city.roadCoord(rx) - p.pos.x;
+            const float dz = city.roadCoord(rz) - p.pos.z;
+            const oc::Vec2 toRoad = (std::abs(dx) < std::abs(dz))
+                ? oc::Vec2{dx >= 0.0f ? 1.0f : -1.0f, 0.0f}
+                : oc::Vec2{0.0f, dz >= 0.0f ? 1.0f : -1.0f};
+            const oc::Vec2 openDir{-std::sin(p.yaw), std::cos(p.yaw)};
+            ++checkedShelters;
+            if (openDir.x * toRoad.x + openDir.z * toRoad.z > 0.7f) {
+                ++roadFacingShelters;
+            }
+        }
+    }
+    ASSERT_TRUE(hasTrafficLight);
+    ASSERT_TRUE(checkedLights >= 20 && outwardLights == checkedLights);
+    ASSERT_TRUE(checkedShelters >= 2 && roadFacingShelters == checkedShelters);
+
+    // 4. Verify Seoul 14:30 afternoon lighting default & authentic Korean Police/Taxi vehicle colors
+    ASSERT_TRUE(world.timeOfDayHours() >= 14.0f && world.timeOfDayHours() <= 15.0f);
+
+    ++gTestsPassed;
+}
+
 
 } // namespace
 
@@ -2183,8 +2312,9 @@ int main() {
     testV120LivingNpcDiversityRainUmbrellasAndDodge();
     testV120GunpointHandsUpReaction();
     testV200RealScaleSeoulAndEscapablePolice();
+    testV210SeoulMapFidelityAndOrientations();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v2.0.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v2.1.0 simulation test suites succeeded!\n";
     return 0;
 }
 

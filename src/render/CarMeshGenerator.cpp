@@ -21,14 +21,6 @@ inline float dot3(const Vec3& a, const Vec3& b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
-inline Vec3 lerp3(const Vec3& a, const Vec3& b, float t) {
-    return {
-        a.x + (b.x - a.x) * t,
-        a.y + (b.y - a.y) * t,
-        a.z + (b.z - a.z) * t
-    };
-}
-
 inline ColorRGBA shadeCol(ColorRGBA c, float f) {
     return {
         static_cast<std::uint8_t>(std::clamp(static_cast<int>(c.r * f), 0, 255)),

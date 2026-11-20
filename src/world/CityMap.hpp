@@ -50,13 +50,18 @@ struct Building {
     float upperTierHeight = 0.0f;
     ColorRGBA primaryColor{};
     ColorRGBA accentColor{};
-    ColorRGBA awningColor{148, 52, 48, 255};
+    ColorRGBA awningColor{56, 86, 118, 255};
     BuildingStyle style = BuildingStyle::ModernOffice;
     bool litWindows = true;
     bool hasStorefront = false;
     bool hasBalconies = false;
     bool hasHelipad = false;
     bool isMacroLandmark = false;
+    // Orientation metadata: which facade edges face an actual street!
+    // bit 0 = West(-X), bit 1 = East(+X), bit 2 = North(-Z), bit 3 = South(+Z)
+    std::uint8_t streetEdgeMask = 0x0Fu;
+    std::uint8_t facadeVariant = 0; // Architectural facade sub-style & signage palette
+    float facingYaw = 0.0f;         // Primary front direction in radians (+X=0, +Z=+pi/2)
 };
 
 struct GasStationCanopy {
@@ -102,7 +107,9 @@ enum class StreetPropKind {
     Billboard,
     FuelPump,
     BeachUmbrella,
-    Bollard
+    Bollard,
+    TrafficLight,    // 서울 교차로 4구 신호등 캔틸레버
+    SubwayEntrance   // 서울 지하철 유리 캐노피 출입구
 };
 
 struct StreetProp {
@@ -180,6 +187,7 @@ struct SeoulLandmark {
     std::string nameEn;
     std::string nameKo;
     DistrictType district = DistrictType::GangnamTeheran;
+    float yawRad = 0.0f; // Authentic real-world geographic heading!
 };
 
 struct SeoulMountain {
@@ -189,6 +197,30 @@ struct SeoulMountain {
     float radiusX = 1600.0f;
     float radiusZ = 1400.0f;
     float peakHeight = 240.0f;
+};
+
+struct SeoulParkZone {
+    std::string nameEn;
+    std::string nameKo;
+    Vec2 center{};
+    Vec2 halfSize{};
+    float yawRad = 0.0f;
+    ColorRGBA grassColor{58, 102, 50, 255};
+};
+
+struct SeoulTributary {
+    std::string nameEn;
+    std::string nameKo;
+    std::vector<Vec2> points;
+    float halfWidth = 28.0f;
+};
+
+struct SeoulArterialRoad {
+    std::string nameEn;
+    std::string nameKo;
+    std::vector<Vec2> points;
+    float halfWidth = 10.0f;
+    bool isExpressway = false;
 };
 
 class CityMap {
@@ -240,11 +272,16 @@ public:
     // Real Seoul Analytic Geography (O(1) anywhere across 30km x 25km!)
     float hanRiverCenterZ(float x) const;
     float hanRiverHalfWidth(float x) const;
+    float hanRiverSlopeDzDx(float x) const;
     bool isOnYeouidoIsland(const Vec2& p) const;
     bool isInHanRiverWater(const Vec2& p, float margin = 0.0f) const;
     bool isInHanRiverPark(const Vec2& p) const;
     bool isInSeokchonLake(const Vec2& p) const;
     bool isInCheonggyecheon(const Vec2& p) const;
+    bool isInTributaryWater(const Vec2& p, float margin = 0.0f) const;
+    const SeoulParkZone* findMajorSeoulPark(const Vec2& p) const;
+    bool isInMajorSeoulPark(const Vec2& p) const { return findMajorSeoulPark(p) != nullptr; }
+    bool isOnRiversideExpressway(const Vec2& p) const;
 
     // Real Seoul Mountains & Bridge Elevation
     float terrainElevationAt(const Vec2& p) const;
@@ -275,6 +312,9 @@ public:
     const std::vector<SeoulBridge>& bridges() const { return bridges_; }
     const std::vector<SeoulLandmark>& landmarks() const { return landmarks_; }
     const std::vector<SeoulMountain>& mountains() const { return mountains_; }
+    const std::vector<SeoulParkZone>& majorParks() const { return majorParks_; }
+    const std::vector<SeoulTributary>& tributaries() const { return tributaries_; }
+    const std::vector<SeoulArterialRoad>& arterials() const { return arterials_; }
 
     // Fast radius queries over active streamed + macro structures
     void queryBuildingsInRadius(const Vec2& center, float radius, std::vector<int>& outIndices) const;
@@ -307,6 +347,9 @@ private:
     std::vector<SeoulBridge> bridges_;
     std::vector<SeoulLandmark> landmarks_;
     std::vector<SeoulMountain> mountains_;
+    std::vector<SeoulParkZone> majorParks_;
+    std::vector<SeoulTributary> tributaries_;
+    std::vector<SeoulArterialRoad> arterials_;
     std::vector<Building> macroBuildings_;
     std::vector<PointOfInterest> pois_;
     std::vector<LakePatch> lakes_;

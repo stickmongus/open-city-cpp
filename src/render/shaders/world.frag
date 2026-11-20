@@ -392,83 +392,183 @@ void main() {
         albedo *= (1.0 - wetRoadFactor * 0.18 - puddleMask * 0.18);
         roughness = mix(roughness, 0.09, puddleMask);
     }
-    else if (matId == 2 || matId == 3 || matId == 4) {
-        // MAT 2 (Brick/Korean Apartment), MAT 3 (Glass Skyscraper), MAT 4 (Modern Concrete Office)
+    else if (matId == 2 || matId == 3 || matId == 4 || matId == 16) {
+        // MAT 2 (Brick/Villa/Commercial), MAT 3 (Glass Curtain-Wall Skyscraper),
+        // MAT 4 (Honed Granite / Concrete Office), MAT 16 (South-Facing Korean Apartment Complex!)
         if (abs(N.y) < 0.42) {
             float uCoord = (abs(N.x) > 0.5) ? fragPosition.z : fragPosition.x;
             float vCoord = fragPosition.y;
             bool isGlassTower = (matId == 3);
             bool isConcrete   = (matId == 4);
+            bool isKoreaApt   = (matId == 16);
 
-            float bayW = isGlassTower ? 2.40 : (isConcrete ? 3.10 : 3.25);
-            float floorH = isGlassTower ? 3.60 : 3.45;
+            // Real Korean Apartments have solid windowless concrete East/West shear walls (측벽)!
+            bool isAptShearWall = isKoreaApt && (abs(N.x) > 0.5);
+
+            float bayW   = isGlassTower ? 2.40 : (isKoreaApt ? 3.80 : (isConcrete ? 3.00 : 2.85));
+            float floorH = isGlassTower ? 3.65 : (isKoreaApt ? 3.10 : 3.45);
             float colIdx = floor(uCoord / bayW);
             float flrIdx = floor(vCoord / floorH);
             float u = fract(uCoord / bayW);
             float v = fract(vCoord / floorH);
+            bool isGroundFloor = (vCoord < 3.85);
 
             bool inWindow = false;
+            bool isStairwell = false;
             vec2 paneUv = vec2(0.5);
-            if (isGlassTower) {
-                inWindow = (u > 0.055 && u < 0.945 && v > 0.10 && v < 0.90);
-                paneUv = vec2((u - 0.055) / 0.89, (v - 0.10) / 0.80);
-            } else if (isConcrete) {
-                inWindow = (u > 0.11 && u < 0.89 && v > 0.22 && v < 0.82);
-                paneUv = vec2((u - 0.11) / 0.78, (v - 0.22) / 0.60);
-            } else {
-                // Authentic Korean Apartment (아파트) wide horizontal verandah sliding window
-                inWindow = (u > 0.13 && u < 0.87 && v > 0.24 && v < 0.79);
-                paneUv = vec2((u - 0.13) / 0.74, (v - 0.24) / 0.55);
+
+            if (!isAptShearWall) {
+                if (isGlassTower) {
+                    inWindow = (u > 0.048 && u < 0.952 && v > 0.14 && v < 0.92);
+                    paneUv = vec2((u - 0.048) / 0.904, (v - 0.14) / 0.78);
+                } else if (isKoreaApt) {
+                    // Authentic South-facing Korean Apartment: wide recessed veranda bay + vertical glazed stairwell core!
+                    float coreCycle = mod(colIdx, 5.0);
+                    isStairwell = (abs(coreCycle) < 0.5) && (vCoord > 3.2);
+                    if (isStairwell) {
+                        inWindow = (u > 0.24 && u < 0.76 && v > 0.05 && v < 0.95);
+                        paneUv = vec2((u - 0.24) / 0.52, (v - 0.05) / 0.90);
+                    } else if (isGroundFloor) {
+                        // Piloti / stone lobby entrance base on ground floor
+                        inWindow = (u > 0.14 && u < 0.86 && v > 0.08 && v < 0.82);
+                        paneUv = vec2((u - 0.14) / 0.72, (v - 0.08) / 0.74);
+                    } else {
+                        inWindow = (u > 0.10 && u < 0.90 && v > 0.22 && v < 0.80);
+                        paneUv = vec2((u - 0.10) / 0.80, (v - 0.22) / 0.58);
+                    }
+                } else if (isConcrete) {
+                    // Modern Granite/Concrete Korean Office — horizontal ribbon windows + tall 1F glass lobby!
+                    if (isGroundFloor) {
+                        inWindow = (u > 0.07 && u < 0.93 && v > 0.06 && v < 0.86);
+                        paneUv = vec2((u - 0.07) / 0.86, (v - 0.06) / 0.80);
+                    } else {
+                        inWindow = (u > 0.08 && u < 0.92 && v > 0.24 && v < 0.82);
+                        paneUv = vec2((u - 0.08) / 0.84, (v - 0.24) / 0.58);
+                    }
+                } else {
+                    // Korean Brick Commercial / Multi-Family Villa — tall 1F shop glass + framed residential/office windows!
+                    if (isGroundFloor) {
+                        inWindow = (u > 0.08 && u < 0.92 && v > 0.06 && v < 0.84);
+                        paneUv = vec2((u - 0.08) / 0.84, (v - 0.06) / 0.78);
+                    } else {
+                        inWindow = (u > 0.16 && u < 0.84 && v > 0.24 && v < 0.78);
+                        paneUv = vec2((u - 0.16) / 0.68, (v - 0.24) / 0.54);
+                    }
+                }
             }
 
-            // Crisp aluminum window frame / vertical 2-pane sash mullion & balcony railing bar
+            // Crisp architectural mullions, frames, balcony safety rail & recessed lintel shadow
             bool onMullion = false;
-            if (inWindow && !isGlassTower && vCoord > 0.65) {
-                float midDist = abs(paneUv.x - 0.50);
+            float lintelShadow = 1.0;
+            if (inWindow && vCoord > 0.35) {
                 float frameDist = min(min(paneUv.x, 1.0 - paneUv.x), min(paneUv.y, 1.0 - paneUv.y));
-                bool isRail = (!isConcrete) && (abs(paneUv.y - 0.26) < 0.045);
-                onMullion = (midDist < 0.032) || (frameDist < 0.042) || isRail;
+                if (isGlassTower) {
+                    onMullion = (frameDist < 0.028) || (abs(paneUv.x - 0.50) < 0.016);
+                } else if (isKoreaApt) {
+                    float rail = (!isStairwell && !isGroundFloor && abs(paneUv.y - 0.28) < 0.036) ? 1.0 : 0.0;
+                    onMullion = (frameDist < 0.044) || (abs(paneUv.x - 0.50) < 0.026) || (rail > 0.5);
+                } else {
+                    onMullion = (frameDist < 0.046) || (abs(paneUv.x - 0.50) < 0.028);
+                }
+                // Deep physical recess shadow cast by top window lintel / balcony slab!
+                lintelShadow = mix(0.42, 1.0, smoothstep(0.0, 0.22, 1.0 - paneUv.y));
             }
 
-            if (inWindow && !onMullion && vCoord > 0.65) {
+            if (inWindow && !onMullion && vCoord > 0.35) {
                 float roomSeed = hash12(vec2(colIdx * 1.37 + floor(fragPosition.x * 0.05) * 19.0, flrIdx * 2.13));
-                bool isLobby = (flrIdx < 1.0);
+                bool isLobby = isGroundFloor;
                 vec3 roomCol = sampleInteriorRoom3D(paneUv, V, N, roomSeed, isLobby, nightFactor);
 
-                albedo = isGlassTower ? mix(vec3(0.030, 0.052, 0.082), albedo * 0.34, 0.42)
-                                      : vec3(0.038, 0.054, 0.076);
-                roughness = isGlassTower ? 0.045 : 0.065;
-                metallic = isGlassTower ? 0.28 : 0.18;
+                // Subtle architectural glass oil-canning normal micro-variation for genuine skyline reflections!
+                if (isGlassTower) {
+                    float warpX = (hash12(vec2(colIdx, flrIdx)) - 0.5) * 0.045;
+                    float warpY = (hash12(vec2(flrIdx, colIdx + 9.3)) - 0.5) * 0.035;
+                    N = normalize(N + vec3(warpX * abs(N.z), warpY, warpX * abs(N.x)));
+                }
+
+                // Deep rich architectural glazing (eliminates pale flat sticker look during daytime!)
+                albedo = isGlassTower ? mix(vec3(0.014, 0.028, 0.048), albedo * 0.24, 0.36)
+                                      : (isLobby ? vec3(0.018, 0.026, 0.036) : vec3(0.014, 0.022, 0.034));
+                albedo *= lintelShadow;
+                roughness = isGlassTower ? 0.035 : 0.048;
+                metallic  = isGlassTower ? 0.36  : 0.22;
                 isWindowPane = true;
                 isGlassTowerWin = isGlassTower;
 
-                float litProb = isLobby ? 0.88 : (isGlassTower ? 0.56 : 0.44);
+                float litProb = isLobby ? 0.90 : (isStairwell ? 0.72 : (isGlassTower ? 0.56 : 0.42));
                 if (roomSeed > (1.0 - litProb)) {
-                    emissiveColor = roomCol;
-                    emissive = max(emissive, mix(0.20, 1.18, nightFactor) * (isLobby ? 1.15 : 0.90));
+                    emissiveColor = roomCol * lintelShadow;
+                    emissive = max(emissive, mix(isLobby ? 0.28 : 0.10, 1.24, nightFactor) * (isLobby ? 1.18 : 0.92));
                 } else {
-                    emissiveColor = roomCol * 0.26;
-                    emissive = max(emissive, 0.07);
+                    emissiveColor = roomCol * 0.16 * lintelShadow;
+                    emissive = max(emissive, 0.035);
                 }
             } else if (onMullion) {
-                // Crisp satin aluminum Korean window sash & verandah safety rail
-                albedo = vec3(0.32, 0.35, 0.39);
-                roughness = 0.34;
-                metallic = 0.68;
+                // Dark anodized bronze/graphite window frames & satin aluminum veranda rails
+                albedo = isGlassTower ? vec3(0.055, 0.062, 0.072) : vec3(0.11, 0.12, 0.14);
+                roughness = 0.28;
+                metallic = 0.76;
             } else {
-                float spandrel = (v < 0.12 || v > 0.88) ? 0.86 : 1.0;
-                float stoneTex = valueNoise(vec2(uCoord, vCoord) * 1.8) * 0.09;
-                if (matId == 2) {
-                    // Authentic Korean apartment concrete/stone horizontal slab lines
-                    float hJoint = smoothstep(0.92, 0.98, abs(sin(vCoord * 6.5)));
-                    float vJoint = smoothstep(0.94, 0.99, abs(sin(uCoord * 3.8)));
-                    albedo *= (0.93 + stoneTex - (hJoint * 0.08 + vJoint * 0.05));
+                // Exterior Wall Cladding: Granite Stone, Running-Bond Brick, or Korean Apartment Concrete!
+                float stoneNoise = valueNoise(vec2(uCoord, vCoord) * 1.9) * 0.08 + valueNoise(vec2(uCoord, vCoord) * 7.5) * 0.04;
+                // Architectural horizontal floor slab groove & protruding windowsill ledge highlight
+                float slabShadow = (v < 0.09) ? 0.84 : ((v > 0.93) ? 0.91 : 1.0);
+                float sillHighlight = (!isAptShearWall && !isGlassTower && v > 0.18 && v < 0.24 && u > 0.12 && u < 0.88) ? 1.14 : 1.0;
+
+                if (isKoreaApt) {
+                    // Korean Apartment cast-in-place painted concrete panels + vertical shear-wall architectural band!
+                    float hJoint = smoothstep(0.93, 0.985, abs(sin(vCoord * (kPi / 3.10))));
+                    float vJoint = smoothstep(0.95, 0.99, abs(sin(uCoord * 1.6)));
+                    albedo *= (0.94 + stoneNoise - (hJoint * 0.09 + vJoint * 0.04));
+                    if (isAptShearWall) {
+                        // Signature Korean apartment vertical brand accent stripe down blank shear wall!
+                        float bandU = fract(uCoord * 0.07 + 0.35);
+                        if (bandU > 0.42 && bandU < 0.56) {
+                            albedo *= vec3(0.54, 0.62, 0.74);
+                        }
+                    } else {
+                        albedo *= slabShadow * sillHighlight;
+                    }
+                    roughness = 0.78;
+                    metallic  = 0.03;
+                } else if (matId == 2) {
+                    // Authentic Korean Running-Bond Brick & Mortar Courses!
+                    float brickRow = floor(vCoord * 11.5);
+                    float bU = fract(uCoord * 3.8 + mod(brickRow, 2.0) * 0.5);
+                    float bV = fract(vCoord * 11.5);
+                    float mortar = (1.0 - smoothstep(0.03, 0.08, min(bU, 1.0 - bU))) +
+                                   (1.0 - smoothstep(0.05, 0.13, min(bV, 1.0 - bV)));
+                    mortar = clamp(mortar, 0.0, 1.0);
+                    float brickTint = 0.90 + 0.20 * hash12(vec2(floor(uCoord * 3.8 + mod(brickRow, 2.0) * 0.5), brickRow));
+                    albedo = mix(albedo * brickTint, albedo * 0.62 + vec3(0.05), mortar * 0.72);
+                    albedo *= slabShadow * sillHighlight;
+                    // Ground floor Korean stone piloti / granite plinth cladding
+                    if (isGroundFloor) {
+                        float gJoint = smoothstep(0.94, 0.99, max(abs(sin(uCoord * 3.2)), abs(sin(vCoord * 4.5))));
+                        albedo = mix(vec3(0.18, 0.18, 0.19), vec3(0.11, 0.11, 0.12), gJoint) * (0.94 + stoneNoise);
+                        roughness = 0.52;
+                    } else {
+                        roughness = 0.82;
+                    }
+                    metallic = 0.04;
+                } else if (isConcrete) {
+                    // Honed Korean Granite Stone Panel Cladding (화강암 석재 외장)
+                    float pU = fract(uCoord * 0.65);
+                    float pV = fract(vCoord * 1.15);
+                    float seam = (1.0 - smoothstep(0.015, 0.038, min(pU, 1.0 - pU))) +
+                                 (1.0 - smoothstep(0.020, 0.048, min(pV, 1.0 - pV)));
+                    float panelVar = 0.94 + 0.12 * hash12(vec2(floor(uCoord * 0.65), floor(vCoord * 1.15)));
+                    albedo *= panelVar * (1.0 - clamp(seam, 0.0, 1.0) * 0.24) * slabShadow * sillHighlight;
+                    roughness = 0.54;
+                    metallic  = 0.12;
                 } else {
-                    albedo *= (spandrel + stoneTex);
+                    // Glass Tower Metallic Aluminum Spandrel Panels
+                    albedo *= (slabShadow + stoneNoise * 0.6);
+                    roughness = 0.22;
+                    metallic  = 0.68;
                 }
-                roughness = isGlassTower ? 0.24 : (isConcrete ? 0.66 : 0.78);
-                metallic  = isGlassTower ? 0.62 : (isConcrete ? 0.14 : 0.04);
-                albedo *= mix(0.76, 1.0, smoothstep(0.0, 2.4, vCoord));
+                // Ground-level urban splash & street contact occlusion
+                albedo *= mix(0.68, 1.0, smoothstep(0.0, 2.6, vCoord));
             }
         } else {
             float tarNoise = valueNoise(fragPosition.xz * 0.85) * 0.14;
@@ -542,12 +642,12 @@ void main() {
     float rawNdotL = dot(N, L);
     float ndotl = max(rawNdotL, 0.0);
     float shadow = (ndotl > 0.01) ? computeShadow(fragPosLightSpace, N, L) : 0.0;
-    float sunVis = 1.0 - shadow * 0.86;
+    float sunVis = 1.0 - shadow * 0.90;
 
     float hemi = clamp(N.y * 0.5 + 0.5, 0.0, 1.0);
-    vec3 ambient = mix(groundAmbient, skyAmbient, hemi);
-    ambient = mix(ambient, ambient * vec3(0.76, 0.86, 1.08), shadow * 0.42);
-    float contactAo = mix(0.66, 1.0, clamp(fragPosition.y / 1.7, 0.0, 1.0));
+    vec3 ambient = mix(groundAmbient * 0.78, skyAmbient * 0.86, hemi);
+    ambient = mix(ambient, ambient * vec3(0.68, 0.80, 1.08), shadow * 0.52);
+    float contactAo = mix(0.60, 1.0, clamp(fragPosition.y / 1.8, 0.0, 1.0));
     if (N.y > 0.75) contactAo = 1.0;
 
     vec3 H = normalize(L + V);
@@ -585,7 +685,7 @@ void main() {
     vec3 specBrdf = (D_ggx * G_smith * F_schlick) / max(4.0 * ndotv * ndotl, 0.001);
     vec3 kD = (vec3(1.0) - F_schlick) * (1.0 - metallic * 0.88) * (1.0 - clearcoatF * 0.82);
 
-    vec3 directLit = (kD * albedo / kPi + specBrdf * 0.56) * sunColor * ndotl * sunVis * 2.35;
+    vec3 directLit = (kD * albedo / kPi + specBrdf * 0.62) * sunColor * ndotl * sunVis * 2.65;
     vec3 envLit    = albedo * ambient * contactAo * (1.0 - clearcoatF * 0.72);
 
     if (matId == 11) {
@@ -609,17 +709,17 @@ void main() {
             envRefl *= mix(1.0, 0.32, smoothstep(0.08, 0.56, R.y));
         }
 
-        float specExp = (matId == 6) ? 210.0 : ((matId == 8) ? 340.0 : ((matId == 7) ? mix(260.0, 32.0, clamp(roughness * 1.4, 0.0, 1.0)) : 140.0));
+        float specExp = (matId == 6) ? 210.0 : ((matId == 8) ? 340.0 : ((matId == 7) ? mix(260.0, 32.0, clamp(roughness * 1.4, 0.0, 1.0)) : 160.0));
         float sunRefl = pow(max(dot(R, L), 0.0), specExp);
-        envRefl += sunColor * sunRefl * sunVis * ((matId == 6) ? 2.6 : ((matId == 8) ? 2.8 : ((matId == 7) ? 2.3 : 1.35)));
+        envRefl += sunColor * sunRefl * sunVis * ((matId == 6) ? 2.6 : ((matId == 8) ? 2.8 : ((matId == 7) ? 2.3 : 1.75)));
 
         float wetCoat = puddleMask * 0.62 + wetRoadSurface * 0.14;
         float coatStrength = (matId == 6) ? 0.88
                            : ((matId == 8) ? 0.62
                            : ((matId == 7) ? (0.82 * clearcoatMask)
-                           : (isWindowPane ? (isGlassTowerWin ? 0.76 : 0.62)
-                           : ((matId == 3) ? 0.64
-                           : ((matId == 4) ? (0.44 * (1.0 - step(0.3, roughness))) : wetCoat)))));
+                           : (isWindowPane ? (isGlassTowerWin ? 0.86 : 0.72)
+                           : ((matId == 3) ? 0.68
+                           : ((matId == 4) ? (0.42 * (1.0 - step(0.3, roughness))) : wetCoat)))));
         if (matId == 7) {
             // Dual-lobe showroom clearcoat + rich colored metallic basecoat flake reflection!
             float flake = valueNoise(fragPosition.xz * 125.0 + vec2(fragPosition.y * 98.0));
@@ -629,7 +729,6 @@ void main() {
             float ccF = 0.042 + 0.958 * pow(1.0 - vdoth, 5.0);
             directLit += vec3(min(ccD * ccF * 0.019, 2.6)) * sunColor * ndotl * sunVis * clearcoatMask;
             envLit += albedo * pow(ndoth, 34.0) * (0.10 + 0.26 * flake) * (1.0 - roughness) * sunVis;
-            // Colored metallic basecoat reflection keeps crimson/blue hoods rich instead of pastel pink!
             vec3 metalReflTint = mix(vec3(1.0), albedo * 1.55 + vec3(0.04), metallic * 0.84);
             float clearF = 0.032 + 0.62 * pow(1.0 - ndotv, 4.6);
             float baseMetalF = (0.12 + 0.44 * pow(1.0 - ndotv, 2.4)) * metallic;
@@ -638,7 +737,7 @@ void main() {
             float coatFresnel = (matId == 8)
                                     ? (0.065 + 0.88 * pow(1.0 - ndotv, 4.2))
                                     : (isWindowPane
-                                           ? (0.28 + 0.66 * pow(1.0 - ndotv, 3.2))
+                                           ? (0.14 + 0.82 * pow(1.0 - ndotv, 3.6))
                                            : (0.06 + 0.90 * pow(1.0 - ndotv, 4.2)));
             envLit += envRefl * coatFresnel * coatStrength;
         }

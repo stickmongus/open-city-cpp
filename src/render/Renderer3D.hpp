@@ -64,7 +64,8 @@ private:
         SkinOrganic = 12,
         WoodBark = 13,
         GraniteRock = 14,
-        HanokGiwaRoof = 15
+        HanokGiwaRoof = 15,
+        KoreanAptFacade = 16
     };
 
     void buildStaticPrimitives(VulkanContext& vk);
@@ -122,9 +123,13 @@ private:
     GpuMesh pineMesh_{};
     GpuMesh ringMesh_{};
     GpuMesh giwaRoofMesh_{};
+    GpuMesh capsuleLimbMesh_{};
+    GpuMesh torsoMesh_{};
 
     // Real-Scale 30km x 25km Seoul Static Macro Meshes (built once on init!)
     GpuMesh hanRiverWaterMesh_{};
+    GpuMesh tributaryWaterMesh_{};
+    GpuMesh riversideExpresswayMesh_{};
     GpuMesh mountainForestMesh_{};
     GpuMesh mountainGraniteMesh_{};
     GpuMesh bridgeDecksMesh_{};

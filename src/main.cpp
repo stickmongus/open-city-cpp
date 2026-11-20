@@ -184,6 +184,9 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
 
     float camYaw = cli.hasYaw ? (cli.yawDeg * kPi / 180.0f) : -kHalfPi;
     float camPitch = cli.hasPitch ? (cli.pitchDeg * kPi / 180.0f) : -0.14f;
+    if (cli.hasYaw && !cli.drive) {
+        world.player().facingYaw = camYaw;
+    }
     bool firstPerson = cli.firstPerson;
     float adsBlend = 0.0f;
     float smoothKeySteer = 0.0f;
@@ -505,7 +508,7 @@ extern "C" void android_main(struct android_app* state) {
 int main(int argc, char** argv) {
     const oc::CliOptions cli = oc::parseArgs(argc, argv);
     oc::PlatformApp app;
-    if (!app.initDesktop(1440, 864, "Open City Seoul v2.0 — Native Vulkan 3D")) {
+    if (!app.initDesktop(1440, 864, "Open City Seoul v2.1 — Native Vulkan 3D")) {
         return 1;
     }
     const int rc = oc::runApplication(app, cli);
