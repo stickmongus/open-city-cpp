@@ -1,41 +1,53 @@
 #pragma once
 
 #include "core/Math.hpp"
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace oc {
 
 enum class DistrictType {
-    Downtown,
-    Midtown,
-    Industrial,
-    CoastalResidential,
-    CentralPark,
-    CivicCenter,
-    SuburbanEstates,
-    NorthPeninsula
+    GwanghwamunPalace,   // 광화문·경복궁
+    JongnoCheonggye,     // 종로·청계천
+    MyeongdongCityHall,  // 명동·시청
+    NamsanItaewon,       // 남산·이태원
+    Yongsan,             // 용산·한강로
+    YeouidoFinance,      // 여의도 금융지구
+    GangnamTeheran,      // 강남·테헤란로
+    SeochoBanpo,         // 서초·반포
+    JamsilSongpa,        // 잠실·송파 (롯데월드타워)
+    SeongsuKonkuk,       // 성수·건대·서울숲
+    HongdaeMapo,         // 홍대·신촌·마포
+    Dongdaemun,          // 동대문·을지로
+    GangbukNowon,        // 강북·노원·도봉
+    GangseoMagok,        // 강서·마곡
+    GuroGwanak,          // 구로·관악·신림
+    HanRiverPark         // 한강 수변공원
 };
 
 enum class BuildingStyle {
     GlassTower,
     ModernOffice,
-    BrickApartment,
+    KoreanApartment,     // 실제 서울 대단지 아파트 (동 번호·규칙적 발코니·필로티)
+    BrickCommercial,     // 서울 근린상가·홍대/성수 벽돌 상가
     Warehouse,
-    ShippingStack,
     ShopBuilding,
     GarageBuilding,
     DealershipBuilding,
     BoutiqueBuilding,
     NightclubBuilding,
-    CivicLandmark,
-    VillaHouse
+    CivicLandmark,       // 서울시청·국회의사당·관공서
+    HanokPalace,         // 경복궁·숭례문·전통 한옥 기와/단청 건축
+    VillaHouse,          // 이태원·성북·평창 고급 주택/빌라
+    SupertallSpire       // 롯데월드타워 555m·63빌딩·파크원 초고층
 };
 
 struct Building {
     AABB2D footprint;
+    float baseY = 0.0f;          // Ground terrain elevation underneath footprint
     float height = 20.0f;
-    float upperTierHeight = 0.0f; // optional stepped skyscraper upper tier
+    float upperTierHeight = 0.0f;
     ColorRGBA primaryColor{};
     ColorRGBA accentColor{};
     ColorRGBA awningColor{148, 52, 48, 255};
@@ -44,36 +56,39 @@ struct Building {
     bool hasStorefront = false;
     bool hasBalconies = false;
     bool hasHelipad = false;
+    bool isMacroLandmark = false;
 };
 
 struct GasStationCanopy {
-    AABB2D bounds; // Drive-through overhead roof (vehicles pass freely underneath)
+    AABB2D bounds;
+    float baseY = 0.0f;
     float clearanceHeight = 4.9f;
 };
 
 struct ParkPatch {
     AABB2D bounds;
-    ColorRGBA grassColor{62, 92, 46, 255};
+    float baseY = 0.0f;
+    ColorRGBA grassColor{62, 96, 48, 255};
 };
 
 struct LakePatch {
     AABB2D bounds;
-    float waterY = -0.02f;
+    float waterY = 0.04f;
 };
 
 enum class TreeSpecies : std::uint8_t {
-    OakDeciduous = 0,
-    PalmCoastal = 1,
-    CypressConifer = 2
+    GinkgoDeciduous = 0, // 서울 가로수 은행나무/느티나무
+    CherryBlossom = 1,   // 여의도·석촌호수 벚나무
+    KoreanPine = 2       // 남산·궁궐 소나무/상록수
 };
 
 struct TreeProp {
     Vec2 pos;
+    float baseY = 0.0f;
     float trunkHeight = 2.8f;
     float crownRadius = 2.2f;
-    bool palmStyle = false;
     bool inPlanter = false;
-    TreeSpecies species = TreeSpecies::OakDeciduous;
+    TreeSpecies species = TreeSpecies::GinkgoDeciduous;
 };
 
 enum class StreetPropKind {
@@ -121,60 +136,135 @@ enum class PoiKind {
 struct PointOfInterest {
     PoiKind kind = PoiKind::WeaponShop;
     Vec2 pos;
-    float radius = 4.5f;
+    float radius = 4.8f;
     std::string nameEn;
     std::string nameKo;
     ColorRGBA markerColor{};
 };
 
+// Real Seoul Han River Bridge descriptor (15 drivable bridges spanning East-West across Han River)
+struct SeoulBridge {
+    std::string nameEn;
+    std::string nameKo;
+    float centerX = 0.0f;      // Road centerline X (aligned to 84m grid!)
+    float zNorth = -500.0f;    // North bank deck start
+    float zSouth =  500.0f;    // South bank deck end
+    float halfWidth = 11.0f;   // Wide 6-lane bridge roadway half-width
+    float deckHeight = 7.5f;   // Clearance above Han River water
+    bool hasRainbowFountain = false; // 반포대교 달빛무지개분수
+    bool isCableStayed = false;      // 올림픽대교/서강대교/성수대교 주탑
+    bool isArchBridge = false;       // 서강대교/한강대교 아치 트러스
+    ColorRGBA accentColor{176, 52, 42, 255};
+};
+
+// Iconic real Seoul macro landmarks (always visible on the 30km x 25km skyline & full-screen map)
+enum class SeoulLandmarkKind {
+    LotteWorldTower,     // 롯데월드타워 (555m, 잠실)
+    NSeoulTower,         // N서울타워 (남산 정상)
+    GyeongbokgungPalace, // 경복궁 근정전 & 광화문 광장
+    Building63,          // 여의도 63빌딩
+    NationalAssembly,    // 여의도 국회의사당
+    Parc1RedTower,       // 여의도 파크원
+    CoexTradeTower,      // 삼성동 코엑스·트레이드타워
+    SeoulCityHall,       // 서울시청 & 서울광장
+    SungnyemunGate,      // 숭례문 (남대문)
+    DongdaemunDDP,       // 동대문 DDP
+    JamsilStadium,       // 잠실종합운동장
+    GangnamStationPlaza  // 강남역 사거리
+};
+
+struct SeoulLandmark {
+    SeoulLandmarkKind kind = SeoulLandmarkKind::LotteWorldTower;
+    Vec2 pos{};
+    float height = 100.0f;
+    std::string nameEn;
+    std::string nameKo;
+    DistrictType district = DistrictType::GangnamTeheran;
+};
+
+struct SeoulMountain {
+    std::string nameEn;
+    std::string nameKo;
+    Vec2 center{};
+    float radiusX = 1600.0f;
+    float radiusZ = 1400.0f;
+    float peakHeight = 240.0f;
+};
+
 class CityMap {
 public:
-    // Expanded 16x16 City Metropolis (~1.45km x 1.65km drivable land incl. North Bay Lighthouse Peninsula!)
-    static constexpr int kRoadCount = 17;          // 17 N-S & 17 E-W avenues -> 16x16 city blocks (4x area!)
-    static constexpr int kBlockCount = 16;
-    static constexpr int kSidewalkNodeCount = kRoadCount * 2; // 34 sidewalk lines (0..33)
-    static constexpr float kBlockPitch = 84.0f;    // center-to-center road spacing
-    static constexpr float kRoadWidth = 18.0f;     // 4-lane avenue width
+    // Real-Scale Seoul Metropolis (~30 km East-West x ~25 km North-South = ~750 km^2 bounding box!)
+    // Cartographic orientation: +X = East, -Z = North, +Z = South, -X = West
+    static constexpr float kWorldMinX = -15036.0f; // 179 * 84m west (Gimpo / Gangseo)
+    static constexpr float kWorldMaxX =  15036.0f; // 179 * 84m east (Gangdong / Gwangnaru)
+    static constexpr float kWorldMinZ = -12516.0f; // 149 * 84m north (Bukhansan / Dobong / Nowon)
+    static constexpr float kWorldMaxZ =  12516.0f; // 149 * 84m south (Gwanaksan / Seocho / Songpa)
+    static constexpr float kHalfCitySpanX = 15036.0f;
+    static constexpr float kHalfCitySpanZ = 12516.0f;
+
+    // 84m urban avenue grid across all 30km x 25km (359 N-S x 299 E-W avenues, streamed O(1)!)
+    static constexpr float kBlockPitch = 84.0f;
+    static constexpr float kRoadWidth = 18.0f;
     static constexpr float kSidewalkWidth = 3.5f;
     static constexpr float kSidewalkCenterOffset = kRoadWidth * 0.5f + kSidewalkWidth * 0.5f; // 10.75m
-    static constexpr float kLaneOffset = 4.2f;     // center of travel lane from road centerline
-    static constexpr float kHalfCitySpan = 702.0f; // Main island concrete seawall promenade extent
-    static constexpr float kWestBeachOuter = -746.0f;
-    static constexpr float kWestPierOuter  = -796.0f;
-    static constexpr float kBridgeStartZ   = 681.0f;
-    static constexpr float kBridgeEndZ     = 815.0f;
-    static constexpr float kPeninsulaMaxZ  = 952.0f;
-    static constexpr float kPeninsulaHalfW = 128.0f;
-    static constexpr float kOceanBoundary  = 990.0f;
+    static constexpr float kLaneOffset = 4.2f;
+    static constexpr int kMinRoadIndexX = -178;
+    static constexpr int kMaxRoadIndexX =  178;
+    static constexpr int kMinRoadIndexZ = -148;
+    static constexpr int kMaxRoadIndexZ =  148;
 
-    // Spatial acceleration grid aligned to 84m city blocks for O(1) collision & rendering queries
-    static constexpr int kGridCols = 20;           // x in [-840, +840]
-    static constexpr int kGridRows = 22;           // z in [-840, +1008]
-    static constexpr float kGridOriginX = -840.0f;
-    static constexpr float kGridOriginZ = -840.0f;
-    static constexpr float kGridCellSize = 84.0f;
+    // Deterministic streaming chunk window: each chunk = 3x3 blocks (252m x 252m), 5x5 active = 1.26km window
+    static constexpr int kBlocksPerChunk = 3;
+    static constexpr float kChunkSize = kBlockPitch * kBlocksPerChunk; // 252m
+    static constexpr int kStreamRadiusChunks = 2; // 5x5 chunks = 25 active chunks around focus
+
+    // Legacy compatibility aliases for existing systems
+    static constexpr int kRoadCount = 357;
+    static constexpr int kBlockCount = 356;
 
     CityMap();
 
     void generate(std::uint64_t seed = 20261107ULL);
 
-    float roadCoord(int roadIndex) const;
+    // Streams deterministic Seoul city blocks, buildings, Korean apartments, trees & props around focus
+    void updateStreaming(const Vec2& focus, bool forceRebuild = false);
+    Vec2 streamedCenter() const { return streamedCenter_; }
+
+    // Infinite-range signed road & sidewalk coordinates (0 = world origin 0m)
+    float roadCoord(int roadIndex) const { return static_cast<float>(roadIndex) * kBlockPitch; }
     int nearestRoadIndex(float coord) const;
     float sidewalkCoord(int sidewalkNodeIndex) const;
     int nearestSidewalkNodeIndex(float coord) const;
-    static bool isCrosswalkEdge(int fromNode, int toNode) {
-        return (fromNode != toNode) && ((fromNode / 2) == (toNode / 2));
-    }
+    static bool isCrosswalkEdge(int fromNode, int toNode);
+
+    // Real Seoul Analytic Geography (O(1) anywhere across 30km x 25km!)
+    float hanRiverCenterZ(float x) const;
+    float hanRiverHalfWidth(float x) const;
+    bool isOnYeouidoIsland(const Vec2& p) const;
+    bool isInHanRiverWater(const Vec2& p, float margin = 0.0f) const;
+    bool isInHanRiverPark(const Vec2& p) const;
+    bool isInSeokchonLake(const Vec2& p) const;
+    bool isInCheonggyecheon(const Vec2& p) const;
+
+    // Real Seoul Mountains & Bridge Elevation
+    float terrainElevationAt(const Vec2& p) const;
+    float terrainSlopeAlong(const Vec2& p, const Vec2& dir) const;
+    const SeoulBridge* findBridgeAt(const Vec2& p, float margin = 0.0f) const;
+    bool isOnBridge(const Vec2& p, float margin = 0.0f) const { return findBridgeAt(p, margin) != nullptr; }
+    float bridgeDeckElevationAt(const Vec2& p, float* outSlopeZ = nullptr) const;
+    float surfaceHeightAt(const Vec2& p) const;
+
     bool isOnRoad(const Vec2& p, float margin = 0.0f) const;
     bool isInIntersection(const Vec2& p) const;
-    bool isOnNorthBridge(const Vec2& p, float margin = 0.0f) const;
-    bool isOnNorthPeninsula(const Vec2& p) const;
-    float bridgeDeckElevationAt(const Vec2& p, float* outSlopeZ = nullptr) const;
+    bool isMajorArterialRoad(int roadIdx, bool horizontal) const;
 
-    DistrictType districtAt(int bx, int bz) const;
     DistrictType districtAtWorld(const Vec2& p) const;
+    static const char* districtNameEn(DistrictType d);
+    static const char* districtNameKo(DistrictType d);
 
+    // Active streamed + macro data accessors
     const std::vector<Building>& buildings() const { return buildings_; }
+    const std::vector<Building>& macroBuildings() const { return macroBuildings_; }
     const std::vector<GasStationCanopy>& canopies() const { return canopies_; }
     const std::vector<ParkPatch>& parks() const { return parks_; }
     const std::vector<LakePatch>& lakes() const { return lakes_; }
@@ -182,37 +272,51 @@ public:
     std::vector<StreetProp>& streetProps() { return streetProps_; }
     const std::vector<StreetProp>& streetProps() const { return streetProps_; }
     const std::vector<PointOfInterest>& pois() const { return pois_; }
+    const std::vector<SeoulBridge>& bridges() const { return bridges_; }
+    const std::vector<SeoulLandmark>& landmarks() const { return landmarks_; }
+    const std::vector<SeoulMountain>& mountains() const { return mountains_; }
 
-    // Fast spatial-grid queries for rendering & AI (returns indices into respective vectors)
+    // Fast radius queries over active streamed + macro structures
     void queryBuildingsInRadius(const Vec2& center, float radius, std::vector<int>& outIndices) const;
     void queryTreesInRadius(const Vec2& center, float radius, std::vector<int>& outIndices) const;
     void queryPropsInRadius(const Vec2& center, float radius, std::vector<int>& outIndices) const;
 
     const PointOfInterest* findPoi(PoiKind kind) const;
+    const SeoulLandmark* findLandmark(SeoulLandmarkKind kind) const;
 
-    // Collision resolution against static buildings, park lake shoreline, bridge rails & ocean seawalls
+    // Collision & LOS raycasts against streamed + macro buildings, Han River embankments & bridges
     bool resolveCircleWorld(Vec2& pos, float radius, Vec2* outHitNormal = nullptr) const;
     bool resolveOBBBuildings(const OBB2D& obb, Vec2& outPush) const;
     float raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDist) const;
     float raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const;
 
-private:
-    void buildSpatialIndex();
-    static int gridCellX(float x);
-    static int gridCellZ(float z);
-    static int gridFlatIndex(int cx, int cz) { return cz * kGridCols + cx; }
+    // Default iconic Seoul spawn (Gangnam / Banpo Hangang Boulevard looking toward Banpo Bridge & N Seoul Tower!)
+    static Vec2 defaultSpawnPos() { return {600.0f, 1020.0f}; }
 
+private:
+    void buildSeoulMacroGeography();
+    void generateChunk(int chunkX, int chunkZ);
+    void rebuildActiveSpatialGrid();
+
+    std::uint64_t seed_ = 20261107ULL;
+    int lastCenterChunkX_ = 999999;
+    int lastCenterChunkZ_ = 999999;
+    Vec2 streamedCenter_{0.0f, 0.0f};
+
+    // Always-loaded macro Seoul structures
+    std::vector<SeoulBridge> bridges_;
+    std::vector<SeoulLandmark> landmarks_;
+    std::vector<SeoulMountain> mountains_;
+    std::vector<Building> macroBuildings_;
+    std::vector<PointOfInterest> pois_;
+    std::vector<LakePatch> lakes_;
+
+    // Active streamed window (macroBuildings_ appended first + 5x5 local chunks)
     std::vector<Building> buildings_;
     std::vector<GasStationCanopy> canopies_;
     std::vector<ParkPatch> parks_;
-    std::vector<LakePatch> lakes_;
     std::vector<TreeProp> trees_;
     std::vector<StreetProp> streetProps_;
-    std::vector<PointOfInterest> pois_;
-
-    std::vector<std::vector<int>> buildingGrid_;
-    std::vector<std::vector<int>> treeGrid_;
-    std::vector<std::vector<int>> propGrid_;
 };
 
 } // namespace oc

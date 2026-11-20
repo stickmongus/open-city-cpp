@@ -1,815 +1,843 @@
 #include "world/CityMap.hpp"
-
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <cstdint>
 
 namespace oc {
+
+namespace {
+
+inline std::uint64_t hashChunkCoords(std::uint64_t seed, int cx, int cz) {
+    std::uint64_t h = seed ^ 0x9E3779B97F4A7C15ULL;
+    h ^= static_cast<std::uint64_t>(static_cast<std::int64_t>(cx) * 0xBF58476D1CE4E5B9ULL);
+    h = (h ^ (h >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    h ^= static_cast<std::uint64_t>(static_cast<std::int64_t>(cz) * 0x94D049BB133111EBULL);
+    h = (h ^ (h >> 27)) * 0x94D049BB133111EBULL;
+    return h ^ (h >> 31);
+}
+
+} // namespace
 
 CityMap::CityMap() {
     generate();
 }
 
-float CityMap::roadCoord(int roadIndex) const {
-    return static_cast<float>(roadIndex - (kRoadCount / 2)) * kBlockPitch;
-}
-
 int CityMap::nearestRoadIndex(float coord) const {
-    const float raw = (coord / kBlockPitch) + static_cast<float>(kRoadCount / 2);
-    const int idx = static_cast<int>(std::round(raw));
-    return std::max(0, std::min(kRoadCount - 1, idx));
+    const int idx = static_cast<int>(std::round(coord / kBlockPitch));
+    return std::clamp(idx, kMinRoadIndexX, kMaxRoadIndexX);
 }
 
 float CityMap::sidewalkCoord(int sidewalkNodeIndex) const {
-    const int clamped = std::max(0, std::min(kSidewalkNodeCount - 1, sidewalkNodeIndex));
-    const int roadIdx = clamped / 2;
-    const float side = (clamped % 2 == 0) ? -1.0f : 1.0f;
-    return roadCoord(roadIdx) + side * kSidewalkCenterOffset;
+    // Even index = roadIdx * 2 -> roadCoord(roadIdx) - kSidewalkCenterOffset
+    // Odd  index = roadIdx * 2 + 1 -> roadCoord(roadIdx) + kSidewalkCenterOffset
+    // Use floor-division by 2 so negative node indices map cleanly!
+    const int roadIdx = (sidewalkNodeIndex >= 0) ? (sidewalkNodeIndex / 2) : ((sidewalkNodeIndex - 1) / 2);
+    const bool positiveSide = ((sidewalkNodeIndex & 1) != 0);
+    return roadCoord(roadIdx) + (positiveSide ? kSidewalkCenterOffset : -kSidewalkCenterOffset);
 }
 
 int CityMap::nearestSidewalkNodeIndex(float coord) const {
-    int bestIdx = 0;
-    float bestDist = 1e9f;
-    for (int i = 0; i < kSidewalkNodeCount; ++i) {
-        const float d = std::abs(coord - sidewalkCoord(i));
-        if (d < bestDist) {
-            bestDist = d;
-            bestIdx = i;
+    const int roadIdx = nearestRoadIndex(coord);
+    const float rc = roadCoord(roadIdx);
+    const bool posSide = (coord >= rc);
+    return roadIdx * 2 + (posSide ? 1 : 0);
+}
+
+bool CityMap::isCrosswalkEdge(int fromNode, int toNode) {
+    if (fromNode == toNode) return false;
+    const int rA = (fromNode >= 0) ? (fromNode / 2) : ((fromNode - 1) / 2);
+    const int rB = (toNode >= 0) ? (toNode / 2) : ((toNode - 1) / 2);
+    return rA == rB;
+}
+
+// ============================================================================
+// Real Seoul Analytic Geography (30 km x 25 km, +X = East, -Z = North)
+// ============================================================================
+float CityMap::hanRiverCenterZ(float x) const {
+    // Iconic real Seoul Han River S-curve:
+    // - West (Gangseo/Gimpo x=-12000): z ~ -2350
+    // - Mapo/Yeouido (x=-4800): z ~ +180
+    // - Banpo/Ichon (x=+600): z ~ +160
+    // - Apgujeong/Seongsu bend (x=+4800): curves north to z ~ -780
+    // - Jamsil/Gwangjin (x=+9000): z ~ -450
+    // - Gangdong/Gwangnaru (x=+13500): curves north to z ~ -1650
+    const float u = x / 15000.0f;
+    float z = 120.0f;
+    z -= 1150.0f * u * u;
+    z -= 680.0f * std::sin((x - 1600.0f) * 0.00046f);
+    z += 280.0f * std::cos((x + 3200.0f) * 0.00062f);
+    // Gentle northern turn in far west (Gimpo) & far east (Paldang)
+    if (x < -7500.0f) {
+        const float t = (-7500.0f - x) / 7500.0f;
+        z -= 1850.0f * t * t;
+    } else if (x > 9500.0f) {
+        const float t = (x - 9500.0f) / 5500.0f;
+        z -= 1250.0f * t * t;
+    }
+    return z;
+}
+
+float CityMap::hanRiverHalfWidth(float x) const {
+    // Authentic ~900m..1250m wide Han River (widest around Yeouido Island split!)
+    float hw = 470.0f + 55.0f * std::sin(x * 0.00055f);
+    // Widens around Yeouido Island (-6900..-2700) to cradle the island & twin channels
+    const float ydDist = std::abs(x + 4800.0f);
+    if (ydDist < 2600.0f) {
+        const float t = 1.0f - ydDist / 2600.0f;
+        hw += 360.0f * (t * t * (3.0f - 2.0f * t));
+    }
+    return hw;
+}
+
+bool CityMap::isOnYeouidoIsland(const Vec2& p) const {
+    // Real ~4.0km x 1.2km tapered river island centered at (-4800, hanRiverCenterZ(-4800) + 190)
+    const float cx = -4800.0f;
+    const float cz = hanRiverCenterZ(cx) + 165.0f;
+    const float nx = (p.x - cx) / 1920.0f;
+    const float nz = (p.z - cz) / 560.0f;
+    return (nx * nx + nz * nz) <= 1.0f;
+}
+
+bool CityMap::isInHanRiverWater(const Vec2& p, float margin) const {
+    if (isOnYeouidoIsland(p)) return false;
+    const float cz = hanRiverCenterZ(p.x);
+    const float hw = hanRiverHalfWidth(p.x) - margin;
+    return std::abs(p.z - cz) < hw;
+}
+
+bool CityMap::isInHanRiverPark(const Vec2& p) const {
+    if (isOnYeouidoIsland(p)) {
+        // Yeouido Hangang Riverside Park along the northern edge of Yeouido
+        const float cz = hanRiverCenterZ(-4800.0f) + 165.0f;
+        return p.z < cz - 350.0f;
+    }
+    const float cz = hanRiverCenterZ(p.x);
+    const float hw = hanRiverHalfWidth(p.x);
+    const float d = std::abs(p.z - cz);
+    return (d >= hw) && (d <= hw + 115.0f);
+}
+
+bool CityMap::isInSeokchonLake(const Vec2& p) const {
+    // Iconic twin-basin Seokchon Lake right south of Lotte World Tower (x=8904, z=2180)
+    const float dx = (p.x - 8904.0f) / 460.0f;
+    const float dz = (p.z - 2240.0f) / 145.0f;
+    return (dx * dx + dz * dz) < 1.0f && std::abs(p.x - 8904.0f) > 22.0f;
+}
+
+bool CityMap::isInCheonggyecheon(const Vec2& p) const {
+    // Scenic downtown Cheonggyecheon stream running E-W through Jongno/Euljiro
+    return (p.x > -960.0f && p.x < 2400.0f && std::abs(p.z - (-4536.0f)) < 12.0f);
+}
+
+float CityMap::terrainElevationAt(const Vec2& p) const {
+    // Flat inside Han River water & immediate riverside parks/islands
+    if (isInHanRiverWater(p, -60.0f) || isOnYeouidoIsland(p)) {
+        return 0.0f;
+    }
+    float elev = 0.0f;
+    for (const auto& m : mountains_) {
+        const float nx = (p.x - m.center.x) / m.radiusX;
+        const float nz = (p.z - m.center.z) / m.radiusZ;
+        const float r2 = nx * nx + nz * nz;
+        if (r2 < 1.0f) {
+            const float u = 1.0f - r2;
+            const float ridge = u * u * (0.86f + 0.14f * std::sin(p.x * 0.0045f + p.z * 0.0038f));
+            elev = std::max(elev, m.peakHeight * ridge);
         }
     }
-    return bestIdx;
+    // Keep major urban valley corridors smooth and easily drivable
+    const float riverDist = std::abs(p.z - hanRiverCenterZ(p.x)) - hanRiverHalfWidth(p.x);
+    if (riverDist < 260.0f) {
+        const float t = clampf((riverDist - 90.0f) / 170.0f, 0.0f, 1.0f);
+        elev *= (t * t * (3.0f - 2.0f * t));
+    }
+    return elev;
 }
 
-bool CityMap::isOnNorthBridge(const Vec2& p, float margin) const {
-    return std::abs(p.x) <= (kRoadWidth * 0.5f + margin) &&
-           p.z >= (kBridgeStartZ - 1.5f) && p.z <= (kBridgeEndZ + 1.5f);
+float CityMap::terrainSlopeAlong(const Vec2& p, const Vec2& dir) const {
+    const Vec2 d = dir.normalized();
+    const float h0 = terrainElevationAt(p - d * 1.5f);
+    const float h1 = terrainElevationAt(p + d * 1.5f);
+    return (h1 - h0) / 3.0f;
 }
 
-bool CityMap::isOnNorthPeninsula(const Vec2& p) const {
-    return p.z >= (kBridgeEndZ - 2.0f) && p.z <= kPeninsulaMaxZ &&
-           std::abs(p.x) <= kPeninsulaHalfW;
+const SeoulBridge* CityMap::findBridgeAt(const Vec2& p, float margin) const {
+    for (const auto& br : bridges_) {
+        if (std::abs(p.x - br.centerX) <= (br.halfWidth + margin) &&
+            p.z >= (br.zNorth - 42.0f) && p.z <= (br.zSouth + 42.0f)) {
+            return &br;
+        }
+    }
+    return nullptr;
 }
 
 float CityMap::bridgeDeckElevationAt(const Vec2& p, float* outSlopeZ) const {
     if (outSlopeZ) *outSlopeZ = 0.0f;
-    if (!isOnNorthBridge(p, 1.5f)) return 0.0f;
-    // Smooth architectural suspension-bridge arch cresting to +2.45m mid-span over the bay channel
-    constexpr float kMaxArchH = 2.45f;
-    constexpr float kRampSpan = 26.0f;
-    if (p.z < kBridgeStartZ + kRampSpan) {
-        const float u = clampf((p.z - kBridgeStartZ) / kRampSpan, 0.0f, 1.0f);
-        if (outSlopeZ) {
-            const float dudz = 1.0f / kRampSpan;
-            *outSlopeZ = kMaxArchH * 6.0f * u * (1.0f - u) * dudz;
-        }
-        return kMaxArchH * (u * u * (3.0f - 2.0f * u));
+    const SeoulBridge* br = findBridgeAt(p, 1.0f);
+    if (!br) return 0.0f;
+
+    const float z0 = br->zNorth - 42.0f;
+    const float z1 = br->zSouth + 42.0f;
+    const float rampSpan = 95.0f;
+    const float maxH = br->deckHeight;
+
+    if (p.z < z0 || p.z > z1) return 0.0f;
+
+    if (p.z < z0 + rampSpan) {
+        const float u = clampf((p.z - z0) / rampSpan, 0.0f, 1.0f);
+        const float h = maxH * (u * u * (3.0f - 2.0f * u));
+        if (outSlopeZ) *outSlopeZ = (maxH / rampSpan) * (6.0f * u * (1.0f - u));
+        return h;
     }
-    if (p.z > kBridgeEndZ - kRampSpan) {
-        const float u = clampf((kBridgeEndZ - p.z) / kRampSpan, 0.0f, 1.0f);
-        if (outSlopeZ) {
-            const float dudz = -1.0f / kRampSpan;
-            *outSlopeZ = kMaxArchH * 6.0f * u * (1.0f - u) * dudz;
-        }
-        return kMaxArchH * (u * u * (3.0f - 2.0f * u));
+    if (p.z > z1 - rampSpan) {
+        const float u = clampf((z1 - p.z) / rampSpan, 0.0f, 1.0f);
+        const float h = maxH * (u * u * (3.0f - 2.0f * u));
+        if (outSlopeZ) *outSlopeZ = -(maxH / rampSpan) * (6.0f * u * (1.0f - u));
+        return h;
     }
-    return kMaxArchH;
+    // Gentle mid-span crown (+1.2m arch at bridge center!)
+    const float midSpan = (z1 - rampSpan) - (z0 + rampSpan);
+    const float t = clampf((p.z - (z0 + rampSpan)) / std::max(1.0f, midSpan), 0.0f, 1.0f);
+    const float arch = 1.25f * std::sin(t * kPi);
+    if (outSlopeZ) *outSlopeZ = (1.25f * kPi / std::max(1.0f, midSpan)) * std::cos(t * kPi);
+    return maxH + arch;
+}
+
+float CityMap::surfaceHeightAt(const Vec2& p) const {
+    const SeoulBridge* br = findBridgeAt(p, 0.6f);
+    if (br != nullptr) {
+        return std::max(terrainElevationAt(p), bridgeDeckElevationAt(p));
+    }
+    return terrainElevationAt(p);
+}
+
+bool CityMap::isMajorArterialRoad(int roadIdx, bool horizontal) const {
+    if (!horizontal) {
+        // N-S Major Boulevards & Han River Bridge Avenues:
+        // Sejong-daero (-11), Mapo (-55), Wonhyo (-39), Hangang (-25), Banpo (+7),
+        // Hannam (+25), Gangnam-daero (+29), Seongsu (+55), Yeongdong (+71), Jamsil (+106)
+        return roadIdx == -133 || roadIdx == -94 || roadIdx == -70 || roadIdx == -55 ||
+               roadIdx == -39  || roadIdx == -25 || roadIdx == -11 || roadIdx == -10 ||
+               roadIdx == 7    || roadIdx == 25  || roadIdx == 29  || roadIdx == 39  ||
+               roadIdx == 55   || roadIdx == 71  || roadIdx == 86  || roadIdx == 106 ||
+               roadIdx == 126;
+    }
+    // E-W Major Boulevards:
+    // Jongno (-55), Euljiro (-49), Teheran-ro (+35), Bongeunsa-ro (+25), Olympic-ro (+19), Nambu (+65)
+    return roadIdx == -64 || roadIdx == -55 || roadIdx == -49 || roadIdx == -38 ||
+           roadIdx == -20 || roadIdx == 14  || roadIdx == 19  || roadIdx == 25  ||
+           roadIdx == 35  || roadIdx == 52  || roadIdx == 65;
 }
 
 bool CityMap::isOnRoad(const Vec2& p, float margin) const {
-    if (isOnNorthBridge(p, margin)) return true;
-    if (isOnNorthPeninsula(p)) {
-        // Scenic paved coastal peninsula entry & lighthouse overlook loop road
-        if (std::abs(p.x) <= (kRoadWidth * 0.5f + margin) && p.z <= 896.0f) return true;
-        const Vec2 loopC{0.0f, 882.0f};
-        const float r = (p - loopC).length();
-        if (r >= (38.0f - margin) && r <= (52.0f + margin) && p.z >= 826.0f) return true;
-        return false;
-    }
-    const float halfW = kRoadWidth * 0.5f + margin;
+    if (findBridgeAt(p, margin) != nullptr) return true;
+    if (isInHanRiverWater(p, -2.0f)) return false;
+    const float halfR = kRoadWidth * 0.5f + margin;
     const float rx = roadCoord(nearestRoadIndex(p.x));
     const float rz = roadCoord(nearestRoadIndex(p.z));
-    const bool withinSpan = std::abs(p.x) <= (roadCoord(kRoadCount - 1) + halfW) &&
-                            std::abs(p.z) <= (roadCoord(kRoadCount - 1) + halfW);
-    if (!withinSpan) return false;
-    return (std::abs(p.x - rx) <= halfW) || (std::abs(p.z - rz) <= halfW);
+    return (std::abs(p.x - rx) <= halfR) || (std::abs(p.z - rz) <= halfR);
 }
 
 bool CityMap::isInIntersection(const Vec2& p) const {
-    if (p.z > roadCoord(kRoadCount - 1) + kRoadWidth * 0.5f) return false;
-    const float halfW = kRoadWidth * 0.5f;
+    if (isInHanRiverWater(p, -2.0f)) return false;
+    const float halfR = kRoadWidth * 0.5f;
     const float rx = roadCoord(nearestRoadIndex(p.x));
     const float rz = roadCoord(nearestRoadIndex(p.z));
-    return (std::abs(p.x - rx) <= halfW) && (std::abs(p.z - rz) <= halfW);
-}
-
-DistrictType CityMap::districtAt(int bx, int bz) const {
-    // 2x2 Grand Central Park Mega-Block NW of Central Crossroads (0,0)
-    if (bx >= 6 && bx <= 7 && bz >= 6 && bz <= 7) {
-        return DistrictType::CentralPark;
-    }
-    // Civic Center & Emergency Precincts (South-West of Central Crossroads)
-    if ((bx == 6 || bx == 7) && bz == 9) {
-        return DistrictType::CivicCenter;
-    }
-    if (bx == 9 && bz == 7) {
-        return DistrictType::CivicCenter; // Sunset Bay General Medical Center
-    }
-    // Financial Downtown High-Rise Core (Central-East)
-    if (bx >= 8 && bx <= 11 && bz >= 5 && bz <= 9) {
-        return DistrictType::Downtown;
-    }
-    // Harbor & Container Port Industrial District (South-East Waterfront)
-    if (bx >= 11 && bz >= 10) {
-        return DistrictType::Industrial;
-    }
-    // Hillside Coastal Estates & Suburban Villas (North & North-East Ring)
-    if (bz <= 2 || (bx >= 13 && bz <= 9)) {
-        return DistrictType::SuburbanEstates;
-    }
-    // Sunset Beachfront Coastal Residential (West & South Shoreline)
-    if (bx <= 2 || bz >= 13) {
-        return DistrictType::CoastalResidential;
-    }
-    return DistrictType::Midtown;
+    return (std::abs(p.x - rx) <= halfR) && (std::abs(p.z - rz) <= halfR);
 }
 
 DistrictType CityMap::districtAtWorld(const Vec2& p) const {
-    if (p.z >= kBridgeStartZ) {
-        return DistrictType::NorthPeninsula;
+    if (isOnYeouidoIsland(p)) return DistrictType::YeouidoFinance;
+    if (isInHanRiverWater(p, -10.0f) || isInHanRiverPark(p)) return DistrictType::HanRiverPark;
+
+    const float riverZ = hanRiverCenterZ(p.x);
+    if (p.z < riverZ) {
+        // Gangbuk (North of Han River)
+        if (p.x > -2400.0f && p.x < 600.0f && p.z < -4700.0f && p.z > -7200.0f) {
+            return DistrictType::GwanghwamunPalace;
+        }
+        if (p.x > -1500.0f && p.x < 1200.0f && p.z <= -3600.0f && p.z >= -4700.0f) {
+            return (p.z < -4200.0f) ? DistrictType::JongnoCheonggye : DistrictType::MyeongdongCityHall;
+        }
+        if (p.x >= 1200.0f && p.x < 3600.0f && p.z < -3000.0f && p.z > -5600.0f) {
+            return DistrictType::Dongdaemun;
+        }
+        if (p.x > -900.0f && p.x < 2400.0f && p.z >= -3600.0f && p.z < riverZ) {
+            return DistrictType::NamsanItaewon;
+        }
+        if (p.x <= -900.0f && p.x > -3400.0f && p.z >= -3600.0f && p.z < riverZ) {
+            return DistrictType::Yongsan;
+        }
+        if (p.x <= -3400.0f && p.x > -8600.0f && p.z > -5800.0f) {
+            return DistrictType::HongdaeMapo;
+        }
+        if (p.x >= 3600.0f && p.x < 9400.0f && p.z > -4400.0f) {
+            return DistrictType::SeongsuKonkuk;
+        }
+        return DistrictType::GangbukNowon;
     }
-    const float minCorner = roadCoord(0);
-    int bx = static_cast<int>(std::floor((p.x - minCorner) / kBlockPitch));
-    int bz = static_cast<int>(std::floor((p.z - minCorner) / kBlockPitch));
-    bx = std::max(0, std::min(kBlockCount - 1, bx));
-    bz = std::max(0, std::min(kBlockCount - 1, bz));
-    return districtAt(bx, bz);
+
+    // Gangnam (South of Han River)
+    if (p.x >= 1400.0f && p.x < 6400.0f && p.z < 6400.0f) {
+        return DistrictType::GangnamTeheran;
+    }
+    if (p.x >= -1400.0f && p.x < 1400.0f && p.z < 6400.0f) {
+        return DistrictType::SeochoBanpo;
+    }
+    if (p.x >= 6400.0f) {
+        return DistrictType::JamsilSongpa;
+    }
+    if (p.x <= -6800.0f && p.z < 3400.0f) {
+        return DistrictType::GangseoMagok;
+    }
+    return DistrictType::GuroGwanak;
 }
 
-int CityMap::gridCellX(float x) {
-    const int c = static_cast<int>(std::floor((x - kGridOriginX) / kGridCellSize));
-    return std::max(0, std::min(kGridCols - 1, c));
+const char* CityMap::districtNameEn(DistrictType d) {
+    switch (d) {
+        case DistrictType::GwanghwamunPalace:  return "Gwanghwamun · Gyeongbokgung";
+        case DistrictType::JongnoCheonggye:    return "Jongno · Cheonggyecheon";
+        case DistrictType::MyeongdongCityHall: return "Myeongdong · City Hall";
+        case DistrictType::NamsanItaewon:      return "Namsan · Itaewon";
+        case DistrictType::Yongsan:            return "Yongsan · Hangangno";
+        case DistrictType::YeouidoFinance:     return "Yeouido Financial District";
+        case DistrictType::GangnamTeheran:     return "Gangnam · Teheran-ro";
+        case DistrictType::SeochoBanpo:        return "Seocho · Banpo";
+        case DistrictType::JamsilSongpa:       return "Jamsil · Lotte World Tower";
+        case DistrictType::SeongsuKonkuk:      return "Seongsu · Seoul Forest";
+        case DistrictType::HongdaeMapo:        return "Hongdae · Mapo";
+        case DistrictType::Dongdaemun:         return "Dongdaemun · DDP";
+        case DistrictType::GangbukNowon:       return "Gangbuk · Nowon";
+        case DistrictType::GangseoMagok:       return "Gangseo · Magok";
+        case DistrictType::GuroGwanak:         return "Guro · Gwanak";
+        case DistrictType::HanRiverPark:       return "Hangang Waterfront Park";
+    }
+    return "Seoul Metropolis";
 }
 
-int CityMap::gridCellZ(float z) {
-    const int c = static_cast<int>(std::floor((z - kGridOriginZ) / kGridCellSize));
-    return std::max(0, std::min(kGridRows - 1, c));
+const char* CityMap::districtNameKo(DistrictType d) {
+    switch (d) {
+        case DistrictType::GwanghwamunPalace:  return "광화문 · 경복궁";
+        case DistrictType::JongnoCheonggye:    return "종로 · 청계천";
+        case DistrictType::MyeongdongCityHall: return "명동 · 서울시청";
+        case DistrictType::NamsanItaewon:      return "남산 · 이태원";
+        case DistrictType::Yongsan:            return "용산 · 한강로";
+        case DistrictType::YeouidoFinance:     return "여의도 금융지구";
+        case DistrictType::GangnamTeheran:     return "강남 · 테헤란로";
+        case DistrictType::SeochoBanpo:        return "서초 · 반포";
+        case DistrictType::JamsilSongpa:       return "잠실 · 롯데월드타워";
+        case DistrictType::SeongsuKonkuk:      return "성수 · 서울숲";
+        case DistrictType::HongdaeMapo:        return "홍대 · 마포";
+        case DistrictType::Dongdaemun:         return "동대문 · DDP";
+        case DistrictType::GangbukNowon:       return "강북 · 노원";
+        case DistrictType::GangseoMagok:       return "강서 · 마곡";
+        case DistrictType::GuroGwanak:         return "구로 · 관악";
+        case DistrictType::HanRiverPark:       return "한강 수변공원";
+    }
+    return "서울특별시";
 }
 
-void CityMap::buildSpatialIndex() {
-    const std::size_t cellCount = static_cast<std::size_t>(kGridCols * kGridRows);
-    buildingGrid_.assign(cellCount, {});
-    treeGrid_.assign(cellCount, {});
-    propGrid_.assign(cellCount, {});
+void CityMap::buildSeoulMacroGeography() {
+    bridges_.clear();
+    landmarks_.clear();
+    mountains_.clear();
+    macroBuildings_.clear();
+    pois_.clear();
+    lakes_.clear();
 
-    for (int i = 0; i < static_cast<int>(buildings_.size()); ++i) {
-        const auto& fp = buildings_[static_cast<std::size_t>(i)].footprint;
-        const int x0 = gridCellX(fp.min.x);
-        const int x1 = gridCellX(fp.max.x);
-        const int z0 = gridCellZ(fp.min.z);
-        const int z1 = gridCellZ(fp.max.z);
-        for (int cz = z0; cz <= z1; ++cz) {
-            for (int cx = x0; cx <= x1; ++cx) {
-                buildingGrid_[static_cast<std::size_t>(gridFlatIndex(cx, cz))].push_back(i);
+    // 1) Real Seoul Surrounding Mountains & Central Namsan!
+    mountains_ = {
+        {"Namsan Mountain",     "남산 (262m)",   {  120.0f, -2420.0f}, 1250.0f,  920.0f, 155.0f},
+        {"Bukhansan Mountain",  "북한산 (836m)", {-1900.0f, -10900.0f}, 4200.0f, 2600.0f, 480.0f},
+        {"Inwangsan Mountain",  "인왕산 (338m)", {-2650.0f, -6350.0f}, 1450.0f, 1250.0f, 225.0f},
+        {"Bugaksan Mountain",   "북악산 (342m)", { -850.0f, -7250.0f}, 1600.0f, 1150.0f, 240.0f},
+        {"Gwanaksan Mountain",  "관악산 (632m)", {-2400.0f,  9700.0f}, 4100.0f, 2800.0f, 410.0f},
+        {"Achasan Mountain",    "아차산 (295m)", { 9900.0f, -3400.0f}, 1900.0f, 1650.0f, 210.0f},
+        {"Cheonggyesan",        "청계산 (540m)", { 4800.0f, 10200.0f}, 3400.0f, 2400.0f, 340.0f}
+    };
+
+    // 2) 15 Real Drivable Han River Bridges aligned strictly to 84m N-S avenues!
+    struct BridgeDef {
+        const char* en;
+        const char* ko;
+        int roadIdx;
+        bool rainbow;
+        bool cableStayed;
+        bool arch;
+        ColorRGBA accent;
+    };
+    const BridgeDef kBridgeDefs[15] = {
+        {"Gayang Bridge",    "가양대교",   -133, false, false, false, {146, 152, 160, 255}},
+        {"Yanghwa Bridge",   "양화대교",    -94, false, false, true,  {158, 162, 168, 255}},
+        {"Seogang Bridge",   "서강대교",    -70, false, false, true,  {172, 54, 48, 255}},
+        {"Mapo Bridge",      "마포대교",    -55, false, false, false, {136, 144, 156, 255}},
+        {"Wonhyo Bridge",    "원효대교",    -39, false, false, false, {148, 154, 162, 255}},
+        {"Hangang Bridge",   "한강대교",    -25, false, false, true,  {132, 138, 146, 255}},
+        {"Dongjak Bridge",   "동작대교",    -10, false, false, true,  {78, 126, 166, 255}},
+        {"Banpo Bridge",     "반포대교",      7, true,  false, false, {142, 152, 166, 255}},
+        {"Hannam Bridge",    "한남대교",     25, false, false, false, {150, 156, 164, 255}},
+        {"Dongho Bridge",    "동호대교",     39, false, false, true,  {162, 166, 172, 255}},
+        {"Seongsu Bridge",   "성수대교",     55, false, false, true,  {72, 136, 142, 255}},
+        {"Yeongdong Bridge", "영동대교",     71, false, false, false, {146, 152, 160, 255}},
+        {"Cheongdam Bridge", "청담대교",     86, false, false, false, {126, 134, 146, 255}},
+        {"Jamsil Bridge",    "잠실대교",    106, false, false, false, {148, 154, 162, 255}},
+        {"Olympic Bridge",   "올림픽대교",  126, false, true,  false, {202, 162, 74, 255}}
+    };
+    for (const auto& bd : kBridgeDefs) {
+        const float cx = roadCoord(bd.roadIdx);
+        const float rCenter = hanRiverCenterZ(cx);
+        const float rHw = hanRiverHalfWidth(cx);
+        bridges_.push_back(SeoulBridge{
+            bd.en, bd.ko, cx,
+            rCenter - rHw - 38.0f,
+            rCenter + rHw + 38.0f,
+            10.5f,
+            bd.rainbow ? 6.8f : 7.8f,
+            bd.rainbow, bd.cableStayed, bd.arch, bd.accent
+        });
+    }
+
+    // 3) Iconic Real Seoul Macro Landmarks (Always visible on skyline & interactive Seoul Map!)
+    landmarks_ = {
+        {SeoulLandmarkKind::LotteWorldTower,     { 8946.0f,  1974.0f}, 555.0f, "Lotte World Tower (555m)", "롯데월드타워 (555m)",   DistrictType::JamsilSongpa},
+        {SeoulLandmarkKind::NSeoulTower,         {  120.0f, -2420.0f}, 236.0f, "N Seoul Tower (Namsan)",   "N서울타워 (남산)",      DistrictType::NamsanItaewon},
+        {SeoulLandmarkKind::GyeongbokgungPalace, { -924.0f, -5796.0f},  26.0f, "Gyeongbokgung Palace",     "경복궁 · 광화문",       DistrictType::GwanghwamunPalace},
+        {SeoulLandmarkKind::Building63,          {-3318.0f,   462.0f}, 249.0f, "63 Square Tower",          "여의도 63빌딩",         DistrictType::YeouidoFinance},
+        {SeoulLandmarkKind::NationalAssembly,    {-6090.0f,   210.0f},  58.0f, "National Assembly",        "국회의사당",            DistrictType::YeouidoFinance},
+        {SeoulLandmarkKind::Parc1RedTower,       {-4578.0f,   294.0f}, 333.0f, "Yeouido Parc1 Tower",      "여의도 파크원",         DistrictType::YeouidoFinance},
+        {SeoulLandmarkKind::CoexTradeTower,      { 5418.0f,  2898.0f}, 228.0f, "COEX & Trade Tower",       "삼성동 코엑스 · 무역센터", DistrictType::GangnamTeheran},
+        {SeoulLandmarkKind::SeoulCityHall,       { -882.0f, -4326.0f},  72.0f, "Seoul City Hall",          "서울시청 · 서울광장",   DistrictType::MyeongdongCityHall},
+        {SeoulLandmarkKind::SungnyemunGate,      {-1050.0f, -3696.0f},  22.0f, "Sungnyemun Gate",          "숭례문 (남대문)",       DistrictType::MyeongdongCityHall},
+        {SeoulLandmarkKind::DongdaemunDDP,       { 1890.0f, -4326.0f},  29.0f, "Dongdaemun DDP",           "동대문 DDP",            DistrictType::Dongdaemun},
+        {SeoulLandmarkKind::JamsilStadium,       { 6846.0f,  1638.0f},  44.0f, "Jamsil Olympic Stadium",   "잠실종합운동장",        DistrictType::JamsilSongpa},
+        {SeoulLandmarkKind::GangnamStationPlaza, { 2436.0f,  2940.0f},  95.0f, "Gangnam Station",          "강남역 사거리",         DistrictType::GangnamTeheran}
+    };
+
+    // Build physical collision footprints for macro skyscrapers & landmarks
+    auto addMacro = [&](Vec2 center, Vec2 halfExt, float height, float upperH,
+                        ColorRGBA prim, ColorRGBA acc, BuildingStyle style, bool helipad = false) {
+        Building b{};
+        b.footprint = {{center.x - halfExt.x, center.z - halfExt.z},
+                       {center.x + halfExt.x, center.z + halfExt.z}};
+        b.baseY = terrainElevationAt(center);
+        b.height = height;
+        b.upperTierHeight = upperH;
+        b.primaryColor = prim;
+        b.accentColor = acc;
+        b.style = style;
+        b.litWindows = true;
+        b.hasHelipad = helipad;
+        b.isMacroLandmark = true;
+        macroBuildings_.push_back(b);
+    };
+
+    // Lotte World Tower (555m iconic pale silver-blue tapered skyscraper)
+    addMacro({8946.0f, 1974.0f}, {28.0f, 28.0f}, 555.0f, 0.0f,
+             {162, 184, 206, 255}, {214, 224, 236, 255}, BuildingStyle::SupertallSpire, false);
+    // 63 Building (iconic gold-tinted Yeouido landmark)
+    addMacro({-3318.0f, 462.0f}, {22.0f, 16.0f}, 249.0f, 0.0f,
+             {174, 146, 84, 255}, {212, 186, 122, 255}, BuildingStyle::GlassTower, true);
+    // Parc1 Red-Exoskeleton Twin Towers (Yeouido)
+    addMacro({-4578.0f, 294.0f}, {24.0f, 22.0f}, 333.0f, 0.0f,
+             {148, 164, 184, 255}, {178, 44, 42, 255}, BuildingStyle::GlassTower, true);
+    addMacro({-4494.0f, 294.0f}, {22.0f, 20.0f}, 256.0f, 0.0f,
+             {148, 164, 184, 255}, {178, 44, 42, 255}, BuildingStyle::GlassTower, true);
+    // National Assembly Hall (Yeouido)
+    addMacro({-6090.0f, 210.0f}, {44.0f, 32.0f}, 36.0f, 22.0f,
+             {196, 192, 184, 255}, {76, 152, 144, 255}, BuildingStyle::CivicLandmark, false);
+    // COEX Trade Tower & Gangnam Twin Towers
+    addMacro({5418.0f, 2898.0f}, {24.0f, 24.0f}, 228.0f, 0.0f,
+             {96, 118, 142, 255}, {172, 190, 210, 255}, BuildingStyle::GlassTower, true);
+    addMacro({2478.0f, 2898.0f}, {24.0f, 22.0f}, 182.0f, 36.0f,
+             {72, 92, 118, 255}, {154, 174, 196, 255}, BuildingStyle::GlassTower, true);
+    // Gyeongbokgung Geunjeongjeon Palace Pavilion + Gwanghwamun Gate
+    addMacro({-924.0f, -5796.0f}, {32.0f, 24.0f}, 18.0f, 8.0f,
+             {162, 54, 44, 255}, {58, 116, 86, 255}, BuildingStyle::HanokPalace, false);
+    addMacro({-924.0f, -5460.0f}, {24.0f, 9.0f}, 14.0f, 6.0f,
+             {184, 178, 168, 255}, {62, 112, 86, 255}, BuildingStyle::HanokPalace, false);
+    // Seoul City Hall & Sungnyemun
+    addMacro({-882.0f, -4326.0f}, {34.0f, 24.0f}, 56.0f, 16.0f,
+             {116, 144, 168, 255}, {198, 206, 216, 255}, BuildingStyle::CivicLandmark, false);
+    addMacro({-1050.0f, -3696.0f}, {16.0f, 10.0f}, 16.0f, 6.0f,
+             {166, 160, 152, 255}, {58, 110, 82, 255}, BuildingStyle::HanokPalace, false);
+    // Dongdaemun DDP & Jamsil Olympic Stadium
+    addMacro({1890.0f, -4326.0f}, {44.0f, 26.0f}, 26.0f, 0.0f,
+             {196, 202, 210, 255}, {132, 140, 150, 255}, BuildingStyle::CivicLandmark, false);
+    addMacro({6846.0f, 1638.0f}, {62.0f, 52.0f}, 38.0f, 0.0f,
+             {188, 186, 180, 255}, {122, 134, 152, 255}, BuildingStyle::CivicLandmark, false);
+
+    // Seokchon Lake patch
+    lakes_.push_back(LakePatch{{{8450.0f, 2095.0f}, {9358.0f, 2385.0f}}, 0.04f});
+
+    // 4) Key Interactive POIs clustered cleanly near Default Spawn (Banpo/Gangnam Hangang Entrance: {588, 1020})
+    //    so shops, showroom, garage, boutique, gas station & missions are immediately accessible!
+    pois_.push_back(PointOfInterest{
+        PoiKind::CarDealership, {630.0f, 1068.0f}, 5.8f,
+        "GANGNAM EXOTIC SHOWROOM", "강남 럭셔리 슈퍼카 전시장", {226, 178, 76, 255}
+    });
+    pois_.push_back(PointOfInterest{
+        PoiKind::TuneGarage, {546.0f, 1068.0f}, 5.8f,
+        "SEOUL AUTO CUSTOMS", "서울 커스텀 & 튜닝 차고", {76, 184, 218, 255}
+    });
+    pois_.push_back(PointOfInterest{
+        PoiKind::WeaponShop, {630.0f, 1140.0f}, 5.0f,
+        "AMMU-TECH TACTICAL", "택티컬 장비 & 무기 상점", {224, 92, 66, 255}
+    });
+    pois_.push_back(PointOfInterest{
+        PoiKind::ClothingBoutique, {546.0f, 1140.0f}, 5.0f,
+        "CHEONGDAM LUXURY BOUTIQUE", "청담 명품 의상 부티크", {218, 178, 128, 255}
+    });
+    pois_.push_back(PointOfInterest{
+        PoiKind::GasStation, {714.0f, 1050.0f}, 6.2f,
+        "SEOUL ENERGY SERVICE", "서울 주유 & 급속 정비소", {224, 94, 66, 255}
+    });
+    pois_.push_back(PointOfInterest{
+        PoiKind::NightclubProperty, {714.0f, 1152.0f}, 5.0f,
+        "APGUJEONG LOUNGE CLUB", "압구정 라운지 클럽", {188, 96, 236, 255}
+    });
+    pois_.push_back(PointOfInterest{
+        PoiKind::MissionDelivery, {602.0f, 1026.0f}, 4.5f,
+        "EXOTIC DELIVERY CONTRACT", "강남 슈퍼카 긴급 배송", {238, 198, 66, 255}
+    });
+    pois_.push_back(PointOfInterest{
+        PoiKind::MissionRace, {574.0f, 996.0f}, 4.5f,
+        "HANGANG BRIDGE SPRINT", "한강 대교 야간 스트리트 레이스", {82, 206, 232, 255}
+    });
+    pois_.push_back(PointOfInterest{
+        PoiKind::MissionGangRaid, {684.0f, 1006.0f}, 4.5f,
+        "GANGNAM SYNDICATE RAID", "조직 거점 소탕 의뢰", {232, 84, 72, 255}
+    });
+}
+
+void CityMap::generate(std::uint64_t seed) {
+    seed_ = seed;
+    buildSeoulMacroGeography();
+    lastCenterChunkX_ = 999999;
+    lastCenterChunkZ_ = 999999;
+    updateStreaming(defaultSpawnPos(), true);
+}
+
+void CityMap::generateChunk(int chunkX, int chunkZ) {
+    const int baseBx = chunkX * kBlocksPerChunk;
+    const int baseBz = chunkZ * kBlocksPerChunk;
+    const float halfRoad = kRoadWidth * 0.5f;
+
+    for (int lbz = 0; lbz < kBlocksPerChunk; ++lbz) {
+        for (int lbx = 0; lbx < kBlocksPerChunk; ++lbx) {
+            const int bx = baseBx + lbx;
+            const int bz = baseBz + lbz;
+            if (bx < kMinRoadIndexX || bx >= kMaxRoadIndexX ||
+                bz < kMinRoadIndexZ || bz >= kMaxRoadIndexZ) {
+                continue;
+            }
+
+            const float x0 = roadCoord(bx) + halfRoad;
+            const float x1 = roadCoord(bx + 1) - halfRoad;
+            const float z0 = roadCoord(bz) + halfRoad;
+            const float z1 = roadCoord(bz + 1) - halfRoad;
+            const Vec2 bc{(x0 + x1) * 0.5f, (z0 + z1) * 0.5f};
+
+            // Skip blocks submerged in Han River or Seokchon Lake
+            if (isInHanRiverWater(bc, -8.0f) || isInSeokchonLake(bc)) continue;
+            // Skip if directly intersecting a bridge approach deck
+            if (findBridgeAt(bc, 20.0f) != nullptr) continue;
+
+            // Skip if overlapping any macro landmark footprint
+            bool hitsMacro = false;
+            for (const auto& mb : macroBuildings_) {
+                if (mb.footprint.min.x < x1 + 4.0f && mb.footprint.max.x > x0 - 4.0f &&
+                    mb.footprint.min.z < z1 + 4.0f && mb.footprint.max.z > z0 - 4.0f) {
+                    hitsMacro = true;
+                    break;
+                }
+            }
+            if (hitsMacro) continue;
+
+            const float groundY = terrainElevationAt(bc);
+            // High mountain ridges (> 34m elevation): dense Korean pine forests instead of city blocks!
+            if (groundY > 34.0f) {
+                Rng mrng(hashChunkCoords(seed_, bx * 13 + 7, bz * 17 + 3));
+                parks_.push_back(ParkPatch{{{x0 - 4.0f, z0 - 4.0f}, {x1 + 4.0f, z1 + 4.0f}}, groundY, {48, 78, 42, 255}});
+                for (int t = 0; t < 7; ++t) {
+                    const Vec2 tp{mrng.range(x0, x1), mrng.range(z0, z1)};
+                    trees_.push_back(TreeProp{
+                        tp, terrainElevationAt(tp), mrng.range(3.2f, 5.2f), mrng.range(2.2f, 3.4f),
+                        false, TreeSpecies::KoreanPine
+                    });
+                }
+                continue;
+            }
+
+            Rng rng(hashChunkCoords(seed_, bx, bz));
+            const DistrictType district = districtAtWorld(bc);
+
+            // Han River Waterfront Parks (한강공원 — lawns, cherry blossoms & ginkgos, riverside benches!)
+            if (district == DistrictType::HanRiverPark || isInHanRiverPark(bc)) {
+                parks_.push_back(ParkPatch{{{x0 + 1.5f, z0 + 1.5f}, {x1 - 1.5f, z1 - 1.5f}}, groundY, {60, 96, 48, 255}});
+                for (int t = 0; t < 6; ++t) {
+                    const Vec2 tp{rng.range(x0 + 5.0f, x1 - 5.0f), rng.range(z0 + 5.0f, z1 - 5.0f)};
+                    if (isInHanRiverWater(tp, -4.0f)) continue;
+                    const TreeSpecies sp = rng.chance(0.45f) ? TreeSpecies::CherryBlossom : TreeSpecies::GinkgoDeciduous;
+                    trees_.push_back(TreeProp{tp, terrainElevationAt(tp), rng.range(2.9f, 4.1f), rng.range(2.4f, 3.5f), false, sp});
+                }
+                streetProps_.push_back(StreetProp{{bc.x, bc.z}, StreetPropKind::Bench, 0.0f, false, {}, 0.0f, {bc.x, bc.z}});
+                continue;
+            }
+
+            // Special Hero Spawn Block near Banpo/Gangnam (bx == 7, bz == 12 -> x in [597..663], z in [1017..1083])
+            if (bx == 7 && bz == 12) {
+                // Gangnam Exotic Supercar Glass Showroom
+                buildings_.push_back(Building{
+                    {{x0 + 8.0f, z0 + 26.0f}, {x1 - 8.0f, z1 - 6.0f}},
+                    groundY, 16.5f, 0.0f,
+                    {38, 46, 58, 255}, {188, 160, 102, 255}, {154, 130, 82, 255},
+                    BuildingStyle::DealershipBuilding, true, false, false, false, false
+                });
+                streetProps_.push_back(StreetProp{{x0 + 3.0f, z0 + 3.0f}, StreetPropKind::StreetLight, 0.0f, false, {}, 0.0f, {x0 + 3.0f, z0 + 3.0f}});
+                continue;
+            }
+            if (bx == 6 && bz == 12) {
+                // Seoul Auto Customs Garage
+                buildings_.push_back(Building{
+                    {{x0 + 6.0f, z0 + 24.0f}, {x1 - 6.0f, z1 - 6.0f}},
+                    groundY, 13.5f, 0.0f,
+                    {112, 118, 126, 255}, {76, 162, 198, 255}, {44, 102, 134, 255},
+                    BuildingStyle::GarageBuilding, true, false, false, false, false
+                });
+                continue;
+            }
+            if (bx == 8 && bz == 12) {
+                // Seoul Energy Gas Station Canopy
+                canopies_.push_back(GasStationCanopy{{{x0 + 10.0f, z0 + 18.0f}, {x1 - 10.0f, z0 + 38.0f}}, groundY, 4.9f});
+                buildings_.push_back(Building{
+                    {{x0 + 12.0f, z1 - 18.0f}, {x1 - 12.0f, z1 - 4.0f}},
+                    groundY, 6.2f, 0.0f,
+                    {192, 194, 198, 255}, {198, 62, 48, 255}, {198, 62, 48, 255},
+                    BuildingStyle::ShopBuilding, true, true, false, false, false
+                });
+                continue;
+            }
+
+            // Neighborhood pocket parks (~8% of urban blocks)
+            if (rng.chance(0.08f)) {
+                parks_.push_back(ParkPatch{{{x0 + 2.5f, z0 + 2.5f}, {x1 - 2.5f, z1 - 2.5f}}, groundY, {62, 94, 48, 255}});
+                for (int t = 0; t < 7; ++t) {
+                    const Vec2 tp{rng.range(x0 + 6.0f, x1 - 6.0f), rng.range(z0 + 6.0f, z1 - 6.0f)};
+                    const TreeSpecies sp = (district == DistrictType::YeouidoFinance || district == DistrictType::JamsilSongpa)
+                                               ? TreeSpecies::CherryBlossom
+                                               : (rng.chance(0.35f) ? TreeSpecies::KoreanPine : TreeSpecies::GinkgoDeciduous);
+                    trees_.push_back(TreeProp{tp, terrainElevationAt(tp), rng.range(2.9f, 4.2f), rng.range(2.3f, 3.4f), false, sp});
+                }
+                continue;
+            }
+
+            // Authentic Seoul Urban Typologies per District!
+            const bool isHighRiseCbd = (district == DistrictType::GangnamTeheran ||
+                                        district == DistrictType::YeouidoFinance ||
+                                        district == DistrictType::MyeongdongCityHall ||
+                                        district == DistrictType::JongnoCheonggye ||
+                                        district == DistrictType::Yongsan);
+            const bool isKoreanAptZone = (district == DistrictType::SeochoBanpo ||
+                                          district == DistrictType::JamsilSongpa ||
+                                          district == DistrictType::GangbukNowon ||
+                                          district == DistrictType::GangseoMagok ||
+                                          district == DistrictType::GuroGwanak);
+            const bool isTraditionalZone = (district == DistrictType::GwanghwamunPalace);
+            const bool isTrendyBrick = (district == DistrictType::HongdaeMapo ||
+                                        district == DistrictType::SeongsuKonkuk ||
+                                        district == DistrictType::Dongdaemun);
+
+            if (isKoreanAptZone && rng.chance(0.66f)) {
+                // Iconic Korean Seoul Apartment Complex (대단지 아파트 — twin parallel tall slab buildings + landscaped courtyard!)
+                const bool eastWest = rng.chance(0.55f);
+                const float aptH = rng.range(42.0f, 78.0f);
+                const ColorRGBA aptPal[4] = {
+                    {192, 190, 184, 255}, {178, 182, 188, 255},
+                    {198, 188, 174, 255}, {170, 174, 178, 255}
+                };
+                const ColorRGBA aptAcc[4] = {
+                    {58, 86, 122, 255}, {132, 68, 56, 255},
+                    {76, 102, 82, 255}, {108, 92, 74, 255}
+                };
+                const int pIdx = rng.rangeInt(0, 3);
+                parks_.push_back(ParkPatch{{{x0 + 3.0f, z0 + 3.0f}, {x1 - 3.0f, z1 - 3.0f}}, groundY, {64, 92, 50, 255}});
+                for (int s = 0; s < 2; ++s) {
+                    AABB2D fp{};
+                    if (eastWest) {
+                        const float sz = (s == 0) ? (z0 + 14.0f) : (z1 - 14.0f);
+                        fp = {{x0 + 7.0f, sz - 7.5f}, {x1 - 7.0f, sz + 7.5f}};
+                    } else {
+                        const float sx = (s == 0) ? (x0 + 14.0f) : (x1 - 14.0f);
+                        fp = {{sx - 7.5f, z0 + 7.0f}, {sx + 7.5f, z1 - 7.0f}};
+                    }
+                    buildings_.push_back(Building{
+                        fp, groundY, aptH, 0.0f,
+                        aptPal[pIdx], aptAcc[pIdx], aptAcc[pIdx],
+                        BuildingStyle::KoreanApartment, true, false, true, aptH > 64.0f, false
+                    });
+                }
+                trees_.push_back(TreeProp{{bc.x - 9.0f, bc.z}, groundY, 3.2f, 2.5f, false, TreeSpecies::GinkgoDeciduous});
+                trees_.push_back(TreeProp{{bc.x + 9.0f, bc.z}, groundY, 3.2f, 2.5f, false, TreeSpecies::KoreanPine});
+            } else {
+                // 2x2 Quadrant Seoul Commercial / Office / Hanok / Villa Parcel Layout
+                const float midX = bc.x;
+                const float midZ = bc.z;
+                for (int qz = 0; qz < 2; ++qz) {
+                    for (int qx = 0; qx < 2; ++qx) {
+                        const float px0 = (qx == 0) ? (x0 + 3.5f) : (midX + 2.2f);
+                        const float px1 = (qx == 0) ? (midX - 2.2f) : (x1 - 3.5f);
+                        const float pz0 = (qz == 0) ? (z0 + 3.5f) : (midZ + 2.2f);
+                        const float pz1 = (qz == 0) ? (midZ - 2.2f) : (z1 - 3.5f);
+
+                        Building b{};
+                        b.footprint = {{px0, pz0}, {px1, pz1}};
+                        b.baseY = groundY;
+                        b.litWindows = true;
+
+                        if (isHighRiseCbd) {
+                            const bool glass = rng.chance(0.65f);
+                            b.style = glass ? BuildingStyle::GlassTower : BuildingStyle::ModernOffice;
+                            b.height = glass ? rng.range(48.0f, 138.0f) : rng.range(26.0f, 68.0f);
+                            b.upperTierHeight = (b.height > 78.0f && rng.chance(0.50f)) ? rng.range(12.0f, 26.0f) : 0.0f;
+                            b.hasStorefront = true;
+                            b.hasHelipad = (b.height > 88.0f);
+                            const ColorRGBA gPal[4] = {
+                                {48, 66, 88, 255}, {58, 74, 90, 255}, {76, 86, 98, 255}, {112, 118, 126, 255}
+                            };
+                            b.primaryColor = gPal[rng.rangeInt(0, 3)];
+                            b.accentColor = {142, 162, 184, 255};
+                            b.awningColor = {42, 66, 92, 255};
+                        } else if (isTraditionalZone && rng.chance(0.55f)) {
+                            b.style = BuildingStyle::HanokPalace;
+                            b.height = rng.range(7.0f, 12.0f);
+                            b.primaryColor = {206, 198, 182, 255};
+                            b.accentColor = {68, 72, 78, 255};
+                            b.awningColor = {138, 64, 48, 255};
+                        } else if (district == DistrictType::NamsanItaewon && rng.chance(0.50f)) {
+                            b.style = BuildingStyle::VillaHouse;
+                            b.height = rng.range(9.5f, 16.5f);
+                            b.primaryColor = {196, 186, 170, 255};
+                            b.accentColor = {144, 74, 52, 255};
+                            b.hasBalconies = true;
+                        } else if (isTrendyBrick) {
+                            b.style = rng.chance(0.65f) ? BuildingStyle::BrickCommercial : BuildingStyle::ModernOffice;
+                            b.height = rng.range(16.0f, 44.0f);
+                            const ColorRGBA bPal[4] = {
+                                {146, 96, 78, 255}, {126, 118, 110, 255}, {162, 148, 132, 255}, {84, 90, 98, 255}
+                            };
+                            b.primaryColor = bPal[rng.rangeInt(0, 3)];
+                            b.accentColor = {184, 174, 160, 255};
+                            b.awningColor = rng.chance(0.5f) ? ColorRGBA{46, 86, 72, 255} : ColorRGBA{142, 56, 48, 255};
+                            b.hasStorefront = true;
+                        } else {
+                            b.style = rng.chance(0.45f) ? BuildingStyle::ModernOffice : BuildingStyle::BrickCommercial;
+                            b.height = rng.range(18.0f, 46.0f);
+                            b.primaryColor = {138, 140, 144, 255};
+                            b.accentColor = {174, 178, 184, 255};
+                            b.hasStorefront = true;
+                        }
+                        buildings_.push_back(b);
+                    }
+                }
+            }
+
+            // Seoul Streetscape: Ginkgo / Cherry Blossom street trees + streetlights along block corners!
+            const TreeSpecies stTree = (district == DistrictType::YeouidoFinance || district == DistrictType::JamsilSongpa)
+                                           ? TreeSpecies::CherryBlossom
+                                           : TreeSpecies::GinkgoDeciduous;
+            const Vec2 cornerA{x0 + 1.8f, z0 + 1.8f};
+            const Vec2 cornerB{x1 - 1.8f, z1 - 1.8f};
+            streetProps_.push_back(StreetProp{cornerA, StreetPropKind::StreetLight, 0.0f, false, {}, 0.0f, cornerA});
+            streetProps_.push_back(StreetProp{cornerB, StreetPropKind::StreetLight, kPi, false, {}, 0.0f, cornerB});
+            const Vec2 hydPos{x0 + 0.9f, z0 + 5.5f};
+            if (rng.chance(0.45f)) {
+                streetProps_.push_back(StreetProp{hydPos, StreetPropKind::Hydrant, 0.0f, false, {}, 0.0f, hydPos});
+            }
+            trees_.push_back(TreeProp{{bc.x, z0 + 1.9f}, groundY, 3.1f, 2.3f, true, stTree});
+            trees_.push_back(TreeProp{{x0 + 1.9f, bc.z}, groundY, 3.1f, 2.3f, true, stTree});
+            if (rng.chance(0.42f)) {
+                const Vec2 bsPos{bc.x + 12.0f, z1 - 1.8f};
+                streetProps_.push_back(StreetProp{bsPos, StreetPropKind::BusShelter, kPi, false, {}, 0.0f, bsPos});
             }
         }
     }
+}
 
-    for (int i = 0; i < static_cast<int>(trees_.size()); ++i) {
-        const auto& t = trees_[static_cast<std::size_t>(i)];
-        const int cx = gridCellX(t.pos.x);
-        const int cz = gridCellZ(t.pos.z);
-        treeGrid_[static_cast<std::size_t>(gridFlatIndex(cx, cz))].push_back(i);
+void CityMap::updateStreaming(const Vec2& focus, bool forceRebuild) {
+    const int centerChunkX = static_cast<int>(std::floor(focus.x / kChunkSize));
+    const int centerChunkZ = static_cast<int>(std::floor(focus.z / kChunkSize));
+
+    if (!forceRebuild && centerChunkX == lastCenterChunkX_ && centerChunkZ == lastCenterChunkZ_) {
+        return;
     }
 
-    for (int i = 0; i < static_cast<int>(streetProps_.size()); ++i) {
-        const auto& sp = streetProps_[static_cast<std::size_t>(i)];
-        const int cx = gridCellX(sp.homePos.x);
-        const int cz = gridCellZ(sp.homePos.z);
-        propGrid_[static_cast<std::size_t>(gridFlatIndex(cx, cz))].push_back(i);
+    lastCenterChunkX_ = centerChunkX;
+    lastCenterChunkZ_ = centerChunkZ;
+    streamedCenter_ = focus;
+
+    buildings_.clear();
+    canopies_.clear();
+    parks_.clear();
+    trees_.clear();
+    streetProps_.clear();
+
+    // Always include macro Seoul landmarks first so collision & rendering work seamlessly everywhere
+    buildings_.reserve(macroBuildings_.size() + 320);
+    for (const auto& mb : macroBuildings_) {
+        buildings_.push_back(mb);
+    }
+
+    for (int dz = -kStreamRadiusChunks; dz <= kStreamRadiusChunks; ++dz) {
+        for (int dx = -kStreamRadiusChunks; dx <= kStreamRadiusChunks; ++dx) {
+            generateChunk(centerChunkX + dx, centerChunkZ + dz);
+        }
     }
 }
 
 void CityMap::queryBuildingsInRadius(const Vec2& center, float radius, std::vector<int>& outIndices) const {
     outIndices.clear();
-    const int x0 = gridCellX(center.x - radius);
-    const int x1 = gridCellX(center.x + radius);
-    const int z0 = gridCellZ(center.z - radius);
-    const int z1 = gridCellZ(center.z + radius);
-    for (int cz = z0; cz <= z1; ++cz) {
-        for (int cx = x0; cx <= x1; ++cx) {
-            const auto& bucket = buildingGrid_[static_cast<std::size_t>(gridFlatIndex(cx, cz))];
-            outIndices.insert(outIndices.end(), bucket.begin(), bucket.end());
+    const float r = radius;
+    const float minX = center.x - r;
+    const float maxX = center.x + r;
+    const float minZ = center.z - r;
+    const float maxZ = center.z + r;
+    for (int i = 0; i < static_cast<int>(buildings_.size()); ++i) {
+        const auto& fp = buildings_[static_cast<std::size_t>(i)].footprint;
+        if (fp.max.x >= minX && fp.min.x <= maxX && fp.max.z >= minZ && fp.min.z <= maxZ) {
+            outIndices.push_back(i);
         }
     }
 }
 
 void CityMap::queryTreesInRadius(const Vec2& center, float radius, std::vector<int>& outIndices) const {
     outIndices.clear();
-    const int x0 = gridCellX(center.x - radius);
-    const int x1 = gridCellX(center.x + radius);
-    const int z0 = gridCellZ(center.z - radius);
-    const int z1 = gridCellZ(center.z + radius);
-    for (int cz = z0; cz <= z1; ++cz) {
-        for (int cx = x0; cx <= x1; ++cx) {
-            const auto& bucket = treeGrid_[static_cast<std::size_t>(gridFlatIndex(cx, cz))];
-            outIndices.insert(outIndices.end(), bucket.begin(), bucket.end());
+    const float rSq = radius * radius;
+    for (int i = 0; i < static_cast<int>(trees_.size()); ++i) {
+        if ((trees_[static_cast<std::size_t>(i)].pos - center).lengthSq() <= rSq) {
+            outIndices.push_back(i);
         }
     }
 }
 
 void CityMap::queryPropsInRadius(const Vec2& center, float radius, std::vector<int>& outIndices) const {
     outIndices.clear();
-    const int x0 = gridCellX(center.x - radius);
-    const int x1 = gridCellX(center.x + radius);
-    const int z0 = gridCellZ(center.z - radius);
-    const int z1 = gridCellZ(center.z + radius);
-    for (int cz = z0; cz <= z1; ++cz) {
-        for (int cx = x0; cx <= x1; ++cx) {
-            const auto& bucket = propGrid_[static_cast<std::size_t>(gridFlatIndex(cx, cz))];
-            outIndices.insert(outIndices.end(), bucket.begin(), bucket.end());
+    const float rSq = radius * radius;
+    for (int i = 0; i < static_cast<int>(streetProps_.size()); ++i) {
+        if ((streetProps_[static_cast<std::size_t>(i)].pos - center).lengthSq() <= rSq) {
+            outIndices.push_back(i);
         }
     }
-}
-
-void CityMap::generate(std::uint64_t seed) {
-    buildings_.clear();
-    canopies_.clear();
-    parks_.clear();
-    lakes_.clear();
-    trees_.clear();
-    streetProps_.clear();
-    pois_.clear();
-
-    Rng rng(seed);
-    const float halfRoad = kRoadWidth * 0.5f;
-
-    // Grounded realistic canvas awning colors (burgundy, navy, hunter green, slate, warm canvas, charcoal)
-    static constexpr std::array<ColorRGBA, 6> kAwningPalette = {{
-        {138,  44,  46, 255},
-        { 38,  66, 102, 255},
-        { 42,  82,  60, 255},
-        {148, 108,  56, 255},
-        { 82,  76,  72, 255},
-        { 44,  48,  54, 255}
-    }};
-
-    for (int bz = 0; bz < kBlockCount; ++bz) {
-        for (int bx = 0; bx < kBlockCount; ++bx) {
-            const float x0 = roadCoord(bx) + halfRoad + kSidewalkWidth;
-            const float x1 = roadCoord(bx + 1) - halfRoad - kSidewalkWidth;
-            const float z0 = roadCoord(bz) + halfRoad + kSidewalkWidth;
-            const float z1 = roadCoord(bz + 1) - halfRoad - kSidewalkWidth;
-
-            const DistrictType district = districtAt(bx, bz);
-
-            // 1) 2x2 Grand Central Park Mega-Block: blocks (6..7, 6..7) -> [-168..0, -168..0]
-            if (district == DistrictType::CentralPark) {
-                parks_.push_back(ParkPatch{{{x0, z0}, {x1, z1}}, {62, 92, 46, 255}});
-                const float pcx = (x0 + x1) * 0.5f;
-                const float pcz = (z0 + z1) * 0.5f;
-
-                if (bx == 7 && bz == 7) {
-                    // South-East Quadrant: Beaux-Arts Marble Fountain Plaza + Vintage Park Lamps + Mature Oaks
-                    for (int t = 0; t < 18; ++t) {
-                        const float tx = rng.range(x0 + 4.0f, x1 - 4.0f);
-                        const float tz = rng.range(z0 + 4.0f, z1 - 4.0f);
-                        if (Vec2{tx - pcx, tz - pcz}.length() < 10.5f) continue;
-                        if (std::abs(tx - pcx) < 3.6f || std::abs(tz - pcz) < 3.6f) continue;
-                        const bool cyp = rng.chance(0.22f);
-                        trees_.push_back(TreeProp{
-                            {tx, tz}, rng.range(3.0f, 4.4f), rng.range(2.4f, 3.6f),
-                            false, false, cyp ? TreeSpecies::CypressConifer : TreeSpecies::OakDeciduous
-                        });
-                    }
-                    streetProps_.push_back(StreetProp{{pcx - 8.2f, pcz}, StreetPropKind::Bench, kHalfPi, false, {}, 0.0f});
-                    streetProps_.push_back(StreetProp{{pcx + 8.2f, pcz}, StreetPropKind::Bench, -kHalfPi, false, {}, 0.0f});
-                    streetProps_.push_back(StreetProp{{pcx, pcz - 8.2f}, StreetPropKind::Bench, 0.0f, false, {}, 0.0f});
-                    streetProps_.push_back(StreetProp{{pcx, pcz + 8.2f}, StreetPropKind::Bench, kPi, false, {}, 0.0f});
-                    streetProps_.push_back(StreetProp{{pcx + 6.8f, pcz + 6.8f}, StreetPropKind::TrashBin, 0.0f, false, {}, 0.0f});
-                } else if (bx == 6 && bz == 7) {
-                    // South-West Quadrant: Reflective Grand Central Park Lake + Waterside Groves & Benches
-                    lakes_.push_back(LakePatch{{{pcx - 18.0f, pcz - 14.5f}, {pcx + 18.0f, pcz + 14.5f}}, 0.04f});
-                    for (int t = 0; t < 16; ++t) {
-                        const float tx = rng.range(x0 + 3.5f, x1 - 3.5f);
-                        const float tz = rng.range(z0 + 3.5f, z1 - 3.5f);
-                        if (std::abs(tx - pcx) < 20.5f && std::abs(tz - pcz) < 17.0f) continue;
-                        trees_.push_back(TreeProp{
-                            {tx, tz}, rng.range(3.1f, 4.5f), rng.range(2.5f, 3.6f),
-                            false, false, rng.chance(0.25f) ? TreeSpecies::CypressConifer : TreeSpecies::OakDeciduous
-                        });
-                    }
-                    streetProps_.push_back(StreetProp{{pcx, pcz + 17.2f}, StreetPropKind::Bench, kPi, false, {}, 0.0f});
-                    streetProps_.push_back(StreetProp{{pcx, pcz - 17.2f}, StreetPropKind::Bench, 0.0f, false, {}, 0.0f});
-                } else {
-                    // Northern Park Woodlands (blocks 6,6 & 7,6): Mature Oak & Cypress Groves + Quiet Walkways
-                    for (int t = 0; t < 22; ++t) {
-                        const float tx = rng.range(x0 + 4.0f, x1 - 4.0f);
-                        const float tz = rng.range(z0 + 4.0f, z1 - 4.0f);
-                        if (std::abs(tx - pcx) < 3.4f || std::abs(tz - pcz) < 3.4f) continue;
-                        const bool cyp = rng.chance(0.30f);
-                        trees_.push_back(TreeProp{
-                            {tx, tz}, rng.range(3.2f, 4.8f), rng.range(2.4f, 3.8f),
-                            false, false, cyp ? TreeSpecies::CypressConifer : TreeSpecies::OakDeciduous
-                        });
-                    }
-                    streetProps_.push_back(StreetProp{{pcx + 4.2f, pcz - 4.2f}, StreetPropKind::Bench, -kHalfPi, false, {}, 0.0f});
-                    streetProps_.push_back(StreetProp{{pcx - 4.2f, pcz + 4.2f}, StreetPropKind::Bench, kHalfPi, false, {}, 0.0f});
-                }
-                continue;
-            }
-
-            // 2) Block (8, 8): Midtown Commercial Hub (SE of 0,0) — Ammu-Tech Weapon Shop + Financial Tower
-            if (bx == 8 && bz == 8) {
-                buildings_.push_back(Building{
-                    {{x0 + 3.0f, z0 + 12.0f}, {x0 + 26.0f, z0 + 30.0f}},
-                    11.5f, 0.0f,
-                    {68, 70, 76, 255}, {148, 76, 62, 255}, {132, 48, 44, 255},
-                    BuildingStyle::ShopBuilding, true, true, false, false
-                });
-                pois_.push_back(PointOfInterest{
-                    PoiKind::WeaponShop, {x0 + 14.5f, z0 + 5.5f}, 4.8f,
-                    "AMMU-TECH WEAPON SHOP", "무기 & 중화기 상점", {224, 92, 66, 255}
-                });
-                buildings_.push_back(Building{
-                    {{x0 + 31.0f, z0 + 8.0f}, {x1 - 3.0f, z1 - 4.0f}},
-                    48.0f, 14.0f,
-                    {54, 72, 92, 255}, {116, 144, 170, 255}, {42, 70, 102, 255},
-                    BuildingStyle::GlassTower, true, true, false, true
-                });
-                continue;
-            }
-
-            // 3) Block (7, 8): Pay 'n' Tune Custom Garage + Brick Apartment (SW of 0,0)
-            if (bx == 7 && bz == 8) {
-                buildings_.push_back(Building{
-                    {{x0 + 28.0f, z0 + 14.0f}, {x1 - 4.0f, z0 + 34.0f}},
-                    9.8f, 0.0f,
-                    {56, 66, 78, 255}, {86, 134, 158, 255}, {46, 98, 128, 255},
-                    BuildingStyle::GarageBuilding, false, true, false, false
-                });
-                pois_.push_back(PointOfInterest{
-                    PoiKind::TuneGarage, {x1 - 16.0f, z0 + 6.5f}, 5.8f,
-                    "PAY 'N' TUNE CUSTOMS", "차량 풀튜닝 & 수리 차고", {76, 184, 218, 255}
-                });
-                buildings_.push_back(Building{
-                    {{x0 + 4.0f, z0 + 6.0f}, {x0 + 23.0f, z1 - 5.0f}},
-                    27.0f, 0.0f,
-                    {136, 98, 82, 255}, {170, 158, 140, 255}, {136, 54, 48, 255},
-                    BuildingStyle::BrickApartment, true, true, true, false
-                });
-                continue;
-            }
-
-            // 4) Block (9, 8): LUXURY AUTOS Supercar Glass Showroom (East of Central Crossroads)
-            if (bx == 9 && bz == 8) {
-                buildings_.push_back(Building{
-                    {{x0 + 4.0f, z0 + 16.0f}, {x0 + 36.0f, z0 + 38.0f}},
-                    14.5f, 0.0f,
-                    {38, 46, 58, 255}, {182, 156, 106, 255}, {154, 130, 82, 255},
-                    BuildingStyle::DealershipBuilding, true, true, false, false
-                });
-                pois_.push_back(PointOfInterest{
-                    PoiKind::CarDealership, {x0 + 20.0f, z0 + 7.5f}, 5.6f,
-                    "LUXURY AUTOS SHOWROOM", "럭셔리 오토 슈퍼카 전시장", {224, 178, 76, 255}
-                });
-                buildings_.push_back(Building{
-                    {{x0 + 40.0f, z0 + 6.0f}, {x1 - 3.0f, z1 - 4.0f}},
-                    72.0f, 18.0f,
-                    {48, 66, 86, 255}, {112, 140, 166, 255}, {42, 52, 66, 255},
-                    BuildingStyle::GlassTower, true, true, false, true
-                });
-                continue;
-            }
-
-            // 5) Block (8, 7): MODA BOUTIQUE Flagship (Warm Limestone & Brushed Champagne Bronze)
-            if (bx == 8 && bz == 7) {
-                buildings_.push_back(Building{
-                    {{x0 + 4.0f, z1 - 31.0f}, {x0 + 28.0f, z1 - 12.0f}},
-                    13.5f, 0.0f,
-                    {126, 120, 114, 255}, {168, 148, 118, 255}, {76, 68, 64, 255},
-                    BuildingStyle::BoutiqueBuilding, true, true, false, false
-                });
-                pois_.push_back(PointOfInterest{
-                    PoiKind::ClothingBoutique, {x0 + 16.0f, z1 - 5.5f}, 4.8f,
-                    "MODA LUXURY BOUTIQUE", "모다 명품 의상 부티크", {218, 178, 128, 255}
-                });
-                buildings_.push_back(Building{
-                    {{x0 + 32.0f, z0 + 5.0f}, {x1 - 3.0f, z1 - 5.0f}},
-                    58.0f, 14.0f,
-                    {58, 66, 78, 255}, {152, 142, 124, 255}, {48, 56, 68, 255},
-                    BuildingStyle::GlassTower, true, true, false, false
-                });
-                continue;
-            }
-
-            // 6) Block (6, 8): GLOBE OIL Drive-Through Gas Station & Service Mart
-            if (bx == 6 && bz == 8) {
-                buildings_.push_back(Building{
-                    {{x0 + 10.0f, z0 + 28.0f}, {x1 - 10.0f, z0 + 42.0f}},
-                    7.2f, 0.0f,
-                    {174, 172, 168, 255}, {178, 56, 48, 255}, {168, 52, 46, 255},
-                    BuildingStyle::ShopBuilding, true, true, false, false
-                });
-                canopies_.push_back(GasStationCanopy{
-                    {{x0 + 8.0f, z0 + 7.0f}, {x1 - 8.0f, z0 + 21.0f}}, 5.0f
-                });
-                const float py = z0 + 14.0f;
-                streetProps_.push_back(StreetProp{{x0 + 16.0f, py - 2.6f}, StreetPropKind::FuelPump, 0.0f, false, {}, 0.0f});
-                streetProps_.push_back(StreetProp{{x0 + 16.0f, py + 2.6f}, StreetPropKind::FuelPump, 0.0f, false, {}, 0.0f});
-                streetProps_.push_back(StreetProp{{x1 - 16.0f, py - 2.6f}, StreetPropKind::FuelPump, 0.0f, false, {}, 0.0f});
-                streetProps_.push_back(StreetProp{{x1 - 16.0f, py + 2.6f}, StreetPropKind::FuelPump, 0.0f, false, {}, 0.0f});
-
-                pois_.push_back(PointOfInterest{
-                    PoiKind::GasStation, {(x0 + x1) * 0.5f, py}, 6.2f,
-                    "GLOBE OIL GAS & SERVICE", "글로브 오일 주유 & 급속정비", {224, 94, 66, 255}
-                });
-                continue;
-            }
-
-            // 7) Block (8, 6): PULSE Nightclub + Eclipse Sky Penthouse Landmark Tower
-            if (bx == 8 && bz == 6) {
-                buildings_.push_back(Building{
-                    {{x0 + 4.0f, z0 + 6.0f}, {x0 + 27.0f, z0 + 30.0f}},
-                    15.0f, 0.0f,
-                    {34, 34, 42, 255}, {126, 78, 168, 255}, {92, 54, 134, 255},
-                    BuildingStyle::NightclubBuilding, false, true, false, false
-                });
-                pois_.push_back(PointOfInterest{
-                    PoiKind::NightclubProperty, {x0 + 15.5f, z0 + 2.5f}, 4.8f,
-                    "PULSE NEON NIGHTCLUB", "펄스 네온 나이트클럽", {188, 96, 236, 255}
-                });
-                buildings_.push_back(Building{
-                    {{x0 + 31.0f, z0 + 6.0f}, {x1 - 3.0f, z1 - 4.0f}},
-                    98.0f, 24.0f,
-                    {44, 62, 84, 255}, {118, 148, 174, 255}, {42, 74, 108, 255},
-                    BuildingStyle::GlassTower, true, true, false, true
-                });
-                continue;
-            }
-
-            // 8) Civic Center Landmarks: SBPD Headquarters (7,9), Sunset Bay Medical Center (9,7), City Hall Plaza (6,9)
-            if (district == DistrictType::CivicCenter) {
-                if (bx == 7 && bz == 9) {
-                    // SBPD Central Police Precinct HQ (granite architectural volume + forecourt bollards)
-                    buildings_.push_back(Building{
-                        {{x0 + 6.0f, z0 + 10.0f}, {x1 - 6.0f, z1 - 8.0f}},
-                        18.5f, 4.5f,
-                        {146, 148, 152, 255}, {52, 76, 114, 255}, {42, 58, 86, 255},
-                        BuildingStyle::CivicLandmark, true, false, false, true
-                    });
-                    for (int k = 0; k < 5; ++k) {
-                        const float bposX = lerpf(x0 + 12.0f, x1 - 12.0f, static_cast<float>(k) / 4.0f);
-                        streetProps_.push_back(StreetProp{{bposX, z0 + 4.0f}, StreetPropKind::Bollard, 0.0f, false, {}, 0.0f});
-                    }
-                } else if (bx == 9 && bz == 7) {
-                    // Sunset Bay General Medical Center (crisp stone & glass hospital + rooftop medical helipad)
-                    buildings_.push_back(Building{
-                        {{x0 + 6.0f, z0 + 10.0f}, {x1 - 6.0f, z1 - 6.0f}},
-                        24.0f, 7.0f,
-                        {178, 180, 182, 255}, {168, 52, 48, 255}, {58, 88, 122, 255},
-                        BuildingStyle::CivicLandmark, true, false, false, true
-                    });
-                } else {
-                    // Sunset Bay Civic Courthouse & Municipal Plaza
-                    parks_.push_back(ParkPatch{{{x0 + 2.0f, z0 + 2.0f}, {x1 - 2.0f, z0 + 16.0f}}, {64, 94, 48, 255}});
-                    buildings_.push_back(Building{
-                        {{x0 + 8.0f, z0 + 18.0f}, {x1 - 8.0f, z1 - 6.0f}},
-                        21.0f, 5.5f,
-                        {168, 162, 150, 255}, {132, 126, 116, 255}, {68, 72, 78, 255},
-                        BuildingStyle::CivicLandmark, true, false, false, false
-                    });
-                }
-                continue;
-            }
-
-            // Procedural 2x2 sub-lots per regular block with authentic district architecture & green pocket parks
-            const float midX = (x0 + x1) * 0.5f;
-            const float midZ = (z0 + z1) * 0.5f;
-            const float alley = 3.2f;
-
-            const AABB2D quadrants[4] = {
-                {{x0 + 2.0f, z0 + 2.0f}, {midX - alley, midZ - alley}},
-                {{midX + alley, z0 + 2.0f}, {x1 - 2.0f, midZ - alley}},
-                {{x0 + 2.0f, midZ + alley}, {midX - alley, z1 - 2.0f}},
-                {{midX + alley, midZ + alley}, {x1 - 2.0f, z1 - 2.0f}}
-            };
-
-            for (int q = 0; q < 4; ++q) {
-                if (district != DistrictType::Downtown && district != DistrictType::Industrial && rng.chance(0.15f)) {
-                    parks_.push_back(ParkPatch{quadrants[q], {64, 94, 48, 255}});
-                    const Vec2 c = quadrants[q].center();
-                    const bool palm = (district == DistrictType::CoastalResidential && bx <= 2);
-                    const TreeSpecies sp = palm ? TreeSpecies::PalmCoastal
-                                                : (rng.chance(0.32f) ? TreeSpecies::CypressConifer : TreeSpecies::OakDeciduous);
-                    trees_.push_back(TreeProp{
-                        c, rng.range(2.9f, 4.0f), rng.range(2.1f, 2.9f), palm, false, sp
-                    });
-                    streetProps_.push_back(StreetProp{{c.x + 3.2f, c.z}, StreetPropKind::Bench, -kHalfPi, false, {}, 0.0f});
-                    continue;
-                }
-
-                Building b{};
-                const float insetX = rng.range(0.5f, 2.4f);
-                const float insetZ = rng.range(0.5f, 2.4f);
-                b.footprint = {
-                    {quadrants[q].min.x + insetX, quadrants[q].min.z + insetZ},
-                    {quadrants[q].max.x - insetX, quadrants[q].max.z - insetZ}
-                };
-                b.awningColor = kAwningPalette[static_cast<std::size_t>(rng.rangeInt(0, static_cast<int>(kAwningPalette.size()) - 1))];
-
-                switch (district) {
-                    case DistrictType::Downtown: {
-                        b.height = rng.range(48.0f, 96.0f);
-                        b.upperTierHeight = rng.chance(0.66f) ? rng.range(10.0f, 24.0f) : 0.0f;
-                        b.style = BuildingStyle::GlassTower;
-                        const int pal = rng.rangeInt(0, 3);
-                        if (pal == 0) {
-                            b.primaryColor = {50, 66, 86, 255};
-                            b.accentColor  = {110, 134, 154, 255};
-                        } else if (pal == 1) {
-                            b.primaryColor = {60, 64, 72, 255};
-                            b.accentColor  = {142, 134, 122, 255};
-                        } else if (pal == 2) {
-                            b.primaryColor = {46, 70, 76, 255};
-                            b.accentColor  = {106, 136, 140, 255};
-                        } else {
-                            b.primaryColor = {78, 76, 74, 255};
-                            b.accentColor  = {146, 140, 132, 255};
-                        }
-                        b.litWindows = true;
-                        b.hasStorefront = true;
-                        b.hasHelipad = (b.upperTierHeight < 0.5f && b.height > 68.0f);
-                        break;
-                    }
-                    case DistrictType::Midtown: {
-                        b.height = rng.range(18.0f, 42.0f);
-                        b.upperTierHeight = rng.chance(0.24f) ? rng.range(5.0f, 10.0f) : 0.0f;
-                        b.style = rng.chance(0.48f) ? BuildingStyle::ModernOffice : BuildingStyle::BrickApartment;
-                        if (b.style == BuildingStyle::ModernOffice) {
-                            const int mp = rng.rangeInt(0, 1);
-                            b.primaryColor = (mp == 0) ? ColorRGBA{112, 114, 118, 255} : ColorRGBA{128, 124, 118, 255};
-                            b.accentColor  = {146, 148, 152, 255};
-                            b.hasStorefront = true;
-                        } else {
-                            const int bp = rng.rangeInt(0, 2);
-                            if (bp == 0) b.primaryColor = {138, 92, 74, 255};
-                            else if (bp == 1) b.primaryColor = {124, 96, 82, 255};
-                            else b.primaryColor = {152, 136, 118, 255};
-                            b.accentColor = {166, 156, 140, 255};
-                            b.hasStorefront = rng.chance(0.62f);
-                            b.hasBalconies = true;
-                        }
-                        b.litWindows = true;
-                        break;
-                    }
-                    case DistrictType::Industrial: {
-                        if (rng.chance(0.48f)) {
-                            b.height = rng.range(5.5f, 11.2f);
-                            b.style = BuildingStyle::ShippingStack;
-                            const int cidx = rng.rangeInt(0, 3);
-                            if (cidx == 0) b.primaryColor = {144, 56, 48, 255};
-                            else if (cidx == 1) b.primaryColor = {48, 82, 118, 255};
-                            else if (cidx == 2) b.primaryColor = {152, 114, 48, 255};
-                            else b.primaryColor = {54, 94, 72, 255};
-                            b.accentColor = {48, 52, 58, 255};
-                            b.litWindows = false;
-                        } else {
-                            b.height = rng.range(10.5f, 18.5f);
-                            b.style = BuildingStyle::Warehouse;
-                            b.primaryColor = {104, 100, 94, 255};
-                            b.accentColor = {128, 112, 86, 255};
-                            b.litWindows = false;
-                        }
-                        break;
-                    }
-                    case DistrictType::SuburbanEstates: {
-                        // Low-rise Mediterranean hillside villas with lush garden yards & terracotta roofs!
-                        parks_.push_back(ParkPatch{quadrants[q], {68, 96, 50, 255}});
-                        const float vInset = rng.range(3.6f, 5.4f);
-                        b.footprint = {
-                            {quadrants[q].min.x + vInset, quadrants[q].min.z + vInset},
-                            {quadrants[q].max.x - vInset, quadrants[q].max.z - vInset}
-                        };
-                        b.height = rng.range(6.8f, 10.6f);
-                        b.style = BuildingStyle::VillaHouse;
-                        const int vp = rng.rangeInt(0, 2);
-                        if (vp == 0) b.primaryColor = {188, 178, 162, 255};      // Warm limestone stucco
-                        else if (vp == 1) b.primaryColor = {174, 166, 152, 255}; // Sand plaster
-                        else b.primaryColor = {166, 154, 142, 255};              // Warm greige
-                        b.accentColor = {138, 76, 54, 255};                      // Terracotta clay tile roof
-                        b.litWindows = true;
-                        // Garden cypress tree in corner of villa lawn
-                        trees_.push_back(TreeProp{
-                            {quadrants[q].min.x + 1.8f, quadrants[q].min.z + 1.8f},
-                            rng.range(2.6f, 3.6f), rng.range(1.4f, 1.9f), false, false, TreeSpecies::CypressConifer
-                        });
-                        break;
-                    }
-                    case DistrictType::CoastalResidential:
-                    default: {
-                        b.height = rng.range(11.0f, 24.0f);
-                        b.style = BuildingStyle::BrickApartment;
-                        const int pal = rng.rangeInt(0, 2);
-                        if (pal == 0) b.primaryColor = {182, 170, 154, 255};
-                        else if (pal == 1) b.primaryColor = {160, 170, 176, 255};
-                        else b.primaryColor = {174, 146, 134, 255};
-                        b.accentColor = {134, 140, 146, 255};
-                        b.litWindows = true;
-                        b.hasBalconies = true;
-                        b.hasStorefront = rng.chance(0.42f);
-                        break;
-                    }
-                }
-                buildings_.push_back(b);
-            }
-        }
-    }
-
-    // Boulevard sidewalk planter trees, bus shelters, benches, trash bins across the 16x16 grid
-    for (int r = 1; r <= kRoadCount - 2; ++r) {
-        const float rc = roadCoord(r);
-        for (int blk = 1; blk < kBlockCount - 1; ++blk) {
-            const float segMid = (roadCoord(blk) + roadCoord(blk + 1)) * 0.5f;
-
-            // Curbside boulevard trees in cast-iron sidewalk grates along avenues
-            if ((r + blk) % 2 == 0) {
-                const bool palm = (r <= 3 || blk <= 2 || r >= kRoadCount - 3);
-                const TreeSpecies sp = palm ? TreeSpecies::PalmCoastal : TreeSpecies::OakDeciduous;
-                trees_.push_back(TreeProp{{segMid - 14.0f, rc + halfRoad + 0.65f}, 3.2f, 2.05f, palm, true, sp});
-                trees_.push_back(TreeProp{{segMid + 14.0f, rc - halfRoad - 0.65f}, 3.2f, 2.05f, palm, true, sp});
-            }
-
-            // Glass bus stop shelters & litter bins along main midtown/downtown transit corridors
-            if ((r == 6 || r == 8 || r == 10) && (blk % 2 == 1) && blk >= 3 && blk <= 12) {
-                const float shelterZ = rc + halfRoad + kSidewalkWidth - 0.35f;
-                streetProps_.push_back(StreetProp{{segMid, shelterZ}, StreetPropKind::BusShelter, 0.0f, false, {}, 0.0f});
-                streetProps_.push_back(StreetProp{{segMid + 4.2f, shelterZ}, StreetPropKind::TrashBin, 0.0f, false, {}, 0.0f});
-            }
-        }
-    }
-
-    // Coastal Sunset Beach palm colonnade + beach umbrellas along the full 1.36km Western shoreline
-    for (int i = -16; i <= 16; ++i) {
-        const float pos = static_cast<float>(i) * 40.0f;
-        trees_.push_back(TreeProp{{-685.5f, pos}, 4.6f, 2.75f, true, false, TreeSpecies::PalmCoastal});
-        trees_.push_back(TreeProp{{pos, -685.5f}, 4.4f, 2.65f, true, false, TreeSpecies::PalmCoastal});
-        if (std::abs(pos) > 18.0f && (i % 2 == 0)) {
-            streetProps_.push_back(StreetProp{{-708.0f, pos + 4.0f}, StreetPropKind::BeachUmbrella, static_cast<float>(i) * 0.5f, false, {}, 0.0f});
-            streetProps_.push_back(StreetProp{{-720.0f, pos - 6.0f}, StreetPropKind::BeachUmbrella, static_cast<float>(i) * 0.9f, false, {}, 0.0f});
-        }
-    }
-
-    // North Bay Headland & Lighthouse Peninsula scenic groves & cliffside villas (z in [825..940])
-    parks_.push_back(ParkPatch{{{-118.0f, 822.0f}, {118.0f, 944.0f}}, {58, 86, 44, 255}});
-    for (int i = 0; i < 36; ++i) {
-        const float tx = rng.range(-108.0f, 108.0f);
-        const float tz = rng.range(828.0f, 938.0f);
-        // Keep approach road, scenic loop road & lighthouse apron clear
-        if (std::abs(tx) < 13.5f && tz < 902.0f) continue;
-        const float loopR = (Vec2{tx, tz} - Vec2{0.0f, 882.0f}).length();
-        if (loopR > 33.0f && loopR < 57.0f) continue;
-        if ((Vec2{tx, tz} - Vec2{0.0f, 926.0f}).length() < 15.0f) continue;
-        trees_.push_back(TreeProp{
-            {tx, tz}, rng.range(3.2f, 5.0f), rng.range(1.7f, 2.6f), false, false,
-            rng.chance(0.68f) ? TreeSpecies::CypressConifer : TreeSpecies::OakDeciduous
-        });
-    }
-    // Scenic coastal villas flanking the peninsula bay overlook
-    buildings_.push_back(Building{
-        {{-92.0f, 848.0f}, {-68.0f, 868.0f}}, 8.2f, 0.0f,
-        {182, 174, 160, 255}, {136, 74, 52, 255}, {62, 68, 76, 255},
-        BuildingStyle::VillaHouse, true, false, false, false
-    });
-    buildings_.push_back(Building{
-        {{68.0f, 848.0f}, {92.0f, 868.0f}}, 8.6f, 0.0f,
-        {176, 168, 156, 255}, {136, 74, 52, 255}, {62, 68, 76, 255},
-        BuildingStyle::VillaHouse, true, false, false, false
-    });
-
-    // Commercial avenue billboards on major urban arterials (editorial style, spaced cleanly)
-    const std::array<Vec2, 10> billboardSpots = {{
-        {-96.0f, -96.0f}, {96.0f, -96.0f}, {-180.0f, 74.0f},
-        {180.0f, -12.0f}, {96.0f, 180.0f}, {-12.0f, 180.0f},
-        {348.0f, 96.0f}, {-348.0f, -96.0f}, {264.0f, -264.0f}, {-264.0f, 264.0f}
-    }};
-    for (std::size_t i = 0; i < billboardSpots.size(); ++i) {
-        streetProps_.push_back(StreetProp{
-            billboardSpots[i], StreetPropKind::Billboard,
-            (i % 2 == 0) ? 0.45f : -0.45f, false, {}, 0.0f
-        });
-    }
-
-    // Streetlights, fire hydrants, bollards, and occasional work-zone cones/crates across intersections
-    for (int rz = 0; rz < kRoadCount; ++rz) {
-        for (int rx = 0; rx < kRoadCount; ++rx) {
-            const float cx = roadCoord(rx);
-            const float cz = roadCoord(rz);
-            const float corner = halfRoad + 1.4f;
-
-            streetProps_.push_back(StreetProp{{cx + corner, cz + corner}, StreetPropKind::StreetLight, kPi * 1.25f, false, {}, 0.0f});
-            streetProps_.push_back(StreetProp{{cx - corner, cz - corner}, StreetPropKind::StreetLight, kPi * 0.25f, false, {}, 0.0f});
-
-            if ((rx + rz) % 2 == 0) {
-                streetProps_.push_back(StreetProp{{cx + corner + 1.2f, cz - corner}, StreetPropKind::Hydrant, 0.0f, false, {}, 0.0f});
-            }
-            if ((rx * 3 + rz) % 5 == 0) {
-                streetProps_.push_back(StreetProp{{cx - corner - 1.5f, cz + corner + 1.0f}, StreetPropKind::Crate, 0.2f, false, {}, 0.0f});
-                streetProps_.push_back(StreetProp{{cx - corner - 0.5f, cz + corner - 0.8f}, StreetPropKind::TrafficCone, 0.0f, false, {}, 0.0f});
-            }
-        }
-    }
-
-    // 3 Mission Start Locations on clear downtown/midtown plazas
-    pois_.push_back(PointOfInterest{
-        PoiKind::MissionDelivery,
-        {roadCoord(9) - halfRoad - 2.0f, roadCoord(8) - halfRoad - 2.0f},
-        4.2f,
-        "MISSION: VIP EXOTIC DELIVERY",
-        "미션: 슈퍼카 탈취 & 긴급 배달",
-        {228, 186, 62, 255}
-    });
-
-    pois_.push_back(PointOfInterest{
-        PoiKind::MissionRace,
-        {roadCoord(8) - halfRoad - 2.0f, roadCoord(7) + halfRoad + 2.0f},
-        4.2f,
-        "MISSION: MIDNIGHT STREET SPRINT",
-        "미션: 도심 스트리트 체크포인트 레이스",
-        {96, 208, 118, 255}
-    });
-
-    pois_.push_back(PointOfInterest{
-        PoiKind::MissionGangRaid,
-        {roadCoord(9) + halfRoad + 2.0f, roadCoord(9) - halfRoad - 2.0f},
-        4.2f,
-        "MISSION: HARBOR SYNDICATE RAID",
-        "미션: 항구 라이벌 갱단 소탕",
-        {224, 118, 56, 255}
-    });
-
-    // Post-pass spatial clearance filter: keep Sunset Pier, Ferris wheel, lifeguard towers,
-    // Golden Bay Bridge approach, park lake, and POI pads 100% clear of obstructing trees & props
-    auto overlapsClearanceZone = [&](const Vec2& p, bool checkPois) -> bool {
-        // 1) Sunset Pier entrance & wooden ocean boardwalk (x < -682, |z| < 9.5)
-        if (p.x < -682.0f && std::abs(p.z) < 9.5f) {
-            return true;
-        }
-        // 2) Sunset Beach Ferris Wheel boarding platform (centered at {-718, -28})
-        if (p.x >= -728.0f && p.x <= -708.0f && p.z >= -38.5f && p.z <= -17.5f) {
-            return true;
-        }
-        // 3) Western Beach Lifeguard Towers
-        if ((p - Vec2{-718.0f, 34.0f}).lengthSq() < 5.5f * 5.5f ||
-            (p - Vec2{-718.0f, -240.0f}).lengthSq() < 5.5f * 5.5f ||
-            (p - Vec2{-718.0f, 260.0f}).lengthSq() < 5.5f * 5.5f) {
-            return true;
-        }
-        // 4) Golden Bay Suspension Bridge North Approach (x in [-14..+14], z in [670..826])
-        if (std::abs(p.x) < 14.0f && p.z > 670.0f && p.z < 826.0f) {
-            return true;
-        }
-        // 5) Grand Central Park Lake shoreline buffer
-        for (const auto& lake : lakes_) {
-            if (p.x >= lake.bounds.min.x - 2.2f && p.x <= lake.bounds.max.x + 2.2f &&
-                p.z >= lake.bounds.min.z - 2.2f && p.z <= lake.bounds.max.z + 2.2f) {
-                return true;
-            }
-        }
-        // 6) POI zones
-        if (checkPois) {
-            for (const auto& poi : pois_) {
-                const float r = poi.radius * 0.85f;
-                if ((p - poi.pos).lengthSq() < r * r) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    };
-
-    trees_.erase(
-        std::remove_if(trees_.begin(), trees_.end(),
-                       [&](const TreeProp& t) { return overlapsClearanceZone(t.pos, true); }),
-        trees_.end());
-    streetProps_.erase(
-        std::remove_if(streetProps_.begin(), streetProps_.end(),
-                       [&](const StreetProp& sp) {
-                           const bool checkPois = (sp.kind != StreetPropKind::FuelPump);
-                           return overlapsClearanceZone(sp.pos, checkPois);
-                       }),
-        streetProps_.end());
-
-    for (auto& sp : streetProps_) {
-        sp.homePos = sp.pos;
-    }
-
-    buildSpatialIndex();
 }
 
 const PointOfInterest* CityMap::findPoi(PoiKind kind) const {
-    for (const auto& poi : pois_) {
-        if (poi.kind == kind) return &poi;
+    for (const auto& p : pois_) {
+        if (p.kind == kind) return &p;
+    }
+    return nullptr;
+}
+
+const SeoulLandmark* CityMap::findLandmark(SeoulLandmarkKind kind) const {
+    for (const auto& lm : landmarks_) {
+        if (lm.kind == kind) return &lm;
     }
     return nullptr;
 }
@@ -818,76 +846,54 @@ bool CityMap::resolveCircleWorld(Vec2& pos, float radius, Vec2* outHitNormal) co
     bool hit = false;
     Vec2 accumNormal{0.0f, 0.0f};
 
-    // World perimeter: Main 16x16 Island + Western Sunset Beach & Pier + Golden Bay Bridge + North Bay Peninsula!
-    if (pos.z > kHalfCitySpan - radius) {
-        if (pos.z <= kBridgeEndZ) {
-            // Crossing the Golden Bay Suspension Bridge corridor (keep strictly between steel bridge barriers!)
-            const float bridgeHalfW = kRoadWidth * 0.5f - radius;
-            if (std::abs(pos.x) > bridgeHalfW) {
-                if (pos.z < kHalfCitySpan + 2.5f && std::abs(pos.x) > kRoadWidth * 0.5f + 1.0f) {
-                    pos.z = kHalfCitySpan - radius;
-                    accumNormal.z -= 1.0f;
-                    hit = true;
-                } else {
-                    const float clampedX = clampf(pos.x, -bridgeHalfW, bridgeHalfW);
-                    accumNormal.x += (pos.x > 0.0f ? -1.0f : 1.0f);
-                    pos.x = clampedX;
-                    hit = true;
-                }
-            }
-        } else {
-            // Driving/walking on the North Bay Lighthouse Peninsula!
-            const float penX = kPeninsulaHalfW - radius;
-            const float penZ = kPeninsulaMaxZ - radius;
-            if (pos.x < -penX) { pos.x = -penX; accumNormal.x += 1.0f; hit = true; }
-            if (pos.x >  penX) { pos.x =  penX; accumNormal.x -= 1.0f; hit = true; }
-            if (pos.z >  penZ) { pos.z =  penZ; accumNormal.z -= 1.0f; hit = true; }
-            if (pos.z < kBridgeEndZ + radius && std::abs(pos.x) > kRoadWidth * 0.5f) {
-                pos.z = kBridgeEndZ + radius;
-                accumNormal.z += 1.0f;
+    // 1) Outer Seoul Metropolitan Boundary (~30km x 25km)
+    if (pos.x < kWorldMinX + radius) { pos.x = kWorldMinX + radius; accumNormal.x += 1.0f; hit = true; }
+    if (pos.x > kWorldMaxX - radius) { pos.x = kWorldMaxX - radius; accumNormal.x -= 1.0f; hit = true; }
+    if (pos.z < kWorldMinZ + radius) { pos.z = kWorldMinZ + radius; accumNormal.z += 1.0f; hit = true; }
+    if (pos.z > kWorldMaxZ - radius) { pos.z = kWorldMaxZ - radius; accumNormal.z -= 1.0f; hit = true; }
+
+    // 2) Han River Embankments & Bridge Guardrails
+    const SeoulBridge* br = findBridgeAt(pos, 2.5f);
+    if (br != nullptr) {
+        // Keep vehicle/pedestrian safely inside bridge side guardrails when over water!
+        if (isInHanRiverWater(pos, -6.0f)) {
+            const float railHalf = br->halfWidth - 0.8f - radius;
+            const float dx = pos.x - br->centerX;
+            if (dx > railHalf) {
+                pos.x = br->centerX + railHalf;
+                accumNormal.x -= 1.0f;
+                hit = true;
+            } else if (dx < -railHalf) {
+                pos.x = br->centerX - railHalf;
+                accumNormal.x += 1.0f;
                 hit = true;
             }
         }
-    } else {
-        const float minLimitX = (std::abs(pos.z) < 7.2f) ? (kWestPierOuter + 4.0f + radius) : (kWestBeachOuter + 10.0f + radius);
-        const float limit = kHalfCitySpan - radius;
-        if (pos.x < minLimitX) { pos.x = minLimitX; accumNormal.x += 1.0f; hit = true; }
-        if (pos.x > limit)     { pos.x = limit;     accumNormal.x -= 1.0f; hit = true; }
-        if (pos.z < -limit)    { pos.z = -limit;    accumNormal.z += 1.0f; hit = true; }
+    } else if (isInHanRiverWater(pos, -radius)) {
+        // Push gently back onto nearest dry Han River bank!
+        const float cz = hanRiverCenterZ(pos.x);
+        const float hw = hanRiverHalfWidth(pos.x) + radius;
+        if (pos.z >= cz) {
+            pos.z = cz + hw;
+            accumNormal.z += 1.0f;
+        } else {
+            pos.z = cz - hw;
+            accumNormal.z -= 1.0f;
+        }
+        hit = true;
     }
 
-    // Keep vehicles/pedestrians cleanly out of the reflective Park Lake water basin (except stone footbridge!)
-    for (const auto& lake : lakes_) {
-        if (std::abs(pos.x - lake.bounds.center().x) < 2.3f) continue; // Walkable central stone arch footbridge!
+    // 3) Static Streamed & Macro Building Collisions
+    for (const auto& b : buildings_) {
+        if (pos.x + radius < b.footprint.min.x || pos.x - radius > b.footprint.max.x ||
+            pos.z + radius < b.footprint.min.z || pos.z - radius > b.footprint.max.z) {
+            continue;
+        }
         Vec2 push{};
-        if (resolveCircleAABB(pos, radius, lake.bounds, push)) {
+        if (resolveCircleAABB(pos, radius, b.footprint, push)) {
             pos += push;
             accumNormal += push.normalized();
             hit = true;
-        }
-    }
-
-    // Fast O(1) spatial-grid building collision resolution
-    const int cx0 = gridCellX(pos.x - radius - 2.0f);
-    const int cx1 = gridCellX(pos.x + radius + 2.0f);
-    const int cz0 = gridCellZ(pos.z - radius - 2.0f);
-    const int cz1 = gridCellZ(pos.z + radius + 2.0f);
-
-    for (int cz = cz0; cz <= cz1; ++cz) {
-        for (int cx = cx0; cx <= cx1; ++cx) {
-            for (int bIdx : buildingGrid_[static_cast<std::size_t>(gridFlatIndex(cx, cz))]) {
-                const auto& b = buildings_[static_cast<std::size_t>(bIdx)];
-                if (pos.x + radius < b.footprint.min.x || pos.x - radius > b.footprint.max.x ||
-                    pos.z + radius < b.footprint.min.z || pos.z - radius > b.footprint.max.z) {
-                    continue;
-                }
-                Vec2 push{};
-                if (resolveCircleAABB(pos, radius, b.footprint, push)) {
-                    pos += push;
-                    accumNormal += push.normalized();
-                    hit = true;
-                }
-            }
         }
     }
 
@@ -899,160 +905,100 @@ bool CityMap::resolveCircleWorld(Vec2& pos, float radius, Vec2* outHitNormal) co
 
 bool CityMap::resolveOBBBuildings(const OBB2D& obb, Vec2& outPush) const {
     outPush = {0.0f, 0.0f};
-    bool anyHit = false;
     const float boundR = obb.halfExtents.length() + 1.0f;
-    OBB2D current = obb;
+    bool hit = false;
 
-    if (current.center.z > kHalfCitySpan - obb.halfExtents.x) {
-        if (current.center.z <= kBridgeEndZ) {
-            const float bridgeHalfW = kRoadWidth * 0.5f - obb.halfExtents.z;
-            if (std::abs(current.center.x) > bridgeHalfW) {
-                if (current.center.z < kHalfCitySpan + 2.5f && std::abs(current.center.x) > kRoadWidth * 0.5f + 1.0f) {
-                    const float targetZ = kHalfCitySpan - obb.halfExtents.x;
-                    outPush.z += (targetZ - current.center.z);
-                    current.center.z = targetZ;
-                    anyHit = true;
-                } else {
-                    const float clampedX = clampf(current.center.x, -bridgeHalfW, bridgeHalfW);
-                    outPush.x += (clampedX - current.center.x);
-                    current.center.x = clampedX;
-                    anyHit = true;
-                }
-            }
-        } else {
-            const float penX = kPeninsulaHalfW - obb.halfExtents.x;
-            const float penZ = kPeninsulaMaxZ - obb.halfExtents.x;
-            if (current.center.x < -penX) { outPush.x += (-penX - current.center.x); current.center.x = -penX; anyHit = true; }
-            if (current.center.x >  penX) { outPush.x += ( penX - current.center.x); current.center.x =  penX; anyHit = true; }
-            if (current.center.z >  penZ) { outPush.z += ( penZ - current.center.z); current.center.z =  penZ; anyHit = true; }
-            if (current.center.z < kBridgeEndZ + obb.halfExtents.x && std::abs(current.center.x) > kRoadWidth * 0.5f) {
-                const float tz = kBridgeEndZ + obb.halfExtents.x;
-                outPush.z += (tz - current.center.z);
-                current.center.z = tz;
-                anyHit = true;
-            }
+    // 1) World bounds
+    if (obb.center.x - boundR < kWorldMinX) { outPush.x += kWorldMinX - (obb.center.x - boundR); hit = true; }
+    if (obb.center.x + boundR > kWorldMaxX) { outPush.x += kWorldMaxX - (obb.center.x + boundR); hit = true; }
+    if (obb.center.z - boundR < kWorldMinZ) { outPush.z += kWorldMinZ - (obb.center.z - boundR); hit = true; }
+    if (obb.center.z + boundR > kWorldMaxZ) { outPush.z += kWorldMaxZ - (obb.center.z + boundR); hit = true; }
+
+    // 2) Bridge guardrails & Han River water banks
+    const SeoulBridge* br = findBridgeAt(obb.center, 3.0f);
+    if (br != nullptr) {
+        if (isInHanRiverWater(obb.center, -8.0f)) {
+            const float railHalf = br->halfWidth - 0.9f - obb.halfExtents.z;
+            const float dx = obb.center.x - br->centerX;
+            if (dx > railHalf) { outPush.x += (br->centerX + railHalf) - obb.center.x; hit = true; }
+            else if (dx < -railHalf) { outPush.x += (br->centerX - railHalf) - obb.center.x; hit = true; }
         }
-    } else {
-        const float minLimitX = (std::abs(current.center.z) < 6.5f)
-                                    ? (kWestPierOuter + 6.0f + obb.halfExtents.x)
-                                    : (kWestBeachOuter + 12.0f + obb.halfExtents.x);
-        const float limit = kHalfCitySpan - obb.halfExtents.x;
-        if (current.center.x < minLimitX) { outPush.x += (minLimitX - current.center.x); current.center.x = minLimitX; anyHit = true; }
-        if (current.center.x > limit)     { outPush.x += (limit - current.center.x);     current.center.x = limit;     anyHit = true; }
-        if (current.center.z < -limit)    { outPush.z += (-limit - current.center.z);    current.center.z = -limit;    anyHit = true; }
+    } else if (isInHanRiverWater(obb.center, -obb.halfExtents.z)) {
+        const float cz = hanRiverCenterZ(obb.center.x);
+        const float hw = hanRiverHalfWidth(obb.center.x) + obb.halfExtents.z + 0.5f;
+        if (obb.center.z >= cz) outPush.z += (cz + hw) - obb.center.z;
+        else outPush.z += (cz - hw) - obb.center.z;
+        hit = true;
     }
 
-    for (const auto& lake : lakes_) {
+    // 3) Streamed & macro buildings
+    OBB2D shifted = obb;
+    shifted.center += outPush;
+    for (const auto& b : buildings_) {
+        if (shifted.center.x + boundR < b.footprint.min.x || shifted.center.x - boundR > b.footprint.max.x ||
+            shifted.center.z + boundR < b.footprint.min.z || shifted.center.z - boundR > b.footprint.max.z) {
+            continue;
+        }
+        const OBB2D bObb{b.footprint.center(), b.footprint.halfExtents(), 0.0f};
         Vec2 mtv{};
-        if (intersectOBB(current, aabbToOBB(lake.bounds), mtv)) {
-            current.center += mtv;
+        if (intersectOBB(shifted, bObb, mtv)) {
             outPush += mtv;
-            anyHit = true;
+            shifted.center += mtv;
+            hit = true;
         }
     }
-
-    const int cx0 = gridCellX(current.center.x - boundR);
-    const int cx1 = gridCellX(current.center.x + boundR);
-    const int cz0 = gridCellZ(current.center.z - boundR);
-    const int cz1 = gridCellZ(current.center.z + boundR);
-
-    for (int cz = cz0; cz <= cz1; ++cz) {
-        for (int cx = cx0; cx <= cx1; ++cx) {
-            for (int bIdx : buildingGrid_[static_cast<std::size_t>(gridFlatIndex(cx, cz))]) {
-                const auto& b = buildings_[static_cast<std::size_t>(bIdx)];
-                if (current.center.x + boundR < b.footprint.min.x || current.center.x - boundR > b.footprint.max.x ||
-                    current.center.z + boundR < b.footprint.min.z || current.center.z - boundR > b.footprint.max.z) {
-                    continue;
-                }
-                Vec2 mtv{};
-                if (intersectOBB(current, aabbToOBB(b.footprint), mtv)) {
-                    current.center += mtv;
-                    outPush += mtv;
-                    anyHit = true;
-                }
-            }
-        }
-    }
-    return anyHit;
+    return hit;
 }
 
 float CityMap::raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDist) const {
-    float bestT = maxDist + 1.0f;
-    const float minX = std::min(origin.x, origin.x + dir.x * maxDist) - 1.0f;
-    const float maxX = std::max(origin.x, origin.x + dir.x * maxDist) + 1.0f;
-    const float minZ = std::min(origin.z, origin.z + dir.z * maxDist) - 1.0f;
-    const float maxZ = std::max(origin.z, origin.z + dir.z * maxDist) + 1.0f;
+    float bestT = maxDist;
+    bool hit = false;
+    const Vec2 invDir{
+        (std::abs(dir.x) > 1e-6f) ? (1.0f / dir.x) : 1e30f,
+        (std::abs(dir.z) > 1e-6f) ? (1.0f / dir.z) : 1e30f
+    };
 
-    const int cx0 = gridCellX(minX);
-    const int cx1 = gridCellX(maxX);
-    const int cz0 = gridCellZ(minZ);
-    const int cz1 = gridCellZ(maxZ);
+    for (const auto& b : buildings_) {
+        const float tx1 = (b.footprint.min.x - origin.x) * invDir.x;
+        const float tx2 = (b.footprint.max.x - origin.x) * invDir.x;
+        const float tz1 = (b.footprint.min.z - origin.z) * invDir.z;
+        const float tz2 = (b.footprint.max.z - origin.z) * invDir.z;
 
-    for (int cz = cz0; cz <= cz1; ++cz) {
-        for (int cx = cx0; cx <= cx1; ++cx) {
-            for (int bIdx : buildingGrid_[static_cast<std::size_t>(gridFlatIndex(cx, cz))]) {
-                const auto& b = buildings_[static_cast<std::size_t>(bIdx)];
-                if (b.footprint.max.x < minX || b.footprint.min.x > maxX ||
-                    b.footprint.max.z < minZ || b.footprint.min.z > maxZ) {
-                    continue;
-                }
-                const float t = intersectRayAABB(origin, dir, maxDist, b.footprint);
-                if (t >= 0.0f && t < bestT) {
-                    bestT = t;
-                }
-            }
+        const float tmin = std::max(std::min(tx1, tx2), std::min(tz1, tz2));
+        const float tmax = std::min(std::max(tx1, tx2), std::max(tz1, tz2));
+        if (tmax >= std::max(0.0f, tmin) && tmin < bestT) {
+            bestT = std::max(0.0f, tmin);
+            hit = true;
         }
     }
-    return (bestT <= maxDist) ? bestT : -1.0f;
+    return hit ? bestT : -1.0f;
 }
 
 float CityMap::raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const {
-    float bestT = maxDist + 1.0f;
-    const float endX = origin.x + dir.x * maxDist;
-    const float endZ = origin.z + dir.z * maxDist;
-    const float minX = std::min(origin.x, endX) - 1.0f;
-    const float maxX = std::max(origin.x, endX) + 1.0f;
-    const float minZ = std::min(origin.z, endZ) - 1.0f;
-    const float maxZ = std::max(origin.z, endZ) + 1.0f;
+    float bestT = maxDist;
+    bool hit = false;
+    const Vec3 invDir{
+        (std::abs(dir.x) > 1e-6f) ? (1.0f / dir.x) : 1e30f,
+        (std::abs(dir.y) > 1e-6f) ? (1.0f / dir.y) : 1e30f,
+        (std::abs(dir.z) > 1e-6f) ? (1.0f / dir.z) : 1e30f
+    };
 
-    const int cx0 = gridCellX(minX);
-    const int cx1 = gridCellX(maxX);
-    const int cz0 = gridCellZ(minZ);
-    const int cz1 = gridCellZ(maxZ);
+    for (const auto& b : buildings_) {
+        const float tx1 = (b.footprint.min.x - origin.x) * invDir.x;
+        const float tx2 = (b.footprint.max.x - origin.x) * invDir.x;
+        const float ty1 = (b.baseY - origin.y) * invDir.y;
+        const float ty2 = (b.baseY + b.height + b.upperTierHeight - origin.y) * invDir.y;
+        const float tz1 = (b.footprint.min.z - origin.z) * invDir.z;
+        const float tz2 = (b.footprint.max.z - origin.z) * invDir.z;
 
-    for (int cz = cz0; cz <= cz1; ++cz) {
-        for (int cx = cx0; cx <= cx1; ++cx) {
-            for (int bIdx : buildingGrid_[static_cast<std::size_t>(gridFlatIndex(cx, cz))]) {
-                const auto& b = buildings_[static_cast<std::size_t>(bIdx)];
-                if (b.footprint.max.x < minX || b.footprint.min.x > maxX ||
-                    b.footprint.max.z < minZ || b.footprint.min.z > maxZ) {
-                    continue;
-                }
-                const AABB3D mainBox{
-                    {b.footprint.min.x, 0.0f, b.footprint.min.z},
-                    {b.footprint.max.x, b.height + 0.56f, b.footprint.max.z}
-                };
-                const float tMain = intersectRayAABB3D(origin, dir, maxDist, mainBox);
-                if (tMain >= 0.0f && tMain < bestT) {
-                    bestT = tMain;
-                }
-
-                if (b.upperTierHeight > 0.5f) {
-                    const Vec2 c = b.footprint.center();
-                    const Vec2 he = b.footprint.halfExtents() * 0.675f;
-                    const AABB3D upperBox{
-                        {c.x - he.x, b.height, c.z - he.z},
-                        {c.x + he.x, b.height + b.upperTierHeight, c.z + he.z}
-                    };
-                    const float tUp = intersectRayAABB3D(origin, dir, maxDist, upperBox);
-                    if (tUp >= 0.0f && tUp < bestT) {
-                        bestT = tUp;
-                    }
-                }
-            }
+        const float tmin = std::max({std::min(tx1, tx2), std::min(ty1, ty2), std::min(tz1, tz2)});
+        const float tmax = std::min({std::max(tx1, tx2), std::max(ty1, ty2), std::max(tz1, tz2)});
+        if (tmax >= std::max(0.0f, tmin) && tmin < bestT) {
+            bestT = std::max(0.0f, tmin);
+            hit = true;
         }
     }
-    return (bestT <= maxDist) ? bestT : -1.0f;
+    return hit ? bestT : -1.0f;
 }
 
 } // namespace oc

@@ -150,7 +150,7 @@ pub struct RsRigidBody2D {
 
 #[no_mangle]
 pub extern "C" fn oc_rs_physics_version() -> i32 {
-    1200 // v1.2.0 Next-Gen Rust Physics Kernel
+    2000 // v2.0.0 Realistic Steering Rack, Slope Gravity & Pacejka Kernel
 }
 
 #[no_mangle]
@@ -369,26 +369,42 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
         }
     }
 
-    // 3. Weight-Transfer Ackermann Steering, Aero Downforce & Pacejka Non-Linear Lateral Grip
-    let long_accel = clampf((forward_spd - prev_fwd_spd) / maxf(dt, 0.004), -32.0, 32.0);
-    // Trail-braking transfers weight to front tires (+18% turn-in bite); hard acceleration lightens front slightly
-    let front_weight_transfer = clampf(1.0 - long_accel * 0.011, 0.84, 1.22);
-    // Speed-squared aerodynamic downforce plants sports/hypercars at highway speeds
-    let downforce_grip = 1.0 + clampf(abs_fwd * abs_fwd * 0.00022 * inp.aero_grip_bonus, 0.0, 0.36);
+    // 3. Speed-Sensitive Power Steering Rack, Road Slope Gravity, Weight-Transfer & Pacejka Lateral Grip
+    if on_ground && absf(inp.ramp_slope_pitch) > 0.002 {
+        // Real longitudinal gravity component when climbing/descending Namsan hills or Han River bridge ramps
+        let slope_g = -9.81 * sinf(inp.ramp_slope_pitch);
+        forward_spd = clampf(forward_spd + slope_g * dt, -sp.max_reverse_speed, max_fwd * 1.06);
+    }
 
-    st.steer_visual = lerpf(st.steer_visual, steer, dt * 11.5);
+    let long_accel = clampf((forward_spd - prev_fwd_spd) / maxf(dt, 0.004), -32.0, 32.0);
+    // Trail-braking loads front axle (+22% turn-in bite); hard throttle shifts load rearward
+    let front_weight_transfer = clampf(1.0 - long_accel * 0.013, 0.80, 1.24);
+    // Speed-squared aerodynamic downforce plants sports/hypercars at highway speeds
+    let downforce_grip = 1.0 + clampf(abs_fwd * abs_fwd * 0.00024 * inp.aero_grip_bonus, 0.0, 0.40);
+
+    // Weighted speed-sensitive steering rack (crisp at city speeds, smooth & planted on Olympic-daero!)
+    let steer_rate = if absf(steer) < 0.05 {
+        11.5 // Natural caster self-centering when wheel released
+    } else {
+        lerpf(9.6, 5.2, clampf(abs_fwd / 44.0, 0.0, 1.0))
+    };
+    st.steer_visual = lerpf(st.steer_visual, steer, clampf(dt * steer_rate, 0.0, 1.0));
+    let eff_steer = st.steer_visual;
+
     let mut applied_yaw_rate: f32 = 0.0;
-    if abs_fwd > 0.40 && on_ground {
-        let low_speed_factor = clampf(abs_fwd / 5.8, 0.0, 1.0);
-        let high_speed_damp = 1.0 / (1.0 + abs_fwd * 0.017);
+    if abs_fwd > 0.35 && on_ground {
+        let low_speed_factor = clampf(abs_fwd / 5.4, 0.0, 1.0);
+        // Realistic Ackermann speed-sensitive steering reduction + tire understeer saturation at high speed
+        let high_speed_damp = 1.0 / (1.0 + abs_fwd * 0.022 + abs_fwd * abs_fwd * 0.00022);
         let dir_sign = if forward_spd >= 0.0 { 1.0 } else { -1.0 };
-        let drift_boost = if handbrake { 1.42 } else { 1.0 };
-        let steer_yaw_rate = steer
+        let drift_boost = if handbrake { 1.38 } else { 1.0 };
+        let steer_yaw_rate = eff_steer
             * sp.turn_rate
             * low_speed_factor
             * high_speed_damp
             * drift_boost
             * front_weight_transfer
+            * wet_grip_scale
             * dir_sign;
         applied_yaw_rate = steer_yaw_rate;
         st.heading = wrap_angle(st.heading + steer_yaw_rate * dt);
@@ -397,14 +413,14 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
     // Integrate external collision angular velocity (PIT maneuvers & off-center crashes)
     if absf(st.angular_velocity) > 0.001 {
         st.heading = wrap_angle(st.heading + st.angular_velocity * dt);
-        let ang_damp = if on_ground { 4.6 * wet_grip_scale } else { 0.8 };
+        let ang_damp = if on_ground { 4.8 * wet_grip_scale } else { 0.8 };
         st.angular_velocity *= expf(-ang_damp * dt);
         if absf(st.angular_velocity) < 0.01 {
             st.angular_velocity = 0.0;
         }
     }
 
-    // Reproject velocity onto updated heading + Pacejka-inspired progressive cornering slip
+    // Reproject velocity onto updated heading + Pacejka-inspired progressive cornering slip & speed scrub
     fwd_x = cosf(st.heading);
     fwd_z = sinf(st.heading);
     right_x = -sinf(st.heading);
@@ -413,13 +429,14 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
     let prev_world_vx = st.vel_x;
     let prev_world_vz = st.vel_z;
     let prev_speed_sq = prev_world_vx * prev_world_vx + prev_world_vz * prev_world_vz;
-    if on_ground && prev_speed_sq > 0.2 && absf(steer) > 0.04 {
+    if on_ground && prev_speed_sq > 0.2 && absf(eff_steer) > 0.03 {
         let rot_vx = fwd_x * forward_spd + right_x * lateral_spd;
         let rot_vz = fwd_z * forward_spd + right_z * lateral_spd;
+        let speed_slip_bias = clampf((abs_fwd - 14.0) / 42.0, 0.0, 0.24);
         let slip_blend = if handbrake {
-            0.70
+            0.74
         } else {
-            clampf(0.20 + st.wheel_slip * 0.22 + wet_f * 0.08, 0.18, 0.48)
+            clampf(0.18 + speed_slip_bias + st.wheel_slip * 0.24 + wet_f * 0.12, 0.16, 0.56)
         };
         let mix_vx = rot_vx * (1.0 - slip_blend) + prev_world_vx * slip_blend;
         let mix_vz = rot_vz * (1.0 - slip_blend) + prev_world_vz * slip_blend;
@@ -429,31 +446,41 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
 
     if on_ground {
         let base_grip = if handbrake { sp.drift_grip } else { sp.normal_grip };
-        // Non-linear Pacejka-style saturation: crisp high grip at small slip angles, smooth progressive drift breakaway
+        // Non-linear Pacejka-style tire saturation + cornering tire scrub drag
         let slip_ratio = absf(lateral_spd) / maxf(abs_fwd, 3.0);
-        let pacejka_sat = 1.0 / (1.0 + slip_ratio * (if handbrake { 2.2 } else { 0.95 }));
-        let grip = base_grip * inp.aero_grip_bonus * downforce_grip * wet_grip_scale * (0.45 + 0.55 * pacejka_sat);
+        let pacejka_sat = 1.0 / (1.0 + slip_ratio * (if handbrake { 2.35 } else { 1.05 }));
+        let grip = base_grip * inp.aero_grip_bonus * downforce_grip * wet_grip_scale * (0.42 + 0.58 * pacejka_sat);
         lateral_spd *= expf(-grip * dt);
+        // Natural tire cornering scrub resistance when sliding sideways
+        if slip_ratio > 0.10 {
+            let scrub = clampf((slip_ratio - 0.10) * 4.2, 0.0, 4.8) * dt;
+            if absf(forward_spd) > scrub {
+                forward_spd -= if forward_spd > 0.0 { scrub } else { -scrub };
+            }
+        }
+        // Subtle self-aligning pneumatic trail stability when releasing steer out of a slide
+        if !handbrake && absf(steer) < 0.08 && absf(lateral_spd) > 1.2 && abs_fwd > 4.0 {
+            let align_yaw = clampf((lateral_spd / maxf(abs_fwd, 4.0)) * 0.65, -0.45, 0.45);
+            st.heading = wrap_angle(st.heading + align_yaw * dt);
+        }
     }
 
     st.vel_x = fwd_x * forward_spd + right_x * lateral_spd;
     st.vel_z = fwd_z * forward_spd + right_z * lateral_spd;
     st.pos_x += st.vel_x * dt;
     st.pos_z += st.vel_z * dt;
-    // Extra rear-wheel visual spin when launching with wheelspin!
     let spin_rate = forward_spd * (1.0 + st.wheel_slip * 1.15);
     st.wheel_spin = fmodf(st.wheel_spin + spin_rate * dt * 2.4, TWO_PI);
 
-    // 4. 3D Vertical Ramp Launch, Parabolic Flight & Ground Contact Physics
+    // 4. Planted 3D Seoul Hill, Bridge Arch & Drop Contact Physics
     let prev_y = st.pos_y;
     let ground_y = inp.ground_height;
     if st.airborne == 0 {
         if ground_y > prev_y + 0.002 && forward_spd > 2.5 {
             let climb_rate = (ground_y - prev_y) / maxf(dt, 0.004);
-            st.vel_y = maxf(st.vel_y, minf(climb_rate, 16.5));
+            st.vel_y = maxf(st.vel_y, minf(climb_rate, 12.0));
         }
-        // Launch into airborne state when dropping off a ramp lip or crest!
-        if prev_y > ground_y + 0.16 && st.vel_y > -2.5 {
+        if prev_y > ground_y + 0.48 && st.vel_y > 1.0 {
             st.airborne = 1;
             st.air_time = 0.0;
         } else {

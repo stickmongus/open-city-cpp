@@ -30,12 +30,17 @@ public:
     int ownedPropertyCount() const;
     float tuningDiscountScale() const;
 
-    // 3D Ground, Coastal Pier & Golden Bay Suspension Bridge Elevation + SBPD Wanted System
+    // 3D Ground, Seoul Mountains & 15 Han River Bridges Elevation + Realistic Escapable Police AI
     float surfaceHeightAt(const Vec2& pos) const;
     float computePlayerSupportHeight(const Vec2& pos, float currentY, Vec2* platformCarryVel = nullptr) const;
     void reportCrime(float heatDelta, int minStars, const Vec2& crimePos, bool directWitness = false);
     void clearWantedLevel(bool showToast = true);
     float requiredEvadeDuration() const;
+
+    // Interactive Full-Screen Seoul Map Waypoint & Fast Travel
+    void setWaypoint(const Vec2& pos, const std::string& labelKo = "");
+    void clearWaypoint();
+    bool fastTravelTo(const Vec2& targetPos, const std::string& labelKo = "");
 
     const CityMap& city() const { return city_; }
     CityMap& city() { return city_; }
@@ -60,14 +65,27 @@ public:
 
     const MissionState& mission() const { return mission_; }
     const BannerNotification& banner() const { return banner_; }
+    void clearBanner() { banner_.timer = 0.0f; }
 
     // Time of day in [0, 24), starting at golden morning 10:00 + Dynamic Rain/Wet-Asphalt state
     float timeOfDayHours() const { return timeOfDayHours_; }
+    void setTimeOfDayHours(float h) {
+        timeOfDayHours_ = std::fmod(h, 24.0f);
+        if (timeOfDayHours_ < 0.0f) timeOfDayHours_ += 24.0f;
+    }
     bool isNightTime() const { return timeOfDayHours_ < 6.2f || timeOfDayHours_ >= 19.3f; }
+    bool isNight() const { return isNightTime(); }
     float daylightFactor() const;
+    float elapsedTime() const { return elapsedTime_; }
+    float wetRoadFactor() const { return wetRoadFactor_; }
+    float rainIntensity() const { return rainWeather_ ? 0.85f : 0.0f; }
+    void setWetRoadFactor(float w) { wetRoadFactor_ = std::clamp(w, 0.0f, 1.0f); }
     bool isRainWeather() const { return rainWeather_; }
+    const char* weatherNameEn() const { return rainWeather_ ? "Rain" : (wetRoadFactor_ > 0.35f ? "Wet" : "Clear"); }
+    const char* weatherNameKo() const { return rainWeather_ ? "비" : (wetRoadFactor_ > 0.35f ? "젖은 노면" : "맑음"); }
     void setRainWeather(bool rain) {
         rainWeather_ = rain;
+        if (rain) wetRoadFactor_ = std::max(wetRoadFactor_, 0.85f);
         for (auto& npc : npcs_) {
             if (npc.role == NpcRole::Civilian) {
                 npc.holdingUmbrella = rainWeather_ && ((npc.id * 37) % 100) < 62;
@@ -75,6 +93,46 @@ public:
         }
     }
     void toggleRainWeather();
+    float nearestPoliceSirenIntensity() const {
+        float best = 0.0f;
+        const Vec2 p = player_.pos;
+        for (const auto& v : vehicles_) {
+            if (!v.sirenActive || v.destroyed) continue;
+            const float d = (v.pos - p).length();
+            if (d < 140.0f) best = std::max(best, 1.0f - d / 140.0f);
+        }
+        return best;
+    }
+
+    Vehicle& spawnCustomVehicle(VehicleKind kind, const Vec2& pos, float heading, ColorRGBA paint) {
+        Vehicle v{};
+        v.id = nextVehicleId_++;
+        v.kind = kind;
+        const auto& sp = getVehicleSpec(kind);
+        v.pos = pos;
+        v.heading = heading;
+        v.paintColor = paint;
+        v.health = sp.maxHealth;
+        v.maxHealth = sp.maxHealth;
+        v.isParked = true;
+        v.isPolice = (kind == VehicleKind::PoliceCruiser);
+        vehicles_.push_back(v);
+        return vehicles_.back();
+    }
+
+    bool enterVehicle(int vehicleId) {
+        Vehicle* v = findVehicleMutable(vehicleId);
+        if (!v || v->destroyed) return false;
+        if (player_.drivingVehicleId >= 0) {
+            if (Vehicle* old = findVehicleMutable(player_.drivingVehicleId)) old->isPlayerDriving = false;
+        }
+        v->isPlayerDriving = true;
+        v->hasNpcDriver = false;
+        v->isParked = false;
+        player_.drivingVehicleId = v->id;
+        player_.pos = v->pos;
+        return true;
+    }
 
     // City-wide traffic & pedestrian signal phases (24s cycle)
     bool isTrafficGreenForHorizontal() const;
@@ -82,6 +140,7 @@ public:
 
     // Context prompts near shops / vehicles / missions
     const PointOfInterest* activePoiNearPlayer() const { return activePoi_; }
+    const PointOfInterest* nearbyPoi() const { return activePoi_; }
     bool isPlayerInWeaponShopZone() const;
     bool isPlayerInGarageZone() const;
     bool isPlayerInDealershipZone() const;
@@ -181,6 +240,8 @@ private:
     const PointOfInterest* activePoi_ = nullptr;
 
     float timeOfDayHours_ = 10.0f; // 10:00 AM bright sunny start
+    float elapsedTime_ = 0.0f;
+    float wetRoadFactor_ = 0.0f;
     float trafficSignalTimer_ = 0.0f; // [0, 24) intersection traffic/crosswalk cycle
     float policeSpawnCooldown_ = 0.0f;
     float panicScreamCooldown_ = 0.0f;

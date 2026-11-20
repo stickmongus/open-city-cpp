@@ -1,314 +1,243 @@
+#define MINIAUDIO_IMPLEMENTATION
+#define MA_NO_DECODING
+#define MA_NO_ENCODING
+#define MA_NO_GENERATION
+#define MA_NO_RESOURCE_MANAGER
+#define MA_NO_NODE_GRAPH
+#include <miniaudio.h>
+
 #include "audio/SynthAudio.hpp"
 
-#include "core/Math.hpp"
+#include <algorithm>
+#include <array>
+#include <atomic>
 #include <cmath>
-#include <cstdlib>
+#include <cstdint>
 
 namespace oc {
 
+namespace {
+
+constexpr float kSampleRate = 44100.0f;
+constexpr float kTwoPiAudio = 6.28318530718f;
+
+struct OneShotVoice {
+    std::atomic<bool> active{false};
+    int kind = 0; // 0=noise burst, 1=tone, 2=horn
+    float freqA = 440.0f;
+    float freqB = 550.0f;
+    float phase = 0.0f;
+    float phaseB = 0.0f;
+    float time = 0.0f;
+    float duration = 0.12f;
+    float volume = 0.25f;
+    float lpAlpha = 0.25f;
+    float lpState = 0.0f;
+};
+
+} // namespace
+
+struct SynthAudio::Impl {
+    ma_device device{};
+    bool deviceStarted = false;
+
+    std::atomic<bool> driving{false};
+    std::atomic<float> speedRatio{0.0f};
+    std::atomic<bool> drifting{false};
+    std::atomic<bool> nitro{false};
+    std::atomic<float> sirenGain{0.0f};
+    std::atomic<bool> raining{false};
+
+    float enginePhase = 0.0f;
+    float sirenPhase = 0.0f;
+    float sirenLfo = 0.0f;
+    float driftLp = 0.0f;
+    float rainLp = 0.0f;
+    std::uint32_t rng = 0x13579BDFu;
+
+    std::array<OneShotVoice, 16> voices{};
+    int nextVoice = 0;
+
+    float nextNoise() {
+        rng = rng * 1664525u + 1013904223u;
+        return static_cast<float>(static_cast<std::int32_t>(rng)) * (1.0f / 2147483648.0f);
+    }
+
+    static void dataCallback(ma_device* pDevice, void* pOutput, const void* /*pInput*/, ma_uint32 frameCount) {
+        auto* self = static_cast<Impl*>(pDevice->pUserData);
+        auto* out = static_cast<float*>(pOutput);
+        const float dt = 1.0f / kSampleRate;
+
+        const bool drv = self->driving.load(std::memory_order_relaxed);
+        const float spd = std::clamp(self->speedRatio.load(std::memory_order_relaxed), 0.0f, 1.5f);
+        const bool drf = self->drifting.load(std::memory_order_relaxed);
+        const bool nit = self->nitro.load(std::memory_order_relaxed);
+        const float sir = std::clamp(self->sirenGain.load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const bool rn = self->raining.load(std::memory_order_relaxed);
+
+        for (ma_uint32 i = 0; i < frameCount; ++i) {
+            float sample = 0.0f;
+            const float n = self->nextNoise();
+
+            // 1. Multi-harmonic V6/V8 engine synth loop
+            if (drv) {
+                const float engHz = 44.0f + spd * 112.0f + (nit ? 36.0f : 0.0f);
+                self->enginePhase += kTwoPiAudio * engHz * dt;
+                if (self->enginePhase > kTwoPiAudio) self->enginePhase -= kTwoPiAudio;
+                const float eng = 0.52f * std::sin(self->enginePhase) +
+                                  0.28f * std::sin(self->enginePhase * 2.0f) +
+                                  0.16f * std::sin(self->enginePhase * 3.0f) +
+                                  (nit ? 0.14f * n : 0.03f * n);
+                sample += eng * (0.09f + spd * 0.08f);
+            }
+
+            // 2. Tire drift screech
+            if (drv && drf) {
+                self->driftLp += (n - self->driftLp) * 0.18f;
+                const float highBand = n - self->driftLp;
+                sample += highBand * 0.11f;
+            }
+
+            // 3. Korean Seoul Police Siren (wail/hi-lo)
+            if (sir > 0.01f) {
+                self->sirenLfo += dt * 1.35f;
+                const float sweep = 0.5f + 0.5f * std::sin(self->sirenLfo * kTwoPiAudio);
+                const float sHz = 660.0f + sweep * 420.0f;
+                self->sirenPhase += kTwoPiAudio * sHz * dt;
+                if (self->sirenPhase > kTwoPiAudio) self->sirenPhase -= kTwoPiAudio;
+                sample += std::sin(self->sirenPhase) * 0.085f * sir;
+            }
+
+            // 4. Rain ambience
+            if (rn) {
+                self->rainLp += (n - self->rainLp) * 0.09f;
+                sample += self->rainLp * 0.075f;
+            }
+
+            // 5. Polyphonic one-shot SFX voices
+            for (auto& v : self->voices) {
+                if (!v.active.load(std::memory_order_acquire)) continue;
+                v.time += dt;
+                if (v.time >= v.duration) {
+                    v.active.store(false, std::memory_order_release);
+                    continue;
+                }
+                const float env = std::pow(1.0f - (v.time / v.duration), 1.8f);
+                if (v.kind == 0) {
+                    v.lpState += (n - v.lpState) * v.lpAlpha;
+                    sample += v.lpState * env * v.volume;
+                } else if (v.kind == 1) {
+                    v.phase += kTwoPiAudio * v.freqA * dt;
+                    sample += std::sin(v.phase) * env * v.volume;
+                } else {
+                    v.phase += kTwoPiAudio * v.freqA * dt;
+                    v.phaseB += kTwoPiAudio * v.freqB * dt;
+                    sample += 0.5f * (std::sin(v.phase) + std::sin(v.phaseB)) * env * v.volume;
+                }
+            }
+
+            sample = std::tanh(sample * 1.15f);
+            out[i * 2 + 0] = sample;
+            out[i * 2 + 1] = sample;
+        }
+    }
+
+    void trigger(int kind, float fA, float fB, float dur, float vol, float lp = 0.35f) {
+        auto& v = voices[static_cast<std::size_t>(nextVoice % static_cast<int>(voices.size()))];
+        nextVoice = (nextVoice + 1) % static_cast<int>(voices.size());
+        v.active.store(false, std::memory_order_relaxed);
+        v.kind = kind;
+        v.freqA = fA;
+        v.freqB = fB;
+        v.phase = 0.0f;
+        v.phaseB = 0.0f;
+        v.time = 0.0f;
+        v.duration = dur;
+        v.volume = vol;
+        v.lpAlpha = lp;
+        v.lpState = 0.0f;
+        v.active.store(true, std::memory_order_release);
+    }
+};
+
+SynthAudio::SynthAudio() : impl_(new Impl()) {}
 SynthAudio::~SynthAudio() {
     shutdown();
-}
-
-Sound SynthAudio::buildNoiseBurst(float durationSec, float decayPower, float lowpassAlpha, float pitchScale) {
-    constexpr int sampleRate = 44100;
-    const int frames = std::max(64, static_cast<int>(durationSec * sampleRate));
-
-    Wave wave{};
-    wave.frameCount = static_cast<unsigned int>(frames);
-    wave.sampleRate = sampleRate;
-    wave.sampleSize = 16;
-    wave.channels = 1;
-    auto* data = static_cast<short*>(RL_MALLOC(static_cast<std::size_t>(frames) * sizeof(short)));
-
-    Rng rng(0xABCD9876ULL + static_cast<std::uint64_t>(frames));
-    float filtered = 0.0f;
-    for (int i = 0; i < frames; ++i) {
-        const float t = static_cast<float>(i) / static_cast<float>(frames);
-        const float env = std::pow(1.0f - t, decayPower);
-        const float white = rng.range(-1.0f, 1.0f);
-        filtered = filtered + lowpassAlpha * (white - filtered);
-        const float thump = std::sin(2.0f * kPi * (110.0f * pitchScale) * std::pow(1.0f - t * 0.7f, 1.5f) *
-                                     (static_cast<float>(i) / sampleRate));
-        const float sample = clampf((filtered * 0.82f + thump * 0.45f) * env, -1.0f, 1.0f);
-        data[i] = static_cast<short>(sample * 28000.0f);
-    }
-
-    wave.data = data;
-    Sound s = LoadSoundFromWave(wave);
-    UnloadWave(wave);
-    return s;
-}
-
-Sound SynthAudio::buildToneArp(const std::vector<float>& freqsHz, float noteLenSec, float volume) {
-    constexpr int sampleRate = 44100;
-    const int noteFrames = std::max(64, static_cast<int>(noteLenSec * sampleRate));
-    const int totalFrames = noteFrames * static_cast<int>(freqsHz.size());
-
-    Wave wave{};
-    wave.frameCount = static_cast<unsigned int>(totalFrames);
-    wave.sampleRate = sampleRate;
-    wave.sampleSize = 16;
-    wave.channels = 1;
-    auto* data = static_cast<short*>(RL_MALLOC(static_cast<std::size_t>(totalFrames) * sizeof(short)));
-
-    float phase = 0.0f;
-    for (std::size_t n = 0; n < freqsHz.size(); ++n) {
-        const float f = freqsHz[n];
-        for (int i = 0; i < noteFrames; ++i) {
-            const float localT = static_cast<float>(i) / static_cast<float>(noteFrames);
-            const float env = std::sin(std::min(1.0f, localT * 12.0f) * kHalfPi) * (1.0f - localT * 0.55f);
-            phase += kTwoPi * f / static_cast<float>(sampleRate);
-            const float s = (std::sin(phase) * 0.75f + std::sin(phase * 2.0f) * 0.25f) * env * volume;
-            data[static_cast<int>(n) * noteFrames + i] = static_cast<short>(clampf(s, -1.0f, 1.0f) * 26000.0f);
-        }
-    }
-
-    wave.data = data;
-    Sound s = LoadSoundFromWave(wave);
-    UnloadWave(wave);
-    return s;
-}
-
-Sound SynthAudio::buildDualHorn(float f1, float f2, float durationSec) {
-    constexpr int sampleRate = 44100;
-    const int frames = static_cast<int>(durationSec * sampleRate);
-
-    Wave wave{};
-    wave.frameCount = static_cast<unsigned int>(frames);
-    wave.sampleRate = sampleRate;
-    wave.sampleSize = 16;
-    wave.channels = 1;
-    auto* data = static_cast<short*>(RL_MALLOC(static_cast<std::size_t>(frames) * sizeof(short)));
-
-    for (int i = 0; i < frames; ++i) {
-        const float t = static_cast<float>(i) / static_cast<float>(sampleRate);
-        const float norm = static_cast<float>(i) / static_cast<float>(frames);
-        const float env = (norm < 0.06f ? norm / 0.06f : (norm > 0.88f ? (1.0f - norm) / 0.12f : 1.0f));
-        const float v = (std::sin(kTwoPi * f1 * t) + std::sin(kTwoPi * f2 * t) +
-                         0.35f * std::sin(kTwoPi * f1 * 2.0f * t)) * 0.36f * env;
-        data[i] = static_cast<short>(clampf(v, -1.0f, 1.0f) * 25000.0f);
-    }
-
-    wave.data = data;
-    Sound s = LoadSoundFromWave(wave);
-    UnloadWave(wave);
-    return s;
-}
-
-Sound SynthAudio::buildContinuousLoop(bool screechMode) {
-    constexpr int sampleRate = 44100;
-    const int frames = sampleRate; // 1.0s seamless buffer
-
-    Wave wave{};
-    wave.frameCount = static_cast<unsigned int>(frames);
-    wave.sampleRate = sampleRate;
-    wave.sampleSize = 16;
-    wave.channels = 1;
-    auto* data = static_cast<short*>(RL_MALLOC(static_cast<std::size_t>(frames) * sizeof(short)));
-
-    Rng rng(777123ULL);
-    float filt = 0.0f;
-    for (int i = 0; i < frames; ++i) {
-        const float t = static_cast<float>(i) / static_cast<float>(sampleRate);
-        float sample = 0.0f;
-        if (!screechMode) {
-            // Rich V8-inspired multi-harmonic cylinder firing + subtle intake/exhaust texture (clean 1s seam)
-            const float n = rng.range(-1.0f, 1.0f);
-            filt = filt + 0.055f * (n - filt);
-            const float lope = 0.88f + 0.12f * std::sin(kTwoPi * 7.0f * t);
-            sample = (0.42f * std::sin(kTwoPi * 52.0f * t) +
-                      0.26f * std::sin(kTwoPi * 104.0f * t) +
-                      0.15f * std::sin(kTwoPi * 156.0f * t) +
-                      0.09f * std::sin(kTwoPi * 208.0f * t) +
-                      0.14f * filt) * lope;
-        } else {
-            const float n = rng.range(-1.0f, 1.0f);
-            filt = filt + 0.18f * (n - filt);
-            sample = 0.55f * std::sin(kTwoPi * 920.0f * t + std::sin(kTwoPi * 24.0f * t) * 1.4f) +
-                     0.45f * filt;
-        }
-        data[i] = static_cast<short>(clampf(sample, -1.0f, 1.0f) * 14000.0f);
-    }
-
-    wave.data = data;
-    Sound s = LoadSoundFromWave(wave);
-    UnloadWave(wave);
-    return s;
-}
-
-Sound SynthAudio::buildPoliceSirenLoop() {
-    constexpr int sampleRate = 44100;
-    const int frames = static_cast<int>(sampleRate * 1.6f); // 1.6s seamless wail cycle
-
-    Wave wave{};
-    wave.frameCount = static_cast<unsigned int>(frames);
-    wave.sampleRate = sampleRate;
-    wave.sampleSize = 16;
-    wave.channels = 1;
-    auto* data = static_cast<short*>(RL_MALLOC(static_cast<std::size_t>(frames) * sizeof(short)));
-
-    float phase = 0.0f;
-    for (int i = 0; i < frames; ++i) {
-        const float u = static_cast<float>(i) / static_cast<float>(frames);
-        const float sweep = 0.5f - 0.5f * std::cos(kTwoPi * u);
-        const float freq = 640.0f + 560.0f * sweep;
-        phase += kTwoPi * freq / static_cast<float>(sampleRate);
-        if (phase > kTwoPi) phase -= kTwoPi;
-        const float sample = 0.68f * std::sin(phase) + 0.22f * std::sin(phase * 2.0f) + 0.10f * std::sin(phase * 3.0f);
-        data[i] = static_cast<short>(clampf(sample, -1.0f, 1.0f) * 16500.0f);
-    }
-
-    wave.data = data;
-    Sound s = LoadSoundFromWave(wave);
-    UnloadWave(wave);
-    return s;
-}
-
-Sound SynthAudio::buildRainAmbienceLoop() {
-    constexpr int sampleRate = 44100;
-    const int frames = sampleRate * 2; // 2.0s seamless soft rain-on-pavement pink-filtered noise
-
-    Wave wave{};
-    wave.frameCount = static_cast<unsigned int>(frames);
-    wave.sampleRate = sampleRate;
-    wave.sampleSize = 16;
-    wave.channels = 1;
-    auto* data = static_cast<short*>(RL_MALLOC(static_cast<std::size_t>(frames) * sizeof(short)));
-
-    Rng rng(0x5241494EULL);
-    float b0 = 0.0f;
-    float b1 = 0.0f;
-    float b2 = 0.0f;
-    for (int i = 0; i < frames; ++i) {
-        const float white = rng.range(-1.0f, 1.0f);
-        b0 = 0.9965f * b0 + white * 0.045f;
-        b1 = 0.9600f * b1 + white * 0.095f;
-        b2 = 0.7200f * b2 + white * 0.240f;
-        const float droplet = (rng.chance(0.0022f)) ? rng.range(-0.35f, 0.35f) : 0.0f;
-        const float sample = clampf((b0 + b1 + b2 * 0.55f + droplet) * 0.68f, -1.0f, 1.0f);
-        data[i] = static_cast<short>(sample * 11500.0f);
-    }
-
-    wave.data = data;
-    Sound s = LoadSoundFromWave(wave);
-    UnloadWave(wave);
-    return s;
+    delete impl_;
+    impl_ = nullptr;
 }
 
 void SynthAudio::init() {
-    InitAudioDevice();
-    if (!IsAudioDeviceReady()) {
-        ready_ = false;
-        return;
+    if (!impl_ || impl_->deviceStarted) return;
+    ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
+    cfg.playback.format = ma_format_f32;
+    cfg.playback.channels = 2;
+    cfg.sampleRate = static_cast<ma_uint32>(kSampleRate);
+    cfg.dataCallback = Impl::dataCallback;
+    cfg.pUserData = impl_;
+
+    if (ma_device_init(nullptr, &cfg, &impl_->device) == MA_SUCCESS) {
+        if (ma_device_start(&impl_->device) == MA_SUCCESS) {
+            impl_->deviceStarted = true;
+        } else {
+            ma_device_uninit(&impl_->device);
+        }
     }
-    ready_ = true;
-
-    sounds_[static_cast<int>(AudioEventType::PistolShot)]      = buildNoiseBurst(0.16f, 2.6f, 0.42f, 1.3f);
-    sounds_[static_cast<int>(AudioEventType::HeavyPistolShot)] = buildNoiseBurst(0.28f, 1.9f, 0.30f, 0.72f);
-    sounds_[static_cast<int>(AudioEventType::SmgShot)]         = buildNoiseBurst(0.11f, 3.1f, 0.48f, 1.6f);
-    sounds_[static_cast<int>(AudioEventType::ShotgunShot)]     = buildNoiseBurst(0.32f, 2.0f, 0.28f, 0.75f);
-    sounds_[static_cast<int>(AudioEventType::RifleShot)]       = buildNoiseBurst(0.20f, 2.4f, 0.38f, 1.1f);
-    sounds_[static_cast<int>(AudioEventType::SniperShot)]      = buildNoiseBurst(0.42f, 1.75f, 0.34f, 0.62f);
-    sounds_[static_cast<int>(AudioEventType::MinigunShot)]     = buildNoiseBurst(0.068f, 3.4f, 0.52f, 1.45f);
-    sounds_[static_cast<int>(AudioEventType::SuppressedShot)]  = buildNoiseBurst(0.075f, 4.2f, 0.22f, 0.48f);
-    sounds_[static_cast<int>(AudioEventType::MeleeSwing)]      = buildNoiseBurst(0.10f, 3.5f, 0.18f, 0.9f);
-    sounds_[static_cast<int>(AudioEventType::CarDoor)]         = buildNoiseBurst(0.14f, 3.2f, 0.22f, 0.7f);
-    sounds_[static_cast<int>(AudioEventType::CarHorn)]         = buildDualHorn(415.0f, 523.25f, 0.34f);
-    sounds_[static_cast<int>(AudioEventType::CarCrash)]        = buildNoiseBurst(0.36f, 1.9f, 0.24f, 0.65f);
-    sounds_[static_cast<int>(AudioEventType::Explosion)]       = buildNoiseBurst(0.88f, 1.5f, 0.14f, 0.45f);
-    sounds_[static_cast<int>(AudioEventType::CashPickup)]      = buildToneArp({880.0f, 1318.5f}, 0.075f, 0.55f);
-    sounds_[static_cast<int>(AudioEventType::ShopBuy)]         = buildToneArp({659.25f, 880.0f, 1174.66f}, 0.075f, 0.6f);
-    sounds_[static_cast<int>(AudioEventType::MissionStart)]    = buildToneArp({440.0f, 554.37f, 659.25f}, 0.10f, 0.65f);
-    sounds_[static_cast<int>(AudioEventType::MissionComplete)] = buildToneArp({523.25f, 659.25f, 783.99f, 1046.5f}, 0.12f, 0.72f);
-    sounds_[static_cast<int>(AudioEventType::MissionFail)]     = buildToneArp({392.0f, 349.23f, 293.66f}, 0.15f, 0.65f);
-    sounds_[static_cast<int>(AudioEventType::Jump)]            = buildToneArp({195.0f, 290.0f, 370.0f}, 0.032f, 0.42f);
-    sounds_[static_cast<int>(AudioEventType::NpcScream)]       = buildToneArp({760.0f, 980.0f, 830.0f}, 0.044f, 0.38f);
-    sounds_[static_cast<int>(AudioEventType::PoliceDispatch)]  = buildToneArp({1240.0f, 940.0f, 1480.0f}, 0.048f, 0.52f);
-
-    engineLoop_ = buildContinuousLoop(false);
-    driftLoop_ = buildContinuousLoop(true);
-    sirenLoop_ = buildPoliceSirenLoop();
-    rainLoop_ = buildRainAmbienceLoop();
-    hasLoops_ = true;
+    // Gracefully runs silent if headless Linux VM has no audio output device!
 }
 
 void SynthAudio::shutdown() {
-    if (!ready_) return;
-    for (auto& kv : sounds_) {
-        UnloadSound(kv.second);
-    }
-    sounds_.clear();
-    if (hasLoops_) {
-        UnloadSound(engineLoop_);
-        UnloadSound(driftLoop_);
-        UnloadSound(sirenLoop_);
-        UnloadSound(rainLoop_);
-        hasLoops_ = false;
-    }
-    CloseAudioDevice();
-    ready_ = false;
+    if (!impl_ || !impl_->deviceStarted) return;
+    ma_device_uninit(&impl_->device);
+    impl_->deviceStarted = false;
 }
 
 void SynthAudio::playEvents(const std::vector<AudioEvent>& events) {
-    if (!ready_) return;
+    if (!impl_ || !impl_->deviceStarted) return;
     for (const auto& ev : events) {
-        auto it = sounds_.find(static_cast<int>(ev.type));
-        if (it != sounds_.end()) {
-            SetSoundVolume(it->second, ev.volume * 0.65f);
-            PlaySound(it->second);
+        const float v = std::clamp(ev.volume, 0.1f, 1.0f);
+        switch (ev.type) {
+            case AudioEventType::PistolShot:      impl_->trigger(0, 0, 0, 0.14f, 0.36f * v, 0.45f); break;
+            case AudioEventType::SuppressedShot:  impl_->trigger(0, 0, 0, 0.08f, 0.18f * v, 0.25f); break;
+            case AudioEventType::HeavyPistolShot: impl_->trigger(0, 0, 0, 0.20f, 0.45f * v, 0.30f); break;
+            case AudioEventType::SmgShot:         impl_->trigger(0, 0, 0, 0.09f, 0.28f * v, 0.52f); break;
+            case AudioEventType::ShotgunShot:     impl_->trigger(0, 0, 0, 0.28f, 0.52f * v, 0.22f); break;
+            case AudioEventType::RifleShot:       impl_->trigger(0, 0, 0, 0.16f, 0.38f * v, 0.38f); break;
+            case AudioEventType::SniperShot:      impl_->trigger(0, 0, 0, 0.34f, 0.55f * v, 0.26f); break;
+            case AudioEventType::MinigunShot:     impl_->trigger(0, 0, 0, 0.07f, 0.26f * v, 0.48f); break;
+            case AudioEventType::MeleeSwing:      impl_->trigger(0, 0, 0, 0.11f, 0.20f * v, 0.18f); break;
+            case AudioEventType::CarDoor:         impl_->trigger(0, 0, 0, 0.12f, 0.28f * v, 0.12f); break;
+            case AudioEventType::CarHorn:         impl_->trigger(2, 392.0f, 494.0f, 0.32f, 0.26f * v); break;
+            case AudioEventType::CarCrash:        impl_->trigger(0, 0, 0, 0.36f, 0.48f * v, 0.16f); break;
+            case AudioEventType::Explosion:       impl_->trigger(0, 0, 0, 0.72f, 0.65f * v, 0.09f); break;
+            case AudioEventType::CashPickup:      impl_->trigger(1, 880.0f, 0, 0.14f, 0.22f * v); break;
+            case AudioEventType::ShopBuy:         impl_->trigger(2, 523.0f, 784.0f, 0.22f, 0.24f * v); break;
+            case AudioEventType::MissionStart:    impl_->trigger(2, 440.0f, 659.0f, 0.35f, 0.26f * v); break;
+            case AudioEventType::MissionComplete: impl_->trigger(2, 587.0f, 880.0f, 0.45f, 0.30f * v); break;
+            case AudioEventType::MissionFail:     impl_->trigger(1, 185.0f, 0, 0.40f, 0.28f * v); break;
+            case AudioEventType::Jump:            impl_->trigger(1, 240.0f, 0, 0.09f, 0.14f * v); break;
+            case AudioEventType::NpcScream:       impl_->trigger(1, 740.0f, 0, 0.22f, 0.14f * v); break;
+            case AudioEventType::PoliceDispatch:  impl_->trigger(2, 660.0f, 880.0f, 0.28f, 0.22f * v); break;
         }
     }
 }
 
 void SynthAudio::updateVehicleLoops(bool driving, float speedRatio, bool drifting, bool nitro) {
-    if (!ready_ || !hasLoops_) return;
-
-    if (driving) {
-        if (!IsSoundPlaying(engineLoop_)) {
-            PlaySound(engineLoop_);
-        }
-        const float pitch = 0.72f + clampf(speedRatio, 0.0f, 1.4f) * 1.15f + (nitro ? 0.25f : 0.0f);
-        SetSoundPitch(engineLoop_, pitch);
-        SetSoundVolume(engineLoop_, 0.22f + clampf(speedRatio, 0.0f, 1.0f) * 0.18f);
-    } else if (IsSoundPlaying(engineLoop_)) {
-        StopSound(engineLoop_);
-    }
-
-    if (driving && drifting) {
-        if (!IsSoundPlaying(driftLoop_)) {
-            PlaySound(driftLoop_);
-        }
-        SetSoundVolume(driftLoop_, 0.26f);
-    } else if (IsSoundPlaying(driftLoop_)) {
-        StopSound(driftLoop_);
-    }
+    if (!impl_) return;
+    impl_->driving.store(driving, std::memory_order_relaxed);
+    impl_->speedRatio.store(speedRatio, std::memory_order_relaxed);
+    impl_->drifting.store(drifting, std::memory_order_relaxed);
+    impl_->nitro.store(nitro, std::memory_order_relaxed);
 }
 
 void SynthAudio::updatePoliceSiren(float proximityIntensity) {
-    if (!ready_ || !hasLoops_) return;
-    const float clamped = clampf(proximityIntensity, 0.0f, 1.0f);
-    if (clamped > 0.02f) {
-        if (!IsSoundPlaying(sirenLoop_)) {
-            PlaySound(sirenLoop_);
-        }
-        SetSoundVolume(sirenLoop_, 0.06f + clamped * 0.30f);
-        SetSoundPitch(sirenLoop_, 0.98f + clamped * 0.08f);
-    } else if (IsSoundPlaying(sirenLoop_)) {
-        StopSound(sirenLoop_);
-    }
+    if (!impl_) return;
+    impl_->sirenGain.store(proximityIntensity, std::memory_order_relaxed);
 }
 
 void SynthAudio::updateWeatherAmbience(bool raining) {
-    if (!ready_ || !hasLoops_) return;
-    if (raining) {
-        if (!IsSoundPlaying(rainLoop_)) {
-            PlaySound(rainLoop_);
-        }
-        SetSoundVolume(rainLoop_, 0.24f);
-    } else if (IsSoundPlaying(rainLoop_)) {
-        StopSound(rainLoop_);
-    }
+    if (!impl_) return;
+    impl_->raining.store(raining, std::memory_order_relaxed);
 }
 
 } // namespace oc

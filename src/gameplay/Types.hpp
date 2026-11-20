@@ -363,12 +363,19 @@ struct PlayerState {
     float stamina = 1.0f;
     int cash = 2500;
 
-    // SBPD Wanted Level (0..5 stars) & Pursuit Evasion State
+    // Seoul Metro Police Wanted Level (0..5 stars) & Realistic LOS / Evasion State
     int wantedLevel = 0;
     float wantedHeat = 0.0f;
     float wantedEvadeTimer = 0.0f;
     bool policeLineOfSight = false;
+    bool policeSearching = false;
+    Vec2 policeLastKnownPos{600.0f, 1020.0f};
     bool lastDeathWasBusted = false;
+
+    // Interactive Full-Screen Seoul Map GPS Waypoint
+    bool hasWaypoint = false;
+    Vec2 waypointPos{600.0f, 1020.0f};
+    std::string waypointLabelKo;
 
     int drivingVehicleId = -1; // -1 when on foot
     int activePersonalVehicleId = -1;

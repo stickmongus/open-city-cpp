@@ -1,16 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.stickmongus.opencity"
-    android:versionCode="130"
-    android:versionName="1.3.0">
+    android:versionCode="200"
+    android:versionName="2.0.0">
 
     <uses-sdk
         android:minSdkVersion="24"
         android:targetSdkVersion="34" />
 
-    <!-- OpenGL ES 3.0 required for Cook-Torrance PBR, 3D interior mapping & soft shadow maps -->
+    <!-- Native Vulkan 1.0+ hardware pipeline for 16-bit HDR PBR, 2048px shadows & Real-Scale Seoul -->
     <uses-feature
-        android:glEsVersion="0x00030000"
+        android:name="android.hardware.vulkan.level"
+        android:version="0"
+        android:required="true" />
+    <uses-feature
+        android:name="android.hardware.vulkan.version"
+        android:version="0x00400000"
         android:required="true" />
     <uses-feature
         android:name="android.hardware.touchscreen"

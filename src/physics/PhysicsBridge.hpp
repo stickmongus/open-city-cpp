@@ -98,7 +98,7 @@ float oc_rs_resolve_rigid_collision_2d(RsRigidBody2D* body_a,
                                        float contact_z,
                                        float restitution);
 #else
-inline std::int32_t oc_rs_physics_version() { return 1200; }
+inline std::int32_t oc_rs_physics_version() { return 2000; }
 
 inline void oc_rs_step_vehicle_dynamics(float dt,
                                         RsVehiclePhysicsState* st,
@@ -257,24 +257,34 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
         }
     }
 
-    const float longAccel = clampf((forwardSpd - prevFwdSpd) / std::max(dt, 0.004f), -32.0f, 32.0f);
-    const float frontWeightTransfer = clampf(1.0f - longAccel * 0.011f, 0.84f, 1.22f);
-    const float downforceGrip = 1.0f + clampf(absFwd * absFwd * 0.00022f * inp->aero_grip_bonus, 0.0f, 0.36f);
+    if (onGround && std::abs(inp->ramp_slope_pitch) > 0.002f) {
+        const float slopeG = -9.81f * std::sin(inp->ramp_slope_pitch);
+        forwardSpd = clampf(forwardSpd + slopeG * dt, -sp->max_reverse_speed, maxFwd * 1.06f);
+    }
 
-    st->steer_visual = lerpf(st->steer_visual, steer, dt * 11.5f);
+    const float longAccel = clampf((forwardSpd - prevFwdSpd) / std::max(dt, 0.004f), -32.0f, 32.0f);
+    const float frontWeightTransfer = clampf(1.0f - longAccel * 0.013f, 0.80f, 1.24f);
+    const float downforceGrip = 1.0f + clampf(absFwd * absFwd * 0.00024f * inp->aero_grip_bonus, 0.0f, 0.40f);
+
+    const float steerRate = (std::abs(steer) < 0.05f)
+        ? 11.5f
+        : lerpf(9.6f, 5.2f, clampf(absFwd / 44.0f, 0.0f, 1.0f));
+    st->steer_visual = lerpf(st->steer_visual, steer, clampf(dt * steerRate, 0.0f, 1.0f));
+    const float effSteer = st->steer_visual;
+
     float appliedYawRate = 0.0f;
-    if (absFwd > 0.40f && onGround) {
-        const float lowSpeedFactor = clampf(absFwd / 5.8f, 0.0f, 1.0f);
-        const float highSpeedDamp = 1.0f / (1.0f + absFwd * 0.017f);
+    if (absFwd > 0.35f && onGround) {
+        const float lowSpeedFactor = clampf(absFwd / 5.4f, 0.0f, 1.0f);
+        const float highSpeedDamp = 1.0f / (1.0f + absFwd * 0.022f + absFwd * absFwd * 0.00022f);
         const float dirSign = (forwardSpd >= 0.0f) ? 1.0f : -1.0f;
-        const float driftBoost = handbrake ? 1.42f : 1.0f;
-        appliedYawRate = steer * sp->turn_rate * lowSpeedFactor * highSpeedDamp * driftBoost * frontWeightTransfer * dirSign;
+        const float driftBoost = handbrake ? 1.38f : 1.0f;
+        appliedYawRate = effSteer * sp->turn_rate * lowSpeedFactor * highSpeedDamp * driftBoost * frontWeightTransfer * wetGripScale * dirSign;
         st->heading = wrapAngle(st->heading + appliedYawRate * dt);
     }
 
     if (std::abs(st->angular_velocity) > 0.001f) {
         st->heading = wrapAngle(st->heading + st->angular_velocity * dt);
-        st->angular_velocity *= std::exp(-(onGround ? (4.6f * wetGripScale) : 0.8f) * dt);
+        st->angular_velocity *= std::exp(-(onGround ? (4.8f * wetGripScale) : 0.8f) * dt);
         if (std::abs(st->angular_velocity) < 0.01f) st->angular_velocity = 0.0f;
     }
 
@@ -282,10 +292,11 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
     rightX = -std::sin(st->heading); rightZ = std::cos(st->heading);
 
     const float prevVx = st->vel_x, prevVz = st->vel_z;
-    if (onGround && (prevVx * prevVx + prevVz * prevVz) > 0.2f && std::abs(steer) > 0.04f) {
+    if (onGround && (prevVx * prevVx + prevVz * prevVz) > 0.2f && std::abs(effSteer) > 0.03f) {
         const float rotVx = fwdX * forwardSpd + rightX * lateralSpd;
         const float rotVz = fwdZ * forwardSpd + rightZ * lateralSpd;
-        const float slipBlend = handbrake ? 0.70f : clampf(0.20f + st->wheel_slip * 0.22f + wetF * 0.08f, 0.18f, 0.48f);
+        const float speedSlipBias = clampf((absFwd - 14.0f) / 42.0f, 0.0f, 0.24f);
+        const float slipBlend = handbrake ? 0.74f : clampf(0.18f + speedSlipBias + st->wheel_slip * 0.24f + wetF * 0.12f, 0.16f, 0.56f);
         const float mixVx = rotVx * (1.0f - slipBlend) + prevVx * slipBlend;
         const float mixVz = rotVz * (1.0f - slipBlend) + prevVz * slipBlend;
         forwardSpd = mixVx * fwdX + mixVz * fwdZ;
@@ -295,9 +306,19 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
     if (onGround) {
         const float baseGrip = handbrake ? sp->drift_grip : sp->normal_grip;
         const float slipRatio = std::abs(lateralSpd) / std::max(absFwd, 3.0f);
-        const float pacejkaSat = 1.0f / (1.0f + slipRatio * (handbrake ? 2.2f : 0.95f));
-        const float grip = baseGrip * inp->aero_grip_bonus * downforceGrip * wetGripScale * (0.45f + 0.55f * pacejkaSat);
+        const float pacejkaSat = 1.0f / (1.0f + slipRatio * (handbrake ? 2.35f : 1.05f));
+        const float grip = baseGrip * inp->aero_grip_bonus * downforceGrip * wetGripScale * (0.42f + 0.58f * pacejkaSat);
         lateralSpd *= std::exp(-grip * dt);
+        if (slipRatio > 0.10f) {
+            const float scrub = clampf((slipRatio - 0.10f) * 4.2f, 0.0f, 4.8f) * dt;
+            if (std::abs(forwardSpd) > scrub) {
+                forwardSpd -= (forwardSpd > 0.0f) ? scrub : -scrub;
+            }
+        }
+        if (!handbrake && std::abs(steer) < 0.08f && std::abs(lateralSpd) > 1.2f && absFwd > 4.0f) {
+            const float alignYaw = clampf((lateralSpd / std::max(absFwd, 4.0f)) * 0.65f, -0.45f, 0.45f);
+            st->heading = wrapAngle(st->heading + alignYaw * dt);
+        }
     }
 
     st->vel_x = fwdX * forwardSpd + rightX * lateralSpd;
@@ -311,9 +332,9 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
     if (st->airborne == 0) {
         if (groundY > prevY + 0.002f && forwardSpd > 2.5f) {
             const float climbRate = (groundY - prevY) / std::max(dt, 0.004f);
-            st->vel_y = std::max(st->vel_y, std::min(climbRate, 16.5f));
+            st->vel_y = std::max(st->vel_y, std::min(climbRate, 12.0f));
         }
-        if (prevY > groundY + 0.16f && st->vel_y > -2.5f) {
+        if (prevY > groundY + 0.48f && st->vel_y > 1.0f) {
             st->airborne = 1;
             st->air_time = 0.0f;
         } else {

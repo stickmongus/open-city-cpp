@@ -1,56 +1,52 @@
-# Open City C++ + Rust (`open-city-cpp`) — v1.3.0
+# Open City Seoul — Native Vulkan (`open-city-cpp`) v2.0.0
 
-실제 AAA 오픈월드처럼 **모던 C++20 + Rust (`#![no_std]` 네이티브 물리 커널 v1200) + Python 3 (3D CAD 에셋 생성기) + OpenGL 3.3 / OpenGL ES 3.0 (`raylib 5.5` + Cook-Torrance GGX PBR 셰이더)** 폴리글랏 아키텍처로 제작된 **크로스플랫폼(Android · Windows · Linux) 3D 1인칭·3인칭 현실주의 오픈월드 대도시 샌드박스 게임**입니다.
+실제 AAA 오픈월드처럼 **모던 C++20 + Native Vulkan 1.0+ 렌더링 엔진 (volk · SPIR-V 1.0 · 16-bit HDR + MSAA + 2048px Soft PCF 그림자) + Rust (`#![no_std]` 네이티브 물리 커널 v2000) + Python 3 (SPIR-V 셰이더 & 글리프 빌더)** 아키텍처로 전면 재설계된 **크로스플랫폼(Android · Windows · Linux) 실측 서울 3D 오픈월드 대도시 샌드박스 게임**입니다.
 
-- **Android (`.apk`)**: 정식 RSA-4096 v1/v2/v3 서명된 유니버설 APK(`arm64-v8a` + `armeabi-v7a`) 하나로 스마트폰·태블릿에서 가로 전체화면 & 10-포인트 멀티터치로 즉시 실행됩니다. (내장 나눔고딕 한글 폰트 포함)
-- **Windows (`.exe`)**: 별도의 외부 에셋 폴더나 런타임(VC++ / Rust) 설치 없이 단일 `open_city.exe` 실행 파일 하나로 Windows 10/11에서 즉시 실행됩니다.
+- **Native Vulkan 1.0+ (Zero OpenGL / Zero raylib)**: Android(`arm64-v8a` + `armeabi-v7a`), Windows x64, Linux x64 모두 100% 네이티브 Vulkan 파이프라인(`10`개 사전 컴파일 SPIR-V 1.0 셰이더)으로 구동됩니다.
+- **Android (`.apk`)**: 정식 RSA-4096 v1/v2/v3 서명된 유니버설 Vulkan APK(`arm64-v8a` + `armeabi-v7a`) 하나로 Android 7.0+ Vulkan 지원 스마트폰·태블릿에서 가로 전체화면 & 10-포인트 멀티터치로 즉시 실행됩니다.
+- **Windows (`.exe`)**: 별도 런타임이나 외부 에셋 폴더 없이 단일 `open_city.exe` 실행 파일 하나로 Windows 10/11(Vulkan 지원 GPU)에서 즉시 실행됩니다.
 
 ---
 
 ## 바로 플레이하기 (Android `.apk` / Windows `.exe` 다운로드)
 
-컴파일러 설치 없이 바로 플레이하려면 GitHub **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 페이지에서 최신 버전(**`v1.3.0`**)을 내려받으세요:
+컴파일러 설치 없이 바로 플레이하려면 GitHub **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 페이지에서 최신 버전(**`v2.0.0`**)을 내려받으세요:
 
-### Android 스마트폰 / 태블릿 (Android 7.0+ / OpenGL ES 3.0)
-1. **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 에서 **`OpenCity-Android-v1.3.0.apk`** 를 다운로드합니다.
-2. 다운로드한 `.apk` 파일을 탭해 설치합니다 *(최초 1회 "출처를 알 수 없는 앱 설치" 허용 필요 — 기존 v1.1.0 / v1.2.0 위에도 동일 서명으로 그대로 덮어쓰기 업데이트 가능!)*.
+### Android 스마트폰 / 태블릿 (Android 7.0+ / Native Vulkan 1.0+)
+1. **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 에서 **`OpenCity-Android-v2.0.0.apk`** 를 다운로드합니다.
+2. 다운로드한 `.apk` 파일을 탭해 설치합니다 *(최초 1회 "출처를 알 수 없는 앱 설치" 허용 필요 — 기존 v1.x 버전 위에도 동일 서명으로 그대로 덮어쓰기 업데이트 가능!)*.
 3. **Open City** 앱 아이콘을 눌러 가로 모드 전체화면으로 바로 플레이하세요!
-   * **패키지명**: `com.stickmongus.opencity` (`v1.3.0`, `versionCode 130`)
+   * **패키지명**: `com.stickmongus.opencity` (`v2.0.0`, `versionCode 200`)
+   * **그래픽 API**: Native Vulkan 1.0+ (`libopen_city.so`, OpenGL/GLES 완전 제거)
    * **서명 인증서 SHA-256 지문**: `6C:9B:7E:D9:1E:60:AA:E2:E9:B3:2F:70:D6:D9:F1:A1:EB:A4:86:05:6D:35:8E:00:C9:75:EF:28:3C:41:A9:5E`
 
-### Windows 10 / 11 PC
+### Windows 10 / 11 PC (Vulkan 1.0+ GPU)
 1. **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 에서 **`OpenCity-Windows-x64.zip`** 을 다운로드하고 압축을 풉니다.
 2. **`open_city.exe`** 를 더블클릭하면 바로 게임이 시작됩니다!
 
 ---
 
-## 주요 기능 (v1.3.0 4배 확장 현실주의 메트로폴리스 & 포토리얼리즘 전면 개편)
+## 주요 혁신 (v2.0.0 6대 핵심 전면 개편)
 
-* **v1.3.0 4배 확장 대도시 & 포토리얼리즘 전면 개편**:
-  * **1. 비현실적 요소 전면 제거 (리얼리즘 100%)**: 스턴트 점프대 6곳, 2.2m 네온 와이어프레임 POI 기둥, 주간 과발광 상점 간판 블록, 핫핑크 필라스터, 보라색·풍선형 가로수, 바비핑크 NPC 차량 및 순정 출고 차량 네온 언더글로우를 모두 제거하고 저프로파일 건축형 바닥 마커와 정제된 OEM 도장·현실적 복장으로 전면 교체
-  * **2. 4배 커진 초대형 오픈월드 메트로폴리스 (`16×16` 블록 · `1.45km × 1.65km`)**: `17×17` 4차선 도로망과 **O(1) `20×22` 공간 분할 그리드**(충돌·레이캐스트·렌더링·미니맵 가속), **주행 가능한 `134m` 아치형 골든 베이 현수교(`Golden Bay Bridge`)** (54m 쌍둥이 주탑·현수 케이블), **북부 등대 반도(`Lighthouse Point`)** (`28m` 해안 등대·야간 회전 프레넬 빔·등대지기 오두막), **8대 생활권** (다운타운 금융가 · 시청/경찰청/의료센터 행정타운 · `2×2` 그랜드 센트럴 파크 & 반사 호수/아치 돌다리 · 역사적 미드타운 · 항구 갠트리 크레인 & 화물선 2척 · 힐크레스트 테라코타 빌라지구 · 서부 선셋 해변 & `110m` 목재 피어 · 북부 등대 반도)
-  * **3. 포토리얼리즘 PBR 셰이더 · 차량 휠 · 식생 · 날씨 디테일**: **중공(Hollow) 24세그먼트 타이어** + **깊은 컨케이브 3D 5-트윈스포크 단조 휠** + 통풍 디스크 로터 & 브렘보 캘리퍼 완벽 노출, 신규 PBR 재질 4종(**`FabricCloth`** · **`SkinOrganics`** · **`BarkWood`** · **`BeachSand`**), 도메인 워프 자연 빗물 웅덩이 & 흐린 폭풍우 하늘 조명, 다엽 3D 수목 클러스터·지중해 사이프러스 침엽수·보안 볼라드, 220줄기 3D 빗줄기 + 절차적 빗소리 앰비언스 오디오, 비조준 시 자연스러운 **로우-레디(Low-Ready) 총기 파지 자세**, 슬림 다크글래스 AAA HUD
-* **v1.2.0 5대 핵심 시스템 대개편**:
-  * **1. 다단 토크 커브 & 터보 부스트 가속 시스템**: 1~6단 기어비(`1.38x..0.66x`) + RPM 종형 토크 커브 + **터보 부스트 스풀(`TURBO` 게이지)** + 1단 풀스로틀 휠스핀(연기·스키드마크) + 듀얼클러치 변속 컷/피치 킥 & **듀얼 배기구 백파이어 화염**, 속도 제곱 연속 공기저항
-  * **2. 차세대 컨택트-하드닝 그림자 엔진**: 근거리 집중 섀도우 프러스텀(`+120%` 텍셀 밀도), Interleaved Gradient Noise 회전 **16-Tap 포아송 PCF** + 차단 깊이 기반 컨택트 하드닝(근접 선명·원거리 부드러움), 하늘색 그림자 바운스 라이트, 기존 네모 그림자를 대체한 **3중 윤곽 타원형 차량 AO 그림자 + 4개 타이어 접지 패치**, 2중 타원형 보행자 그림자
-  * **3. 쇼룸급 차량 그래픽 디테일**: **듀얼-로브 GGX 폴리우레탄 클리어코트 + 메탈릭 각도 색변화(Flop)** + 지평선 반사 하이라이트, 전면 그릴 브랜드 엠블럼, 도어 셧라인·윈도우 벨트라인 몰딩, 등급별 브렘보 캘리퍼 & **급제동 시 붉게 달아오르는 브레이크 로터(`brakeHeat`)**, 트윈 프로젝터 크리스탈 헤드라이트, **전·후방 점멸 방향지시등**, 변속/오버런 배기 백파이어 화염
-  * **4. Rust + C++20 물리 엔진 v1200**: **Pacejka 비선형 타이어 슬립 포화**, 종방향 하중 이동(트레일 브레이킹 코너 진입), 고속 에어로 다운포스, 프로그레시브 ABS 제동, **4바퀴 독립 연석/노면 높이 서스펜션(`wheel_ground_h[4]`)**, 쿨롱 접선 마찰 충격(`μ=0.28`) 및 2-패스 OBB 차량 충돌 해석(차체 충격 반동·스파크)
-  * **5. 살아 숨 쉬는 다채로운 NPC 생태계**: 6종 아키타입(캐주얼·비즈니스·조거·관광객·스트리트테크·작업자), 5종 피부톤·4종 헤어·6종 머리색·안경·백팩·신장 편차(`0.93~1.07`), **`[U]` 우천 시 컬러풀한 3D 우산 자동 펼침**, 휴대 3D 소품(빛나는 스마트폰·가죽 서류가방·테이크아웃 커피컵·쇼핑백), 일상 행동(스마트폰 보기·두리번거리기·총구 조준 시 **양손 들기 항복**), 시선 추적(`headLookYaw`), 접근 차량 **측면 긴급 회피**, 운동량 넉백 & 자연스러운 쓰러짐
-* **v1.1.0 Android 네이티브 OpenGL ES 3.0 & 풀 멀티터치 에디션**:
-  * **GLSL ES 3.00 (`#version 300 es`) 모바일 PBR 엔진**: Cook-Torrance GGX PBR, 3D 빌딩 내부 매핑, 24비트 깊이 버퍼 + Khronos 규격 `GL_DEPTH_COMPONENT24` 실시간 그림자, 대기 산란 하늘, 우천 젖은 아스팔트 노면 반사를 모바일 GPU에서 60 FPS로 구현
-  * **10-포인트 멀티터치 가상 컨트롤러**: 도보 좌측 가상 조이스틱(자동 전력질주) + 우측 화면 드래그 1:1 정밀 조준 + `FIRE`/`ADS`/`JUMP`/`RLD` + 무기 순환 + 상황별 황금 액션 버튼(`탑승`·`상점`·`미션`), 운전 모드 대형 조향 패드·가속/브레이크 페달·니트로·드리프트·하차·사이렌·후방 카메라 지원
-  * **모바일 최적화 HUD & 원터치 모달**: 좌상단 레이더, 하단 중앙 디지털 속도계/RPM, 상단 중앙 6종 유틸리티 바(`1P/3P`·`커스텀`·`폰`·`날씨`·`GFX`·`시간`), 상점·스마트폰·커스텀 스튜디오 직접 터치 선택 + 빨간 `X` 닫기 버튼 + 3D 쇼룸 손가락 회전 + Android 뒤로가기 키 완벽 지원
-  * **APK 내장 한글 폰트**: `NanumGothicBold.ttf` 내장 및 440자 전용 모바일 글리프 아틀라스(`1024px`)로 80ms 이내 고속 로딩·한글 깨짐 제로
-  * **25년 RSA-4096 릴리스 서명 인증서**: APK Signature Scheme v1/v2/v3 정식 서명 완료 (동일 서명으로 향후 무손실 덮어쓰기 업데이트 지원)
-* **v1.0.0 Ultra-Detail 6대 핵심 디테일**:
-  * **유기적 조각 캐릭터**: 둥근 두개골·턱선·귀·코·눈동자·눈썹·입(도주 시 패닉 표정)·자연스러운 둥근 헤어 돔, 무릎/팔꿈치 관절, 투톤 스니커즈, 손목시계, 경찰 무전기/파우치 & SWAT 장비
-  * **초정밀 자연 식생 & 센트럴 파크**: 4단 곡선 야자수·코코넛·8개 아치형 야자잎, 벚꽃/자카란다/단풍 가로수길, 센트럴 파크 십자 산책로·다단 분수대 6갈래 포물선 물줄기·수중 야간 조명·원형 꽃밭·빈티지 글로브 가로등
-  * **고밀도 도시 옥상·네온·소품**: 회전 HVAC 냉각팬·뉴욕식 목재 물탱크·위성 안테나·수직 네온 블레이드 간판, 도로명 표지판·보행자 신호기(WALK/STOP)·야간 가로등 볼류메트릭 조명 콘
-  * **차량 외장 & 1인칭 운전석/우천 와이퍼**: 사이드미러/방향지시 LED·샤크핀 GPS·측면 루버·니트로 적열 배기구·백색 후진등·제3 브레이크등·빗길 물보라 미스트·파손 스파크, 24세그먼트 원형 스티어링 휠·패들 시프터·10-LED RPM 시프트 라이트·GPS/MDT·**`[U]` 우천 시 작동하는 듀얼 앞유리 와이퍼**
-  * **살아 숨 쉬는 바다·하늘 & 경찰 헬기**: 해안 요트·범선 5척, 항구 컨테이너 화물선, 갈매기 10마리, 여객기(비행운), **수배 `★3` 이상 시 출동하는 SBPD 경찰 헬리콥터 + 볼류메트릭 서치라이트**
-  * **1인칭 정밀 총기 & 3D 회전 탄피 배출**: 피카티니 레일·후퇴 노리쇠·머즐 브레이크·틴티드 홀로 렌즈 + 사격 시 튀어 오르는 **3D 황동 탄피 & 12게이지 산탄총 탄피**
-* **폴리글랏 4대 언어 하이브리드 아키텍처 (`C++20` + `Rust` + `Python 3` + `GLSL 330 / ES 3.00`)**
-  * 6단 자동변속기(`D1~D6`/`R`), 4륜 독립 서스펜션, Pacejka 타이어, 3D 스턴트 점프대 6기, PIT 매뉴버 회전 충돌, 4분면 차체 크럼플 파손, 16종 차량, 11종 총기·중화기, 4탭 커스텀 스튜디오
+1. **Native Vulkan 1.0+ 3D 엔진 완전 교체 (`src/render/VulkanContext.*` · `VulkanShadersSpv.hpp`)**
+   * 기존 `raylib` / OpenGL / OpenGL ES 3.0 스택을 **100% 제거**하고 `Vulkan-Headers` + `volk` + `GLFW 3.4`(데스크톱) / `android_native_app_glue`(안드로이드) + `stb_truetype` + `miniaudio` 기반 자체 엔진으로 재구축
+   * 3-Pass Vulkan 렌더 파이프라인: **2048×2048 16-Tap 회전 포아송 Soft PCF 그림자 패스** → **16-bit Linear HDR (`R16G16B16A16_SFLOAT`) + 4x/2x MSAA 3D 월드 패스** → **Kawase HDR 블룸 + ACES 필르믹 톤매핑 + 2D 한글 UI 패스**
+2. **젤리 현상 완전 제거 — 16종 차량 CAD 정밀 디자인 전면 개편 (`src/render/CarMeshGenerator.*`)**
+   * `24°` 하드 크리즈 법선 분리(`MeshBuilder3D::buildCreasedVertices`) 기반 **프레스 가공 강판 차체**, 곡면형 전·후면 범퍼 및 랩어라운드 3D LED 헤드램프·DRL·풀와이드 테일라이트
+   * 차체 플랭크 곡면(`flankZAt`)에 1mm 단위로 밀착하는 **원형 3D 휠아치 & 10-스포크 알로이 림 + 브렘보 캘리퍼**
+   * A/B/C/D 필러와 **동일 곡면 수식(`greenhouseSurfacePt`)으로 결합된 매끈한 스모크드 곡면 측면/전면 유리** + 유리 너머로 보이는 **3D 대시보드·스티어링 휠·버킷 시트 실내**
+   * 젤리처럼 번들거리는 과노출을 제거한 **에너지 보존형 메탈릭 베이스코트 + 클리어코트 PBR 셰이더** & 서울 경찰차·해치 택시·배송 밴 무-Z-파이팅 리버리
+3. **현실적인 자동차 물리 엔진 & 조향 조작감 (`physics_kernel.rs` v2000 · C++20 100% 패리티)**
+   * 속도 연동 가변 조향 랙(저속 경쾌·고속 안정), 언덕·한강 대교 경사 중력(`slope_z`), Pacejka 코너링 스크럽 & 트레일 브레이킹 하중 이동, 오버스티어 셀프-얼라이닝 카운터스티어, 키보드·모바일 터치 점진 조향/스로틀 필터 적용
+4. **실제 서울 크기(`30 km × 25 km`) 초대형 서울특별시 오픈월드 (`src/world/CityMap.*`)**
+   * **실제 S자 곡선 한강** · **여의도 섬** · **석촌호수** · **청계천** · **주행 가능한 한강 대교 15개**(반포대교 달빛무지개분수·잠수교, 올림픽대교 사장교 주탑, 서강/한강대교 아치 등)
+   * **서울 실제 7대 명산**(남산·북한산·인왕산·북악산·관악산·아차산·청계산) & **12대 매크로 랜드마크**(555m 롯데월드타워, 남산 N서울타워, 경복궁·광화문 곡선 기와지붕, 여의도 63빌딩·파크원·국회의사당, 삼성동 코엑스, 서울시청, 숭례문, 동대문 DDP, 잠실종합운동장, 강남역)
+   * 한국식 노란 중앙선·파란 버스전용차로·횡단보도, 2짝 알루미늄 창틀·베란다 난간이 반사되는 **한국형 아파트(아파트)**, 은행나무·벚꽃나무·소나무, O(1) `252m` 실시간 청크 스트리밍
+5. **클릭 가능한 전체 화면 서울 지도 (`M` 또는 미니맵 클릭/탭)**
+   * `30km × 25km` 서울 전역을 한눈에 보고 줌(`1x~12x`)·패닝·12대 랜드마크 원클릭 선택 · **GPS 목적지 설정** · **원탭 즉시 빠른 이동(Fast-Travel)** 및 실시간 경찰 수색 구역 확인
+6. **현실적이고 도주 가능한 서울 경찰 추격 AI (`src/gameplay/GameWorld.cpp`)**
+   * 건물 차폐 시야(LOS) + 전방 시야각(Vision Cone) + 야간/우천 시야 감쇠, 마지막 목격 위치(`policeLastKnownPos`) 수색 순찰 모드 전환
+   * 숨어 있을 때 앞길 매복 순간이동 스폰 완전 제거, AI 비현실적 니트로 제거, 골목/시야 이탈 시 **`1.55×` 은신 회피 가속** 및 HUD 실시간 도주 진행률 게이지 표시
 
 ---
 
@@ -58,11 +54,11 @@
 
 | 영역 / 버튼 | 도보 모드 | 차량 운전 모드 |
 | :--- | :--- | :--- |
-| 좌측 하단 | 가상 아날로그 조이스틱 *(끝까지 밀면 자동 전력질주)* | `◀` / `▶` 대형 조향 패드 |
-| 우측 빈 화면 드래그 | 흔들림 없는 1:1 정밀 시점 조준 *(모달 시 3D 쇼룸 회전)* | 360° 자유 시점 회전 |
-| 우측 하단 주요 버튼 | `FIRE` 사격 · `ADS` 정조준 · `JUMP` 점프 · `RLD` 재장전 | `GAS` 가속 · `BRK` 브레이크/후진 · `NOS` 니트로 · `DRF` 드리프트 |
-| 우측 중단 / 상황 버튼 | `◀ 무기 ▶` 슬롯 전환 · 근접 시 **`탑승` / `상점` / `미션`** 황금 버튼 | `EXIT` 하차 · `SIREN/HORN` 사이렌/경적 · `REAR` 후방 카메라 |
-| 상단 중앙 툴바 | `1P/3P` 시점 · `커스텀` · `폰` · `날씨` · `GFX` · `시간` | 동일 (운전석 1인칭·우천 와이퍼·품질 즉시 전환) |
+| 좌측 상단 미니맵 탭 | **서울 전체 지도 열기** (`30km × 25km`, GPS · 빠른 이동) | 동일 |
+| 좌측 하단 | 가상 아날로그 조이스틱 *(끝까지 밀면 자동 전력질주)* | `◀` / `▶` 부드러운 조향 패드 |
+| 화면 빈 영역 드래그 | 1:1 정밀 시점 회전 | 360° 자유 시점 회전 |
+| 우측 하단 주요 버튼 | `사격` · `조준` · `점프` · `장전` · `탑승/상점` | `가속` · `브레이크` · `니트로` · `드리프트` · `하차` · `경적` · `후방` |
+| 상단 중앙 툴바 | `지도` · `1인칭/3인칭` · `폰` · `커스텀` · `날씨` · `시간` · `품질` | 동일 |
 
 ---
 
@@ -70,30 +66,17 @@
 
 | 입력 | 동작 |
 | :--- | :--- |
-| `W` `A` `S` `D` / 방향키 | 도보 이동 / 16종 차량 6단 자동변속 가속·후진·조향·골든 베이 현수교 주행 |
-| **`U`** | **우천 날씨 & 젖은 아스팔트 노면 거울 반사(Wet Road Puddles) ON/OFF 토글** |
-| **`K`** | **통합 커스텀 스튜디오 열기/닫기** (`Q`/`E` 탭 전환, `1`~`8` 캐릭터·총기·차량·조준선 실시간 개조) |
-| **`V` 또는 마우스 휠클릭 (`MMB`)** | **1인칭 시점 (도보 FPS · 3D 차량 운전석) ↔ 3인칭 시점 즉시 전환** |
-| 마우스 이동 | 흔들림 없는 1:1 정밀 시점 조준 (`-64°` 하단 ~ `+68°` 상단, 스튜디오 내 360° 쇼룸 회전) |
-| 마우스 우클릭 (`RMB`) / 좌클릭 (`LMB`) | **정밀 광학 조준 · 저격 스코프 줌 (자동 감도 감속)** / 무기 발사 |
-| **`1` ~ `9`, `0`, `-` / `Z`·`X` / 마우스 휠** | **무기 11종 슬롯 즉시 선택 및 이전(`Z`)·다음(`X`) 순환 교체** |
-| **`[` / `]`** | **실시간 마우스 감도 낮추기 / 높이기 (`30% ~ 250%`)** |
-| `Space` | **도보 3D 점프 (차량 지붕 등반)** / 차량 핸드브레이크 **드리프트** |
-| `F` 또는 `E` | 차량 탑승·주행 차량 탈취·하차 / 미션 마커에서 미션 시작 |
-| `P` | **스마트폰 열기/닫기** (`Q`/`E` 탭 전환, `1`~`9`,`0` 차량 10종 호출·부동산·중화기 보급·**수배 해제**) |
-| `B` | 상점·전시장·풀튜닝 차고·주유소·부티크 메뉴 열기 (`1`~`9`, `0`, `-`, `=` 선택) |
-| `Left Shift` | 도보 전력질주 / 차량 **니트로 부스트** |
-| `R` | 탄창 재장전 |
-| `G` | 차량 경적 울리기 / **경찰차·구급차·소방차 사이렌 & 경광등 ON/OFF** |
-| `C` | 후방 카메라 보기 |
-| `I` | 마우스 상하(Y축) 시점 반전 토글 |
-| `F3` | 그래픽 품질 프리셋 전환 (`울트라` / `높음` / `고성능`) |
-| `T` | 시간 빠르게 감기 (+3시간, 낮/노을/밤 즉시 전환) |
-| `L` | 한국어 / 영어 UI 전환 |
-| `H` | 좌측 상단 조작 안내 표시/숨기기 |
-| `Tab` / `ESC` | 메뉴 닫기 / 마우스 커서 잠금·해제 |
-| `Backspace` | 진행 중인 미션 중단 |
-| `F11` | 전체화면 전환 |
+| `W` `A` `S` `D` / 방향키 | 도보 이동 / 16종 차량 가속·후진·속도 연동 정밀 조향·한강 대교 주행 |
+| **`M` 또는 미니맵 클릭** | **서울특별시 전체 지도 (`30km × 25km`) 열기/닫기 (클릭 GPS · 빠른 이동)** |
+| **`V`** | **1인칭 시점 (도보 FPS · 3D 차량 운전석) ↔ 3인칭 시점 전환** |
+| **`Y`** | **맑음 ↔ 비 오는 서울 (젖은 아스팔트 노면 반사 & 시민 우산) 전환** |
+| **`T`** | **시간 +2시간 이동 (낮 · 노을 · 서울 야경 즉시 전환)** |
+| **`U`** | **Vulkan 그래픽 품질 프리셋 전환 (`최고 HDR+그림자` / `높음` / `성능 우선`)** |
+| **`P` / `K` / `E`** | **서울 스마트폰** / **커스텀 스튜디오** / **근접 상점·차고 열기** |
+| `Space` / `Left Shift` | 점프 · 핸드브레이크 드리프트 / 전력질주 · 니트로 부스트 |
+| `F` / `G` / `Q` / `R` | 차량 탑승·하차 / 경적·경찰 사이렌 / 후방 카메라 / 재장전 |
+| `1` ~ `9`, `0` | 무기 슬롯 즉시 선택 (모달 열림 시 옵션 선택) |
+| `H` / `Tab` / `ESC` | 조작 안내 숨기기 / 마우스 잠금 해제 / 모달 닫기·종료 |
 
 ---
 
@@ -101,17 +84,16 @@
 
 ### Android `.apk` 직접 빌드 (Linux + Android SDK/NDK + JDK)
 ```bash
-# 1) (선택) 릴리스 서명 키스토어 환경변수 지정 (미지정 시 임시 디버그 키로 자동 서명)
 export ANDROID_KEYSTORE_PATH=/path/to/open-city-release.jks
 export ANDROID_KEY_ALIAS=opencity
 export ANDROID_STORE_PASSWORD="..."
 export ANDROID_KEY_PASSWORD="..."
 
-# 2) 유니버설 APK (arm64-v8a + armeabi-v7a) 빌드·정렬·서명·검증
+# 유니버설 Native Vulkan APK (arm64-v8a + armeabi-v7a) 빌드·정렬·서명·검증
 ./tools/build_android_apk.sh
 ```
 
-### Windows (Visual Studio 2022 + Rust + Python 3 + CMake)
+### Windows (Visual Studio 2022 + Rust + CMake)
 ```powershell
 cmake -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release --parallel
@@ -121,12 +103,12 @@ cmake --build build --config Release --parallel
 ### Linux (Debian / Ubuntu)
 ```bash
 sudo apt-get install build-essential cmake ninja-build rustc python3 \
-  libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev
+  libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libvulkan1
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
-./build/open_city              # PC 모드
-./build/open_city --mobile-ui  # PC에서 모바일 멀티터치 HUD 미리보기
+./build/open_city              # PC Native Vulkan 모드
+./build/open_city --mobile-ui  # PC에서 모바일 터치 HUD 미리보기
 ```
 
 ---
@@ -135,35 +117,31 @@ ctest --test-dir build --output-on-failure
 
 ```text
 open-city-cpp/
-├── CMakeLists.txt
+├── CMakeLists.txt                       # Native Vulkan (Vulkan-Headers + volk + GLFW 3.4 + miniaudio + stb + Rust)
 ├── android/
-│   ├── AndroidManifest.xml              # OpenGL ES 3.0 · 가로 전체화면 NativeActivity 매니페스트
-│   ├── src/com/stickmongus/opencity/
-│   │   └── NativeLoader.java            # 몰입형 전체화면 + 디스플레이 컷아웃 + libopen_city.so 로더
-│   └── res/                             # mdpi~xxxhdpi 런처 아이콘 및 앱 리소스
+│   ├── AndroidManifest.xml              # Vulkan 1.0+ 하드웨어 기능 · 가로 전체화면 NativeActivity (v2.0.0 / 200)
+│   └── src/com/stickmongus/opencity/
+│       └── NativeLoader.java            # 몰입형 전체화면 + 디스플레이 컷아웃 + libopen_city.so 로더
 ├── tools/
 │   ├── build_android_apk.sh             # NDK CMake + aapt2 + d8 + zipalign + apksigner v1/v2/v3 원스톱 빌더
-│   ├── patch_raylib_android.py          # raylib 5.5 Android OpenGL ES 3.0 / 24비트 깊이 / 섀도우맵 패치
-│   ├── gen_android_icons.py             # Android 런처 아이콘 PNG 생성기
-│   ├── gen_korean_glyphs.py             # 모바일 1024px 아틀라스용 한글 코드포인트 추출기
-│   └── generate_realistic_assets.py     # Python 3 절차적 3D CAD 에셋·현수교·대관람차·스턴트 램프 생성기
+│   ├── compile_vulkan_shaders.py        # GLSL 450 -> SPIR-V 1.0 C++ 헤더 컴파일러
+│   ├── gen_korean_glyphs.py             # 한글 UI 글리프 코드포인트 자동 추출기
+│   └── gen_android_icons.py             # Android 런처 아이콘 생성기
 ├── src/
-│   ├── physics/
-│   │   ├── physics_kernel.rs            # Rust (#![no_std]) 4륜 서스펜션·6단 변속·스턴트 점프·회전 충돌 물리 커널
-│   │   └── PhysicsBridge.hpp            # C++20 <-> Rust FFI 브리지 헤더
-│   ├── core/Math.hpp                    # 2D/3D 벡터, SAT OBB 충돌, 레이캐스트, 결정론적 RNG
-│   ├── world/CityMap.*                  # 8x8 블록 도시, 현수교·대관람차·크레인·스턴트 램프 6기·거리 소품 생성
-│   ├── gameplay/Types.hpp               # 차량 16종·무기 11종·4륜 서스펜션/파손/기어 및 커스텀 상태 정의
-│   ├── gameplay/GameWorld.*             # Rust 물리 연동, 스턴트 점프 보너스, 소화전 분수, 4탭 커스텀 스튜디오
-│   ├── audio/SynthAudio.*               # 절차적 16-bit PCM 사운드 합성 (소음기 총성, 매그넘·저격총·미니건, 사이렌)
+│   ├── core/                            # Math.hpp (2D/3D 수학, SAT OBB, 레이캐스트), Mat4.hpp (Vulkan 행렬)
+│   ├── platform/PlatformApp.*           # 크로스플랫폼 윈도우/입력/Vulkan Surface (GLFW 데스크톱 + Android Glue)
+│   ├── physics/                         # Rust (#![no_std]) 물리 커널 v2000 & C++20 완전 패리티 브리지
+│   ├── world/CityMap.*                  # 30km×25km 실측 서울 (한강·15개 대교·7대 산·12대 랜드마크·청크 스트리밍)
+│   ├── gameplay/                        # 차량 16종·무기 11종·현실적 시야 기반 경찰 추격 AI·빠른 이동/GPS
+│   ├── audio/SynthAudio.*               # miniaudio 락프리 실시간 엔진/드리프트/사이렌/총성/빗소리 신시사이저
 │   ├── render/
-│   │   ├── GeneratedRealisticAssets.hpp # Python 생성 3D 현수선·푸아송 커널·스턴트 램프 상수 헤더
-│   │   └── Renderer3D.*                 # OpenGL 3.3 & GLES 3.0 Cook-Torrance GGX PBR, 3D 인테리어 매핑, 젖은 노면 반사
-│   ├── ui/
-│   │   ├── AndroidKoreanGlyphs.hpp      # 모바일 고속 로딩용 440자 한글 코드포인트 테이블
-│   │   ├── TouchControls.*              # 10-포인트 멀티터치 가상 조이스틱·운전 패드·상단 유틸리티 바
-│   │   └── HudRenderer.*                # 11,172자 한글 폰트, 모바일 HUD 레이아웃, 직접 터치 모달 UI
-│   └── main.cpp                         # 어지러움 제로 1:1 카메라, 멀티터치/키보드 통합 루프, Android 뒤로가기 처리
+│   │   ├── VulkanContext.*              # Native Vulkan 1.0+ 렌더러 (HDR16·MSAA·2048px 섀도우·PNG 캡처)
+│   │   ├── shaders/*.{vert,frag}        # GLSL 450 PBR/스카이/섀도우/블룸+ACES/2D UI 셰이더 10종
+│   │   ├── VulkanShadersSpv.hpp         # 사전 컴파일된 SPIR-V 1.0 바이트코드
+│   │   ├── CarMeshGenerator.*           # 16종 Zero-Jelly CAD 차량 & 10-스포크 휠 생성기
+│   │   └── Renderer3D.*                 # 실측 서울 3D 월드·랜드마크·한강·차량·캐릭터 Vulkan 렌더러
+│   ├── ui/                              # Vulkan2D (stb_truetype 2048px 한글 아틀라스), HudRenderer (전체지도), TouchControls
+│   └── main.cpp                         # 데스크톱 main() + Android android_main() 통합 실행 루프
 └── tests/
-    └── test_simulation.cpp              # Rust 물리 엔진·스턴트 점프·회전 충돌·커스텀 등 18개 자동 테스트 스위트
+    └── test_simulation.cpp              # 실측 서울·한강 대교·물리 v2000·도주 가능 경찰 AI 등 23개 자동 테스트 스위트
 ```

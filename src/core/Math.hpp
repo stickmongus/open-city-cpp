@@ -155,6 +155,10 @@ struct AABB2D {
     Vec2 halfExtents() const {
         return {(max.x - min.x) * 0.5f, (max.z - min.z) * 0.5f};
     }
+
+    Vec2 size() const {
+        return {max.x - min.x, max.z - min.z};
+    }
 };
 
 struct AABB3D {

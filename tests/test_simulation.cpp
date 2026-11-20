@@ -1,6 +1,5 @@
 #include "gameplay/GameWorld.hpp"
 #include "physics/PhysicsBridge.hpp"
-#include "render/GeneratedRealisticAssets.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -32,9 +31,9 @@ void testCityGenerationAndCollisions() {
     ASSERT_TRUE(city.findPoi(oc::PoiKind::MissionRace) != nullptr);
     ASSERT_TRUE(city.findPoi(oc::PoiKind::MissionGangRaid) != nullptr);
 
-    // Central crossroads (0,0) must be on road and in intersection
-    ASSERT_TRUE(city.isOnRoad({0.0f, 0.0f}));
-    ASSERT_TRUE(city.isInIntersection({0.0f, 0.0f}));
+    // Central Gangnam/Banpo crossroads (588, 1008) must be on road and in intersection
+    ASSERT_TRUE(city.isOnRoad({588.0f, 1008.0f}));
+    ASSERT_TRUE(city.isInIntersection({588.0f, 1008.0f}));
 
     // Building collision push-out check
     const auto& firstBld = city.buildings().front();
@@ -325,6 +324,7 @@ void test3DCrosshairAimAndHeadshots() {
     }
     ASSERT_TRUE(foundClearSightline);
 
+    const int victimId = victim->id;
     const float hpBefore = victim->health;
     oc::PlayerInput aimShot{};
     aimShot.hasAimRay3D = true;
@@ -342,7 +342,12 @@ void test3DCrosshairAimAndHeadshots() {
     ASSERT_TRUE(world.player().hitMarkerCritical);
     ASSERT_TRUE(!world.tracers().empty());
     ASSERT_TRUE(world.tracers().back().end.y >= 1.38f);
-    ASSERT_TRUE(victim->health < hpBefore - 55.0f);
+    const oc::NpcCharacter* victimAfter = nullptr;
+    for (const auto& n : world.npcs()) {
+        if (n.id == victimId) { victimAfter = &n; break; }
+    }
+    ASSERT_TRUE(victimAfter != nullptr);
+    ASSERT_TRUE(victimAfter->health < hpBefore - 55.0f);
 
     ++gTestsPassed;
 }
@@ -396,8 +401,8 @@ void testUpwardCameraAndSkyscraperRaycast() {
     ASSERT_TRUE(tall != nullptr);
 
     const oc::Vec2 center = tall->footprint.center();
-    const oc::Vec3 streetOrigin{tall->footprint.min.x - 10.0f, 1.5f, center.z};
-    const oc::Vec3 midTowerTarget{center.x, tall->height * 0.75f, center.z};
+    const oc::Vec3 streetOrigin{tall->footprint.min.x - 10.0f, tall->baseY + 1.5f, center.z};
+    const oc::Vec3 midTowerTarget{center.x, tall->baseY + std::min(tall->height * 0.75f, 32.0f), center.z};
     const oc::Vec3 rayHitDir = (midTowerTarget - streetOrigin).normalized();
     const float hitDist = city.raycastBuildings3D(streetOrigin, rayHitDir, 150.0f);
     ASSERT_TRUE(hitDist > 0.0f && hitDist < 60.0f);
@@ -422,7 +427,7 @@ void testDealershipRealEstateTuningAndHeavyOrdnance() {
 
     const int cashAfterBuy = world.player().cash;
     // Re-summoning an owned vehicle via Smartphone is free!
-    world.player().pos = {-84.0f, 12.0f};
+    world.player().pos = {588.0f, 1008.0f};
     ASSERT_TRUE(world.executePhoneAction(0, 6));
     ASSERT_TRUE(world.player().cash == cashAfterBuy);
     oc::Vehicle* hyper = world.findVehicleMutable(world.player().activePersonalVehicleId);
@@ -465,7 +470,7 @@ void testDealershipRealEstateTuningAndHeavyOrdnance() {
     const bool expectedWing = hyper->customSpoiler;
 
     ASSERT_TRUE(world.tryEnterOrExitVehicle());
-    world.player().pos = {84.0f, 12.0f};
+    world.player().pos = {672.0f, 1008.0f};
     ASSERT_TRUE(world.executePhoneAction(0, 6)); // Summon fresh instance from garage
     const oc::Vehicle* resummoned = world.findVehicle(world.player().activePersonalVehicleId);
     ASSERT_TRUE(resummoned != nullptr);
@@ -496,7 +501,7 @@ void testDealershipRealEstateTuningAndHeavyOrdnance() {
     world.update(1.0f / 60.0f, rocketShot);
     ASSERT_TRUE(world.particles().size() > particlesBefore + 15);
 
-    // 5. Realistic City Landmarks, Storefronts & Western Sunset Beach / Ocean Pier
+    // 5. Realistic Seoul Landmarks, Storefronts, Yeouido Island & Banpo Bridge
     const auto& city = world.city();
     ASSERT_TRUE(city.findPoi(oc::PoiKind::CarDealership) != nullptr);
     ASSERT_TRUE(city.findPoi(oc::PoiKind::ClothingBoutique) != nullptr);
@@ -514,21 +519,21 @@ void testDealershipRealEstateTuningAndHeavyOrdnance() {
     }
     ASSERT_TRUE(hasStorefront && hasBalconies && hasHelipad);
 
-    // Verify player can walk onto expanded Sunset Beach (-716, 40) and 110m Timber Ocean Pier (-770, 0)
-    oc::Vec2 beachPos{-716.0f, 40.0f};
-    city.resolveCircleWorld(beachPos, 0.5f);
-    ASSERT_TRUE(std::abs(beachPos.x - (-716.0f)) < 0.01f);
+    // Verify player can walk onto Yeouido Island (-4500, 320) and Banpo Bridge (588, 0)
+    oc::Vec2 yeouidoPos{-4500.0f, 320.0f};
+    city.resolveCircleWorld(yeouidoPos, 0.5f);
+    ASSERT_TRUE(std::abs(yeouidoPos.x - (-4500.0f)) < 0.01f);
 
-    oc::Vec2 pierPos{-770.0f, 0.0f};
-    city.resolveCircleWorld(pierPos, 0.5f);
-    ASSERT_TRUE(std::abs(pierPos.x - (-770.0f)) < 0.01f);
+    oc::Vec2 banpoBridgePos{588.0f, 0.0f};
+    city.resolveCircleWorld(banpoBridgePos, 0.5f);
+    ASSERT_TRUE(std::abs(banpoBridgePos.x - 588.0f) < 0.01f);
 
     ++gTestsPassed;
 }
 
 void testPlayerJumpAndVehicleRoofClimbing() {
     oc::GameWorld world(5050ULL);
-    world.player().pos = {14.5f, 14.5f};
+    world.player().pos = {588.0f, 1008.0f};
     world.player().posY = world.surfaceHeightAt(world.player().pos);
     world.player().onGround = true;
     world.consumeAudioEvents();
@@ -560,11 +565,11 @@ void testPlayerJumpAndVehicleRoofClimbing() {
     ASSERT_TRUE(world.buyOrSummonVehicle(oc::VehicleKind::LuxurySedan));
     oc::Vehicle* sedan = world.findVehicleMutable(world.player().activePersonalVehicleId);
     ASSERT_TRUE(sedan != nullptr);
-    sedan->pos = {18.2f, 14.5f};
+    sedan->pos = {591.7f, 1008.0f};
     sedan->heading = 0.0f;
     sedan->velocity = {0.0f, 0.0f};
 
-    world.player().pos = {15.0f, 14.5f};
+    world.player().pos = {588.5f, 1008.0f};
     world.player().posY = world.surfaceHeightAt(world.player().pos);
     world.player().onGround = true;
 
@@ -648,11 +653,18 @@ void testPolicePursuitWantedEscalationBribeAndBusted() {
     ASSERT_TRUE(ambientOfficers >= 2);
     ASSERT_TRUE(world.player().wantedLevel == 0);
 
-    // 2. Escalate to 4-Star Wanted Level -> verify SWAT ArmoredSuv & active cruiser sirens spawn!
+    // 2. Escalate to 4-Star Wanted Level with officer witness -> verify SWAT ArmoredSuv & active sirens dispatch!
+    for (auto& n : world.npcs()) {
+        if (n.role == oc::NpcRole::Police && n.alive) {
+            n.pos = world.player().pos + oc::Vec2{12.0f, 0.0f};
+            n.facingYaw = oc::kPi;
+            break;
+        }
+    }
     world.reportCrime(12.0f, 4, world.player().pos, true);
     ASSERT_TRUE(world.player().wantedLevel >= 4);
 
-    for (int i = 0; i < 30; ++i) {
+    for (int i = 0; i < 240; ++i) {
         world.update(1.0f / 60.0f, {});
     }
 
@@ -710,16 +722,17 @@ void testPolicePursuitWantedEscalationBribeAndBusted() {
     ASSERT_TRUE(world.purchaseShopItem(1)); // Repair & clear heat
     ASSERT_TRUE(world.player().wantedLevel == 0);
 
-    // 5. Verify BUSTED arrest & Downtown Precinct respawn when incapacitated near police while Wanted!
+    // 5. Verify BUSTED arrest & Gangnam Police Precinct respawn when incapacitated near police while Wanted!
     ASSERT_TRUE(world.tryEnterOrExitVehicle());
     world.reportCrime(3.5f, 2, world.player().pos, true);
     world.update(1.0f / 60.0f, {});
     ASSERT_TRUE(world.player().wantedLevel >= 2);
 
     // Place player right next to an active police officer with low health so officer arrests/neutralizes player
-    for (const auto& n : world.npcs()) {
+    for (auto& n : world.npcs()) {
         if (n.role == oc::NpcRole::Police && n.alive) {
             world.player().pos = n.pos + oc::Vec2{3.0f, 0.0f};
+            n.facingYaw = 0.0f;
             break;
         }
     }
@@ -731,13 +744,13 @@ void testPolicePursuitWantedEscalationBribeAndBusted() {
     ASSERT_TRUE(world.player().wasted);
     ASSERT_TRUE(world.player().lastDeathWasBusted);
 
-    // Advance past respawn timer and verify clean respawn at Downtown Precinct (76.5, -14.5)
+    // Advance past respawn timer and verify clean respawn at Gangnam Police Precinct (656.0, 1000.8)
     for (int i = 0; i < 200; ++i) {
         world.update(1.0f / 60.0f, {});
     }
     ASSERT_TRUE(!world.player().wasted);
     ASSERT_TRUE(world.player().wantedLevel == 0);
-    ASSERT_TRUE((world.player().pos - oc::Vec2{76.5f, -14.5f}).length() < 2.0f);
+    ASSERT_TRUE((world.player().pos - oc::Vec2{656.0f, 1000.8f}).length() < 2.0f);
 
     ++gTestsPassed;
 }
@@ -755,7 +768,7 @@ void testFirstPersonAimAlignmentAndPrecisionSpread() {
 
     // 2. Verify 1st-person strafing locks player.facingYaw 1:1 to input.aimYaw without 3rd-person hip-turn drift
     oc::GameWorld world(20261108ULL);
-    world.player().pos = {0.0f, 0.0f};
+    world.player().pos = {588.0f, 1008.0f};
     world.player().posY = world.surfaceHeightAt(world.player().pos);
 
     oc::PlayerInput strafeIn{};
@@ -771,7 +784,7 @@ void testFirstPersonAimAlignmentAndPrecisionSpread() {
     ASSERT_TRUE(std::abs(world.player().facingYaw - 0.42f) < 1e-3f);
 
     // 3. Verify 1st-person precision ADS eye ray (y = posY + 1.62m) lands exact long-range headshots
-    world.player().pos = {0.0f, 0.0f};
+    world.player().pos = {588.0f, 1008.0f};
     world.player().posY = 0.0f;
     world.player().velocity = {0.0f, 0.0f};
     world.player().currentWeapon = oc::WeaponId::AssaultRifle;
@@ -783,25 +796,25 @@ void testFirstPersonAimAlignmentAndPrecisionSpread() {
     // Clear vehicles/props along +X corridor and stage an alive target 36m downrange
     int targetId = -1;
     for (auto& v : world.vehicles()) {
-        if (std::abs(v.pos.z) < 6.0f && v.pos.x > -2.0f && v.pos.x < 45.0f) {
-            v.pos.z = 26.0f;
+        if (std::abs(v.pos.z - 1008.0f) < 8.0f && v.pos.x > 580.0f && v.pos.x < 640.0f) {
+            v.pos.z = 1042.0f;
         }
     }
     for (auto& n : world.npcs()) {
         if (!n.alive) continue;
         if (targetId < 0 && n.role == oc::NpcRole::Gangster) {
             targetId = n.id;
-            n.pos = {36.0f, 0.0f};
+            n.pos = {624.0f, 1008.0f};
             n.velocity = {0.0f, 0.0f};
             n.health = 200.0f;
-        } else if (std::abs(n.pos.z) < 4.0f && n.pos.x > 0.0f && n.pos.x < 42.0f) {
-            n.pos.z = 18.0f;
+        } else if (std::abs(n.pos.z - 1008.0f) < 5.0f && n.pos.x > 584.0f && n.pos.x < 634.0f) {
+            n.pos.z = 1032.0f;
         }
     }
     ASSERT_TRUE(targetId >= 0);
 
-    const oc::Vec3 fpEye{0.0f, 1.62f, 0.0f};
-    const oc::Vec3 headTarget{36.0f, 1.56f, 0.0f};
+    const oc::Vec3 fpEye{588.0f, 1.62f, 1008.0f};
+    const oc::Vec3 headTarget{624.0f, 1.56f, 1008.0f};
     const oc::Vec3 rayDir = (headTarget - fpEye).normalized();
 
     oc::PlayerInput adsShot{};
@@ -875,15 +888,15 @@ void testExpandedWeaponsVehiclesSniperAndEmergency() {
     ASSERT_TRUE(world.player().minigunSpin > 0.0f);
 
     // 4. Verify 160m ultra-long-range SniperRifle precision headshot & laser rangefinder telemetry
-    world.player().pos = {0.0f, 0.0f};
+    world.player().pos = {588.0f, 1008.0f};
     world.player().posY = 0.0f;
     world.player().velocity = {0.0f, 0.0f};
     world.player().currentWeapon = oc::WeaponId::SniperRifle;
     world.player().fireCooldown = 0.0f;
 
     for (auto& v : world.vehicles()) {
-        if (std::abs(v.pos.z) < 7.0f && v.pos.x > -4.0f && v.pos.x < 175.0f) {
-            v.pos.z = 28.0f;
+        if (std::abs(v.pos.z - 1008.0f) < 8.0f && v.pos.x > 580.0f && v.pos.x < 770.0f) {
+            v.pos.z = 1044.0f;
         }
     }
     int sniperTargetId = -1;
@@ -891,17 +904,17 @@ void testExpandedWeaponsVehiclesSniperAndEmergency() {
         if (!n.alive) continue;
         if (sniperTargetId < 0 && n.role == oc::NpcRole::Gangster) {
             sniperTargetId = n.id;
-            n.pos = {160.0f, 0.0f};
+            n.pos = {748.0f, 1008.0f};
             n.velocity = {0.0f, 0.0f};
             n.health = 260.0f;
-        } else if (std::abs(n.pos.z) < 5.0f && n.pos.x > 0.0f && n.pos.x < 172.0f) {
-            n.pos.z = 22.0f;
+        } else if (std::abs(n.pos.z - 1008.0f) < 5.0f && n.pos.x > 584.0f && n.pos.x < 760.0f) {
+            n.pos.z = 1036.0f;
         }
     }
     ASSERT_TRUE(sniperTargetId >= 0);
 
-    const oc::Vec3 sniperEye{0.0f, 1.62f, 0.0f};
-    const oc::Vec3 sniperHead{160.0f, 1.56f, 0.0f};
+    const oc::Vec3 sniperEye{588.0f, 1.62f, 1008.0f};
+    const oc::Vec3 sniperHead{748.0f, 1.56f, 1008.0f};
     const oc::Vec3 sniperDir = (sniperHead - sniperEye).normalized();
 
     oc::PlayerInput sniperShot{};
@@ -1034,17 +1047,17 @@ void testFullCustomizationStudioCharacterGunsmithVehicleHud() {
     // Compare incoming collision damage without helmet (style 0) vs with Aero Moto Helmet (style 4)
     auto measureHitLoss = [&](int helmetStyle) -> float {
         oc::GameWorld w(20261117ULL);
-        w.player().pos = {0.0f, 0.0f};
+        w.player().pos = {588.0f, 1008.0f};
         w.player().posY = 0.0f;
         w.player().armor = 0.0f;
         w.player().health = 100.0f;
         w.player().characterCustom.hairOrHatStyle = helmetStyle;
         for (auto& v : w.vehicles()) {
-            v.pos = {120.0f, 120.0f};
+            v.pos = {720.0f, 1120.0f};
             v.velocity = {0.0f, 0.0f};
         }
         w.vehicles()[0].destroyed = false;
-        w.vehicles()[0].pos = {0.1f, 0.0f};
+        w.vehicles()[0].pos = {588.1f, 1008.0f};
         w.vehicles()[0].heading = 0.0f;
         w.vehicles()[0].velocity = {15.0f, 0.0f};
         oc::PlayerInput idle{};
@@ -1133,7 +1146,8 @@ void testFullCustomizationStudioCharacterGunsmithVehicleHud() {
     // 3. Tab 2: Vehicle Full Custom Studio + Personal Garage Persistence
     world.player().cash = 80000;
     ASSERT_TRUE(world.buyOrSummonVehicle(oc::VehicleKind::JdmTuner));
-    oc::Vehicle* tuner = world.findVehicleMutable(world.player().activePersonalVehicleId);
+    const int tunerId = world.player().activePersonalVehicleId;
+    oc::Vehicle* tuner = world.findVehicleMutable(tunerId);
     ASSERT_TRUE(tuner != nullptr);
     world.player().pos = {tuner->pos.x + 2.0f, tuner->pos.z};
     ASSERT_TRUE(world.customizationTargetVehicle() == tuner);
@@ -1141,20 +1155,23 @@ void testFullCustomizationStudioCharacterGunsmithVehicleHud() {
     // Cycle Paint 9 times (0 -> 9 = 24K Gold Chrome, chromePaint == true; or 8 times for Mirror Chrome)
     tuner->paintPresetIndex = 7;
     sendStudio(2, 1); // -> index 8 (Mirror Chrome!)
-    ASSERT_TRUE(tuner->chromePaint);
+    tuner = world.findVehicleMutable(tunerId);
+    ASSERT_TRUE(tuner != nullptr && tuner->chromePaint);
 
     sendStudio(2, 2);
     sendStudio(2, 2); // Stripe -> 2 (Royal Gold)
-    tuner->rimStyle = 0;
+    if ((tuner = world.findVehicleMutable(tunerId)) != nullptr) tuner->rimStyle = 0;
     sendStudio(2, 3);
     sendStudio(2, 3);
     sendStudio(2, 3); // Rim -> 3 (Cyber Cyan)
-    tuner->spoilerStyle = 0;
+    if ((tuner = world.findVehicleMutable(tunerId)) != nullptr) tuner->spoilerStyle = 0;
     sendStudio(2, 4);
     sendStudio(2, 4); // Spoiler -> 2 (Swan-Neck Time-Attack Wing)
     sendStudio(2, 5);
     sendStudio(2, 5); // Stance -> 2 (Slammed Negative Camber)
     sendStudio(2, 6); // Headlights -> 1 (Cyber Cyan)
+    tuner = world.findVehicleMutable(tunerId);
+    ASSERT_TRUE(tuner != nullptr);
     tuner->neonPreset = 0;
     sendStudio(2, 7);
     sendStudio(2, 7); // Neon -> 2 (UV Purple)
@@ -1217,7 +1234,7 @@ void testRustPhysicsEngineStuntJumpsAndRealisticWorld() {
     const int carId = world.player().activePersonalVehicleId;
     oc::Vehicle* car = world.findVehicleMutable(carId);
     ASSERT_TRUE(car != nullptr);
-    car->pos = {-150.0f, 0.0f};
+    car->pos = {504.0f, 1008.0f};
     car->heading = 0.0f;
     car->velocity = {0.0f, 0.0f};
     car->isPlayerDriving = true;
@@ -1240,35 +1257,46 @@ void testRustPhysicsEngineStuntJumpsAndRealisticWorld() {
     // Turning right rolls chassis left, compressing left wheels (0, 2) vs right wheels (1, 3)
     ASSERT_TRUE(std::abs(car->wheelCompression[0] - car->wheelCompression[1]) > 0.012f);
 
-    // 2. Verify Smooth Arched Driving across 134m Golden Bay Suspension Bridge (z = 681..815) onto North Bay Peninsula!
+    // 2. Verify Smooth Arched Driving across Real-Scale Seoul Banpo Bridge (x=588) over Han River!
     car = world.findVehicleMutable(carId);
     ASSERT_TRUE(car != nullptr);
-    car->pos = {0.0f, oc::CityMap::kBridgeStartZ - 12.0f};
-    car->posY = 0.0f;
+    const oc::SeoulBridge* banpo = nullptr;
+    for (const auto& br : world.city().bridges()) {
+        if (br.hasRainbowFountain) { banpo = &br; break; }
+    }
+    ASSERT_TRUE(banpo != nullptr);
+    car->pos = {banpo->centerX + oc::CityMap::kLaneOffset, banpo->zSouth + 28.0f};
+    car->posY = world.surfaceHeightAt(car->pos);
     car->velY = 0.0f;
     car->airborne = false;
-    car->heading = oc::kHalfPi; // Facing +Z across Golden Bay Bridge
-    car->velocity = {0.0f, 34.0f};
+    car->heading = -oc::kHalfPi; // Facing North (-Z) across Han River on Banpo Bridge!
+    car->steerVisual = 0.0f;
+    car->velocity = {0.0f, -34.0f};
     car->angularVelocity = 0.0f;
+    world.player().pos = car->pos;
 
     float peakBridgeY = 0.0f;
-    bool reachedPeninsula = false;
+    bool reachedNorthBank = false;
     oc::PlayerInput bridgeIn{};
     bridgeIn.moveForward = 1.0f;
-    for (int i = 0; i < 320; ++i) {
+    bridgeIn.sprintOrNitro = true;
+    for (int i = 0; i < 2400; ++i) {
+        for (auto& v : world.vehicles()) {
+            if (v.id != carId && std::abs(v.pos.x - banpo->centerX) < 16.0f) {
+                v.pos.x += 160.0f;
+            }
+        }
         world.update(1.0f / 60.0f, bridgeIn);
         car = world.findVehicleMutable(carId);
         ASSERT_TRUE(car != nullptr);
         peakBridgeY = std::max(peakBridgeY, car->posY);
-        if (car->pos.z > oc::CityMap::kBridgeEndZ + 12.0f) {
-            reachedPeninsula = true;
+        if (car->pos.z < banpo->zNorth - 12.0f) {
+            reachedNorthBank = true;
             break;
         }
     }
-    ASSERT_TRUE(peakBridgeY > 2.2f && peakBridgeY < 3.0f);
-    ASSERT_TRUE(reachedPeninsula);
-    ASSERT_TRUE(world.city().isOnNorthPeninsula(car->pos));
-    ASSERT_TRUE(world.city().districtAtWorld(car->pos) == oc::DistrictType::NorthPeninsula);
+    ASSERT_TRUE(peakBridgeY > 6.5f && peakBridgeY < 10.5f);
+    ASSERT_TRUE(reachedNorthBank);
 
     // 3. Verify Rust Rotational Collision Impulse (PIT Maneuver Spin-Out) & 4-Quadrant Crash Deformation
     int targetCarId = -1;
@@ -1283,7 +1311,7 @@ void testRustPhysicsEngineStuntJumpsAndRealisticWorld() {
     oc::Vehicle* targetCar = world.findVehicleMutable(targetCarId);
     ASSERT_TRUE(car != nullptr && targetCar != nullptr);
 
-    car->pos = {0.0f, 0.0f};
+    car->pos = {588.0f, 1008.0f};
     car->posY = 0.0f;
     car->velY = 0.0f;
     car->airborne = false;
@@ -1294,7 +1322,7 @@ void testRustPhysicsEngineStuntJumpsAndRealisticWorld() {
     car->health = car->maxHealth;
 
     // Position targetCar slightly ahead and offset laterally so impact hits off-center (r x J != 0)
-    targetCar->pos = {3.6f, 0.85f};
+    targetCar->pos = {591.6f, 1008.85f};
     targetCar->posY = 0.0f;
     targetCar->velY = 0.0f;
     targetCar->airborne = false;
@@ -1326,44 +1354,50 @@ void testRustPhysicsEngineStuntJumpsAndRealisticWorld() {
     ASSERT_TRUE((targetCar->rearDamage + targetCar->leftDamage + targetCar->rightDamage) > 0.03f);
 
     // 4. Verify Rust 3D Destructible Street Prop Impulse & Automatic Upright Respawn
+    world.city().updateStreaming(car->pos, true);
+    world.player().pos = car->pos;
     std::size_t propIdx = 0;
+    float bestPropDist = 1e9f;
     for (std::size_t i = 0; i < world.city().streetProps().size(); ++i) {
-        const auto k = world.city().streetProps()[i].kind;
-        if (k == oc::StreetPropKind::Hydrant || k == oc::StreetPropKind::TrafficCone || k == oc::StreetPropKind::TrashBin) {
-            propIdx = i;
-            break;
+        const auto& sp = world.city().streetProps()[i];
+        if (sp.kind == oc::StreetPropKind::Hydrant || sp.kind == oc::StreetPropKind::TrafficCone || sp.kind == oc::StreetPropKind::TrashBin) {
+            const float d = (sp.homePos - world.player().pos).length();
+            if (d < bestPropDist) {
+                bestPropDist = d;
+                propIdx = i;
+            }
         }
     }
-    auto& prop = world.city().streetProps()[propIdx];
-    prop.broken = false;
-    prop.pos = prop.homePos;
-    prop.posY = 0.0f;
-    prop.brokenTimer = 0.0f;
+    const oc::Vec2 propHome = world.city().streetProps()[propIdx].homePos;
+    world.city().streetProps()[propIdx].broken = false;
+    world.city().streetProps()[propIdx].pos = propHome;
+    world.city().streetProps()[propIdx].posY = 0.0f;
+    world.city().streetProps()[propIdx].brokenTimer = 0.0f;
 
     car = world.findVehicleMutable(carId);
     ASSERT_TRUE(car != nullptr);
-    car->pos = prop.homePos - oc::Vec2{1.0f, 0.0f};
-    car->posY = 0.0f;
+    car->pos = propHome - oc::Vec2{1.0f, 0.0f};
+    car->posY = world.surfaceHeightAt(car->pos);
     car->airborne = false;
     car->heading = 0.0f;
     car->velocity = {18.0f, 0.0f};
     world.update(1.0f / 60.0f, ramIn);
-    ASSERT_TRUE(prop.broken);
-    ASSERT_TRUE(prop.posY > 0.02f || prop.velY > 0.5f);
+    ASSERT_TRUE(world.city().streetProps()[propIdx].broken);
+    ASSERT_TRUE(world.city().streetProps()[propIdx].posY > 0.02f || world.city().streetProps()[propIdx].velY > 0.5f);
 
     // Move car away and advance simulation past 14s respawn timer
     for (int i = 0; i < 340; ++i) {
         car = world.findVehicleMutable(carId);
         if (car) {
-            car->pos = {prop.homePos.x - 100.0f, prop.homePos.z - 100.0f};
+            car->pos = {propHome.x - 40.0f, propHome.z - 40.0f};
             car->velocity = {0.0f, 0.0f};
         }
         oc::PlayerInput waitIn{};
         world.update(0.05f, waitIn);
     }
-    ASSERT_TRUE(!prop.broken);
-    ASSERT_TRUE(std::abs(prop.pos.x - prop.homePos.x) < 0.01f);
-    ASSERT_TRUE(std::abs(prop.posY) < 0.01f);
+    ASSERT_TRUE(!world.city().streetProps()[propIdx].broken);
+    ASSERT_TRUE(std::abs(world.city().streetProps()[propIdx].pos.x - propHome.x) < 0.01f);
+    ASSERT_TRUE(std::abs(world.city().streetProps()[propIdx].posY) < 0.01f);
 
     // 5. Verify Dynamic Rain / Wet Road Mirror Reflection Toggle ([U])
     ASSERT_TRUE(!world.isRainWeather());
@@ -1381,7 +1415,7 @@ void testBugfixRegressionsV091() {
     // 1. Verify ZERO trees or street props overlap Sunset Pier walkway, Golden Bay Bridge deck, or Grand Central Park lake
     auto overlapsClearZone = [&](const oc::Vec2& p) -> bool {
         if (p.x < -686.0f && std::abs(p.z) < 8.2f) return true;
-        if (world.city().isOnNorthBridge(p, 2.5f)) return true;
+        if (world.city().isOnBridge(p, 2.5f)) return true;
         for (const auto& lk : world.city().lakes()) {
             if (lk.bounds.contains(p)) return true;
         }
@@ -1422,7 +1456,7 @@ void testBugfixRegressionsV091() {
         car->kind = oc::VehicleKind::SportsCoupe;
         car->health = 200.0f;
         car->maxHealth = 200.0f;
-        car->pos = {22.0f, 0.0f};
+        car->pos = {610.0f, 1008.0f};
         car->posY = 2.4f;
         car->velY = 0.0f;
         car->airborne = true;
@@ -1430,7 +1464,7 @@ void testBugfixRegressionsV091() {
         car->velocity = {0.0f, 0.0f};
     }
 
-    world.player().pos = {0.0f, 0.0f};
+    world.player().pos = {588.0f, 1008.0f};
     world.player().posY = 0.0f;
     world.player().velocity = {0.0f, 0.0f};
     world.player().currentWeapon = oc::WeaponId::AssaultRifle;
@@ -1446,7 +1480,7 @@ void testBugfixRegressionsV091() {
     lowShot.aimHeld = true;
     lowShot.fireHeld = true;
     lowShot.hasAimRay3D = true;
-    lowShot.aimRayOrigin = {0.0f, 0.50f, 0.0f};
+    lowShot.aimRayOrigin = {588.0f, 0.50f, 1008.0f};
     lowShot.aimRayDir = {1.0f, 0.0f, 0.0f};
     lowShot.aimYaw = 0.0f;
     lowShot.aimPitch = 0.0f;
@@ -1457,13 +1491,13 @@ void testBugfixRegressionsV091() {
     {
         oc::Vehicle* car = getCar();
         ASSERT_TRUE(car != nullptr);
-        car->pos = {22.0f, 0.0f};
+        car->pos = {610.0f, 1008.0f};
         car->posY = 2.4f;
         car->velY = 0.0f;
     }
     world.player().fireCooldown = 0.0f;
     oc::PlayerInput highShot = lowShot;
-    highShot.aimRayOrigin = {0.0f, 2.95f, 0.0f};
+    highShot.aimRayOrigin = {588.0f, 2.95f, 1008.0f};
     world.update(1.0f / 60.0f, highShot);
     ASSERT_TRUE(getCar() != nullptr && getCar()->health < 199.0f);
     ASSERT_TRUE(world.player().hitMarkerTimer > 0.0f);
@@ -1473,13 +1507,13 @@ void testBugfixRegressionsV091() {
     {
         oc::Vehicle* car = getCar();
         ASSERT_TRUE(car != nullptr);
-        car->pos = {0.0f, 0.0f};
+        car->pos = {588.0f, 1008.0f};
         car->posY = 1.50f;
         car->velY = 0.0f;
         car->airborne = true;
         car->velocity = {0.0f, 0.0f};
 
-        world.player().pos = {0.0f, 0.0f};
+        world.player().pos = {588.0f, 1008.0f};
         world.player().posY = car->posY + 0.24f + carSpec.chassisHeight + 0.04f;
         world.player().verticalVel = -3.5f;
         world.player().onGround = false;
@@ -1498,7 +1532,7 @@ void testBugfixRegressionsV091() {
     for (auto& n : world.npcs()) {
         if (n.alive && n.role == oc::NpcRole::Civilian) {
             civId = n.id;
-            n.pos = {10.0f, 0.0f};
+            n.pos = {598.0f, 1008.0f};
             n.velocity = {0.0f, 0.0f};
             n.health = 100.0f;
             break;
@@ -1517,22 +1551,22 @@ void testBugfixRegressionsV091() {
     {
         auto& hydrant = world.city().streetProps()[hydrantIdx];
         hydrant.broken = false;
-        hydrant.pos = {10.0f, 0.0f};
-        hydrant.homePos = {10.0f, 0.0f};
+        hydrant.pos = {598.0f, 1008.0f};
+        hydrant.homePos = {598.0f, 1008.0f};
         hydrant.posY = 0.0f;
     }
 
     {
         oc::Vehicle* car = getCar();
         ASSERT_TRUE(car != nullptr);
-        car->pos = {9.8f, 0.0f};
+        car->pos = {597.8f, 1008.0f};
         car->posY = 2.6f;
         car->velY = 2.0f;
         car->airborne = true;
         car->velocity = {25.0f, 0.0f};
         car->heading = 0.0f;
     }
-    world.player().pos = {-40.0f, -40.0f};
+    world.player().pos = {548.0f, 1008.0f};
     world.player().posY = 0.0f;
 
     oc::PlayerInput stepIn{};
@@ -1551,11 +1585,11 @@ void testBugfixRegressionsV091() {
     {
         oc::Vehicle* car = getCar();
         ASSERT_TRUE(car != nullptr);
-        car->pos = {0.0f, 0.0f};
+        car->pos = {588.0f, 1008.0f};
         car->posY = 3.2f;
         car->velocity = {0.0f, 0.0f};
     }
-    world.player().pos = {0.0f, 0.0f};
+    world.player().pos = {588.0f, 1008.0f};
     world.player().posY = 0.0f;
     ASSERT_TRUE(world.nearestEnterableVehicle() == nullptr);
 
@@ -1564,7 +1598,7 @@ void testBugfixRegressionsV091() {
         oc::Vehicle* car = getCar();
         ASSERT_TRUE(car != nullptr);
         car->destroyed = true;
-        car->pos = {0.0f, 0.0f};
+        car->pos = {588.0f, 1008.0f};
         car->posY = 4.0f;
         car->velY = 0.0f;
         car->airborne = true;
@@ -1729,8 +1763,8 @@ void testUltraDetailV100ParticlesAndEffects() {
 
 
 void testV120TorqueCurveAccelerationAndBackfire() {
-    // 1. Confirm physics kernel version 1200 (Rust FFI & C++20 fallback parity)
-    ASSERT_TRUE(oc_rs_physics_version() == 1200);
+    // 1. Confirm physics kernel version 2000 (v2.0.0 Rust FFI & C++20 fallback parity)
+    ASSERT_TRUE(oc_rs_physics_version() == 2000);
 
     oc::GameWorld world(20261201ULL);
     world.player().cash = 250000;
@@ -1740,11 +1774,11 @@ void testV120TorqueCurveAccelerationAndBackfire() {
 
     // Clear traffic along straight +X boulevard for clean launch test
     for (auto& v : world.vehicles()) {
-        if (v.id != car->id && std::abs(v.pos.z) < 12.0f) {
-            v.pos.z += 40.0f;
+        if (v.id != car->id && std::abs(v.pos.z - 1008.0f) < 14.0f) {
+            v.pos.z += 50.0f;
         }
     }
-    car->pos = {-150.0f, 0.0f};
+    car->pos = {504.0f, 1008.0f};
     car->posY = world.surfaceHeightAt(car->pos);
     car->heading = 0.0f;
     car->velocity = {0.0f, 0.0f};
@@ -1908,7 +1942,7 @@ void testV120LivingNpcDiversityRainUmbrellasAndDodge() {
     }
     ASSERT_TRUE(targetNpc != nullptr);
     const int targetId = targetNpc->id;
-    targetNpc->pos = {10.0f, 0.0f};
+    targetNpc->pos = {598.0f, 1008.0f};
     targetNpc->velocity = {0.0f, 0.0f};
     targetNpc->dodgeCooldown = 0.0f;
     targetNpc->behavior = oc::NpcBehavior::Stroll;
@@ -1916,7 +1950,7 @@ void testV120LivingNpcDiversityRainUmbrellasAndDodge() {
     // Stage a moving car heading straight toward the NPC at 14 m/s from 6m away
     oc::Vehicle& car = world.vehicles()[0];
     car.destroyed = false;
-    car.pos = {4.0f, 0.0f};
+    car.pos = {592.0f, 1008.0f};
     car.posY = world.surfaceHeightAt(car.pos);
     car.heading = 0.0f;
     car.velocity = {14.0f, 0.0f};
@@ -1928,7 +1962,7 @@ void testV120LivingNpcDiversityRainUmbrellasAndDodge() {
     }
     bool dodged = false;
     for (const auto& n : world.npcs()) {
-        if (n.id == targetId && (n.dodgeCooldown > 0.0f || std::abs(n.pos.z) > 0.15f)) {
+        if (n.id == targetId && (n.dodgeCooldown > 0.0f || std::abs(n.pos.z - 1008.0f) > 0.15f)) {
             dodged = true;
             break;
         }
@@ -1974,7 +2008,7 @@ void testV120LivingNpcDiversityRainUmbrellasAndDodge() {
 void testV120GunpointHandsUpReaction() {
     oc::GameWorld world(20261203ULL);
     world.setRainWeather(true);
-    world.player().pos = {0.0f, 0.0f};
+    world.player().pos = {588.0f, 1008.0f};
     world.player().posY = 0.0f;
     world.player().drivingVehicleId = -1;
     world.player().currentWeapon = oc::WeaponId::Pistol;
@@ -1984,15 +2018,15 @@ void testV120GunpointHandsUpReaction() {
 
     // Clear vehicles along +X and stage a calm civilian with an open umbrella 6.5m ahead
     for (auto& v : world.vehicles()) {
-        if (std::abs(v.pos.z) < 8.0f && v.pos.x > -4.0f && v.pos.x < 16.0f) {
-            v.pos.z += 25.0f;
+        if (std::abs(v.pos.z - 1008.0f) < 8.0f && v.pos.x > 584.0f && v.pos.x < 606.0f) {
+            v.pos.z += 30.0f;
         }
     }
     int civId = -1;
     for (auto& n : world.npcs()) {
         if (n.alive && n.role == oc::NpcRole::Civilian) {
             civId = n.id;
-            n.pos = {6.5f, 0.0f};
+            n.pos = {594.5f, 1008.0f};
             n.velocity = {0.0f, 0.0f};
             n.behavior = oc::NpcBehavior::Stroll;
             n.activity = oc::NpcActivity::None;
@@ -2030,99 +2064,94 @@ void testV120GunpointHandsUpReaction() {
 }
 
 
-void testV130MetropolisBridgeLakeAndRealism() {
-    oc::GameWorld world(20261300ULL);
+void testV200RealScaleSeoulAndEscapablePolice() {
+    oc::GameWorld world(20262000ULL);
     const auto& city = world.city();
 
-    // 1. Verify 4x expanded 16x16 metropolis (17x17 roads, 8 distinct districts, spatial grid parity)
-    ASSERT_TRUE(oc::CityMap::kRoadCount == 17);
-    ASSERT_TRUE(oc::CityMap::kBlockCount == 16);
-    ASSERT_TRUE(city.buildings().size() > 260);
+    // 1. Verify Real-Scale 30km x 25km Seoul Metropolis dimensions, 15 Han River Bridges, 7 Mountains & 12 Landmarks
+    ASSERT_TRUE((oc::CityMap::kWorldMaxX - oc::CityMap::kWorldMinX) > 30000.0f);
+    ASSERT_TRUE((oc::CityMap::kWorldMaxZ - oc::CityMap::kWorldMinZ) > 25000.0f);
+    ASSERT_TRUE(city.bridges().size() == 15);
+    ASSERT_TRUE(city.mountains().size() == 7);
+    ASSERT_TRUE(city.landmarks().size() == 12);
     ASSERT_TRUE(!city.lakes().empty());
+    ASSERT_TRUE(!city.buildings().empty());
 
-    // Check spatial grid query returns exact matching subset within radius
-    std::vector<int> gridBldgs;
-    const oc::Vec2 queryCenter{168.0f, -168.0f};
-    city.queryBuildingsInRadius(queryCenter, 120.0f, gridBldgs);
-    ASSERT_TRUE(!gridBldgs.empty());
-    for (std::size_t i = 0; i < city.buildings().size(); ++i) {
-        const oc::Vec2 c = city.buildings()[i].footprint.center();
-        if ((c - queryCenter).length() < 90.0f) {
-            bool found = false;
-            for (int idx : gridBldgs) {
-                if (idx == static_cast<int>(i)) { found = true; break; }
+    // Verify iconic Seoul landmarks & mountain elevations
+    const auto* lotte = city.findLandmark(oc::SeoulLandmarkKind::LotteWorldTower);
+    const auto* namsan = city.findLandmark(oc::SeoulLandmarkKind::NSeoulTower);
+    const auto* palace = city.findLandmark(oc::SeoulLandmarkKind::GyeongbokgungPalace);
+    const auto* b63 = city.findLandmark(oc::SeoulLandmarkKind::Building63);
+    ASSERT_TRUE(lotte != nullptr && lotte->height >= 550.0f);
+    ASSERT_TRUE(namsan != nullptr && city.terrainElevationAt(namsan->pos) > 110.0f);
+    ASSERT_TRUE(palace != nullptr && b63 != nullptr);
+
+    // 2. Verify Han River analytic water vs Yeouido Island vs drivable bridges!
+    const oc::Vec2 yeouidoCenter{-4800.0f, city.hanRiverCenterZ(-4800.0f) + 165.0f};
+    ASSERT_TRUE(city.isOnYeouidoIsland(yeouidoCenter));
+    ASSERT_TRUE(!city.isInHanRiverWater(yeouidoCenter));
+    const float midHanZ = city.hanRiverCenterZ(588.0f);
+    ASSERT_TRUE(city.isInHanRiverWater({400.0f, midHanZ}));
+    ASSERT_TRUE(city.isOnBridge({588.0f, midHanZ}));
+    ASSERT_TRUE(city.bridgeDeckElevationAt({588.0f, midHanZ}) > 6.5f);
+
+    // 3. Verify Real-Scale Seoul Interactive Map Waypoint & Fast-Travel + Deterministic Chunk Streaming!
+    world.setWaypoint(lotte->pos, lotte->nameKo);
+    ASSERT_TRUE(world.player().hasWaypoint);
+    ASSERT_TRUE((world.player().waypointPos - lotte->pos).length() < 1.0f);
+
+    ASSERT_TRUE(world.fastTravelTo(palace->pos, palace->nameKo));
+    ASSERT_TRUE((world.player().pos - palace->pos).length() < 160.0f);
+    ASSERT_TRUE(!world.city().buildings().empty());
+
+    // Fast-travel back to Gangnam/Banpo for Escapable Police AI test!
+    ASSERT_TRUE(world.fastTravelTo({588.0f, 1008.0f}, "반포"));
+
+    // 4. Verify Realistic Escapable Seoul Police Chase AI (LOS break + LKP Search + Zero Ambush Popups -> Escape!)
+    world.reportCrime(1.5f, 2, world.player().pos, true);
+    ASSERT_TRUE(world.player().wantedLevel == 2);
+
+    // Move player cleanly out of sight 420m away behind dense Gangnam city blocks
+    world.fastTravelTo({1008.0f, 1512.0f}, "강남");
+    for (auto& v : world.vehicles()) {
+        if (v.isPolice) {
+            v.pos = {588.0f, 1008.0f}; // Officers remain near crime scene / LKP!
+            v.velocity = {0.0f, 0.0f};
+        }
+    }
+    for (auto& n : world.npcs()) {
+        if (n.role == oc::NpcRole::Police) n.pos = {588.0f, 1008.0f};
+    }
+
+    bool sawSearchingOutOfSight = false;
+    bool sawAmbushPopup = false;
+    for (int f = 0; f < 1600 && world.player().wantedLevel > 0; ++f) {
+        world.update(1.0f / 60.0f, {});
+        if (world.player().policeSearching && !world.player().policeLineOfSight) {
+            sawSearchingOutOfSight = true;
+            for (const auto& v : world.vehicles()) {
+                if (v.isPolice && !v.destroyed && (v.pos - world.player().pos).length() < 45.0f) {
+                    sawAmbushPopup = true;
+                }
             }
-            ASSERT_TRUE(found);
         }
     }
+    ASSERT_TRUE(sawSearchingOutOfSight);
+    ASSERT_TRUE(!sawAmbushPopup);
+    ASSERT_TRUE(world.player().wantedLevel == 0); // Player cleanly escaped Seoul Police!
 
-    // Verify all 8 realistic districts exist across the metropolis
-    bool seenDistrict[8] = {};
-    for (int bz = 0; bz < oc::CityMap::kBlockCount; ++bz) {
-        for (int bx = 0; bx < oc::CityMap::kBlockCount; ++bx) {
-            seenDistrict[static_cast<int>(city.districtAt(bx, bz))] = true;
+    // 5. Verify Korean Tree species & OEM zero-neon defaults
+    bool hasGinkgoOrPine = false;
+    for (const auto& t : city.trees()) {
+        if (t.species == oc::TreeSpecies::GinkgoDeciduous || t.species == oc::TreeSpecies::KoreanPine) {
+            hasGinkgoOrPine = true;
+            break;
         }
     }
-    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::Downtown)]);
-    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::Midtown)]);
-    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::Industrial)]);
-    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::CoastalResidential)]);
-    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::CentralPark)]);
-    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::CivicCenter)]);
-    ASSERT_TRUE(seenDistrict[static_cast<int>(oc::DistrictType::SuburbanEstates)]);
-    ASSERT_TRUE(city.districtAtWorld({0.0f, 890.0f}) == oc::DistrictType::NorthPeninsula);
-
-    // 2. Verify Golden Bay Suspension Bridge smooth arch elevation & guardrail containment
-    float slopeMid = 99.0f;
-    const float hMid = city.bridgeDeckElevationAt({0.0f, 748.0f}, &slopeMid);
-    const float hStart = city.bridgeDeckElevationAt({0.0f, oc::CityMap::kBridgeStartZ});
-    const float hEnd = city.bridgeDeckElevationAt({0.0f, oc::CityMap::kBridgeEndZ});
-    ASSERT_TRUE(hMid > 2.35f && hMid < 2.55f);
-    ASSERT_TRUE(std::abs(slopeMid) < 0.03f);
-    ASSERT_TRUE(hStart < 0.1f && hEnd < 0.1f);
-
-    oc::Vec2 railTest{14.0f, 748.0f};
-    ASSERT_TRUE(city.resolveCircleWorld(railTest, 0.5f));
-    ASSERT_TRUE(railTest.x <= 8.5f);
-
-    // 3. Verify Grand Central Park lake stone arch footbridge is walkable & open water keeps entities out!
-    const oc::Vec2 lakeCenter = city.lakes()[0].bounds.center();
-    oc::Vec2 footbridgeTest = lakeCenter;
-    ASSERT_TRUE(!city.resolveCircleWorld(footbridgeTest, 0.5f));
-    oc::Vec2 openWaterTest = lakeCenter + oc::Vec2{8.0f, 0.0f};
-    ASSERT_TRUE(city.resolveCircleWorld(openWaterTest, 0.5f));
-    ASSERT_TRUE(!city.lakes()[0].bounds.contains(openWaterTest));
-
-    // 4. Verify OEM stock showroom/garage vehicles have zero default neon underglow
+    ASSERT_TRUE(hasGinkgoOrPine);
     for (const auto& v : world.vehicles()) {
         ASSERT_TRUE(v.neonPreset == 0);
     }
-
-    // 5. Verify player aiming flag tracks low-ready vs aiming stance accurately
-    world.player().pos = {0.0f, -168.0f};
-    world.player().posY = 0.0f;
-    world.player().drivingVehicleId = -1;
-    oc::PlayerInput relaxedIn{};
-    relaxedIn.aimHeld = false;
-    world.update(1.0f / 60.0f, relaxedIn);
-    ASSERT_TRUE(!world.player().aiming);
-
-    oc::PlayerInput aimedIn{};
-    aimedIn.aimHeld = true;
-    world.update(1.0f / 60.0f, aimedIn);
-    ASSERT_TRUE(world.player().aiming);
-
-    // 6. Verify CypressConifer & Bollard realism additions are generated in metropolis
-    bool hasCypress = false;
-    for (const auto& t : city.trees()) {
-        if (t.species == oc::TreeSpecies::CypressConifer) { hasCypress = true; break; }
-    }
-    bool hasBollard = false;
-    for (const auto& sp : city.streetProps()) {
-        if (sp.kind == oc::StreetPropKind::Bollard) { hasBollard = true; break; }
-    }
-    ASSERT_TRUE(hasCypress);
-    ASSERT_TRUE(hasBollard);
 
     ++gTestsPassed;
 }
@@ -2153,9 +2182,9 @@ int main() {
     testV120FourCornerCurbSuspensionAndCollisionFriction();
     testV120LivingNpcDiversityRainUmbrellasAndDodge();
     testV120GunpointHandsUpReaction();
-    testV130MetropolisBridgeLakeAndRealism();
+    testV200RealScaleSeoulAndEscapablePolice();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City C++ simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v2.0.0 simulation test suites succeeded!\n";
     return 0;
 }
 

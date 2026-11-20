@@ -14,19 +14,19 @@ constexpr std::array<VehicleSpec, static_cast<std::size_t>(VehicleKind::Count)> 
     {VehicleKind::SportsCoupe,     "APEX GT",           "에이펙스 GT 스포츠카",    2.28f, 1.03f, 1.14f, 44.5f, 15.0f, 28.0f, 36.0f, 2.75f, 10.2f, 2.25f, 1340.0f, 175.0f, true,   4800},
     {VehicleKind::MuscleCar,       "DOMINATOR V8",      "도미네이터 V8 머슬카",    2.38f, 1.04f, 1.18f, 41.0f, 14.0f, 26.5f, 32.0f, 2.65f, 8.4f,  1.85f, 1540.0f, 195.0f, false,  3800},
     {VehicleKind::SUV,             "CAVALCADE XL",      "캐벌케이드 XL SUV",       2.48f, 1.12f, 1.54f, 35.0f, 13.0f, 21.5f, 30.0f, 2.35f, 9.2f,  2.50f, 2150.0f, 255.0f, false,  3200},
-    {VehicleKind::Taxi,            "METRO CAB",         "메트로 시티 택시",        2.26f, 1.00f, 1.26f, 35.5f, 13.5f, 22.0f, 32.0f, 2.60f, 9.4f,  2.20f, 1450.0f, 175.0f, false,     0},
+    {VehicleKind::Taxi,            "SEOUL HAECHI TAXI", "서울 해치 택시",          2.26f, 1.00f, 1.26f, 36.5f, 13.5f, 22.0f, 32.0f, 2.60f, 9.4f,  2.20f, 1450.0f, 175.0f, false,     0},
     {VehicleKind::Compact,         "BLISTA HATCH",      "블리스타 핫해치",         1.98f, 0.96f, 1.22f, 35.0f, 13.5f, 23.5f, 33.0f, 2.95f, 9.8f,  2.15f, 1180.0f, 150.0f, false,  1200},
-    {VehicleKind::DeliveryVan,     "CARGO RUNNER",      "카고 러너 밴",            2.68f, 1.14f, 1.86f, 29.5f, 11.0f, 17.5f, 28.0f, 2.05f, 8.8f,  2.75f, 2550.0f, 290.0f, false,     0},
-    {VehicleKind::Hypercar,        "ZENTORNO X",        "젠토르노 X 하이퍼카",     2.36f, 1.08f, 1.05f, 52.5f, 16.5f, 34.0f, 41.0f, 2.90f, 11.4f, 2.35f, 1280.0f, 210.0f, true,  22000},
-    {VehicleKind::ArmoredSuv,      "INSURGENT VIP",     "인서전트 VIP 방탄차",     2.58f, 1.16f, 1.66f, 38.5f, 14.0f, 25.0f, 34.0f, 2.30f, 9.6f,  2.40f, 3400.0f, 440.0f, false, 12000},
-    {VehicleKind::LuxurySedan,     "COGNOSCENTI S",     "코뇨센티 S 럭셔리 세단",  2.46f, 1.04f, 1.24f, 42.5f, 14.5f, 26.0f, 35.0f, 2.55f, 10.0f, 2.15f, 1780.0f, 225.0f, false,  6500},
-    {VehicleKind::PoliceCruiser,   "SBPD INTERCEPTOR",  "선셋베이 경찰 추격차",    2.38f, 1.04f, 1.24f, 45.5f, 15.5f, 28.5f, 38.0f, 2.70f, 10.4f, 2.25f, 1650.0f, 230.0f, false,     0},
+    {VehicleKind::DeliveryVan,     "SEOUL CARGO VAN",   "서울 카고 밴",            2.68f, 1.14f, 1.86f, 29.5f, 11.0f, 17.5f, 28.0f, 2.05f, 8.8f,  2.75f, 2550.0f, 290.0f, false,     0},
+    {VehicleKind::Hypercar,        "ZENTORNO X",        "젠토르노 X 하이퍼카",     2.36f, 1.08f, 1.05f, 54.5f, 16.5f, 34.5f, 41.0f, 2.90f, 11.4f, 2.35f, 1280.0f, 210.0f, true,  22000},
+    {VehicleKind::ArmoredSuv,      "INSURGENT VIP",     "인서전트 VIP 방탄차",     2.58f, 1.16f, 1.66f, 37.5f, 14.0f, 24.5f, 34.0f, 2.30f, 9.6f,  2.40f, 3400.0f, 440.0f, false, 12000},
+    {VehicleKind::LuxurySedan,     "GENESIS G90 S",     "제네시스 럭셔리 세단",    2.46f, 1.04f, 1.24f, 43.5f, 14.5f, 26.5f, 35.0f, 2.55f, 10.0f, 2.15f, 1780.0f, 225.0f, false,  6500},
+    {VehicleKind::PoliceCruiser,   "SEOUL POLICE PATROL","서울 경찰 순찰차",       2.38f, 1.04f, 1.24f, 40.5f, 15.0f, 25.5f, 36.0f, 2.65f, 10.0f, 2.25f, 1650.0f, 230.0f, false,     0},
     {VehicleKind::ClassicRoadster, "COQUETTE ROADSTER", "코케트 오픈 로드스터",    2.22f, 1.02f, 1.02f, 46.5f, 15.5f, 29.5f, 37.0f, 2.95f, 10.6f, 2.20f, 1220.0f, 165.0f, false,  5600},
     {VehicleKind::OffroadPickup,   "SANDKING 4X4",      "샌드킹 4x4 픽업트럭",     2.72f, 1.15f, 1.68f, 39.5f, 14.5f, 25.5f, 33.0f, 2.45f, 9.7f,  2.30f, 2480.0f, 320.0f, false,  4400},
-    {VehicleKind::JdmTuner,        "SULTAN RS TUNER",   "설탄 RS 드리프트 튜너",   2.26f, 1.05f, 1.16f, 48.0f, 15.5f, 31.0f, 38.0f, 3.05f, 10.1f, 1.98f, 1290.0f, 185.0f, true,   7800},
-    {VehicleKind::TrackPrototype,  "VALKYRIE LMP-R",    "발키리 LMP 트랙카",       2.44f, 1.10f, 1.00f, 57.5f, 17.5f, 37.5f, 45.0f, 3.10f, 12.6f, 2.45f, 1160.0f, 225.0f, true,  34000},
-    {VehicleKind::Ambulance,       "PARAMEDIC EMS",     "선셋베이 119 구급차",     2.76f, 1.15f, 1.90f, 38.0f, 13.0f, 22.5f, 32.0f, 2.20f, 9.2f,  2.60f, 2750.0f, 330.0f, false,     0},
-    {VehicleKind::FireTruck,       "SBFD FIRE ENGINE",  "선셋베이 중형 소방차",    3.08f, 1.18f, 1.96f, 36.5f, 12.0f, 21.0f, 31.0f, 2.00f, 9.0f,  2.70f, 4200.0f, 520.0f, false,     0}
+    {VehicleKind::JdmTuner,        "SULTAN RS TUNER",   "설탄 RS 드리프트 튜너",   2.26f, 1.05f, 1.16f, 48.5f, 15.5f, 31.0f, 38.0f, 3.05f, 10.1f, 1.98f, 1290.0f, 185.0f, true,   7800},
+    {VehicleKind::TrackPrototype,  "VALKYRIE LMP-R",    "발키리 LMP 트랙카",       2.44f, 1.10f, 1.00f, 58.5f, 17.5f, 37.5f, 45.0f, 3.10f, 12.6f, 2.45f, 1160.0f, 225.0f, true,  34000},
+    {VehicleKind::Ambulance,       "SEOUL 119 EMS",     "서울 119 구급차",         2.76f, 1.15f, 1.90f, 38.0f, 13.0f, 22.5f, 32.0f, 2.20f, 9.2f,  2.60f, 2750.0f, 330.0f, false,     0},
+    {VehicleKind::FireTruck,       "SEOUL 119 FIRE",    "서울 119 소방차",         3.08f, 1.18f, 1.96f, 36.5f, 12.0f, 21.0f, 31.0f, 2.00f, 9.0f,  2.70f, 4200.0f, 520.0f, false,     0}
 }};
 
 constexpr std::array<WeaponSpec, static_cast<std::size_t>(WeaponId::Count)> kWeaponSpecs = {{
@@ -336,8 +336,9 @@ void GameWorld::reset() {
     nextNpcId_ = 1;
 
     player_ = PlayerState{};
-    player_.pos = {14.5f, 14.5f};
-    player_.facingYaw = -kHalfPi;
+    player_.pos = CityMap::defaultSpawnPos();
+    player_.policeLastKnownPos = player_.pos;
+    player_.facingYaw = -kHalfPi; // Facing North toward Banpo Bridge, Han River & N Seoul Tower!
     player_.cash = 2500;
     player_.health = 100.0f;
     player_.maxHealth = 100.0f;
@@ -411,14 +412,15 @@ void GameWorld::reset() {
         sp.angVelRoll = 0.0f;
     }
 
+    city_.updateStreaming(player_.pos, true);
     player_.posY = surfaceHeightAt(player_.pos);
     player_.onGround = true;
 
     spawnInitialWorld();
-    pushBanner("WELCOME TO SUNSET BAY", "선셋 베이 시티에 오신 것을 환영합니다",
-               "[K] Custom Studio  |  [U] Rain Weather  |  [V] 1st/3rd Person",
-               "[K] 커스텀 스튜디오 · [U] 우천 날씨 · [V] 1·3인칭 · [P] 스마트폰",
-               {118, 192, 232, 255}, 4.8f);
+    pushBanner("WELCOME TO SEOUL (VULKAN)", "서울 메트로폴리스에 오신 것을 환영합니다",
+               "[M] Full Seoul Map  |  [K] Custom Studio  |  [U] Rain  |  [V] 1st/3rd Person",
+               "미니맵 터치/[M] 서울 전체 지도 · [K] 커스텀 · [U] 날씨 · [V] 1·3인칭",
+               {118, 192, 232, 255}, 5.2f);
 }
 
 void GameWorld::spawnParkedShowroomCars() {
@@ -428,6 +430,7 @@ void GameWorld::spawnParkedShowroomCars() {
         v.id = nextVehicleId_++;
         v.kind = kind;
         v.pos = pos;
+        v.posY = surfaceHeightAt(pos);
         v.heading = heading;
         v.health = spec.maxHealth;
         v.maxHealth = spec.maxHealth;
@@ -442,48 +445,43 @@ void GameWorld::spawnParkedShowroomCars() {
         vehicles_.push_back(v);
     };
 
-    // Starter sculpted cars parked along Central Crossroads & Midtown curbs (authentic OEM finishes)
-    addParked(VehicleKind::SportsCoupe,     { 22.5f,   7.2f},  0.0f,    {176,  30,  38, 255}, 0, 1);
-    addParked(VehicleKind::MuscleCar,       {  7.2f,  24.5f},  kHalfPi, { 34,  76, 134, 255}, 0, 0);
-    addParked(VehicleKind::LuxurySedan,     {-23.0f,  -7.2f},  kPi,     { 28,  32,  40, 255}, 0, 1);
-    addParked(VehicleKind::ClassicRoadster, { 26.5f,  -7.2f},  kPi,     {164,  32,  40, 255}, 0, 0);
-    addParked(VehicleKind::JdmTuner,        {-20.5f,  14.5f},  0.0f,    { 36,  82, 162, 255}, 0, 1);
-    addParked(VehicleKind::OffroadPickup,   {-14.5f,  76.0f}, -kHalfPi, {162,  76,  34, 255}, 0, 2);
+    // Starter CAD-sculpted cars parked cleanly along Banpo/Gangnam Boulevard ({588, 1008} crossroads!)
+    addParked(VehicleKind::SportsCoupe,     {605.5f, 1015.2f},  0.0f,    {168,  24,  34, 255}, 0, 1);
+    addParked(VehicleKind::LuxurySedan,     {595.2f, 1030.5f},  kHalfPi, { 26,  30,  38, 255}, 0, 1);
+    addParked(VehicleKind::MuscleCar,       {572.0f, 1000.8f},  kPi,     { 28,  68, 128, 255}, 0, 0);
+    addParked(VehicleKind::ClassicRoadster, {614.0f, 1000.8f},  kPi,     {154,  28,  36, 255}, 0, 0);
+    addParked(VehicleKind::JdmTuner,        {574.0f, 1022.5f},  0.0f,    { 32,  76, 158, 255}, 0, 1);
+    addParked(VehicleKind::SUV,             {580.8f, 1044.0f}, -kHalfPi, { 54,  62,  72, 255}, 0, 1);
+    addParked(VehicleKind::Taxi,            {595.2f,  986.0f}, -kHalfPi, {232, 114,  34, 255}, 0, 0);
 
-    // Downtown SBPD Precinct & Civic Center parked Interceptor cruisers + Midtown EMS Ambulance & Fire Engine
+    // Authentic Korean National Police (경찰 POLICE: Pearl White body + Navy/Yellow accents) & Seoul 119 EMS/Fire
     auto addPoliceParked = [&](Vec2 pos, float heading) {
         const auto& pspec = getVehicleSpec(VehicleKind::PoliceCruiser);
         Vehicle cruiser{};
         cruiser.id = nextVehicleId_++;
         cruiser.kind = VehicleKind::PoliceCruiser;
         cruiser.pos = pos;
+        cruiser.posY = surfaceHeightAt(pos);
         cruiser.heading = heading;
         cruiser.health = pspec.maxHealth;
         cruiser.maxHealth = pspec.maxHealth;
-        cruiser.paintColor = {20, 24, 32, 255};
-        cruiser.stripeColor = {240, 244, 248, 255};
+        cruiser.paintColor = {240, 244, 248, 255};
+        cruiser.stripeColor = {24, 54, 126, 255};
         cruiser.rimStyle = 2;
         cruiser.isParked = true;
         cruiser.isPolice = true;
         vehicles_.push_back(cruiser);
     };
-    addPoliceParked({  76.5f,   -7.2f}, 0.0f);
-    addPoliceParked({ 192.0f, -175.2f}, 0.0f);     // Civic Center SBPD HQ
-    addParked(VehicleKind::Ambulance, {  14.5f,  -24.5f}, -kHalfPi, {238, 240, 244, 255}, 0, 0);
-    addParked(VehicleKind::Ambulance, { 276.0f, -175.2f},  0.0f,    {238, 240, 244, 255}, 0, 0); // Bay Medical Center
-    addParked(VehicleKind::FireTruck, { -76.5f,   -7.2f},  0.0f,    {178,  28,  34, 255}, 0, 0);
+    addPoliceParked({656.0f, 1000.8f}, 0.0f);
+    addPoliceParked({520.0f, 1000.8f}, kPi);
+    addParked(VehicleKind::Ambulance, {595.2f, 1068.0f}, -kHalfPi, {242, 244, 248, 255}, 0, 0);
+    addParked(VehicleKind::FireTruck, {518.0f, 1015.2f},  0.0f,    {184,  28,  34, 255}, 0, 0);
 
-    // LUXURY AUTOS Dealership Showroom forecourt display lineup (clean factory finishes, zero default neon)
-    addParked(VehicleKind::TrackPrototype,  {105.0f,  21.5f}, -kHalfPi * 0.85f, {208, 214, 222, 255}, 0, 2, false);
-    addParked(VehicleKind::Hypercar,        {115.5f,  21.5f}, -kHalfPi,         {198, 146,  32, 255}, 0, 1, false);
-    addParked(VehicleKind::ClassicRoadster, {125.5f,  21.5f}, -kHalfPi * 1.10f, { 34,  86,  72, 255}, 0, 0, false);
-    addParked(VehicleKind::ArmoredSuv,      {135.0f,  21.5f}, -kHalfPi * 1.18f, { 52,  56,  62, 255}, 0, 2, true);
-
-    // Sunset Beach Boulevard, Pulse Nightclub & North Bay Lighthouse Peninsula parked cars
-    addParked(VehicleKind::JdmTuner,        {  24.0f,  -91.0f},  0.0f,    { 46,  54,  76, 255}, 0, 1, false);
-    addParked(VehicleKind::OffroadPickup,   {-680.0f,   20.0f},  kHalfPi, {168,  82,  36, 255}, 0, 2, false);
-    addParked(VehicleKind::ClassicRoadster, {-680.0f,  -22.0f}, -kHalfPi, {174,  34,  42, 255}, 0, 1, false);
-    addParked(VehicleKind::LuxurySedan,     {  12.0f,  892.0f}, -kHalfPi, { 34,  40,  52, 255}, 0, 1, false);
+    // GANGNAM EXOTIC SHOWROOM forecourt display lineup (x in [612..654], z ~ 1034, facing Banpo Blvd!)
+    addParked(VehicleKind::TrackPrototype,  {614.0f, 1034.0f}, -kHalfPi * 0.85f, {210, 216, 224, 255}, 0, 2, false);
+    addParked(VehicleKind::Hypercar,        {624.5f, 1034.0f}, -kHalfPi,         {198, 146,  32, 255}, 0, 1, false);
+    addParked(VehicleKind::ClassicRoadster, {635.0f, 1034.0f}, -kHalfPi * 1.10f, { 28,  82,  68, 255}, 0, 0, false);
+    addParked(VehicleKind::ArmoredSuv,      {645.5f, 1034.0f}, -kHalfPi * 1.18f, { 46,  50,  56, 255}, 0, 2, true);
 }
 
 void GameWorld::spawnInitialWorld() {
@@ -492,12 +490,12 @@ void GameWorld::spawnInitialWorld() {
     maintainCivilianPopulation();
     maintainPolicePopulation(0.0f);
 
-    // Ambient Harbor Industrial gang turf guards & bonus cash pickups
+    // Ambient Gangnam / Seocho back-alley syndicate guards & bonus cash pickups
     const std::array<Vec2, 4> turfSpots = {{
-        {210.0f, 210.0f},
-        {216.0f, 206.0f},
-        {292.0f, 212.0f},
-        {212.0f, 292.0f}
+        {760.0f, 1180.0f},
+        {768.0f, 1176.0f},
+        {842.0f, 1184.0f},
+        {762.0f, 1256.0f}
     }};
     for (const Vec2& p : turfSpots) {
         NpcCharacter g{};
@@ -612,16 +610,82 @@ void GameWorld::toggleRainWeather() {
 }
 
 float GameWorld::surfaceHeightAt(const Vec2& pos) const {
-    if (city_.isOnNorthBridge(pos, 1.5f)) {
-        return city_.bridgeDeckElevationAt(pos);
+    if (city_.isOnBridge(pos, 1.5f)) {
+        return std::max(city_.terrainElevationAt(pos), city_.bridgeDeckElevationAt(pos));
     }
-    if (city_.isOnNorthPeninsula(pos)) {
-        return city_.isOnRoad(pos, 0.1f) ? 0.0f : 0.10f;
+    const float base = city_.terrainElevationAt(pos);
+    return base + (city_.isOnRoad(pos, 0.1f) ? 0.0f : 0.08f);
+}
+
+void GameWorld::setWaypoint(const Vec2& pos, const std::string& labelKo) {
+    player_.hasWaypoint = true;
+    player_.waypointPos = {
+        clampf(pos.x, CityMap::kWorldMinX + 40.0f, CityMap::kWorldMaxX - 40.0f),
+        clampf(pos.z, CityMap::kWorldMinZ + 40.0f, CityMap::kWorldMaxZ - 40.0f)
+    };
+    player_.waypointLabelKo = labelKo;
+    const DistrictType d = city_.districtAtWorld(player_.waypointPos);
+    const std::string subKo = labelKo.empty()
+        ? (std::string(CityMap::districtNameKo(d)) + " GPS 목적지 설정 완료")
+        : (labelKo + " GPS 경로 안내 시작");
+    pushBanner("GPS WAYPOINT SET", "목적지 GPS 설정 완료",
+               CityMap::districtNameEn(d), subKo,
+               {92, 214, 248, 255}, 2.4f);
+}
+
+void GameWorld::clearWaypoint() {
+    player_.hasWaypoint = false;
+    player_.waypointLabelKo.clear();
+}
+
+bool GameWorld::fastTravelTo(const Vec2& targetPos, const std::string& labelKo) {
+    if (player_.wasted) return false;
+    Vec2 dest{
+        clampf(targetPos.x, CityMap::kWorldMinX + 90.0f, CityMap::kWorldMaxX - 90.0f),
+        clampf(targetPos.z, CityMap::kWorldMinZ + 90.0f, CityMap::kWorldMaxZ - 90.0f)
+    };
+    const int rx = city_.nearestRoadIndex(dest.x);
+    const int rz = city_.nearestRoadIndex(dest.z);
+    if (city_.isInHanRiverWater(dest, -12.0f) && !city_.isOnBridge(dest, 10.0f)) {
+        const float rCenter = city_.hanRiverCenterZ(dest.x);
+        const float rHw = city_.hanRiverHalfWidth(dest.x);
+        dest.z = (dest.z >= rCenter) ? (rCenter + rHw + 60.0f) : (rCenter - rHw - 60.0f);
+    } else if (!city_.isOnBridge(dest, 2.0f)) {
+        const float candX = city_.roadCoord(rx);
+        const float candZ = city_.roadCoord(rz);
+        if (std::abs(dest.x - candX) <= std::abs(dest.z - candZ)) {
+            dest.x = candX + CityMap::kLaneOffset;
+        } else {
+            dest.z = candZ + CityMap::kLaneOffset;
+        }
     }
-    if (pos.x < -684.0f) {
-        return (std::abs(pos.z) < 7.6f) ? 0.24f : 0.02f;
+
+    city_.updateStreaming(dest, true);
+    city_.resolveCircleWorld(dest, 2.2f);
+    const float gy = surfaceHeightAt(dest);
+
+    if (player_.drivingVehicleId >= 0) {
+        if (Vehicle* car = findVehicleMutable(player_.drivingVehicleId)) {
+            car->pos = dest;
+            car->posY = gy;
+            car->velocity = {0.0f, 0.0f};
+            car->velY = 0.0f;
+            car->angularVelocity = 0.0f;
+            car->airborne = false;
+        }
     }
-    return city_.isOnRoad(pos, 0.1f) ? 0.0f : 0.08f;
+    player_.pos = dest;
+    player_.posY = gy;
+    player_.velocity = {0.0f, 0.0f};
+    player_.verticalVel = 0.0f;
+    player_.onGround = true;
+
+    const DistrictType d = city_.districtAtWorld(dest);
+    const std::string koTitle = labelKo.empty() ? std::string(CityMap::districtNameKo(d)) : labelKo;
+    pushBanner("FAST TRAVEL ARRIVED", "빠른 이동 완료: " + koTitle,
+               CityMap::districtNameEn(d), std::string(CityMap::districtNameKo(d)) + " 도착",
+               {102, 232, 168, 255}, 2.8f);
+    return true;
 }
 
 float GameWorld::computePlayerSupportHeight(const Vec2& pos, float currentY, Vec2* platformCarryVel) const {
@@ -652,10 +716,10 @@ float GameWorld::computePlayerSupportHeight(const Vec2& pos, float currentY, Vec
         float topY = 0.0f;
         if (prop.kind == StreetPropKind::Crate) {
             r = 0.58f;
-            topY = 0.92f;
+            topY = surfaceHeightAt(prop.pos) + 0.92f;
         } else if (prop.kind == StreetPropKind::Bench) {
             r = 0.72f;
-            topY = 0.56f;
+            topY = surfaceHeightAt(prop.pos) + 0.56f;
         } else {
             continue;
         }
@@ -669,7 +733,7 @@ float GameWorld::computePlayerSupportHeight(const Vec2& pos, float currentY, Vec
 
 float GameWorld::requiredEvadeDuration() const {
     if (player_.wantedLevel <= 0) return 0.0f;
-    return 11.5f + 2.5f * static_cast<float>(player_.wantedLevel);
+    return 9.5f + 2.5f * static_cast<float>(player_.wantedLevel);
 }
 
 void GameWorld::clearWantedLevel(bool showToast) {
@@ -678,6 +742,7 @@ void GameWorld::clearWantedLevel(bool showToast) {
     player_.wantedHeat = 0.0f;
     player_.wantedEvadeTimer = 0.0f;
     player_.policeLineOfSight = false;
+    player_.policeSearching = false;
 
     for (auto& v : vehicles_) {
         if (v.isPolice && !v.isPlayerDriving) {
@@ -692,9 +757,9 @@ void GameWorld::clearWantedLevel(bool showToast) {
 
     if (hadWanted && showToast) {
         pushAudio(AudioEventType::MissionComplete, 0.85f);
-        pushBanner("WANTED CLEARED", "경찰 수배 해제!",
-                   "SBPD called off the pursuit", "경찰 추격망을 완전히 따돌렸습니다",
-                   {98, 242, 154, 255}, 2.8f);
+        pushBanner("WANTED EVADED!", "경찰 따돌림 성공!",
+                   "Seoul Police called off the search", "경찰 수색망을 완전히 따돌렸습니다!",
+                   {98, 242, 154, 255}, 3.0f);
     }
 }
 
@@ -720,7 +785,7 @@ void GameWorld::reportCrime(float heatDelta, int minStars, const Vec2& crimePos,
         }
     }
 
-    // Minor 1-star offenses with zero witnesses on deserted piers/corners go unreported
+    // Minor 1-star offenses with zero witnesses go unreported
     if (!policeWitness && !civilianWitness && player_.wantedLevel == 0 && minStars <= 1 && heatDelta < 2.2f) {
         return;
     }
@@ -738,6 +803,8 @@ void GameWorld::reportCrime(float heatDelta, int minStars, const Vec2& crimePos,
     player_.wantedLevel = nextStars;
     player_.wantedEvadeTimer = 0.0f;
     player_.policeLineOfSight = true;
+    player_.policeSearching = false;
+    player_.policeLastKnownPos = crimePos;
 
     for (auto& npc : npcs_) {
         if (npc.alive && npc.role == NpcRole::Police && (npc.pos - crimePos).lengthSq() <= 68.0f * 68.0f) {
@@ -745,7 +812,7 @@ void GameWorld::reportCrime(float heatDelta, int minStars, const Vec2& crimePos,
         }
     }
     for (auto& v : vehicles_) {
-        if (!v.destroyed && v.isPolice && v.hasNpcDriver && (v.pos - crimePos).lengthSq() <= 85.0f * 85.0f) {
+        if (!v.destroyed && v.isPolice && v.hasNpcDriver && (v.pos - crimePos).lengthSq() <= 95.0f * 95.0f) {
             v.sirenActive = true;
         }
     }
@@ -753,13 +820,14 @@ void GameWorld::reportCrime(float heatDelta, int minStars, const Vec2& crimePos,
     if (nextStars > prevStars) {
         pushAudio(AudioEventType::PoliceDispatch, 0.92f);
         if (nextStars >= 4 && prevStars < 4) {
-            pushBanner("SWAT TACTICAL ALERT!", "특수기동대 SWAT 긴급 투입!",
-                       "Heavy armored units & rifle teams inbound", "방탄 전술차량 및 중무장 기동대가 출동했습니다!",
+            pushBanner("SEOUL SWAT ALERT!", "서울 경찰특공대 긴급 투입!",
+                       "Break line-of-sight behind buildings to evade",
+                       "건물 뒤로 시야를 끊고 수색망을 벗어나 도주하세요!",
                        {255, 76, 86, 255}, 3.0f);
         } else if (prevStars == 0) {
-            pushBanner("WANTED BY SBPD!", "선셋베이 경찰 수배 발령!",
-                       "Outrun police sightlines or bribe via [P] Phone",
-                       "경찰 시야를 벗어나 도주하거나 [P] 스마트폰·도색으로 해제하세요",
+            pushBanner("WANTED BY SEOUL POLICE!", "서울 경찰 수배 발령!",
+                       "Break line of sight & hide to shake off pursuit",
+                       "골목·건물 뒤로 경찰 시야를 벗어나면 도주할 수 있습니다",
                        {88, 178, 255, 255}, 2.9f);
         }
     }
@@ -951,14 +1019,18 @@ void GameWorld::maintainTrafficPopulation() {
     int attempts = 0;
     const int centerRx = city_.nearestRoadIndex(center.x);
     const int centerRz = city_.nearestRoadIndex(center.z);
-    while (activeTraffic < kTargetTraffic && attempts < 56) {
+    while (activeTraffic < kTargetTraffic && attempts < 64) {
         ++attempts;
         const bool horiz = rng_.chance(0.5f);
         const int baseRoad = horiz ? centerRz : centerRx;
-        const int roadIdx = std::clamp(baseRoad + rng_.rangeInt(-3, 3), 1, CityMap::kRoadCount - 2);
+        const int minR = horiz ? (CityMap::kMinRoadIndexZ + 1) : (CityMap::kMinRoadIndexX + 1);
+        const int maxR = horiz ? (CityMap::kMaxRoadIndexZ - 1) : (CityMap::kMaxRoadIndexX - 1);
+        const int roadIdx = std::clamp(baseRoad + rng_.rangeInt(-3, 3), minR, maxR);
         const int dir = rng_.chance(0.5f) ? 1 : -1;
         const float axisBase = horiz ? center.x : center.z;
-        const float along = clampf(axisBase + rng_.range(-240.0f, 240.0f), -650.0f, 650.0f);
+        const float axisMin = horiz ? (CityMap::kWorldMinX + 40.0f) : (CityMap::kWorldMinZ + 40.0f);
+        const float axisMax = horiz ? (CityMap::kWorldMaxX - 40.0f) : (CityMap::kWorldMaxZ - 40.0f);
+        const float along = clampf(axisBase + rng_.range(-240.0f, 240.0f), axisMin, axisMax);
         const float rCoord = city_.roadCoord(roadIdx);
 
         float heading = 0.0f;
@@ -972,6 +1044,9 @@ void GameWorld::maintainTrafficPopulation() {
             const Vec2 right = rightFromHeading(heading);
             spawnPos = {rCoord + right.x * CityMap::kLaneOffset, along};
         }
+
+        if (city_.isInHanRiverWater(spawnPos, -6.0f) && !city_.isOnBridge(spawnPos, 0.0f)) continue;
+        if (city_.terrainElevationAt(spawnPos) > 42.0f) continue;
 
         const float distPlayer = (spawnPos - center).length();
         if (distPlayer < 32.0f || distPlayer > 265.0f) continue;
@@ -1044,15 +1119,19 @@ void GameWorld::maintainCivilianPopulation() {
     }
 
     int attempts = 0;
-    const int centerNodeU = std::clamp(city_.nearestSidewalkNodeIndex(center.x), 1, CityMap::kSidewalkNodeCount - 2);
-    const int centerNodeV = std::clamp(city_.nearestSidewalkNodeIndex(center.z), 1, CityMap::kSidewalkNodeCount - 2);
-    while (civCount < kTargetCivilians && attempts < 80) {
+    const int minU = CityMap::kMinRoadIndexX * 2 + 1;
+    const int maxU = CityMap::kMaxRoadIndexX * 2 - 2;
+    const int minV = CityMap::kMinRoadIndexZ * 2 + 1;
+    const int maxV = CityMap::kMaxRoadIndexZ * 2 - 2;
+    const int centerNodeU = std::clamp(city_.nearestSidewalkNodeIndex(center.x), minU, maxU);
+    const int centerNodeV = std::clamp(city_.nearestSidewalkNodeIndex(center.z), minV, maxV);
+    while (civCount < kTargetCivilians && attempts < 96) {
         ++attempts;
-        // Pick a pure block-front sidewalk segment near the player in the 16x16 lattice
         const bool horiz = rng_.chance(0.5f);
-        const int uNear = std::clamp(centerNodeU + rng_.rangeInt(-5, 5), 1, CityMap::kSidewalkNodeCount - 2);
-        const int vNear = std::clamp(centerNodeV + rng_.rangeInt(-5, 5), 1, CityMap::kSidewalkNodeCount - 2);
-        const int blk = std::clamp(((horiz ? uNear : vNear) - 1) / 2, 0, CityMap::kBlockCount - 1);
+        const int uNear = std::clamp(centerNodeU + rng_.rangeInt(-5, 5), minU, maxU);
+        const int vNear = std::clamp(centerNodeV + rng_.rangeInt(-5, 5), minV, maxV);
+        const int rawIdx = horiz ? uNear : vNear;
+        const int blk = (rawIdx >= 1) ? ((rawIdx - 1) / 2) : ((rawIdx - 2) / 2);
         const int sideLine = horiz ? vNear : uNear;
         const bool fwdOrder = rng_.chance(0.5f);
 
@@ -1072,6 +1151,7 @@ void GameWorld::maintainCivilianPopulation() {
         const Vec2 laneOffset = rightFromHeading(edgeYaw) * 0.45f;
         const float frac = rng_.range(0.15f, 0.85f);
         Vec2 p = a + (b - a) * frac + laneOffset;
+        if (city_.isInHanRiverWater(p, -8.0f) || city_.terrainElevationAt(p) > 36.0f) continue;
 
         const float d = (p - center).length();
         if (d < 20.0f || d > 185.0f) continue;
@@ -1221,38 +1301,42 @@ void GameWorld::spawnPoliceOfficerNear(const Vec2& pos, bool swat) {
     Vec2 spawnP = pos;
     city_.resolveCircleWorld(spawnP, 0.45f);
 
-    const int nearU = std::clamp(city_.nearestSidewalkNodeIndex(spawnP.x), 1, CityMap::kSidewalkNodeCount - 2);
-    const int nearV = std::clamp(city_.nearestSidewalkNodeIndex(spawnP.z), 1, CityMap::kSidewalkNodeCount - 2);
-    const int partnerU = (nearU % 2 == 1) ? (nearU + 1) : (nearU - 1);
+    const int minU = CityMap::kMinRoadIndexX * 2 + 1;
+    const int maxU = CityMap::kMaxRoadIndexX * 2 - 2;
+    const int minV = CityMap::kMinRoadIndexZ * 2 + 1;
+    const int maxV = CityMap::kMaxRoadIndexZ * 2 - 2;
+    const int nearU = std::clamp(city_.nearestSidewalkNodeIndex(spawnP.x), minU, maxU);
+    const int nearV = std::clamp(city_.nearestSidewalkNodeIndex(spawnP.z), minV, maxV);
+    const int partnerU = ((nearU & 1) != 0) ? (nearU + 1) : (nearU - 1);
 
     NpcCharacter cop{};
     cop.id = nextNpcId_++;
     cop.role = NpcRole::Police;
     cop.isSwat = swat;
-    cop.behavior = (player_.wantedLevel > 0) ? NpcBehavior::CombatEngage : NpcBehavior::Stroll;
+    cop.behavior = (player_.wantedLevel > 0 && player_.policeLineOfSight) ? NpcBehavior::CombatEngage : NpcBehavior::Stroll;
     cop.pos = spawnP;
     cop.homeAnchor = spawnP;
     cop.navFromU = nearU;
     cop.navFromV = nearV;
     cop.navToU = partnerU;
     cop.navToV = nearV;
-    cop.facingYaw = std::atan2(playerWorldPos().z - spawnP.z, playerWorldPos().x - spawnP.x);
-    cop.fireCooldown = rng_.range(0.32f, 0.72f);
+    cop.facingYaw = std::atan2(player_.policeLastKnownPos.z - spawnP.z, player_.policeLastKnownPos.x - spawnP.x);
+    cop.fireCooldown = rng_.range(0.38f, 0.78f);
 
     if (swat) {
-        cop.health = 145.0f;
-        cop.maxHealth = 145.0f;
-        cop.walkSpeed = 1.75f;
-        cop.weapon = (player_.wantedLevel >= 5 && rng_.chance(0.45f)) ? WeaponId::CombatMG : WeaponId::AssaultRifle;
+        cop.health = 140.0f;
+        cop.maxHealth = 140.0f;
+        cop.walkSpeed = 1.72f;
+        cop.weapon = (player_.wantedLevel >= 5 && rng_.chance(0.40f)) ? WeaponId::CombatMG : WeaponId::AssaultRifle;
         cop.outfitTop = {26, 32, 42, 255};
         cop.outfitBottom = {20, 24, 32, 255};
     } else {
-        cop.health = 95.0f;
-        cop.maxHealth = 95.0f;
-        cop.walkSpeed = 1.62f;
+        cop.health = 92.0f;
+        cop.maxHealth = 92.0f;
+        cop.walkSpeed = 1.60f;
         cop.weapon = (player_.wantedLevel >= 3)
-                         ? (rng_.chance(0.5f) ? WeaponId::Shotgun : WeaponId::SMG)
-                         : ((player_.wantedLevel >= 2 && rng_.chance(0.4f)) ? WeaponId::SMG : WeaponId::Pistol);
+                         ? (rng_.chance(0.45f) ? WeaponId::Shotgun : WeaponId::SMG)
+                         : ((player_.wantedLevel >= 2 && rng_.chance(0.35f)) ? WeaponId::SMG : WeaponId::Pistol);
         cop.outfitTop = {22, 44, 86, 255};
         cop.outfitBottom = {18, 28, 52, 255};
     }
@@ -1267,13 +1351,16 @@ void GameWorld::maintainPolicePopulation(float dt) {
 
     const Vec2 center = playerWorldPos();
     const bool wanted = (player_.wantedLevel > 0);
+    const bool searchingOutOfSight = wanted && !player_.policeLineOfSight;
 
+    // Keep active pursuing cruisers up to 380m so outrunning them genuinely creates distance
+    // (instead of deleting at 165m and teleport-respawning right in front of the player!)
     vehicles_.erase(
         std::remove_if(vehicles_.begin(), vehicles_.end(), [&](const Vehicle& v) {
             if (!v.isPolice || v.isPlayerDriving || v.isMissionTarget) return false;
             if (v.destroyed && v.destroyedTimer > 8.0f) return true;
             if (v.isParked) return false;
-            const float maxDist = wanted ? 165.0f : 280.0f;
+            const float maxDist = wanted ? 380.0f : 310.0f;
             return (v.pos - center).length() > maxDist;
         }),
         vehicles_.end());
@@ -1288,32 +1375,43 @@ void GameWorld::maintainPolicePopulation(float dt) {
         if (n.alive && n.role == NpcRole::Police) ++activeOfficers;
     }
 
-    const int targetCruisers = wanted ? std::min(5, 1 + player_.wantedLevel) : 2;
-    const int targetOfficers = wanted ? std::min(9, 2 + player_.wantedLevel + (player_.wantedLevel >= 4 ? 2 : 0)) : 3;
+    // While player has broken line of sight & is evading, NEVER teleport fresh cops around the player!
+    if (searchingOutOfSight) {
+        return;
+    }
 
-    if (wanted && policeSpawnCooldown_ > 0.0f && activeCruisers > 0 && activeOfficers > 0) {
+    const int targetCruisers = wanted ? std::min(4, 1 + (player_.wantedLevel + 1) / 2) : 2;
+    const int targetOfficers = wanted ? std::min(6, 1 + player_.wantedLevel) : 3;
+
+    if (wanted && policeSpawnCooldown_ > 0.0f && activeCruisers > 0) {
         return;
     }
 
     bool spawnedWantedWave = false;
+    const Vec2 dispatchAnchor = wanted ? player_.policeLastKnownPos : center;
+    const int centerRx = city_.nearestRoadIndex(dispatchAnchor.x);
+    const int centerRz = city_.nearestRoadIndex(dispatchAnchor.z);
 
     int attempts = 0;
-    const int centerRx = city_.nearestRoadIndex(center.x);
-    const int centerRz = city_.nearestRoadIndex(center.z);
-    while (activeCruisers < targetCruisers && attempts < 42) {
+    while (activeCruisers < targetCruisers && attempts < 48) {
         ++attempts;
         const bool horiz = rng_.chance(0.5f);
         const int nearIdx = horiz ? centerRz : centerRx;
-        const int spread = wanted ? 1 : 3;
-        const int roadIdx = std::clamp(nearIdx + rng_.rangeInt(-spread, spread), 1, CityMap::kRoadCount - 2);
+        const int minR = horiz ? (CityMap::kMinRoadIndexZ + 1) : (CityMap::kMinRoadIndexX + 1);
+        const int maxR = horiz ? (CityMap::kMaxRoadIndexZ - 1) : (CityMap::kMaxRoadIndexX - 1);
+        const int spread = wanted ? 2 : 3;
+        const int roadIdx = std::clamp(nearIdx + rng_.rangeInt(-spread, spread), minR, maxR);
         const float rCoord = city_.roadCoord(roadIdx);
-        const float distOff = wanted ? (rng_.chance(0.5f) ? rng_.range(42.0f, 82.0f) : rng_.range(-82.0f, -42.0f))
-                                     : rng_.range(-200.0f, 200.0f);
-        const float along = clampf((horiz ? center.x : center.z) + distOff, -650.0f, 650.0f);
+        // Spawn reinforcements realistically down the boulevard (115m..225m away — zero popup ambush!)
+        const float distOff = wanted ? (rng_.chance(0.5f) ? rng_.range(115.0f, 215.0f) : rng_.range(-215.0f, -115.0f))
+                                     : rng_.range(-230.0f, 230.0f);
+        const float axisMin = horiz ? (CityMap::kWorldMinX + 40.0f) : (CityMap::kWorldMinZ + 40.0f);
+        const float axisMax = horiz ? (CityMap::kWorldMaxX - 40.0f) : (CityMap::kWorldMaxZ - 40.0f);
+        const float along = clampf((horiz ? dispatchAnchor.x : dispatchAnchor.z) + distOff, axisMin, axisMax);
 
         int dir = rng_.chance(0.5f) ? 1 : -1;
         if (wanted) {
-            dir = ((horiz ? center.x : center.z) >= along) ? 1 : -1;
+            dir = ((horiz ? dispatchAnchor.x : dispatchAnchor.z) >= along) ? 1 : -1;
         }
 
         float heading = 0.0f;
@@ -1328,23 +1426,26 @@ void GameWorld::maintainPolicePopulation(float dt) {
             spawnPos = {rCoord + right.x * CityMap::kLaneOffset, along};
         }
 
+        if (city_.isInHanRiverWater(spawnPos, -6.0f) && !city_.isOnBridge(spawnPos, 0.0f)) continue;
+        if (city_.terrainElevationAt(spawnPos) > 40.0f) continue;
+
         const float distPlayer = (spawnPos - center).length();
         if (wanted) {
-            if (distPlayer < 34.0f || distPlayer > 118.0f) continue;
+            if (distPlayer < 105.0f || distPlayer > 245.0f) continue;
         } else {
-            if (distPlayer < 38.0f || distPlayer > 240.0f) continue;
+            if (distPlayer < 45.0f || distPlayer > 250.0f) continue;
         }
 
         bool tooClose = false;
         for (const auto& other : vehicles_) {
-            if ((other.pos - spawnPos).length() < 11.0f) {
+            if ((other.pos - spawnPos).length() < 12.0f) {
                 tooClose = true;
                 break;
             }
         }
         if (tooClose) continue;
 
-        const bool swatTruck = wanted && player_.wantedLevel >= 4 && rng_.chance(0.42f);
+        const bool swatTruck = wanted && player_.wantedLevel >= 4 && rng_.chance(0.38f);
         const VehicleKind kind = swatTruck ? VehicleKind::ArmoredSuv : VehicleKind::PoliceCruiser;
         const auto& spec = getVehicleSpec(kind);
 
@@ -1352,16 +1453,18 @@ void GameWorld::maintainPolicePopulation(float dt) {
         cruiser.id = nextVehicleId_++;
         cruiser.kind = kind;
         cruiser.pos = spawnPos;
+        cruiser.posY = surfaceHeightAt(spawnPos);
         cruiser.heading = heading;
-        cruiser.velocity = forwardFromHeading(heading) * (wanted ? 22.0f : 14.5f);
+        cruiser.velocity = forwardFromHeading(heading) * (wanted ? 18.0f : 13.5f);
         cruiser.health = spec.maxHealth;
         cruiser.maxHealth = spec.maxHealth;
-        cruiser.paintColor = swatTruck ? ColorRGBA{22, 26, 34, 255} : ColorRGBA{20, 24, 32, 255};
-        cruiser.stripeColor = {242, 246, 252, 255};
+        // Authentic Korean National Police livery (White + Navy stripe) or dark Tactical SWAT SUV
+        cruiser.paintColor = swatTruck ? ColorRGBA{24, 28, 36, 255} : ColorRGBA{240, 244, 248, 255};
+        cruiser.stripeColor = swatTruck ? ColorRGBA{220, 224, 232, 255} : ColorRGBA{24, 54, 126, 255};
         cruiser.mattePaint = swatTruck;
         cruiser.rimStyle = 2;
-        cruiser.engineUpgradeLevel = wanted ? (player_.wantedLevel >= 3 ? 2 : 1) : 0;
-        cruiser.armorUpgradeLevel = swatTruck ? 2 : (player_.wantedLevel >= 3 ? 1 : 0);
+        cruiser.engineUpgradeLevel = 0; // Fair stock cruiser performance — no unfair AI speed cheats!
+        cruiser.armorUpgradeLevel = swatTruck ? 2 : 0;
         cruiser.hasNpcDriver = true;
         cruiser.isPolice = true;
         cruiser.sirenActive = wanted;
@@ -1375,15 +1478,20 @@ void GameWorld::maintainPolicePopulation(float dt) {
     }
 
     attempts = 0;
-    const int centerNodeU = std::clamp(city_.nearestSidewalkNodeIndex(center.x), 1, CityMap::kSidewalkNodeCount - 2);
-    const int centerNodeV = std::clamp(city_.nearestSidewalkNodeIndex(center.z), 1, CityMap::kSidewalkNodeCount - 2);
+    const int minU = CityMap::kMinRoadIndexX * 2 + 1;
+    const int maxU = CityMap::kMaxRoadIndexX * 2 - 2;
+    const int minV = CityMap::kMinRoadIndexZ * 2 + 1;
+    const int maxV = CityMap::kMaxRoadIndexZ * 2 - 2;
+    const int centerNodeU = std::clamp(city_.nearestSidewalkNodeIndex(dispatchAnchor.x), minU, maxU);
+    const int centerNodeV = std::clamp(city_.nearestSidewalkNodeIndex(dispatchAnchor.z), minV, maxV);
     while (activeOfficers < targetOfficers && attempts < 48) {
         ++attempts;
         const bool horiz = rng_.chance(0.5f);
-        const int nodeSpread = wanted ? 2 : 5;
-        const int nearNodeU = std::clamp(centerNodeU + rng_.rangeInt(-nodeSpread, nodeSpread), 1, CityMap::kSidewalkNodeCount - 2);
-        const int nearNodeV = std::clamp(centerNodeV + rng_.rangeInt(-nodeSpread, nodeSpread), 1, CityMap::kSidewalkNodeCount - 2);
-        const int blk = std::clamp(((horiz ? nearNodeU : nearNodeV) - 1) / 2, 0, CityMap::kBlockCount - 1);
+        const int nodeSpread = wanted ? 3 : 5;
+        const int nearNodeU = std::clamp(centerNodeU + rng_.rangeInt(-nodeSpread, nodeSpread), minU, maxU);
+        const int nearNodeV = std::clamp(centerNodeV + rng_.rangeInt(-nodeSpread, nodeSpread), minV, maxV);
+        const int rawIdx = horiz ? nearNodeU : nearNodeV;
+        const int blk = (rawIdx >= 1) ? ((rawIdx - 1) / 2) : ((rawIdx - 2) / 2);
         const int sideLine = horiz ? nearNodeV : nearNodeU;
 
         const int n0 = 2 * blk + 1;
@@ -1398,12 +1506,13 @@ void GameWorld::maintainPolicePopulation(float dt) {
         const Vec2 segDir = (b - a).normalized();
         const float edgeYaw = std::atan2(segDir.z, segDir.x);
         const Vec2 p = a + (b - a) * rng_.range(0.2f, 0.8f) + rightFromHeading(edgeYaw) * 0.45f;
+        if (city_.isInHanRiverWater(p, -8.0f) || city_.terrainElevationAt(p) > 36.0f) continue;
 
         const float d = (p - center).length();
         if (wanted) {
-            if (d < 26.0f || d > 76.0f) continue;
+            if (d < 55.0f || d > 135.0f) continue;
         } else {
-            if (d < 26.0f || d > 175.0f) continue;
+            if (d < 32.0f || d > 180.0f) continue;
         }
 
         bool tooCloseNpc = false;
@@ -1415,14 +1524,14 @@ void GameWorld::maintainPolicePopulation(float dt) {
         }
         if (tooCloseNpc) continue;
 
-        const bool swat = wanted && player_.wantedLevel >= 4 && rng_.chance(0.58f);
+        const bool swat = wanted && player_.wantedLevel >= 4 && rng_.chance(0.50f);
         spawnPoliceOfficerNear(p, swat);
         ++activeOfficers;
         if (wanted) spawnedWantedWave = true;
     }
 
     if (spawnedWantedWave) {
-        policeSpawnCooldown_ = 1.45f;
+        policeSpawnCooldown_ = 5.5f; // Realistic dispatch delay instead of 1.45s spam!
     }
 }
 
@@ -1430,12 +1539,17 @@ void GameWorld::updateWantedSystem(float dt) {
     if (player_.wantedLevel <= 0) {
         player_.wantedEvadeTimer = 0.0f;
         player_.policeLineOfSight = false;
+        player_.policeSearching = false;
         return;
     }
 
     const Vec2 pPos = playerWorldPos();
-    const float officerSightRange = 54.0f + ((player_.wantedLevel >= 4) ? 8.0f : 0.0f);
-    const float cruiserSightRange = 64.0f + ((player_.wantedLevel >= 4) ? 10.0f : 0.0f);
+    const float weatherVis = rainWeather_ ? 0.76f : 1.0f;
+    const float nightVis = isNightTime() ? 0.80f : 1.0f;
+    const float visScale = weatherVis * nightVis;
+
+    const float officerSightRange = (48.0f + ((player_.wantedLevel >= 4) ? 6.0f : 0.0f)) * visScale;
+    const float cruiserSightRange = (74.0f + ((player_.wantedLevel >= 4) ? 10.0f : 0.0f)) * visScale;
 
     bool hasLos = false;
     for (const auto& npc : npcs_) {
@@ -1443,7 +1557,11 @@ void GameWorld::updateWantedSystem(float dt) {
         const Vec2 delta = pPos - npc.pos;
         const float dist = delta.length();
         if (dist <= officerSightRange) {
-            if (dist < 14.0f || city_.raycastBuildings(npc.pos, delta / dist, dist) < 0.0f) {
+            const Vec2 dir = delta / std::max(dist, 0.001f);
+            const float facingDot = forwardFromHeading(npc.facingYaw).dot(dir);
+            // Realistic vision cone: full range ahead, shorter peripheral/rear awareness (18m)
+            const float effRange = (facingDot > 0.15f) ? officerSightRange : std::min(officerSightRange, 18.0f);
+            if (dist <= effRange && (dist < 6.0f || city_.raycastBuildings(npc.pos, dir, dist) < 0.0f)) {
                 hasLos = true;
                 break;
             }
@@ -1456,7 +1574,10 @@ void GameWorld::updateWantedSystem(float dt) {
             const Vec2 delta = pPos - v.pos;
             const float dist = delta.length();
             if (dist <= cruiserSightRange) {
-                if (dist < 16.0f || city_.raycastBuildings(v.pos, delta / dist, dist) < 0.0f) {
+                const Vec2 dir = delta / std::max(dist, 0.001f);
+                const float facingDot = forwardFromHeading(v.heading).dot(dir);
+                const float effRange = (facingDot > 0.20f) ? cruiserSightRange : std::min(cruiserSightRange, 24.0f);
+                if (dist <= effRange && (dist < 8.0f || city_.raycastBuildings(v.pos, dir, dist) < 0.0f)) {
                     hasLos = true;
                     break;
                 }
@@ -1466,10 +1587,22 @@ void GameWorld::updateWantedSystem(float dt) {
 
     if (hasLos) {
         player_.policeLineOfSight = true;
-        player_.wantedEvadeTimer = std::max(0.0f, player_.wantedEvadeTimer - dt * 1.85f);
+        player_.policeSearching = false;
+        player_.policeLastKnownPos = pPos;
+        player_.wantedEvadeTimer = std::max(0.0f, player_.wantedEvadeTimer - dt * 1.15f);
     } else {
         player_.policeLineOfSight = false;
-        player_.wantedEvadeTimer += dt;
+        player_.policeSearching = true;
+        // Stealth bonus when hiding slow/parked out of sight or away from LKP!
+        const float pSpd = (playerVehicle() != nullptr) ? playerVehicle()->speed() : player_.velocity.length();
+        const float distLkp = (pPos - player_.policeLastKnownPos).length();
+        float evadeRate = 1.0f;
+        if (pSpd < 3.5f && distLkp > 35.0f) {
+            evadeRate = 1.55f; // Hiding quietly in alley/park accelerates escape!
+        } else if (distLkp > 140.0f) {
+            evadeRate = 1.35f; // Outran search zone!
+        }
+        player_.wantedEvadeTimer += dt * evadeRate;
         if (player_.wantedEvadeTimer >= requiredEvadeDuration()) {
             clearWantedLevel(true);
         }
@@ -1529,9 +1662,13 @@ bool GameWorld::tryEnterOrExitVehicle() {
         const auto& spec = getVehicleSpec(best->kind);
         Vec2 driverSide = best->pos - rightFromHeading(best->heading) * (spec.halfWidth + 0.95f);
         city_.resolveCircleWorld(driverSide, 0.45f);
-        const int nearU = std::clamp(city_.nearestSidewalkNodeIndex(driverSide.x), 1, CityMap::kSidewalkNodeCount - 2);
-        const int nearV = std::clamp(city_.nearestSidewalkNodeIndex(driverSide.z), 1, CityMap::kSidewalkNodeCount - 2);
-        const int partnerU = (nearU % 2 == 1) ? (nearU + 1) : (nearU - 1);
+        const int minU = CityMap::kMinRoadIndexX * 2 + 1;
+        const int maxU = CityMap::kMaxRoadIndexX * 2 - 2;
+        const int minV = CityMap::kMinRoadIndexZ * 2 + 1;
+        const int maxV = CityMap::kMaxRoadIndexZ * 2 - 2;
+        const int nearU = std::clamp(city_.nearestSidewalkNodeIndex(driverSide.x), minU, maxU);
+        const int nearV = std::clamp(city_.nearestSidewalkNodeIndex(driverSide.z), minV, maxV);
+        const int partnerU = ((nearU & 1) != 0) ? (nearU + 1) : (nearU - 1);
 
         if (best->isPolice) {
             spawnPoliceOfficerNear(driverSide, best->kind == VehicleKind::ArmoredSuv);
@@ -2642,11 +2779,12 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
         Vehicle exo{};
         exo.id = nextVehicleId_++;
         exo.kind = VehicleKind::Hypercar;
-        exo.pos = {-168.0f + 7.2f, -150.0f};
+        exo.pos = {756.0f + 7.2f, 1092.0f};
+        exo.posY = surfaceHeightAt(exo.pos);
         exo.heading = kHalfPi;
         exo.maxHealth = 230.0f;
         exo.health = 230.0f;
-        exo.paintColor = {250, 202, 44, 255};
+        exo.paintColor = {216, 168, 38, 255};
         exo.customSpoiler = true;
         exo.rimStyle = 1;
         exo.isParked = true;
@@ -2675,8 +2813,8 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
         mission_.targetVehicleId = exo.id;
         mission_.currentObjectivePos = exo.pos;
         mission_.objectiveRadius = 6.5f;
-        mission_.objectiveEn = "Steal the golden VIP Zentorno X in Sunset District!";
-        mission_.objectiveKo = "선셋 구역의 황금색 VIP 젠토르노 X 하이퍼카를 탈취하세요!";
+        mission_.objectiveEn = "Steal the golden VIP Zentorno X in Gangnam!";
+        mission_.objectiveKo = "강남 구역의 황금색 VIP 젠토르노 X 하이퍼카를 탈취하세요!";
 
         pushAudio(AudioEventType::MissionStart, 1.0f);
         pushBanner("VIP EXOTIC DELIVERY", "미션 시작: 하이퍼카 탈취 & 배달",
@@ -2690,11 +2828,12 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
             Vehicle racer{};
             racer.id = nextVehicleId_++;
             racer.kind = VehicleKind::SportsCoupe;
-            racer.pos = {0.0f, -84.0f + CityMap::kLaneOffset};
+            racer.pos = {588.0f, 1008.0f + CityMap::kLaneOffset};
+            racer.posY = surfaceHeightAt(racer.pos);
             racer.heading = 0.0f;
             racer.maxHealth = 190.0f;
             racer.health = 190.0f;
-            racer.paintColor = {68, 238, 118, 255};
+            racer.paintColor = {44, 152, 92, 255};
             racer.customSpoiler = true;
             racer.isPlayerDriving = true;
             vehicles_.push_back(racer);
@@ -2702,13 +2841,13 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
         }
 
         raceCheckpoints_ = {
-            {84.0f, -84.0f},
-            {168.0f, -84.0f},
-            {168.0f, 0.0f},
-            {168.0f, 84.0f},
-            {84.0f, 84.0f},
-            {0.0f, 84.0f},
-            {0.0f, 0.0f}
+            {672.0f, 1008.0f},
+            {756.0f, 1008.0f},
+            {756.0f, 1092.0f},
+            {756.0f, 1176.0f},
+            {672.0f, 1176.0f},
+            {588.0f, 1176.0f},
+            {588.0f, 1008.0f}
         };
 
         mission_.kind = ActiveMissionKind::StreetSprint;
@@ -2723,14 +2862,14 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
         mission_.objectiveKo = "제한 시간 내에 체크포인트 1 / 7 지점을 통과하세요!";
 
         pushAudio(AudioEventType::MissionStart, 1.0f);
-        pushBanner("MIDNIGHT STREET SPRINT", "미션 시작: 도심 스트리트 레이스",
+        pushBanner("GANGNAM STREET SPRINT", "미션 시작: 강남 스트리트 레이스",
                    "Hit all 7 checkpoints! +8s per gate", "7개 체크포인트를 질주하세요! (통과 시 +8초)",
                    {112, 255, 118, 255}, 3.5f);
         return true;
     }
 
     if (poiKind == PoiKind::MissionGangRaid) {
-        const Vec2 raidCenter{252.0f, 224.0f};
+        const Vec2 raidCenter{756.0f, 1176.0f};
         const std::array<Vec2, 5> offsets = {{
             {-7.0f, -5.0f}, {7.0f, -5.0f}, {-8.0f, 6.0f}, {8.0f, 6.0f}, {0.0f, -9.0f}
         }};
@@ -2759,13 +2898,13 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
         mission_.enemiesRemaining = static_cast<int>(offsets.size());
         mission_.currentObjectivePos = raidCenter;
         mission_.objectiveRadius = 12.0f;
-        mission_.objectiveEn = "Eliminate the 5 Harbor Syndicate enforcers!";
-        mission_.objectiveKo = "항구 구역의 신디케이트 조직원 5명을 소탕하세요!";
+        mission_.objectiveEn = "Eliminate the 5 Syndicate enforcers!";
+        mission_.objectiveKo = "강남 조직 거점의 신디케이트 조직원 5명을 소탕하세요!";
 
         pushAudio(AudioEventType::MissionStart, 1.0f);
-        pushBanner("HARBOR SYNDICATE RAID", "미션 시작: 항구 갱단 소탕",
+        pushBanner("SEOUL SYNDICATE RAID", "미션 시작: 조직 거점 소탕",
                    "Wipe out the armed crew & secure the cash briefcase!",
-                   "무장 갱단을 제압하고 현금 가방을 회수하세요!",
+                   "무장 조직원을 제압하고 현금 가방을 회수하세요!",
                    {255, 132, 48, 255}, 3.5f);
         return true;
     }
@@ -2775,6 +2914,9 @@ bool GameWorld::startMissionFromPoi(PoiKind poiKind) {
 
 void GameWorld::update(float dt, const PlayerInput& input) {
     dt = std::clamp(dt, 0.0f, 0.05f);
+    elapsedTime_ += dt;
+    const float targetWet = rainWeather_ ? 0.92f : 0.0f;
+    wetRoadFactor_ += (targetWet - wetRoadFactor_) * std::min(1.0f, dt * (rainWeather_ ? 0.45f : 0.08f));
 
     // 1 game hour = 25 real seconds (~10 min full 24h cycle)
     advanceTimeOfDayHours(dt / 25.0f);
@@ -2817,7 +2959,8 @@ void GameWorld::update(float dt, const PlayerInput& input) {
             player_.wasted = false;
             player_.lastDeathWasBusted = false;
             player_.drivingVehicleId = -1;
-            player_.pos = wasBusted ? Vec2{76.5f, -14.5f} : Vec2{14.5f, 14.5f};
+            player_.pos = wasBusted ? Vec2{656.0f, 1000.8f} : CityMap::defaultSpawnPos();
+            city_.updateStreaming(player_.pos, true);
             player_.posY = surfaceHeightAt(player_.pos);
             player_.verticalVel = 0.0f;
             player_.onGround = true;
@@ -2851,9 +2994,23 @@ void GameWorld::update(float dt, const PlayerInput& input) {
         return;
     }
 
+    // Stream real-scale 30km x 25km Seoul chunks smoothly around the player
+    const Vec2 pPos = playerWorldPos();
+    city_.updateStreaming(pPos, false);
+
+    // Clear custom Seoul Map GPS waypoint upon arrival
+    if (player_.hasWaypoint && (pPos - player_.waypointPos).length() < 26.0f) {
+        const std::string lbl = player_.waypointLabelKo.empty()
+            ? std::string(CityMap::districtNameKo(city_.districtAtWorld(pPos)))
+            : player_.waypointLabelKo;
+        clearWaypoint();
+        pushBanner("DESTINATION REACHED", "목적지 도착: " + lbl,
+                   "GPS route completed", "설정한 목적지에 도착했습니다",
+                   {102, 236, 168, 255}, 2.4f);
+    }
+
     // Detect nearby POI (shops & mission coronas)
     activePoi_ = nullptr;
-    const Vec2 pPos = playerWorldPos();
     for (const auto& poi : city_.pois()) {
         if ((pPos - poi.pos).length() <= poi.radius + 1.5f) {
             activePoi_ = &poi;
@@ -3660,21 +3817,22 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
 
     auto samplePointGroundH = [&](const Vec2& p, float* outSlope) -> float {
         if (outSlope) *outSlope = 0.0f;
-        if (city_.isOnNorthBridge(p, 1.5f)) {
+        if (city_.isOnBridge(p, 1.5f)) {
             float slopeZ = 0.0f;
             const float bh = city_.bridgeDeckElevationAt(p, &slopeZ);
-            if (outSlope) {
-                *outSlope = std::atan(slopeZ * fwdBefore.z);
+            const float th = city_.terrainElevationAt(p);
+            if (bh >= th) {
+                if (outSlope) {
+                    *outSlope = std::atan(slopeZ * fwdBefore.z);
+                }
+                return bh;
             }
-            return bh;
         }
-        if (city_.isOnNorthPeninsula(p)) {
-            return city_.isOnRoad(p, 0.1f) ? 0.0f : 0.10f;
+        const float th = city_.terrainElevationAt(p);
+        if (outSlope && th > 0.01f) {
+            *outSlope = std::atan(city_.terrainSlopeAlong(p, fwdBefore));
         }
-        if (p.x < -684.0f) {
-            return (std::abs(p.z) < 7.6f) ? 0.24f : 0.02f;
-        }
-        return city_.isOnRoad(p, 0.1f) ? 0.0f : 0.08f;
+        return th + (city_.isOnRoad(p, 0.1f) ? 0.0f : 0.08f);
     };
 
     float rampSlopePitch = 0.0f;
@@ -3886,27 +4044,30 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
         desiredHeading = (v.aiDirection > 0) ? kHalfPi : -kHalfPi;
     }
 
-    // Check intersection turning
+    // Check intersection turning across signed 30km x 25km Seoul avenues (avoid driving into Han River!)
     const int nearRx = city_.nearestRoadIndex(v.pos.x);
     const int nearRz = city_.nearestRoadIndex(v.pos.z);
     const Vec2 interCenter{city_.roadCoord(nearRx), city_.roadCoord(nearRz)};
-    const int interKey = nearRz * 32 + nearRx;
+    const int interKey = nearRz * 1024 + nearRx;
 
     if ((v.pos - interCenter).length() < 3.6f && v.lastTurnIntersectionKey != interKey) {
-        const bool atCityEdge = (v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRx >= CityMap::kRoadCount - 1) ||
-                                                        (v.aiDirection < 0 && nearRx <= 0))) ||
-                                (!v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRz >= CityMap::kRoadCount - 1) ||
-                                                         (v.aiDirection < 0 && nearRz <= 0)));
+        const Vec2 probeAhead = interCenter + forwardFromHeading(desiredHeading) * (CityMap::kBlockPitch * 0.75f);
+        const bool waterAhead = city_.isInHanRiverWater(probeAhead, -6.0f) && !city_.isOnBridge(probeAhead, 0.0f);
+        const bool atCityEdge = waterAhead ||
+                                (v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRx >= CityMap::kMaxRoadIndexX - 1) ||
+                                                        (v.aiDirection < 0 && nearRx <= CityMap::kMinRoadIndexX + 1))) ||
+                                (!v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRz >= CityMap::kMaxRoadIndexZ - 1) ||
+                                                         (v.aiDirection < 0 && nearRz <= CityMap::kMinRoadIndexZ + 1)));
         if (atCityEdge || rng_.chance(0.28f)) {
             v.aiHorizontalRoad = !v.aiHorizontalRoad;
             v.aiRoadIndex = v.aiHorizontalRoad ? nearRz : nearRx;
             if (v.aiHorizontalRoad) {
-                if (nearRx <= 0) v.aiDirection = 1;
-                else if (nearRx >= CityMap::kRoadCount - 1) v.aiDirection = -1;
+                if (nearRx <= CityMap::kMinRoadIndexX + 1) v.aiDirection = 1;
+                else if (nearRx >= CityMap::kMaxRoadIndexX - 1) v.aiDirection = -1;
                 else v.aiDirection = rng_.chance(0.5f) ? 1 : -1;
             } else {
-                if (nearRz <= 0) v.aiDirection = 1;
-                else if (nearRz >= CityMap::kRoadCount - 1) v.aiDirection = -1;
+                if (nearRz <= CityMap::kMinRoadIndexZ + 1) v.aiDirection = 1;
+                else if (nearRz >= CityMap::kMaxRoadIndexZ - 1) v.aiDirection = -1;
                 else v.aiDirection = rng_.chance(0.5f) ? 1 : -1;
             }
             v.lastTurnIntersectionKey = interKey;
@@ -4027,10 +4188,21 @@ void GameWorld::updatePoliceVehicleAi(float dt, Vehicle& v) {
     v.sirenActive = true;
     v.sirenPhase = std::fmod(v.sirenPhase + dt * 2.65f, 1.0f);
 
-    const Vec2 pPos = playerWorldPos();
+    const bool hasVisual = player_.policeLineOfSight;
+    const Vec2 livePos = playerWorldPos();
     const Vec2 pVel = (playerVehicle() != nullptr) ? playerVehicle()->velocity : player_.velocity;
-    const Vec2 toPlayer = pPos - v.pos;
-    const float dist = toPlayer.length();
+
+    // When out of sight (Searching), police ONLY know policeLastKnownPos — ZERO psychic wall-hack tracking!
+    const Vec2 chasePos = hasVisual ? livePos : player_.policeLastKnownPos;
+    const Vec2 toTarget = chasePos - v.pos;
+    const float dist = toTarget.length();
+
+    // Once a searching cruiser reaches the Last Known Position without re-spotting the player,
+    // switch into normal avenue patrol searching instead of hovering magically on top of the player!
+    if (!hasVisual && dist < 24.0f) {
+        updateTrafficAi(dt, v);
+        return;
+    }
 
     // Scatter pedestrians directly ahead of a screaming siren cruiser
     if (v.speed() > 8.0f) {
@@ -4038,10 +4210,10 @@ void GameWorld::updatePoliceVehicleAi(float dt, Vehicle& v) {
         triggerCivilianPanicNear(v.pos + fwdNow * 6.5f, 8.5f);
     }
 
-    // Tactical stop & officer dismount when closing in on a slow or on-foot suspect
+    // Tactical stop & officer dismount ONLY when visually confirming a slow/on-foot suspect
     const bool suspectSlow = (player_.drivingVehicleId < 0) || (pVel.length() < 5.5f);
-    if (suspectSlow && dist < 17.5f) {
-        const float toYaw = std::atan2(toPlayer.z, toPlayer.x);
+    if (hasVisual && suspectSlow && dist < 17.5f) {
+        const float toYaw = std::atan2(toTarget.z, toTarget.x);
         const float steer = clampf(angleDiff(v.heading, toYaw) * 1.6f, -1.0f, 1.0f);
         const bool hardStop = (dist < 12.5f);
         stepVehiclePhysics(dt, v, hardStop ? 0.0f : -0.55f, steer, hardStop, false);
@@ -4054,21 +4226,21 @@ void GameWorld::updatePoliceVehicleAi(float dt, Vehicle& v) {
         return;
     }
 
-    // Choose pursuit waypoint: direct intercept when clear, or avenue-grid routing around city blocks
-    Vec2 navTarget = pPos + pVel * clampf(dist * 0.018f, 0.0f, 0.65f);
-    if (dist > 20.0f && city_.raycastBuildings(v.pos, toPlayer / std::max(0.01f, dist), std::min(dist, 40.0f)) >= 0.0f) {
+    // Choose pursuit waypoint: direct intercept when visually clear, or avenue-grid routing around city blocks
+    Vec2 navTarget = hasVisual ? (chasePos + pVel * clampf(dist * 0.015f, 0.0f, 0.55f)) : chasePos;
+    if (dist > 20.0f && city_.raycastBuildings(v.pos, toTarget / std::max(0.01f, dist), std::min(dist, 42.0f)) >= 0.0f) {
         const int nearRx = city_.nearestRoadIndex(v.pos.x);
         const int nearRz = city_.nearestRoadIndex(v.pos.z);
         const float rx = city_.roadCoord(nearRx);
         const float rz = city_.roadCoord(nearRz);
         const bool onVertAvenue = std::abs(v.pos.x - rx) < std::abs(v.pos.z - rz);
-        if (onVertAvenue && std::abs(pPos.z - v.pos.z) > 13.0f) {
-            const float stepZ = (pPos.z >= v.pos.z) ? 26.0f : -26.0f;
-            const float laneX = rx + ((pPos.z >= v.pos.z) ? -CityMap::kLaneOffset : CityMap::kLaneOffset);
+        if (onVertAvenue && std::abs(chasePos.z - v.pos.z) > 13.0f) {
+            const float stepZ = (chasePos.z >= v.pos.z) ? 26.0f : -26.0f;
+            const float laneX = rx + ((chasePos.z >= v.pos.z) ? -CityMap::kLaneOffset : CityMap::kLaneOffset);
             navTarget = {laneX, v.pos.z + stepZ};
-        } else if (!onVertAvenue && std::abs(pPos.x - v.pos.x) > 13.0f) {
-            const float stepX = (pPos.x >= v.pos.x) ? 26.0f : -26.0f;
-            const float laneZ = rz + ((pPos.x >= v.pos.x) ? CityMap::kLaneOffset : -CityMap::kLaneOffset);
+        } else if (!onVertAvenue && std::abs(chasePos.x - v.pos.x) > 13.0f) {
+            const float stepX = (chasePos.x >= v.pos.x) ? 26.0f : -26.0f;
+            const float laneZ = rz + ((chasePos.x >= v.pos.x) ? CityMap::kLaneOffset : -CityMap::kLaneOffset);
             navTarget = {v.pos.x + stepX, laneZ};
         } else {
             navTarget = {rx, rz};
@@ -4097,7 +4269,7 @@ void GameWorld::updatePoliceVehicleAi(float dt, Vehicle& v) {
 
     const float desiredYaw = std::atan2(navTarget.z - v.pos.z, navTarget.x - v.pos.x);
     const float yawErr = angleDiff(v.heading, desiredYaw);
-    float steer = clampf(yawErr * 1.95f, -1.0f, 1.0f);
+    float steer = clampf(yawErr * 1.85f, -1.0f, 1.0f);
 
     // Slight lane swerve around civilian traffic cars directly ahead
     const Vec2 fwd = forwardFromHeading(v.heading);
@@ -4113,12 +4285,14 @@ void GameWorld::updatePoliceVehicleAi(float dt, Vehicle& v) {
         }
     }
 
-    const float targetSpeed = 26.5f + 3.4f * static_cast<float>(player_.wantedLevel);
-    const bool sharpTurn = std::abs(yawErr) > 0.78f && v.speed() > 17.0f;
-    const float throttle = sharpTurn ? -0.35f : ((v.speed() < targetSpeed) ? 0.95f : 0.25f);
-    const bool useNitro = (player_.wantedLevel >= 3) && (dist > 32.0f) && (std::abs(yawErr) < 0.22f);
+    // Fair realistic pursuit speed (moderate search speed when out of sight, zero unfair AI nitro!)
+    const float targetSpeed = hasVisual
+        ? (22.5f + 2.2f * static_cast<float>(player_.wantedLevel))
+        : 16.5f;
+    const bool sharpTurn = std::abs(yawErr) > 0.72f && v.speed() > 15.0f;
+    const float throttle = sharpTurn ? -0.35f : ((v.speed() < targetSpeed) ? 0.90f : 0.18f);
 
-    stepVehiclePhysics(dt, v, throttle, steer, sharpTurn && v.speed() > 23.0f, useNitro);
+    stepVehiclePhysics(dt, v, throttle, steer, sharpTurn && v.speed() > 21.0f, false);
 }
 
 void GameWorld::updateVehicles(float dt) {
@@ -4408,12 +4582,14 @@ bool GameWorld::isCrosswalkSafeForPedestrian(int fromU, int fromV, int toU, int 
 }
 
 void GameWorld::chooseNextSidewalkTarget(NpcCharacter& npc, bool fleeing, const Vec2& dangerPos) {
-    const int minIdx = 1;
-    const int maxIdx = CityMap::kSidewalkNodeCount - 2; // 16
-    const int curU = std::clamp(npc.navToU, minIdx, maxIdx);
-    const int curV = std::clamp(npc.navToV, minIdx, maxIdx);
-    const int prevU = std::clamp(npc.navFromU, minIdx, maxIdx);
-    const int prevV = std::clamp(npc.navFromV, minIdx, maxIdx);
+    const int minU = CityMap::kMinRoadIndexX * 2 + 1;
+    const int maxU = CityMap::kMaxRoadIndexX * 2 - 2;
+    const int minV = CityMap::kMinRoadIndexZ * 2 + 1;
+    const int maxV = CityMap::kMaxRoadIndexZ * 2 - 2;
+    const int curU = std::clamp(npc.navToU, minU, maxU);
+    const int curV = std::clamp(npc.navToV, minV, maxV);
+    const int prevU = std::clamp(npc.navFromU, minU, maxU);
+    const int prevV = std::clamp(npc.navFromV, minV, maxV);
 
     const int inDu = curU - prevU;
     const int inDv = curV - prevV;
@@ -4432,7 +4608,9 @@ void GameWorld::chooseNextSidewalkTarget(NpcCharacter& npc, bool fleeing, const 
     for (const auto& [du, dv] : kDirs) {
         const int nu = curU + du;
         const int nv = curV + dv;
-        if (nu < minIdx || nu > maxIdx || nv < minIdx || nv > maxIdx) continue;
+        if (nu < minU || nu > maxU || nv < minV || nv > maxV) continue;
+        const Vec2 probe{city_.sidewalkCoord(nu), city_.sidewalkCoord(nv)};
+        if (city_.isInHanRiverWater(probe, -6.0f)) continue;
 
         const bool isCrosswalk = CityMap::isCrosswalkEdge(curU, nu) || CityMap::isCrosswalkEdge(curV, nv);
         const bool safeEdge = isCrosswalkSafeForPedestrian(curU, curV, nu, nv);
@@ -4690,8 +4868,8 @@ void GameWorld::updateNpcs(float dt) {
             }
         }
 
-        // 1. SBPD Police & SWAT Officers (Active Pursuit Combat when Wanted, Sidewalk Beat Patrol when Calm)
-        if (npc.role == NpcRole::Police && player_.wantedLevel > 0) {
+        // 1. Seoul Police & SWAT Officers (Engage when Visual LOS active, Sidewalk Search/Beat Patrol otherwise)
+        if (npc.role == NpcRole::Police && player_.wantedLevel > 0 && player_.policeLineOfSight) {
             npc.behavior = NpcBehavior::CombatEngage;
             const Vec2 deltaP = pPos - npc.pos;
             const float distToPlayer = deltaP.length();
@@ -4702,8 +4880,12 @@ void GameWorld::updateNpcs(float dt) {
             if (blockedByBld || distToPlayer > idealRange) {
                 Vec2 moveDir = dirToPlayer;
                 if (blockedByBld) {
-                    const int nearU = std::clamp(city_.nearestSidewalkNodeIndex(npc.pos.x), 1, CityMap::kSidewalkNodeCount - 2);
-                    const int nearV = std::clamp(city_.nearestSidewalkNodeIndex(npc.pos.z), 1, CityMap::kSidewalkNodeCount - 2);
+                    const int minU = CityMap::kMinRoadIndexX * 2 + 1;
+                    const int maxU = CityMap::kMaxRoadIndexX * 2 - 2;
+                    const int minV = CityMap::kMinRoadIndexZ * 2 + 1;
+                    const int maxV = CityMap::kMaxRoadIndexZ * 2 - 2;
+                    const int nearU = std::clamp(city_.nearestSidewalkNodeIndex(npc.pos.x), minU, maxU);
+                    const int nearV = std::clamp(city_.nearestSidewalkNodeIndex(npc.pos.z), minV, maxV);
                     const Vec2 corner{city_.sidewalkCoord(nearU), city_.sidewalkCoord(nearV)};
                     const Vec2 toCorner = corner - npc.pos;
                     if (toCorner.lengthSq() > 1.2f) {
@@ -4855,8 +5037,12 @@ void GameWorld::updateNpcs(float dt) {
             // 2. Fast Radial Panic Sprint Escape + Safe Sidewalk Recovery!
             npc.stateTimer -= dt;
 
-            const int nearU = std::clamp(city_.nearestSidewalkNodeIndex(npc.pos.x), 1, CityMap::kSidewalkNodeCount - 2);
-            const int nearV = std::clamp(city_.nearestSidewalkNodeIndex(npc.pos.z), 1, CityMap::kSidewalkNodeCount - 2);
+            const int minU = CityMap::kMinRoadIndexX * 2 + 1;
+            const int maxU = CityMap::kMaxRoadIndexX * 2 - 2;
+            const int minV = CityMap::kMinRoadIndexZ * 2 + 1;
+            const int maxV = CityMap::kMaxRoadIndexZ * 2 - 2;
+            const int nearU = std::clamp(city_.nearestSidewalkNodeIndex(npc.pos.x), minU, maxU);
+            const int nearV = std::clamp(city_.nearestSidewalkNodeIndex(npc.pos.z), minV, maxV);
             const float sideX = city_.sidewalkCoord(nearU);
             const float sideZ = city_.sidewalkCoord(nearV);
             const float dx = std::abs(npc.pos.x - sideX);
@@ -4864,17 +5050,16 @@ void GameWorld::updateNpcs(float dt) {
             const bool onRoadAsphalt = city_.isOnRoad(npc.pos, -0.35f);
 
             if (npc.stateTimer <= 0.0f && !onRoadAsphalt && std::min(dx, dz) <= 2.25f) {
-                // Safely back on concrete sidewalk — snap onto exact block-front sidewalk segment!
                 if (dz <= dx) {
-                    const int blkX = std::clamp(static_cast<int>(std::floor((npc.pos.x - city_.roadCoord(0)) / CityMap::kBlockPitch)),
-                                                0, CityMap::kBlockCount - 1);
+                    const int blkX = std::clamp(static_cast<int>(std::floor(npc.pos.x / CityMap::kBlockPitch)),
+                                                CityMap::kMinRoadIndexX, CityMap::kMaxRoadIndexX - 1);
                     npc.navFromU = 2 * blkX + 1;
                     npc.navToU   = 2 * blkX + 2;
                     npc.navFromV = nearV;
                     npc.navToV   = nearV;
                 } else {
-                    const int blkZ = std::clamp(static_cast<int>(std::floor((npc.pos.z - city_.roadCoord(0)) / CityMap::kBlockPitch)),
-                                                0, CityMap::kBlockCount - 1);
+                    const int blkZ = std::clamp(static_cast<int>(std::floor(npc.pos.z / CityMap::kBlockPitch)),
+                                                CityMap::kMinRoadIndexZ, CityMap::kMaxRoadIndexZ - 1);
                     npc.navFromU = nearU;
                     npc.navToU   = nearU;
                     npc.navFromV = 2 * blkZ + 1;
@@ -4953,8 +5138,12 @@ void GameWorld::updateNpcs(float dt) {
 
             // If a beat cop was left on mid-block asphalt after a pursuit ended, walk onto nearest sidewalk first
             if (npc.role == NpcRole::Police && city_.isOnRoad(npc.pos, -0.35f) && !city_.isInIntersection(npc.pos)) {
-                const int nearU = std::clamp(city_.nearestSidewalkNodeIndex(npc.pos.x), 1, CityMap::kSidewalkNodeCount - 2);
-                const int nearV = std::clamp(city_.nearestSidewalkNodeIndex(npc.pos.z), 1, CityMap::kSidewalkNodeCount - 2);
+                const int minU = CityMap::kMinRoadIndexX * 2 + 1;
+                const int maxU = CityMap::kMaxRoadIndexX * 2 - 2;
+                const int minV = CityMap::kMinRoadIndexZ * 2 + 1;
+                const int maxV = CityMap::kMaxRoadIndexZ * 2 - 2;
+                const int nearU = std::clamp(city_.nearestSidewalkNodeIndex(npc.pos.x), minU, maxU);
+                const int nearV = std::clamp(city_.nearestSidewalkNodeIndex(npc.pos.z), minV, maxV);
                 const Vec2 curb{city_.sidewalkCoord(nearU), city_.sidewalkCoord(nearV)};
                 const Vec2 dir = (curb - npc.pos).normalized();
                 npc.facingYaw = moveTowardsAngle(npc.facingYaw, std::atan2(dir.z, dir.x), dt * 9.0f);
@@ -5264,10 +5453,10 @@ void GameWorld::updateMission(float dt) {
             mission_.currentObjectivePos = targetCar->pos;
             if (player_.drivingVehicleId == targetCar->id) {
                 mission_.stage = 1;
-                mission_.currentObjectivePos = {252.0f, 168.0f + 7.0f}; // Harbor pier drop-off
+                mission_.currentObjectivePos = {1008.0f, 1176.0f}; // Gangnam Teheran VIP drop-off
                 mission_.objectiveRadius = 7.5f;
-                mission_.objectiveEn = "Deliver the VIP Apex GT to Harbor Drop-Off!";
-                mission_.objectiveKo = "탈취한 VIP 슈퍼카를 항구 인도 지점까지 배달하세요!";
+                mission_.objectiveEn = "Deliver the VIP Hypercar to Gangnam Drop-Off!";
+                mission_.objectiveKo = "탈취한 VIP 하이퍼카를 강남 인도 지점까지 배달하세요!";
             }
         } else if (mission_.stage == 1) {
             if (player_.drivingVehicleId == targetCar->id &&
@@ -5342,7 +5531,7 @@ void GameWorld::updateMission(float dt) {
                 mission_.objectiveKo = objKo;
             } else {
                 mission_.stage = 1;
-                const Vec2 casePos{252.0f, 224.0f};
+                const Vec2 casePos{840.0f, 1176.0f};
                 pickups_.push_back(WorldPickup{PickupKind::MissionBriefcase, casePos, mission_.rewardCash, 0.0f, false});
                 mission_.currentObjectivePos = casePos;
                 mission_.objectiveRadius = 2.6f;

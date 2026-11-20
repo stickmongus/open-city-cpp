@@ -1,4 +1,4 @@
-name: Build & Package (Android .apk, Windows .exe & Linux)
+name: Build & Package (Android Vulkan .apk, Windows .exe & Linux)
 
 on:
   push:
@@ -13,16 +13,16 @@ permissions:
 
 jobs:
   build-linux:
-    name: Linux x64 Build & Tests
+    name: Linux x64 Native Vulkan Build & Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install OpenGL & X11 dev headers
+      - name: Install Vulkan & X11 dev headers
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build \
-            libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev
+            libvulkan-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev
 
       - name: Configure & Build (Release)
         run: |
@@ -46,7 +46,7 @@ jobs:
           path: OpenCity-Linux-x64.tar.gz
 
   build-windows:
-    name: Windows x64 Standalone .exe
+    name: Windows x64 Standalone Vulkan .exe
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,7 +75,7 @@ jobs:
           path: OpenCity-Windows-x64.zip
 
   build-android:
-    name: Android Universal Signed .apk (arm64-v8a + armeabi-v7a)
+    name: Android Universal Vulkan Signed .apk (arm64-v8a + armeabi-v7a)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -101,7 +101,7 @@ jobs:
             yes | "${SDKMANAGER}" "ndk;27.1.12297006"
           fi
 
-      - name: Build, Align & Sign Universal APK
+      - name: Build, Align & Sign Universal Vulkan APK
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -113,14 +113,14 @@ jobs:
           else
             VER="$(grep -m1 'project(open_city VERSION ' CMakeLists.txt | sed -E 's/.*VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
           fi
-          VER="${VER:-1.3.0}"
+          VER="${VER:-2.0.0}"
           IFS='.' read -r VMAJ VMIN VPAT <<< "${VER}"
-          VCODE=$((10#${VMAJ:-1} * 100 + 10#${VMIN:-0} * 10 + 10#${VPAT:-0}))
+          VCODE=$((10#${VMAJ:-2} * 100 + 10#${VMIN:-0} * 10 + 10#${VPAT:-0}))
           export ANDROID_VERSION_NAME="${VER}"
           export ANDROID_VERSION_CODE="${VCODE}"
           export APK_OUTPUT="${GITHUB_WORKSPACE}/OpenCity-Android-v${VER}.apk"
-          echo "Building signed APK: ${APK_OUTPUT} (versionCode=${VCODE})"
-          chmod +x tools/build_android_apk.sh tools/patch_raylib_android.py tools/gen_android_icons.py tools/gen_korean_glyphs.py
+          echo "Building signed Vulkan APK: ${APK_OUTPUT} (versionCode=${VCODE})"
+          chmod +x tools/build_android_apk.sh tools/gen_android_icons.py tools/gen_korean_glyphs.py
           ./tools/build_android_apk.sh
 
       - name: Upload Android Signed APK Artifact
@@ -130,7 +130,7 @@ jobs:
           path: OpenCity-Android-v*.apk
 
   publish-release:
-    name: Publish GitHub Release (Android .apk, Windows .exe & Linux)
+    name: Publish GitHub Release (Android Vulkan .apk, Windows .exe & Linux)
     needs: [build-linux, build-windows, build-android]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     concurrency:
@@ -166,28 +166,34 @@ jobs:
             TAG_NAME="${GITHUB_REF#refs/tags/}"
           fi
           cat <<EOF > release_notes.md
-          ### Android 스마트폰/태블릿 바로 설치하기 (\`.apk\` — 정식 서명 완료)
+          ### Android 스마트폰/태블릿 바로 설치하기 (\`.apk\` — 네이티브 Vulkan 정식 서명 완료)
           1. 아래 **Assets**에서 **\`${APK_FILE}\`** 파일을 스마트폰으로 다운로드합니다.
-          2. 다운로드한 APK를 탭해 설치합니다 *(기존 v1.1.0 / v1.2.0 위에도 동일 인증서로 덮어쓰기 업데이트 가능!)*.
-          3. **유니버설 바이너리(\`arm64-v8a\` + \`armeabi-v7a\`)** · Android 7.0 (API 24) ~ Android 15+ (16KB 페이지 정렬 지원) · OpenGL ES 3.0 지원 기기에서 가로 전체화면으로 바로 실행됩니다!
+          2. 다운로드한 APK를 탭해 설치합니다 *(기존 v1.x 위에도 동일 인증서로 덮어쓰기 업데이트 가능!)*.
+          3. **유니버설 바이너리(\`arm64-v8a\` + \`armeabi-v7a\`)** · Android 7.0 (API 24) ~ Android 15+ (16KB 페이지 정렬 지원) · **네이티브 Vulkan 1.0+** 엔진으로 구동됩니다!
 
           ### Windows PC 바로 실행하기 (Windows 10 / 11)
           1. 아래 **Assets**에서 **\`OpenCity-Windows-x64.zip\`** 파일을 다운로드합니다.
-          2. 압축을 풀고 **\`open_city.exe\`** 를 더블클릭하면 별도 설치 없이 바로 실행됩니다!
+          2. 압축을 풀고 **\`open_city.exe\`** 를 더블클릭하면 Vulkan 3D 엔진으로 바로 실행됩니다!
 
-          ### ${TAG_NAME} 4배 확장 현실주의 메트로폴리스 & 포토리얼리즘 전면 개편
-          - **1. 비현실적 요소 전면 제거 (리얼리즘 100%)**:
-            - 아케이드 스턴트 점프대 6곳·네온 와이어프레임 POI 기둥·주간 과발광 상점 블록·핫핑크 기둥·보라색 풍선 나무·바비핑크 NPC 차량·순정 출고 네온 언더글로우 전면 제거
-            - 저프로파일 건축형 그라운드 링 마커, 주간 무발광·야간 점등 상점 간판, 자연스러운 OEM 차량 도장 및 현실적 의상·우산 팔레트 적용
-          - **2. 4배 커진 초대형 오픈월드 메트로폴리스 (\`16×16\` 블록 · \`1.45km × 1.65km\`)**:
-            - \`17×17\` 4차선 도로망, **O(1) \`20×22\` 공간 분할 그리드**(충돌·레이캐스트·렌더링·미니맵 가속으로 Android 60 FPS 유지)
-            - **주행 가능한 \`134m\` 아치형 골든 베이 현수교(\`Golden Bay Bridge\`)** (54m 쌍둥이 주탑·현수 케이블·가드레일)를 건너 **북부 등대 반도(\`Lighthouse Point\`)** · \`28m\` 해안 등대(야간 회전 프레넬 빔) & 등대지기 오두막 탐험
-            - **8대 생활권**: 다운타운 금융가 · 시청/경찰청/의료센터 행정타운(\`Civic Center\`) · \`2×2\` 그랜드 센트럴 파크(반사 호수·아치 돌다리·분수대) · 역사적 미드타운 · 남동부 항구 컨테이너 부두(4대 갠트리 크레인·화물선 2척) · 힐크레스트 테라코타 빌라지구 · 서부 선셋 해변 & \`110m\` 목재 오션 피어(관람차·인명구조대 타워) · 북부 등대 반도
-          - **3. 포토리얼리즘 PBR 셰이더 · 차량 휠 · 식생 · 날씨 디테일 대개편**:
-            - **중공(Hollow) 24세그먼트 타이어** + **깊은 컨케이브 3D 5-트윈스포크 단조 휠** + 통풍 디스크 로터 & 브렘보 캘리퍼 완벽 노출, A필러 및 펜더 Z-파이팅 완전 해소
-            - 신규 PBR 재질 4종: **\`FabricCloth\`**(의류 직조감·퍼즈 림), **\`SkinOrganics\`**(피부 서브서피스 래핑), **\`BarkWood\`**(나무 껍질 홈), **\`BeachSand\`**(해변 잔물결 모래) + 도메인 워프 자연 빗물 웅덩이 & 흐린 폭풍우 하늘 조명
-            - 다엽 3D 수목 클러스터(\`foliageClusterModel_\`) · 지중해 사이프러스 침엽수(\`CypressConifer\`) · 보안 볼라드(\`Bollard\`) · 220줄기 3D 빗줄기 + 절차적 빗소리 앰비언스 오디오
-            - 비조준 도보 시 자연스러운 **로우-레디(Low-Ready) 총기 파지 자세**, 신호대기 AI 차량 브레이크등 점등 유지, 슬림 다크글래스 AAA HUD
+          ### ${TAG_NAME} 네이티브 Vulkan 엔진 · 실제 서울 30km×25km 메트로폴리스 · CAD 차량 전면 개편
+          - **1. 네이티브 C++20 Vulkan 1.0+ 그래픽 엔진 전면 교체** *(raylib/OpenGL 완전 제거)*:
+            - Khronos 사전 컴파일 SPIR-V 1.0 셰이더 10종 + \`volk\` 동적 로딩 + 진정한 **16비트 선형 HDR(\`R16G16B16A16_SFLOAT\`) + MSAA + 2048×2048 16-Tap Poisson 소프트 그림자** + 선형 HDR Kawase Bloom & ACES 필름 톤매핑
+            - 실시간 \`miniaudio\` 신시사이저 오디오 + \`stb_truetype\` 고해상도 한글 아틀라스 2D UI
+          - **2. 젤리 느낌 0% — 전 차종 16대 CAD 정밀 디자인 전면 대개편**:
+            - **24° 하드 크리즈(Hard-Crease) 스탬핑 철판**으로 젤리 같은 물렁한 굴곡과 후드 물결 현상 완전 제거, 날카로운 캐릭터 라인과 **에너지 보존형 메탈릭 자동차 클리어코트 셰이더** 적용
+            - **14세그먼트 원형 3D 플레어 휠 아치 + 깊은 매트블랙 휠하우스 라이너**, 리세스드 3D 그릴/헤드램프 LED DRL/리어 디퓨저/머플러/한국 번호판
+            - **측면 유리·A/B/C/D 필러·루프 레일 단일 수식 결합(0mm 유격)** + 글로스블랙 DLO 프레임 + 스모크드 곡면 유리 너머로 보이는 **3D 실내(대시보드·스티어링 휠·버킷 시트)** 구현
+            - 배달 밴·서울 경찰 순찰차·서울 해치 택시·119 구급차/소방차 Z-파이팅 0% 평면 리버리 완성
+          - **3. 현실적인 자동차 물리엔진 & 조작감 (v2.0.0 Rust + C++20 패리티)**:
+            - 속도 감응형 파워 스티어링 랙, 실제 도로·교량·언덕 경사 중력(\`-9.81·sin(slope)\`), 2축 Pacejka 코너링 스크럽 & 트레일 브레이킹 하중 이동, 셀프 얼라이닝 카운터스티어, PC/모바일 부드러운 조향 필터링
+          - **4. 실제 크기 서울특별시 (\`30km × 25km\`) 오픈월드**:
+            - 실제 S자 **한강** · **여의도** · **석촌호수** · **청계천** + 주행 가능한 **한강 교량 15개**(반포대교 달빛무지개분수·올림픽대교 사장교 주탑·한남·마포·원효·한강·성수·잠실대교 등)
+            - **서울 7대 명산**(남산·북한산·인왕산·북악산·관악산·아차산·청계산) + **12대 랜드마크**(555m 롯데월드타워·N서울타워·경복궁/광화문·63빌딩·국회의사당·파크원·코엑스·서울시청·숭례문·DDP·잠실종합운동장·강남역)
+            - 한국형 대단지 아파트·은행나무/벚나무/소나무 가로수·황색 중앙선 & 청색 버스전용차로·O(1) 252m 결정론적 청크 스트리밍
+          - **5. 클릭 가능한 인터랙티브 서울 전체 지도 (\`M\` 키 또는 미니맵 클릭/터치)**:
+            - 30km×25km 서울 전역(한강·15개 교량·7개 산·12개 랜드마크·경찰 수색 구역) 줌/팬 탐색 + 지도 클릭으로 **GPS 목적지 설정** 및 **원클릭 빠른 이동(Fast-Travel)**
+          - **6. 현실적이고 도주 가능한 서울 경찰 추격 AI**:
+            - 건물 시야 차폐(LOS) + 전방 시야각 + 야간/우천 시야 감쇠 적용, 시야 이탈 시 마지막 목격 지점(\`LKP\`) 수색 패트롤 전환, 숨어있을 때 팝업 매복 스폰 전면 금지, AI 무한 니트로 제거 및 은신 시 **1.55배 도주 가속** + 실시간 도주 진행률 게이지 HUD
           - **공식 25년 RSA-4096 릴리스 서명 인증서 (APK Signature Scheme v2 + v3)**:
             - 패키지명: \`com.stickmongus.opencity\` · **SHA-256**: \`6C:9B:7E:D9:1E:60:AA:E2:E9:B3:2F:70:D6:D9:F1:A1:EB:A4:86:05:6D:35:8E:00:C9:75:EF:28:3C:41:A9:5E\`
           EOF
@@ -195,12 +201,12 @@ jobs:
           if gh release view "${TAG_NAME}" -R "${REPO}" >/dev/null 2>&1; then
             gh release upload "${TAG_NAME}" release-assets/* --clobber -R "${REPO}"
             gh release edit "${TAG_NAME}" -R "${REPO}" \
-              --title "Open City C++ ${TAG_NAME} (Android .apk, Windows .exe & Linux)" \
+              --title "Open City Seoul ${TAG_NAME} (Native Vulkan Android .apk, Windows .exe & Linux)" \
               --notes-file release_notes.md
           else
             gh release create "${TAG_NAME}" release-assets/* \
               -R "${REPO}" \
               --target "${SHA}" \
-              --title "Open City C++ ${TAG_NAME} (Android .apk, Windows .exe & Linux)" \
+              --title "Open City Seoul ${TAG_NAME} (Native Vulkan Android .apk, Windows .exe & Linux)" \
               --notes-file release_notes.md
           fi

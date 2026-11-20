@@ -1,2605 +1,1036 @@
 #include "ui/HudRenderer.hpp"
-#if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
-#include "ui/AndroidKoreanGlyphs.hpp"
-#endif
 
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <cstdint>
 #include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <filesystem>
-#include <vector>
+#include <sstream>
 
 namespace oc {
 
 namespace {
 
-bool pointInRect(Vector2 p, Rectangle r) {
-    return p.x >= r.x && p.x <= (r.x + r.width) && p.y >= r.y && p.y <= (r.y + r.height);
-}
-
-void drawModalCloseButton(Rectangle r) {
-    DrawRectangleRounded(r, 0.30f, 6, Color{208, 48, 58, 228});
-    DrawRectangleRoundedLinesEx(r, 0.30f, 6, 1.5f, Color{255, 162, 168, 245});
-    const float pad = r.width * 0.28f;
-    DrawLineEx({r.x + pad, r.y + pad}, {r.x + r.width - pad, r.y + r.height - pad}, 2.4f, WHITE);
-    DrawLineEx({r.x + r.width - pad, r.y + pad}, {r.x + pad, r.y + r.height - pad}, 2.4f, WHITE);
-}
-
-int getShopRowCount(const GameWorld& world) {
-    if (world.isPlayerInWeaponShopZone()) return 12;
-    if (world.isPlayerInGarageZone()) return 8;
-    if (world.isPlayerInDealershipZone()) return static_cast<int>(kDealershipCatalog.size()) + 1;
-    if (world.isPlayerInBoutiqueZone()) return 6;
-    if (world.isPlayerInGasStationZone()) return 2;
-    if (world.isPlayerInNightclubZone()) return 2;
-    return 0;
-}
-
-struct ShopModalGeom {
-    Rectangle panel{};
-    Rectangle closeBtn{};
-    float rowStep = 35.0f;
-    float rowBoxH = 30.0f;
-    float fontSz = 17.5f;
-    float rowsStartY = 0.0f;
-};
-
-ShopModalGeom computeShopModalGeom(int rowCount, int screenW, int screenH) {
-    ShopModalGeom g{};
-    const bool dense = (rowCount >= 10);
-    g.rowStep = dense ? 31.0f : 35.0f;
-    g.rowBoxH = dense ? 27.0f : 30.0f;
-    g.fontSz = dense ? 16.5f : 17.5f;
-
-    const float mw = std::min(576.0f, static_cast<float>(screenW) - 28.0f);
-    float mh = (dense ? 92.0f : 96.0f) + static_cast<float>(rowCount) * g.rowStep;
-    const float maxH = static_cast<float>(screenH) - 24.0f;
-    if (mh > maxH && rowCount > 0) {
-        const float avail = std::max(120.0f, maxH - 88.0f);
-        g.rowStep = avail / static_cast<float>(rowCount);
-        g.rowBoxH = std::max(20.0f, g.rowStep - 4.0f);
-        g.fontSz = std::min(g.fontSz, std::max(13.5f, g.rowBoxH * 0.60f));
-        mh = 88.0f + static_cast<float>(rowCount) * g.rowStep;
-    }
-
-    const float mx = (static_cast<float>(screenW) - mw) * 0.5f;
-    const float my = std::max(12.0f, (static_cast<float>(screenH) - mh) * 0.5f);
-    g.panel = {mx, my, mw, mh};
-    g.closeBtn = {mx + mw - 42.0f, my + 12.0f, 28.0f, 28.0f};
-    g.rowsStartY = my + 52.0f;
-    return g;
-}
-
-struct PhoneModalGeom {
-    Rectangle panel{};
-    Rectangle closeBtn{};
-    std::array<Rectangle, 4> tabs{};
-    float listTop = 0.0f;
-    float rowH = 54.0f;
-    float rowGap = 4.0f;
-    bool dense = false;
-};
-
-PhoneModalGeom computePhoneModalGeom(int phoneTab, int screenW, int screenH) {
-    PhoneModalGeom g{};
-    const int rowCount = (phoneTab == 0 || phoneTab == 3) ? 10 : 6;
-    g.dense = (rowCount >= 10);
-    const float pw = std::min(342.0f, static_cast<float>(screenW) - 24.0f);
-    float ph = g.dense ? 530.0f : 456.0f;
-    g.rowH = g.dense ? 39.0f : 54.0f;
-    g.rowGap = g.dense ? 3.0f : 4.0f;
-
-    const float maxH = static_cast<float>(screenH) - 24.0f;
-    if (ph > maxH) {
-        ph = maxH;
-        const float listSpace = std::max(120.0f, ph - 104.0f);
-        g.rowGap = 2.5f;
-        g.rowH = std::max(24.0f, (listSpace / static_cast<float>(rowCount)) - g.rowGap);
-    }
-
-    const float px = static_cast<float>(screenW) - pw - 22.0f;
-    const float py = std::max(12.0f, static_cast<float>(screenH) - ph - 20.0f);
-    g.panel = {px, py, pw, ph};
-    g.closeBtn = {px + pw - 38.0f, py + 11.0f, 26.0f, 26.0f};
-    const float tabW = (pw - 28.0f - 12.0f) / 4.0f;
-    for (int t = 0; t < 4; ++t) {
-        g.tabs[static_cast<std::size_t>(t)] = {
-            px + 14.0f + static_cast<float>(t) * (tabW + 4.0f), py + 41.0f, tabW, 27.0f
-        };
-    }
-    g.listTop = py + (g.dense ? 75.0f : 80.0f);
-    return g;
-}
-
-struct StudioModalGeom {
-    Rectangle panel{};
-    Rectangle closeBtn{};
-    std::array<Rectangle, 4> tabs{};
-    float rowsTop = 0.0f;
-    float rowStep = 43.0f;
-    float rowH = 38.5f;
-    int rowCount = 8;
-};
-
-StudioModalGeom computeStudioModalGeom(int customTab, int screenW, int screenH) {
-    StudioModalGeom g{};
-    g.rowCount = (customTab == 0 || customTab == 2) ? 8 : 6;
-    const float pw = std::min(452.0f, static_cast<float>(screenW) * 0.56f);
-    float ph = 504.0f;
-    g.rowStep = (g.rowCount == 8) ? 43.0f : 54.0f;
-    g.rowH = (g.rowCount == 8) ? 38.5f : 46.0f;
-
-    const float maxH = static_cast<float>(screenH) - 24.0f;
-    if (ph > maxH) {
-        ph = maxH;
-        const float listSpace = std::max(160.0f, ph - 146.0f);
-        g.rowStep = listSpace / static_cast<float>(g.rowCount);
-        g.rowH = std::max(26.0f, g.rowStep - 4.0f);
-    }
-
-    const float px = 22.0f;
-    const float py = std::max(12.0f, std::min(18.0f, (static_cast<float>(screenH) - ph) * 0.5f));
-    g.panel = {px, py, pw, ph};
-    g.closeBtn = {px + pw - 40.0f, py + 9.0f, 28.0f, 28.0f};
-    const float tabGap = 6.0f;
-    const float tabW = (pw - 32.0f - tabGap * 3.0f) * 0.25f;
-    for (int t = 0; t < 4; ++t) {
-        g.tabs[static_cast<std::size_t>(t)] = {
-            px + 16.0f + static_cast<float>(t) * (tabW + tabGap), py + 42.0f, tabW, 29.0f
-        };
-    }
-    g.rowsTop = py + 116.0f;
-    return g;
-}
-
-unsigned char* loadFontBytes(const char* path, int& outSize, bool& outUsedRaylibLoader) {
-    outSize = 0;
-    outUsedRaylibLoader = false;
-    if (!path || path[0] == '\0') return nullptr;
-    const bool isAbsolute = (path[0] == '/') || (path[1] == ':');
-    if (!isAbsolute) {
-        outUsedRaylibLoader = true;
-        return LoadFileData(path, &outSize);
-    }
-    // Read absolute filesystem paths via POSIX stdio so Android /system/fonts/* works alongside APK assets
-    std::FILE* fp = std::fopen(path, "rb");
-    if (!fp) return nullptr;
-    if (std::fseek(fp, 0, SEEK_END) != 0) {
-        std::fclose(fp);
-        return nullptr;
-    }
-    const long sz = std::ftell(fp);
-    if (sz <= 0 || sz > 64L * 1024L * 1024L) {
-        std::fclose(fp);
-        return nullptr;
-    }
-    std::rewind(fp);
-    auto* buf = static_cast<unsigned char*>(MemAlloc(static_cast<unsigned int>(sz)));
-    if (!buf) {
-        std::fclose(fp);
-        return nullptr;
-    }
-    const std::size_t got = std::fread(buf, 1, static_cast<std::size_t>(sz), fp);
-    std::fclose(fp);
-    if (static_cast<long>(got) != sz) {
-        MemFree(buf);
-        return nullptr;
-    }
-    outSize = static_cast<int>(sz);
+std::string fmtCash(int cash) {
+    char buf[48];
+    std::snprintf(buf, sizeof(buf), "$%d", cash);
     return buf;
 }
 
-void freeFontBytes(unsigned char* data, bool usedRaylibLoader) {
-    if (!data) return;
-    if (usedRaylibLoader) {
-        UnloadFileData(data);
-    } else {
-        MemFree(data);
-    }
-}
-
-const char* neonPresetNameEn(int preset) {
-    switch (preset) {
-        case 1: return "Cyber Cyan";
-        case 2: return "UV Purple";
-        case 3: return "Crimson Red";
-        case 4: return "Emerald";
-        case 5: return "Solar Gold";
-        default: return "OFF";
-    }
-}
-
-const char* neonPresetNameKo(int preset) {
-    switch (preset) {
-        case 1: return "사이버 시안";
-        case 2: return "네온 퍼플";
-        case 3: return "크림슨 레드";
-        case 4: return "에메랄드";
-        case 5: return "솔라 골드";
-        default: return "꺼짐";
-    }
-}
-
-const char* rimStyleNameEn(int rimStyle) {
-    switch (rimStyle) {
-        case 1: return "Gold";
-        case 2: return "Gloss Black";
-        case 3: return "Cyber Cyan";
-        case 4: return "Crimson Track";
-        default: return "Silver Alloy";
-    }
-}
-
-const char* rimStyleNameKo(int rimStyle) {
-    switch (rimStyle) {
-        case 1: return "샴페인 골드";
-        case 2: return "글로스 블랙";
-        case 3: return "사이버 시안";
-        case 4: return "크림슨 레드";
-        default: return "실버 알로이";
-    }
-}
-
-Color toRayColor(ColorRGBA c, unsigned char alphaOverride = 255) {
-    return Color{c.r, c.g, c.b, alphaOverride};
-}
-
-void drawFivePointStar2D(Vector2 center, float outerR, float innerR, Color col) {
-    Vector2 pts[10];
-    for (int k = 0; k < 10; ++k) {
-        // Decreasing angle in screen space (+Y down) produces CCW triangles for raylib DrawTriangle
-        const float ang = -kHalfPi - static_cast<float>(k) * (kPi / 5.0f);
-        const float r = (k % 2 == 0) ? outerR : innerR;
-        pts[k] = {center.x + std::cos(ang) * r, center.y + std::sin(ang) * r};
-    }
-    for (int k = 0; k < 10; ++k) {
-        DrawTriangle(center, pts[k], pts[(k + 1) % 10], col);
-    }
+std::string fmtClock(float hours) {
+    const int totalMin = static_cast<int>(std::fmod(hours + 24.0f, 24.0f) * 60.0f);
+    const int hh = (totalMin / 60) % 24;
+    const int mm = totalMin % 60;
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d", hh, mm);
+    return buf;
 }
 
 } // namespace
 
-HudRenderer::~HudRenderer() {
-    shutdown();
+void HudRenderer::init(bool koreanFontAvailable) {
+    koreanFontLoaded_ = koreanFontAvailable;
+    useKorean_ = koreanFontAvailable;
 }
 
-Font HudRenderer::loadCompleteKoreanFont(const char* ttfPath, int fontSize) {
-    int dataSize = 0;
-    bool usedRaylibLoader = false;
-    unsigned char* fileData = loadFontBytes(ttfPath, dataSize, usedRaylibLoader);
-    if (!fileData || dataSize <= 0) {
-        freeFontBytes(fileData, usedRaylibLoader);
-        return Font{};
-    }
-
-    // If the font file is a TrueType/OpenType Collection (.ttc, magic "ttcf"),
-    // promote its SFNT OffsetTable to byte 0 in-memory (all table record offsets
-    // in a .ttc are already relative to byte 0 of the file).
-    if (dataSize > 16 &&
-        fileData[0] == 't' && fileData[1] == 't' && fileData[2] == 'c' && fileData[3] == 'f') {
-        auto readU32BE = [&](std::size_t off) -> std::uint32_t {
-            return (static_cast<std::uint32_t>(fileData[off]) << 24U) |
-                   (static_cast<std::uint32_t>(fileData[off + 1]) << 16U) |
-                   (static_cast<std::uint32_t>(fileData[off + 2]) << 8U) |
-                   static_cast<std::uint32_t>(fileData[off + 3]);
-        };
-        auto readU16BE = [&](std::size_t off) -> std::uint16_t {
-            return static_cast<std::uint16_t>(
-                (static_cast<std::uint16_t>(fileData[off]) << 8U) |
-                static_cast<std::uint16_t>(fileData[off + 1]));
-        };
-        const std::uint32_t numFonts = readU32BE(8);
-        if (numFonts > 0 && 12ULL + static_cast<std::size_t>(numFonts) * 4ULL <= static_cast<std::size_t>(dataSize)) {
-            const std::uint32_t subIdx = (numFonts > 1U) ? 1U : 0U; // Index 1 = KR in NotoSansCJK.ttc
-            const std::uint32_t sfntOff = readU32BE(12ULL + static_cast<std::size_t>(subIdx) * 4ULL);
-            if (static_cast<std::size_t>(sfntOff) + 12ULL <= static_cast<std::size_t>(dataSize)) {
-                const std::uint16_t numTables = readU16BE(static_cast<std::size_t>(sfntOff) + 4ULL);
-                const std::size_t dirBytes = 12ULL + static_cast<std::size_t>(numTables) * 16ULL;
-                if (static_cast<std::size_t>(sfntOff) + dirBytes <= static_cast<std::size_t>(dataSize)) {
-                    std::uint32_t minTableOff = 0xFFFFFFFFU;
-                    for (std::uint16_t t = 0; t < numTables; ++t) {
-                        const std::uint32_t tOff = readU32BE(
-                            static_cast<std::size_t>(sfntOff) + 12ULL + static_cast<std::size_t>(t) * 16ULL + 8ULL);
-                        if (tOff < minTableOff) minTableOff = tOff;
-                    }
-                    if (minTableOff >= dirBytes) {
-                        std::memmove(fileData, fileData + sfntOff, dirBytes);
-                    }
-                }
-            }
-        }
-    }
-
-    std::vector<int> codepoints;
-#if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
-    // On Android, pack Printable ASCII + UI symbols + exact game Hangul set into a compact 1024px atlas (<80ms load!)
-    codepoints.reserve(768);
-    for (int cp = 0x0020; cp <= 0x007E; ++cp) {
-        codepoints.push_back(cp);
-    }
-    const int uiSymbols[] = {
-        0x00B0, 0x00B7, 0x00D7, 0x2013, 0x2014, 0x2022, 0x2026,
-        0x20A9, 0x2190, 0x2191, 0x2192, 0x2193,
-        0x25B2, 0x25BC, 0x25C0, 0x25B6, 0x2605, 0x2606
-    };
-    for (int cp : uiSymbols) {
-        codepoints.push_back(cp);
-    }
-    for (int cp : kAndroidKoreanCodepoints) {
-        codepoints.push_back(cp);
-    }
-#else
-    // Desktop complete codepoint table:
-    // - Printable ASCII (0x0020..0x007E)
-    // - Hangul Compatibility Jamo (0x3131..0x3163)
-    // - ALL 11,172 Modern Hangul Syllables (0xAC00..0xD7A3) so zero Korean text can ever show '?'
-    // - Common UI punctuation & symbols
-    codepoints.reserve(11400);
-    for (int cp = 0x0020; cp <= 0x007E; ++cp) {
-        codepoints.push_back(cp);
-    }
-    const int uiSymbols[] = {
-        0x00B0, 0x00B7, 0x00D7, 0x2013, 0x2014, 0x2022, 0x2026,
-        0x20A9, 0x2190, 0x2191, 0x2192, 0x2193,
-        0x25B2, 0x25BC, 0x25C0, 0x25B6, 0x2605, 0x2606
-    };
-    for (int cp : uiSymbols) {
-        codepoints.push_back(cp);
-    }
-    for (int cp = 0x3131; cp <= 0x3163; ++cp) {
-        codepoints.push_back(cp);
-    }
-    for (int cp = 0xAC00; cp <= 0xD7A3; ++cp) {
-        codepoints.push_back(cp);
-    }
-#endif
-
-    std::sort(codepoints.begin(), codepoints.end());
-    codepoints.erase(std::unique(codepoints.begin(), codepoints.end()), codepoints.end());
-    const int count = static_cast<int>(codepoints.size());
-
-    GlyphInfo* glyphs = LoadFontData(fileData, dataSize, fontSize, codepoints.data(), count, FONT_DEFAULT);
-    freeFontBytes(fileData, usedRaylibLoader);
-    if (!glyphs) {
-        return Font{};
-    }
-
-    // Verify that the candidate TTF genuinely contains Hangul glyphs
-    auto hasRenderedGlyph = [&](int targetCp) -> bool {
-        auto it = std::lower_bound(codepoints.begin(), codepoints.end(), targetCp);
-        if (it == codepoints.end() || *it != targetCp) return false;
-        const std::size_t idx = static_cast<std::size_t>(it - codepoints.begin());
-        return glyphs[idx].image.data != nullptr && glyphs[idx].image.width > 0 && glyphs[idx].image.height > 0;
-    };
-#if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
-    if (!hasRenderedGlyph(0xAC00) || !hasRenderedGlyph(0xB8CC) || !hasRenderedGlyph(0xC2DC)) {
-#else
-    if (!hasRenderedGlyph(0xAC00) || !hasRenderedGlyph(0xB8CC) || !hasRenderedGlyph(0xD7A3)) {
-#endif
-        UnloadFontData(glyphs, count);
-        return Font{};
-    }
-
-    // Overflow-proof 2-pass exact row packer (avoids raylib GenImageFontAtlas height-halving overflow)
-#if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
-    constexpr int kAtlasWidth = 1024;
-    int atlasHeight = 256;
-#else
-    constexpr int kAtlasWidth = 4096;
-    int atlasHeight = 512;
-#endif
-    constexpr int kPadding = 2;
-
-    int curX = kPadding;
-    int curY = kPadding;
-    int rowMaxH = 0;
-    for (int i = 0; i < count; ++i) {
-        const int gw = glyphs[i].image.width;
-        const int gh = glyphs[i].image.height;
-        if (gw <= 0 || gh <= 0 || glyphs[i].image.data == nullptr) continue;
-        if (curX + gw + kPadding > kAtlasWidth) {
-            curX = kPadding;
-            curY += rowMaxH + kPadding * 2;
-            rowMaxH = 0;
-        }
-        curX += gw + kPadding * 2;
-        if (gh > rowMaxH) rowMaxH = gh;
-    }
-
-    const int usedHeight = curY + rowMaxH + kPadding * 2;
-    while (atlasHeight < usedHeight) {
-        atlasHeight *= 2;
-    }
-
-    auto* recs = static_cast<Rectangle*>(
-        MemAlloc(static_cast<unsigned int>(static_cast<std::size_t>(count) * sizeof(Rectangle))));
-    const std::size_t pixelCount = static_cast<std::size_t>(kAtlasWidth) * static_cast<std::size_t>(atlasHeight);
-    auto* atlasBytes = static_cast<unsigned char*>(MemAlloc(static_cast<unsigned int>(pixelCount * 2U)));
-    if (!recs || !atlasBytes) {
-        if (recs) MemFree(recs);
-        if (atlasBytes) MemFree(atlasBytes);
-        UnloadFontData(glyphs, count);
-        return Font{};
-    }
-
-    for (std::size_t p = 0; p < pixelCount; ++p) {
-        atlasBytes[p * 2U] = 255;
-        atlasBytes[p * 2U + 1U] = 0;
-    }
-
-    curX = kPadding;
-    curY = kPadding;
-    rowMaxH = 0;
-    for (int i = 0; i < count; ++i) {
-        const int gw = glyphs[i].image.width;
-        const int gh = glyphs[i].image.height;
-        if (gw <= 0 || gh <= 0 || glyphs[i].image.data == nullptr) {
-            recs[i] = Rectangle{static_cast<float>(kPadding), static_cast<float>(kPadding), 0.0f, 0.0f};
-            continue;
-        }
-        if (curX + gw + kPadding > kAtlasWidth) {
-            curX = kPadding;
-            curY += rowMaxH + kPadding * 2;
-            rowMaxH = 0;
-        }
-
-        const auto* src = static_cast<const unsigned char*>(glyphs[i].image.data);
-        for (int y = 0; y < gh; ++y) {
-            unsigned char* dstRow = atlasBytes +
-                (static_cast<std::size_t>(curY + y) * static_cast<std::size_t>(kAtlasWidth) +
-                 static_cast<std::size_t>(curX)) * 2U;
-            const unsigned char* srcRow = src + static_cast<std::size_t>(y) * static_cast<std::size_t>(gw);
-            for (int x = 0; x < gw; ++x) {
-                dstRow[static_cast<std::size_t>(x) * 2U] = 255;
-                dstRow[static_cast<std::size_t>(x) * 2U + 1U] = srcRow[x];
-            }
-        }
-
-        recs[i] = Rectangle{
-            static_cast<float>(curX),
-            static_cast<float>(curY),
-            static_cast<float>(gw),
-            static_cast<float>(gh)
-        };
-        curX += gw + kPadding * 2;
-        if (gh > rowMaxH) rowMaxH = gh;
-
-        // Release per-glyph CPU bitmap now that it is safely blitted into the GPU atlas image
-        UnloadImage(glyphs[i].image);
-        glyphs[i].image = Image{};
-    }
-
-    Image atlasImg{};
-    atlasImg.data = atlasBytes;
-    atlasImg.width = kAtlasWidth;
-    atlasImg.height = atlasHeight;
-    atlasImg.mipmaps = 1;
-    atlasImg.format = PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA;
-
-    Font font{};
-    font.baseSize = fontSize;
-    font.glyphCount = count;
-    font.glyphPadding = kPadding;
-    font.texture = LoadTextureFromImage(atlasImg);
-    font.recs = recs;
-    font.glyphs = glyphs;
-    UnloadImage(atlasImg);
-
-    if (font.texture.id == 0) {
-        MemFree(recs);
-        UnloadFontData(glyphs, count);
-        return Font{};
-    }
-    return font;
-}
-
-void HudRenderer::init() {
-    const Font defaultFont = GetFontDefault();
-
-#if defined(__ANDROID__) || defined(PLATFORM_ANDROID)
-    // 1) Try APK-bundled NanumGothicBold.ttf first (relative path via Android AAssetManager)
-    const char* androidKoreanCandidates[] = {
-        "fonts/korean.ttf",
-        "/system/fonts/NotoSansCJK-Bold.ttc",
-        "/system/fonts/NotoSansCJK-Regular.ttc",
-        "/system/fonts/SamsungKorean-Regular.ttf",
-        "/system/fonts/NanumGothic.ttf",
-        "/system/fonts/DroidSansFallback.ttf"
-    };
-    for (const char* path : androidKoreanCandidates) {
-        Font candidate = loadCompleteKoreanFont(path, 30);
-        if (candidate.texture.id != 0 && candidate.texture.id != defaultFont.texture.id) {
-            uiFont_ = candidate;
-            SetTextureFilter(uiFont_.texture, TEXTURE_FILTER_BILINEAR);
-            customFontLoaded_ = true;
-            koreanFontLoaded_ = true;
-            useKorean_ = true;
-            return;
-        }
-    }
-
-    // Fallback to Android system Roboto if no Hangul font was readable
-    useKorean_ = false;
-    const char* androidLatinCandidates[] = {
-        "/system/fonts/Roboto-Bold.ttf",
-        "/system/fonts/Roboto-Regular.ttf"
-    };
-    for (const char* path : androidLatinCandidates) {
-        int fsz = 0;
-        bool usedRl = false;
-        unsigned char* bytes = loadFontBytes(path, fsz, usedRl);
-        if (!bytes || fsz <= 0) {
-            freeFontBytes(bytes, usedRl);
-            continue;
-        }
-        Font candidate = LoadFontFromMemory(".ttf", bytes, fsz, 30, nullptr, 95);
-        freeFontBytes(bytes, usedRl);
-        if (candidate.texture.id != 0 && candidate.texture.id != defaultFont.texture.id) {
-            uiFont_ = candidate;
-            SetTextureFilter(uiFont_.texture, TEXTURE_FILTER_BILINEAR);
-            customFontLoaded_ = true;
-            return;
-        }
-    }
-#else
-    std::vector<std::string> koreanTtfCandidates;
-    if (const char* envFont = std::getenv("OPEN_CITY_FONT_PATH")) {
-        if (envFont[0] != '\0') {
-            koreanTtfCandidates.emplace_back(envFont);
-        }
-    }
-    koreanTtfCandidates.emplace_back("C:/Windows/Fonts/malgunbd.ttf");
-    koreanTtfCandidates.emplace_back("C:/Windows/Fonts/malgun.ttf");
-    koreanTtfCandidates.emplace_back("C:/Windows/Fonts/gulim.ttc");
-    koreanTtfCandidates.emplace_back("/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf");
-    koreanTtfCandidates.emplace_back("/usr/share/fonts/truetype/nanum/NanumGothic.ttf");
-    koreanTtfCandidates.emplace_back("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc");
-    koreanTtfCandidates.emplace_back("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc");
-
-    for (const std::string& path : koreanTtfCandidates) {
-        std::error_code ec;
-        if (!std::filesystem::exists(path, ec)) {
-            continue;
-        }
-        Font candidate = loadCompleteKoreanFont(path.c_str(), 26);
-        if (candidate.texture.id != 0 && candidate.texture.id != defaultFont.texture.id) {
-            uiFont_ = candidate;
-            SetTextureFilter(uiFont_.texture, TEXTURE_FILTER_BILINEAR);
-            customFontLoaded_ = true;
-            koreanFontLoaded_ = true;
-            useKorean_ = true;
-            return;
-        }
-    }
-
-    // Crisp anti-aliased Latin TTF fallback if no Korean .ttf is installed
-    useKorean_ = false;
-    const std::vector<const char*> latinTtfCandidates = {
-        "C:/Windows/Fonts/segoeuib.ttf",
-        "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-    };
-    for (const char* path : latinTtfCandidates) {
-        std::error_code ec;
-        if (!std::filesystem::exists(path, ec)) {
-            continue;
-        }
-        Font candidate = LoadFontEx(path, 26, nullptr, 95);
-        if (candidate.texture.id != 0 && candidate.texture.id != defaultFont.texture.id) {
-            uiFont_ = candidate;
-            SetTextureFilter(uiFont_.texture, TEXTURE_FILTER_BILINEAR);
-            customFontLoaded_ = true;
-            return;
-        }
-    }
-#endif
-}
-
-void HudRenderer::shutdown() {
-    if (customFontLoaded_ && uiFont_.texture.id != 0) {
-        UnloadFont(uiFont_);
-        uiFont_ = Font{};
-        customFontLoaded_ = false;
-        koreanFontLoaded_ = false;
+void HudRenderer::setFullMapOpen(bool open, const Vec2& focusWorld) {
+    fullMapOpen_ = open;
+    if (open) {
+        shopMenuOpen_ = false;
+        phoneOpen_ = false;
+        customStudioOpen_ = false;
+        mapCenterWorld_ = {0.0f, 0.0f}; // Show entire 30km x 25km Seoul on open!
+        mapZoom_ = 1.0f;
+        mapSelectedWorld_ = focusWorld;
+        mapHasSelection_ = false;
+        mapDragging_ = false;
     }
 }
 
-void HudRenderer::drawUiText(const char* text, float x, float y, float fontSize, Color color) const {
-    if (customFontLoaded_) {
-        DrawTextEx(uiFont_, text, {x + 1.0f, y + 1.0f}, fontSize, 0.5f,
-                   Color{0, 0, 0, static_cast<unsigned char>(color.a * 0.80f)});
-        DrawTextEx(uiFont_, text, {x, y}, fontSize, 0.5f, color);
-    } else {
-        const int sz = std::max(10, static_cast<int>(fontSize));
-        DrawText(text, static_cast<int>(x) + 1, static_cast<int>(y) + 1, sz,
-                 Color{0, 0, 0, static_cast<unsigned char>(color.a * 0.80f)});
-        DrawText(text, static_cast<int>(x), static_cast<int>(y), sz, color);
-    }
+void HudRenderer::setShopMenuOpen(bool open) {
+    shopMenuOpen_ = open;
+    if (open) { fullMapOpen_ = false; phoneOpen_ = false; customStudioOpen_ = false; }
 }
 
-float HudRenderer::measureUiText(const char* text, float fontSize) const {
-    if (customFontLoaded_) {
-        return MeasureTextEx(uiFont_, text, fontSize, 0.5f).x;
-    }
-    return static_cast<float>(MeasureText(text, std::max(10, static_cast<int>(fontSize))));
+void HudRenderer::setPhoneOpen(bool open) {
+    phoneOpen_ = open;
+    if (open) { fullMapOpen_ = false; shopMenuOpen_ = false; customStudioOpen_ = false; }
+}
+
+void HudRenderer::setCustomStudioOpen(bool open) {
+    customStudioOpen_ = open;
+    if (open) { fullMapOpen_ = false; shopMenuOpen_ = false; phoneOpen_ = false; }
 }
 
 void HudRenderer::showSystemToast(const char* textEn, const char* textKo) {
     gfxToastEn_ = textEn ? textEn : "";
     gfxToastKo_ = textKo ? textKo : "";
-    gfxToastTimer_ = 2.2f;
+    gfxToastTimer_ = 3.2f;
 }
 
 void HudRenderer::showGraphicsToast(const char* labelEn, const char* labelKo) {
-    gfxToastEn_ = std::string("GRAPHICS: ") + (labelEn ? labelEn : "");
-    gfxToastKo_ = std::string("그래픽 품질: ") + (labelKo ? labelKo : "");
-    gfxToastTimer_ = 2.4f;
+    gfxToastEn_ = std::string("Vulkan Graphics: ") + (labelEn ? labelEn : "");
+    gfxToastKo_ = std::string("Vulkan 그래픽: ") + (labelKo ? labelKo : "");
+    gfxToastTimer_ = 3.0f;
+}
+
+void HudRenderer::updateTimers(float dt) {
+    if (gfxToastTimer_ > 0.0f) gfxToastTimer_ = std::max(0.0f, gfxToastTimer_ - dt);
+}
+
+RectF HudRenderer::minimapRect(int screenW, int screenH) const {
+    const float s = clampf(static_cast<float>(screenH) / 860.0f, 0.72f, 1.35f);
+    if (mobileUi_) {
+        const float size = 152.0f * s;
+        return {16.0f * s, 14.0f * s, size, size};
+    }
+    const float size = 204.0f * s;
+    (void)screenW;
+    return {20.0f * s, static_cast<float>(screenH) - size - 22.0f * s, size, size};
+}
+
+// Helper: compute layout rects for Full-Screen Interactive Seoul Map
+namespace {
+struct FullMapLayout {
+    RectF panel{};
+    RectF canvas{};
+    RectF sidebar{};
+    RectF btnClose{};
+    RectF btnZoomIn{};
+    RectF btnZoomOut{};
+    RectF btnRecenter{};
+    RectF btnSetGps{};
+    RectF btnFastTravel{};
+};
+
+FullMapLayout computeFullMapLayout(int screenW, int screenH) {
+    FullMapLayout l{};
+    const float w = static_cast<float>(screenW);
+    const float h = static_cast<float>(screenH);
+    const float pad = std::max(14.0f, h * 0.028f);
+    l.panel = {pad, pad, w - pad * 2.0f, h - pad * 2.0f};
+    const float headerH = 48.0f;
+    const float sideW = std::clamp(w * 0.23f, 235.0f, 320.0f);
+    l.canvas = {l.panel.x + 12.0f, l.panel.y + headerH + 8.0f,
+                l.panel.w - sideW - 32.0f, l.panel.h - headerH - 22.0f};
+    l.sidebar = {l.canvas.x + l.canvas.w + 10.0f, l.canvas.y, sideW, l.canvas.h};
+
+    l.btnClose    = {l.panel.x + l.panel.w - 110.0f, l.panel.y + 8.0f, 96.0f, 32.0f};
+    l.btnZoomIn   = {l.canvas.x + 12.0f, l.canvas.y + 12.0f, 36.0f, 34.0f};
+    l.btnZoomOut  = {l.canvas.x + 54.0f, l.canvas.y + 12.0f, 36.0f, 34.0f};
+    l.btnRecenter = {l.canvas.x + 96.0f, l.canvas.y + 12.0f, 96.0f, 34.0f};
+
+    const float actY = l.sidebar.y + l.sidebar.h - 92.0f;
+    l.btnSetGps     = {l.sidebar.x + 10.0f, actY,        l.sidebar.w - 20.0f, 36.0f};
+    l.btnFastTravel = {l.sidebar.x + 10.0f, actY + 44.0f, l.sidebar.w - 20.0f, 38.0f};
+    return l;
+}
+
+Vec2 mapWorldToScreen(const FullMapLayout& l, const Vec2& worldPos, const Vec2& centerWorld, float zoom) {
+    const float baseSpanX = CityMap::kWorldMaxX - CityMap::kWorldMinX; // 30,072m
+    const float baseSpanZ = CityMap::kWorldMaxZ - CityMap::kWorldMinZ; // 25,032m
+    const float scale = std::min(l.canvas.w / baseSpanX, l.canvas.h / baseSpanZ) * zoom;
+    const float cx = l.canvas.x + l.canvas.w * 0.5f;
+    const float cy = l.canvas.y + l.canvas.h * 0.5f;
+    return {
+        cx + (worldPos.x - centerWorld.x) * scale,
+        cy + (worldPos.z - centerWorld.z) * scale
+    };
+}
+
+Vec2 mapScreenToWorld(const FullMapLayout& l, const Vec2& screenPos, const Vec2& centerWorld, float zoom) {
+    const float baseSpanX = CityMap::kWorldMaxX - CityMap::kWorldMinX;
+    const float baseSpanZ = CityMap::kWorldMaxZ - CityMap::kWorldMinZ;
+    const float scale = std::min(l.canvas.w / baseSpanX, l.canvas.h / baseSpanZ) * zoom;
+    const float cx = l.canvas.x + l.canvas.w * 0.5f;
+    const float cy = l.canvas.y + l.canvas.h * 0.5f;
+    return {
+        clampf(centerWorld.x + (screenPos.x - cx) / std::max(1e-5f, scale), CityMap::kWorldMinX, CityMap::kWorldMaxX),
+        clampf(centerWorld.z + (screenPos.z - cy) / std::max(1e-5f, scale), CityMap::kWorldMinZ, CityMap::kWorldMaxZ)
+    };
+}
+} // namespace
+
+void HudRenderer::updateFullMapInput(const PlatformInput& input, int screenW, int screenH,
+                                     const GameWorld& world, float dt, ModalTapAction& out) {
+    if (!fullMapOpen_) return;
+    const FullMapLayout l = computeFullMapLayout(screenW, screenH);
+
+    // Keyboard pan & zoom
+    const float panSpd = (5500.0f / mapZoom_) * dt;
+    if (input.isDown(KeyCode::A) || input.isDown(KeyCode::Left))  mapCenterWorld_.x -= panSpd;
+    if (input.isDown(KeyCode::D) || input.isDown(KeyCode::Right)) mapCenterWorld_.x += panSpd;
+    if (input.isDown(KeyCode::W) || input.isDown(KeyCode::Up))    mapCenterWorld_.z -= panSpd;
+    if (input.isDown(KeyCode::S) || input.isDown(KeyCode::Down))  mapCenterWorld_.z += panSpd;
+    if (input.isPressed(KeyCode::Equal)) mapZoom_ = clampf(mapZoom_ * 1.35f, 0.9f, 12.0f);
+    if (input.isPressed(KeyCode::Minus)) mapZoom_ = clampf(mapZoom_ / 1.35f, 0.9f, 12.0f);
+    if (std::abs(input.scrollDeltaY) > 0.01f) {
+        mapZoom_ = clampf(mapZoom_ * (input.scrollDeltaY > 0.0f ? 1.22f : (1.0f / 1.22f)), 0.9f, 12.0f);
+    }
+
+    // Mouse drag panning when holding right button (or dragging left > 12px)
+    if (input.mouseRightDown && l.canvas.contains(input.mouseX, input.mouseY)) {
+        if (!mapDragging_) {
+            mapDragging_ = true;
+            mapDragLast_ = {input.mouseX, input.mouseY};
+        } else {
+            const float baseSpanX = CityMap::kWorldMaxX - CityMap::kWorldMinX;
+            const float baseSpanZ = CityMap::kWorldMaxZ - CityMap::kWorldMinZ;
+            const float scale = std::min(l.canvas.w / baseSpanX, l.canvas.h / baseSpanZ) * mapZoom_;
+            mapCenterWorld_.x -= (input.mouseX - mapDragLast_.x) / std::max(1e-5f, scale);
+            mapCenterWorld_.z -= (input.mouseY - mapDragLast_.z) / std::max(1e-5f, scale);
+            mapDragLast_ = {input.mouseX, input.mouseY};
+        }
+    } else {
+        mapDragging_ = false;
+    }
+
+    mapCenterWorld_.x = clampf(mapCenterWorld_.x, CityMap::kWorldMinX * 0.85f, CityMap::kWorldMaxX * 0.85f);
+    mapCenterWorld_.z = clampf(mapCenterWorld_.z, CityMap::kWorldMinZ * 0.85f, CityMap::kWorldMaxZ * 0.85f);
+
+    if (input.mouseLeftPressed) {
+        handleModalTap(world, screenW, screenH, {input.mouseX, input.mouseY}, out);
+    }
+    if (input.isPressed(KeyCode::Enter) && mapHasSelection_) {
+        out.fastTravel = true;
+        out.mapTargetWorld = mapSelectedWorld_;
+        out.mapTargetLabelKo = mapSelectedNameKo_;
+        fullMapOpen_ = false;
+    }
 }
 
 bool HudRenderer::handleModalTap(const GameWorld& world, int screenW, int screenH,
-                                 Vector2 tapPos, ModalTapAction& out) {
-    out = ModalTapAction{};
+                                 Vec2 tapPos, ModalTapAction& out) {
+    if (fullMapOpen_) {
+        const FullMapLayout l = computeFullMapLayout(screenW, screenH);
+        if (l.btnClose.contains(tapPos.x, tapPos.z)) {
+            fullMapOpen_ = false;
+            return true;
+        }
+        if (l.btnZoomIn.contains(tapPos.x, tapPos.z)) {
+            mapZoom_ = clampf(mapZoom_ * 1.45f, 0.9f, 12.0f);
+            return true;
+        }
+        if (l.btnZoomOut.contains(tapPos.x, tapPos.z)) {
+            mapZoom_ = clampf(mapZoom_ / 1.45f, 0.9f, 12.0f);
+            return true;
+        }
+        if (l.btnRecenter.contains(tapPos.x, tapPos.z)) {
+            mapCenterWorld_ = world.player().pos;
+            mapZoom_ = std::max(mapZoom_, 2.4f);
+            return true;
+        }
+        if (l.btnSetGps.contains(tapPos.x, tapPos.z)) {
+            out.setWaypoint = true;
+            out.mapTargetWorld = mapHasSelection_ ? mapSelectedWorld_ : world.player().pos;
+            out.mapTargetLabelKo = mapHasSelection_ ? mapSelectedNameKo_ : "목적지";
+            return true;
+        }
+        if (l.btnFastTravel.contains(tapPos.x, tapPos.z)) {
+            out.fastTravel = true;
+            out.mapTargetWorld = mapHasSelection_ ? mapSelectedWorld_ : mapCenterWorld_;
+            out.mapTargetLabelKo = mapHasSelection_ ? mapSelectedNameKo_ : "서울";
+            fullMapOpen_ = false;
+            return true;
+        }
 
-    if (shopMenuOpen_) {
-        const int rowCount = getShopRowCount(world);
-        if (rowCount <= 0) {
-            shopMenuOpen_ = false;
-            return true;
-        }
-        const ShopModalGeom g = computeShopModalGeom(rowCount, screenW, screenH);
-        if (pointInRect(tapPos, g.closeBtn) || !pointInRect(tapPos, g.panel)) {
-            setShopMenuOpen(false);
-            return true;
-        }
-        for (int i = 0; i < rowCount; ++i) {
-            const Rectangle rowRect{
-                g.panel.x + 18.0f,
-                g.rowsStartY + static_cast<float>(i) * g.rowStep,
-                g.panel.width - 36.0f,
-                g.rowBoxH
-            };
-            if (pointInRect(tapPos, rowRect)) {
-                out.shopBuyOption = i + 1;
+        // Sidebar landmark quick-select list
+        const float listTop = l.sidebar.y + 38.0f;
+        const float listBottom = l.btnSetGps.y - 10.0f;
+        const auto& landmarks = world.city().landmarks();
+        const float rowH = std::min(32.0f, (listBottom - listTop) / std::max(1.0f, static_cast<float>(landmarks.size())));
+        for (std::size_t i = 0; i < landmarks.size(); ++i) {
+            RectF row{l.sidebar.x + 8.0f, listTop + static_cast<float>(i) * rowH, l.sidebar.w - 16.0f, rowH - 3.0f};
+            if (row.contains(tapPos.x, tapPos.z)) {
+                mapSelectedWorld_ = landmarks[i].pos;
+                mapSelectedNameKo_ = landmarks[i].nameKo;
+                mapHasSelection_ = true;
+                mapCenterWorld_ = landmarks[i].pos;
+                mapZoom_ = std::max(mapZoom_, 2.2f);
+                out.setWaypoint = true;
+                out.mapTargetWorld = landmarks[i].pos;
+                out.mapTargetLabelKo = landmarks[i].nameKo;
                 return true;
             }
         }
+
+        // Direct tap on the 30km x 25km Seoul Map Canvas -> select landmark if near, else exact world coordinate!
+        if (l.canvas.contains(tapPos.x, tapPos.z)) {
+            Vec2 clickedWorld = mapScreenToWorld(l, tapPos, mapCenterWorld_, mapZoom_);
+            std::string chosenName = CityMap::districtNameKo(world.city().districtAtWorld(clickedWorld));
+            // Snap to nearby iconic landmark pin within 18px
+            for (const auto& lm : landmarks) {
+                const Vec2 sp = mapWorldToScreen(l, lm.pos, mapCenterWorld_, mapZoom_);
+                if ((sp - tapPos).length() < 18.0f) {
+                    clickedWorld = lm.pos;
+                    chosenName = lm.nameKo;
+                    break;
+                }
+            }
+            mapSelectedWorld_ = clickedWorld;
+            mapSelectedNameKo_ = chosenName;
+            mapHasSelection_ = true;
+            out.setWaypoint = true;
+            out.mapTargetWorld = clickedWorld;
+            out.mapTargetLabelKo = chosenName;
+            return true;
+        }
+        return false;
+    }
+
+    // Smartphone / Shop / Custom Studio quick close & item taps
+    const float w = static_cast<float>(screenW);
+    const float h = static_cast<float>(screenH);
+    const float mw = std::min(580.0f, w * 0.84f);
+    const float mh = std::min(520.0f, h * 0.82f);
+    const RectF box{(w - mw) * 0.5f, (h - mh) * 0.5f, mw, mh};
+    if (!box.contains(tapPos.x, tapPos.z)) {
+        shopMenuOpen_ = false;
+        phoneOpen_ = false;
+        customStudioOpen_ = false;
         return true;
     }
-
-    if (phoneOpen_) {
-        const int rowCount = (phoneTab_ == 0 || phoneTab_ == 3) ? 10 : 6;
-        const PhoneModalGeom g = computePhoneModalGeom(phoneTab_, screenW, screenH);
-        if (pointInRect(tapPos, g.closeBtn) || !pointInRect(tapPos, g.panel)) {
-            setPhoneOpen(false);
-            return true;
-        }
-        for (int t = 0; t < 4; ++t) {
-            if (pointInRect(tapPos, g.tabs[static_cast<std::size_t>(t)])) {
-                setPhoneTab(t);
-                return true;
-            }
-        }
-        for (int i = 0; i < rowCount; ++i) {
-            const Rectangle rowRect{
-                g.panel.x + 12.0f,
-                g.listTop + static_cast<float>(i) * (g.rowH + g.rowGap),
-                g.panel.width - 24.0f,
-                g.rowH
-            };
-            if (pointInRect(tapPos, rowRect)) {
-                out.phoneTab = phoneTab_;
-                out.phoneOption = i + 1;
-                return true;
-            }
-        }
+    const RectF closeR{box.x + box.w - 86.0f, box.y + 10.0f, 74.0f, 30.0f};
+    if (closeR.contains(tapPos.x, tapPos.z)) {
+        shopMenuOpen_ = false;
+        phoneOpen_ = false;
+        customStudioOpen_ = false;
         return true;
     }
-
-    if (customStudioOpen_) {
-        const StudioModalGeom g = computeStudioModalGeom(customTab_, screenW, screenH);
-        if (pointInRect(tapPos, g.closeBtn)) {
-            setCustomStudioOpen(false);
+    if (phoneOpen_ || customStudioOpen_) {
+        const float tabW = (box.w - 28.0f) / 4.0f;
+        for (int t = 0; t < 4; ++t) {
+            RectF tr{box.x + 14.0f + static_cast<float>(t) * tabW, box.y + 48.0f, tabW - 4.0f, 32.0f};
+            if (tr.contains(tapPos.x, tapPos.z)) {
+                if (phoneOpen_) phoneTab_ = t;
+                else customTab_ = t;
+                return true;
+            }
+        }
+    }
+    const float itemTop = (phoneOpen_ || customStudioOpen_) ? (box.y + 92.0f) : (box.y + 58.0f);
+    const int maxRows = shopMenuOpen_ ? 10 : (phoneOpen_ ? 8 : 8);
+    const float rowH = std::min(42.0f, (box.y + box.h - 20.0f - itemTop) / static_cast<float>(maxRows));
+    for (int i = 0; i < maxRows; ++i) {
+        RectF rr{box.x + 16.0f, itemTop + static_cast<float>(i) * rowH, box.w - 32.0f, rowH - 5.0f};
+        if (rr.contains(tapPos.x, tapPos.z)) {
+            if (shopMenuOpen_) out.shopBuyOption = i + 1;
+            else if (phoneOpen_) { out.phoneTab = phoneTab_; out.phoneOption = i + 1; }
+            else if (customStudioOpen_) { out.customStudioTab = customTab_; out.customStudioOption = i + 1; }
             return true;
         }
-        for (int t = 0; t < 4; ++t) {
-            if (pointInRect(tapPos, g.tabs[static_cast<std::size_t>(t)])) {
-                setCustomTab(t);
-                return true;
-            }
-        }
-        for (int i = 0; i < g.rowCount; ++i) {
-            const Rectangle rowRect{
-                g.panel.x + 16.0f,
-                g.rowsTop + static_cast<float>(i) * g.rowStep,
-                g.panel.width - 32.0f,
-                g.rowH
-            };
-            if (pointInRect(tapPos, rowRect)) {
-                out.customStudioTab = customTab_;
-                out.customStudioOption = i + 1;
-                return true;
-            }
-        }
-        return pointInRect(tapPos, g.panel);
     }
-
     return false;
 }
 
-void HudRenderer::renderHud(const GameWorld& world, float cameraYaw, bool cursorLocked,
-                            bool firstPerson, float adsBlend) {
-    const int sw = GetScreenWidth();
-    const int sh = GetScreenHeight();
-    if (gfxToastTimer_ > 0.0f) {
-        gfxToastTimer_ = std::max(0.0f, gfxToastTimer_ - GetFrameTime());
-    }
+void HudRenderer::drawRadarMinimap(Vulkan2D& ui, VulkanContext& vk, const GameWorld& world,
+                                   int screenW, int screenH, float cameraYaw) {
+    const RectF r = minimapRect(screenW, screenH);
+    const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
+    const CityMap& city = world.city();
+    const Vec2 pPos = world.player().pos;
 
-    // Automatically close shop modal if player walked/drove away from shop zone
-    if (shopMenuOpen_ && !world.isPlayerInAnyShopZone()) {
-        shopMenuOpen_ = false;
-    }
+    // Outer sleek dark bezel
+    ui.drawRoundedRect(r.x - 4, r.y - 4, r.w + 8, r.h + 8, 12.0f, {10, 14, 22, 220});
+    ui.drawRoundedRectOutline(r.x - 4, r.y - 4, r.w + 8, r.h + 8, 12.0f, 2.0f, accent);
 
-    drawCrosshair(world, sw, sh, firstPerson, adsBlend);
-    if (!(mobileUi_ && customStudioOpen_)) {
-        drawRadarMinimap(world, cameraYaw, sh);
-    }
-    drawTopRightStatus(world, sw, firstPerson);
-    if (!(mobileUi_ && (shopMenuOpen_ || phoneOpen_))) {
-        drawSpeedometerAndDrift(world, sw, sh);
-    }
-    drawContextPromptsAndMission(world, sw, sh);
+    // Clip radar contents strictly inside minimap box
+    ui.pushScissor(vk, static_cast<int>(r.x), static_cast<int>(r.y),
+                   static_cast<int>(r.w), static_cast<int>(r.h));
 
-    if (shopMenuOpen_) {
-        drawShopModal(world, sw, sh);
-    } else if (phoneOpen_) {
-        drawSmartphoneModal(world, sw, sh);
-    } else if (customStudioOpen_) {
-        drawCustomStudioModal(world, sw, sh);
-    }
+    ui.drawRect(r.x, r.y, r.w, r.h, {20, 26, 36, 235});
 
-    drawBannerToast(world, sw, sh);
-    if (!customStudioOpen_ && !mobileUi_) {
-        drawHelpOverlay(world, sw, sh, cursorLocked);
-    }
-}
-
-void HudRenderer::drawRadarMinimap(const GameWorld& world, float cameraYaw, int screenH) {
-    float radius = 92.0f;
-    float cx = 26.0f + radius;
-    float cy = static_cast<float>(screenH) - 42.0f - radius;
-    if (mobileUi_) {
-        // Place radar at Top-Left on touchscreens so Bottom-Left stays clear for virtual joystick / steering
-        const float s = clampf(static_cast<float>(screenH) / 820.0f, 0.70f, 1.32f);
-        radius = 70.0f * s;
-        cx = std::max(24.0f, 22.0f * s) + radius;
-        cy = 14.0f * s + radius;
-    }
-    const float worldRange = 155.0f;
-    const float scale = radius / worldRange;
-
-    const Vec2 centerWorld = (world.playerVehicle() != nullptr) ? world.playerVehicle()->pos : world.player().pos;
-    const Vec2 fwd = forwardFromHeading(cameraYaw);
-    const Vec2 right = rightFromHeading(cameraYaw);
-
-    auto projectToRadar = [&](const Vec2& wpos, bool clampEdge) -> Vector2 {
-        const Vec2 d = wpos - centerWorld;
-        float rx = d.dot(right) * scale;
-        float ry = -d.dot(fwd) * scale;
-        const float len = std::sqrt(rx * rx + ry * ry);
-        if (len > radius - 5.0f) {
-            if (!clampEdge) return {-9999.0f, -9999.0f};
-            const float k = (radius - 6.0f) / len;
-            rx *= k;
-            ry *= k;
-        }
-        return {cx + rx, cy + ry};
+    // Local 900m radar span around player (North-up for intuitive Seoul geography!)
+    const float spanMeters = 960.0f;
+    const float pxPerM = r.w / spanMeters;
+    const float cx = r.x + r.w * 0.5f;
+    const float cy = r.y + r.h * 0.5f;
+    auto toMap = [&](const Vec2& wp) -> Vec2 {
+        return {cx + (wp.x - pPos.x) * pxPerM, cy + (wp.z - pPos.z) * pxPerM};
     };
 
-    // Outer dark bezel + sleek dark-glass radar disc
-    DrawCircleV({cx, cy}, radius + 5.0f, Color{10, 13, 18, 232});
-    DrawCircleV({cx, cy}, radius, Color{18, 25, 34, 224});
+    // Draw Han River ribbon across radar!
+    const int riverSegs = 16;
+    for (int i = 0; i < riverSegs; ++i) {
+        const float wx0 = pPos.x - spanMeters * 0.6f + spanMeters * 1.2f * (static_cast<float>(i) / riverSegs);
+        const float wx1 = pPos.x - spanMeters * 0.6f + spanMeters * 1.2f * (static_cast<float>(i + 1) / riverSegs);
+        const float cz0 = city.hanRiverCenterZ(wx0);
+        const float cz1 = city.hanRiverCenterZ(wx1);
+        const float hw0 = city.hanRiverHalfWidth(wx0);
+        const float hw1 = city.hanRiverHalfWidth(wx1);
+        const Vec2 a = toMap({wx0, cz0 - hw0});
+        const Vec2 b = toMap({wx1, cz1 - hw1});
+        const Vec2 c = toMap({wx1, cz1 + hw1});
+        const Vec2 d = toMap({wx0, cz0 + hw0});
+        ui.drawTriangle(a.x, a.z, b.x, b.z, c.x, c.z, {26, 78, 138, 225});
+        ui.drawTriangle(a.x, a.z, c.x, c.z, d.x, d.z, {26, 78, 138, 225});
+    }
 
-    // Western Sunset Beach sand (-746..-686) & 110m Timber Pier (-686..-796) on radar
-    const float minBeachZ = std::max(-672.0f, centerWorld.z - worldRange - 24.0f);
-    const float maxBeachZ = std::min( 672.0f, centerWorld.z + worldRange + 24.0f);
-    if (centerWorld.x < -510.0f) {
-        for (float sz = std::floor(minBeachZ / 24.0f) * 24.0f; sz <= maxBeachZ; sz += 24.0f) {
-            const Vector2 ps = projectToRadar({-714.0f, sz}, false);
-            if (ps.x > -1000.0f) {
-                DrawCircleV(ps, 6.2f, Color{196, 178, 132, 150});
-            }
+    // Draw local road grid lines
+    const int rxC = city.nearestRoadIndex(pPos.x);
+    const int rzC = city.nearestRoadIndex(pPos.z);
+    for (int ix = rxC - 7; ix <= rxC + 7; ++ix) {
+        const float rx = city.roadCoord(ix);
+        const float sx = cx + (rx - pPos.x) * pxPerM;
+        const bool major = city.isMajorArterialRoad(ix, false);
+        ui.drawLine(sx, r.y, sx, r.y + r.h, major ? 2.4f : 1.1f, major ? ColorRGBA{82, 92, 108, 190} : ColorRGBA{52, 60, 74, 150});
+    }
+    for (int iz = rzC - 7; iz <= rzC + 7; ++iz) {
+        const float rz = city.roadCoord(iz);
+        const float sy = cy + (rz - pPos.z) * pxPerM;
+        const bool major = city.isMajorArterialRoad(iz, true);
+        ui.drawLine(r.x, sy, r.x + r.w, sy, major ? 2.4f : 1.1f, major ? ColorRGBA{82, 92, 108, 190} : ColorRGBA{52, 60, 74, 150});
+    }
+
+    // Bridges crossing Han River
+    for (const auto& br : city.bridges()) {
+        if (std::abs(br.centerX - pPos.x) > spanMeters * 0.7f) continue;
+        const Vec2 p0 = toMap({br.centerX, br.zNorth});
+        const Vec2 p1 = toMap({br.centerX, br.zSouth});
+        ui.drawLine(p0.x, p0.z, p1.x, p1.z, 4.0f, {222, 184, 92, 235});
+    }
+
+    // Police Search Zone & Active Cruisers
+    if (world.player().wantedLevel > 0) {
+        if (world.player().policeSearching) {
+            const Vec2 lp = toMap(world.player().policeLastKnownPos);
+            ui.drawCircleRing(lp.x, lp.z, 130.0f * pxPerM, 138.0f * pxPerM, {245, 72, 82, 165}, 24);
         }
-        for (float px = -688.0f; px >= -796.0f; px -= 12.0f) {
-            const Vector2 pp = projectToRadar({px, 0.0f}, false);
-            if (pp.x > -1000.0f) {
-                DrawCircleV(pp, 3.2f, Color{162, 124, 84, 215});
-            }
+        for (const auto& v : world.vehicles()) {
+            if (!v.isPolice || v.destroyed) continue;
+            const Vec2 vp = toMap(v.pos);
+            const bool redB = std::sin(world.elapsedTime() * 11.0f) > 0.0f;
+            ui.drawCircle(vp.x, vp.z, 4.2f, redB ? ColorRGBA{255, 58, 66, 255} : ColorRGBA{64, 148, 255, 255}, 10);
         }
     }
 
-    // Grand Central Park reflective lake & North Bay Lighthouse Peninsula headland on radar
-    for (const auto& lk : world.city().lakes()) {
-        const Vec2 lc = lk.bounds.center();
-        if ((lc - centerWorld).lengthSq() < (worldRange + 48.0f) * (worldRange + 48.0f)) {
-            const Vector2 plk = projectToRadar(lc, false);
-            if (plk.x > -1000.0f) {
-                const float lw = std::max(6.0f, lk.bounds.halfExtents().x * 2.0f * scale);
-                const float lh = std::max(6.0f, lk.bounds.halfExtents().z * 2.0f * scale);
-                DrawRectanglePro({plk.x, plk.y, lw, lh}, {lw * 0.5f, lh * 0.5f},
-                                 -cameraYaw * kRadToDeg, Color{42, 92, 128, 215});
-            }
-        }
+    // POIs & GPS Waypoint
+    for (const auto& poi : city.pois()) {
+        const Vec2 sp = toMap(poi.pos);
+        if (r.contains(sp.x, sp.z)) ui.drawCircle(sp.x, sp.z, 3.6f, poi.markerColor, 10);
     }
-    if (centerWorld.z > 510.0f) {
-        // Golden Bay Suspension Bridge deck & North Bay Peninsula coastal loop
-        for (float bz = CityMap::kBridgeStartZ; bz <= CityMap::kBridgeEndZ + 96.0f; bz += 14.0f) {
-            const Vector2 pb = projectToRadar({0.0f, bz}, false);
-            if (pb.x > -1000.0f) {
-                const bool onSpan = (bz <= CityMap::kBridgeEndZ);
-                DrawCircleV(pb, onSpan ? 3.0f : 2.6f,
-                            onSpan ? Color{196, 98, 72, 225} : Color{96, 108, 122, 200});
-            }
-        }
-        const Vector2 pHead = projectToRadar({0.0f, 886.0f}, false);
-        if (pHead.x > -1000.0f) {
-            DrawCircleV(pHead, 26.0f * scale * 2.4f, Color{54, 78, 56, 110});
-        }
-        const Vector2 pLight = projectToRadar({0.0f, 924.0f}, false);
-        if (pLight.x > -1000.0f) {
-            DrawCircleV(pLight, 4.2f, Color{242, 228, 172, 240});
-        }
+    if (world.player().hasWaypoint) {
+        const Vec2 wp = toMap(world.player().waypointPos);
+        ui.drawLine(cx, cy, wp.x, wp.z, 1.8f, {72, 224, 255, 170});
+        ui.drawCircle(clampf(wp.x, r.x + 7, r.x + r.w - 7),
+                      clampf(wp.z, r.y + 7, r.y + r.h - 7), 5.0f, {72, 224, 255, 255}, 12);
     }
 
-    // Nearby buildings on radar (O(1) spatial grid query across 16x16 metropolis!)
-    std::vector<int> radarBldgs;
-    world.city().queryBuildingsInRadius(centerWorld, worldRange + 32.0f, radarBldgs);
-    const auto& allBldgs = world.city().buildings();
-    for (int idx : radarBldgs) {
-        const auto& b = allBldgs[static_cast<std::size_t>(idx)];
-        const Vec2 bc = b.footprint.center();
-        if ((bc - centerWorld).lengthSq() > (worldRange + 28.0f) * (worldRange + 28.0f)) continue;
-        const Vector2 p = projectToRadar(bc, false);
-        if (p.x < -1000.0f) continue;
-        const float bw = std::max(3.0f, b.footprint.halfExtents().x * scale * 1.45f);
-        const float bh = std::max(3.0f, b.footprint.halfExtents().z * scale * 1.45f);
-        DrawRectanglePro({p.x, p.y, bw, bh}, {bw * 0.5f, bh * 0.5f},
-                         -cameraYaw * kRadToDeg, Color{54, 66, 82, 205});
-    }
+    // Player heading chevron in center
+    const float yaw = world.player().drivingVehicleId >= 0 && world.playerVehicle()
+        ? world.playerVehicle()->heading : world.player().facingYaw;
+    const Vec2 fwd{std::cos(yaw), std::sin(yaw)};
+    const Vec2 rt{-fwd.z, fwd.x};
+    ui.drawTriangle(cx + fwd.x * 8.5f, cy + fwd.z * 8.5f,
+                    cx - fwd.x * 6.0f + rt.x * 5.8f, cy - fwd.z * 6.0f + rt.z * 5.8f,
+                    cx - fwd.x * 6.0f - rt.x * 5.8f, cy - fwd.z * 6.0f - rt.z * 5.8f,
+                    {255, 255, 255, 255});
 
-    // Road grid lines clipped locally around player inside 16x16 metropolis
-    const float gridSpan = world.city().roadCoord(CityMap::kRoadCount - 1);
-    const float zLo = std::max(-gridSpan, std::floor((centerWorld.z - worldRange) / 16.0f) * 16.0f);
-    const float zHi = std::min( gridSpan, centerWorld.z + worldRange);
-    const float xLo = std::max(-gridSpan, std::floor((centerWorld.x - worldRange) / 16.0f) * 16.0f);
-    const float xHi = std::min( gridSpan, centerWorld.x + worldRange);
-    for (int i = 0; i < CityMap::kRoadCount; ++i) {
-        const float rc = world.city().roadCoord(i);
-        if (std::abs(rc - centerWorld.x) <= worldRange + 16.0f) {
-            for (float s = zLo; s <= zHi; s += 16.0f) {
-                const Vector2 pv = projectToRadar({rc, s}, false);
-                if (pv.x > -1000.0f) DrawCircleV(pv, 2.3f, Color{88, 98, 112, 190});
-            }
-        }
-        if (std::abs(rc - centerWorld.z) <= worldRange + 16.0f) {
-            for (float s = xLo; s <= xHi; s += 16.0f) {
-                const Vector2 ph = projectToRadar({s, rc}, false);
-                if (ph.x > -1000.0f) DrawCircleV(ph, 2.3f, Color{88, 98, 112, 190});
-            }
-        }
-    }
+    ui.popScissor(vk);
 
-    // Nearby vehicles, pursuing SBPD cruisers & personal summoned car highlight
-    const int wanted = world.player().wantedLevel;
-    for (const auto& v : world.vehicles()) {
-        if (v.isPlayerDriving || v.destroyed) continue;
-        const bool isPersonal = v.isPersonalCar && (v.id == world.player().activePersonalVehicleId);
-        const bool activePolice = v.isPolice && (wanted > 0 || v.sirenActive);
-        const Vector2 pv = projectToRadar(v.pos, isPersonal || activePolice);
-        if (pv.x > -1000.0f) {
-            if (v.isMissionTarget) {
-                DrawCircleV(pv, 4.8f, Color{255, 218, 52, 255});
-            } else if (activePolice) {
-                const bool redPhase = (v.sirenPhase < 0.5f);
-                const Color pCol = redPhase ? Color{255, 58, 68, 255} : Color{56, 148, 255, 255};
-                if ((v.pos - centerWorld).lengthSq() < worldRange * worldRange) {
-                    DrawCircleV(pv, 9.5f, Color{pCol.r, pCol.g, pCol.b, 48});
-                }
-                DrawCircleV(pv, 5.2f, Color{12, 16, 22, 255});
-                DrawCircleV(pv, 3.9f, pCol);
-            } else if (v.isPolice) {
-                DrawCircleV(pv, 3.6f, Color{92, 168, 255, 225});
-            } else if (isPersonal) {
-                DrawCircleV(pv, 5.2f, Color{14, 18, 24, 255});
-                DrawCircleV(pv, 3.8f, Color{76, 228, 255, 255});
-            } else {
-                DrawCircleV(pv, 2.4f, Color{185, 200, 215, 200});
-            }
-        }
-    }
+    // District badge + clickable "[M] 전체지도" hint pill!
+    const DistrictType dist = city.districtAtWorld(pPos);
+    const std::string distLabel = pickText(CityMap::districtNameEn(dist), CityMap::districtNameKo(dist));
+    ui.drawRoundedRect(r.x, r.y + r.h - 24.0f, r.w, 24.0f, 4.0f, {10, 14, 22, 205});
+    ui.drawText(distLabel, r.x + 6.0f, r.y + r.h - 21.0f, 13.5f, {235, 242, 252, 255});
 
-    const bool copBlinkRed = (std::fmod(GetTime() * 3.6, 1.0) < 0.5);
-    for (const auto& npc : world.npcs()) {
-        if (!npc.alive) continue;
-        if (npc.role == NpcRole::Gangster) {
-            const Vector2 pn = projectToRadar(npc.pos, false);
-            if (pn.x > -1000.0f) {
-                DrawCircleV(pn, 3.3f, Color{255, 72, 68, 245});
-            }
-        } else if (npc.role == NpcRole::Police) {
-            const Vector2 pn = projectToRadar(npc.pos, wanted > 0);
-            if (pn.x > -1000.0f) {
-                const Color cCol = (wanted > 0 && copBlinkRed)
-                                       ? Color{255, 68, 76, 250}
-                                       : Color{64, 162, 255, 250};
-                DrawCircleV(pn, 4.3f, Color{10, 14, 20, 255});
-                DrawCircleV(pn, 3.1f, cCol);
-            }
-        }
-    }
-
-    // POIs (Shops, Dealership, Boutique, Gas Station, Nightclub, Mission Coronas)
-    for (const auto& poi : world.city().pois()) {
-        if (world.mission().kind != ActiveMissionKind::None &&
-            (poi.kind == PoiKind::MissionDelivery ||
-             poi.kind == PoiKind::MissionRace ||
-             poi.kind == PoiKind::MissionGangRaid)) {
-            continue;
-        }
-        const bool clamp = (poi.kind == PoiKind::WeaponShop ||
-                            poi.kind == PoiKind::TuneGarage ||
-                            poi.kind == PoiKind::CarDealership);
-        const Vector2 pp = projectToRadar(poi.pos, clamp);
-        if (pp.x > -1000.0f) {
-            const Color pc{poi.markerColor.r, poi.markerColor.g, poi.markerColor.b, 255};
-            DrawCircleV(pp, 4.8f, Color{12, 14, 18, 255});
-            DrawCircleV(pp, 3.5f, pc);
-        }
-    }
-
-    // Active Mission GPS line + yellow objective blip
-    if (world.mission().kind != ActiveMissionKind::None) {
-        const Vector2 objP = projectToRadar(world.mission().currentObjectivePos, true);
-        DrawLineEx({cx, cy}, objP, 2.5f, Color{255, 218, 56, 210});
-        DrawCircleV(objP, 6.2f, Color{18, 18, 18, 255});
-        DrawCircleV(objP, 4.6f, Color{255, 224, 58, 255});
-    }
-
-    // Player center arrow
-    DrawTriangle({cx, cy - 6.5f}, {cx - 5.0f, cy + 5.5f}, {cx + 5.0f, cy + 5.5f}, Color{255, 255, 255, 255});
-
-    // Radar ring border (pulses Red/Blue during active police pursuit!) + North [N] compass badge
-    Color ringCol{210, 220, 232, 235};
-    if (wanted > 0) {
-        if (world.player().policeLineOfSight) {
-            ringCol = copBlinkRed ? Color{255, 62, 72, 250} : Color{58, 152, 255, 250};
-        } else {
-            const auto evA = static_cast<unsigned char>(155.0 + 90.0 * (0.5 + 0.5 * std::sin(GetTime() * 8.0)));
-            ringCol = Color{130, 205, 255, evA};
-        }
-    }
-    DrawRing({cx, cy}, radius, radius + 3.8f, 0.0f, 360.0f, 48, ringCol);
-
-    const Vec2 northWorld{0.0f, -1.0f};
-    const float nx = cx + northWorld.dot(right) * (radius + 1.0f);
-    const float ny = cy - northWorld.dot(fwd) * (radius + 1.0f);
-    DrawCircleV({nx, ny}, 9.5f, Color{22, 26, 34, 245});
-    drawUiText("N", nx - 5.0f, ny - 8.0f, 16.0f, Color{255, 96, 88, 255});
-
-    // GTA Health (green) & Armor (blue) bars directly below radar
-    const float barW = (radius * 2.0f - 6.0f) * 0.5f;
-    const float barY = cy + radius + (mobileUi_ ? 10.0f : 12.0f);
-    const float leftX = cx - radius;
-
-    DrawRectangleRounded({leftX, barY, barW, 11.0f}, 0.35f, 4, Color{14, 18, 24, 215});
-    const float hpFrac = clampf(world.player().health / world.player().maxHealth, 0.0f, 1.0f);
-    if (hpFrac > 0.0f) {
-        DrawRectangleRounded({leftX + 1.5f, barY + 1.5f, (barW - 3.0f) * hpFrac, 8.0f}, 0.35f, 4, Color{72, 222, 106, 255});
-    }
-
-    const float armorX = leftX + barW + 6.0f;
-    DrawRectangleRounded({armorX, barY, barW, 11.0f}, 0.35f, 4, Color{14, 18, 24, 215});
-    const float arFrac = clampf(world.player().armor / world.player().maxArmor, 0.0f, 1.0f);
-    if (arFrac > 0.0f) {
-        DrawRectangleRounded({armorX + 1.5f, barY + 1.5f, (barW - 3.0f) * arFrac, 8.0f}, 0.35f, 4, Color{68, 178, 255, 255});
-    }
+    const std::string mapHint = pickText("[M] MAP", "[M] 전체지도");
+    const float hw = ui.measureTextWidth(mapHint, 12.0f) + 12.0f;
+    ui.drawRoundedRect(r.x + r.w - hw - 4.0f, r.y + 4.0f, hw, 20.0f, 5.0f, {12, 22, 36, 215});
+    ui.drawRoundedRectOutline(r.x + r.w - hw - 4.0f, r.y + 4.0f, hw, 20.0f, 5.0f, 1.0f, accent);
+    ui.drawText(mapHint, r.x + r.w - hw + 2.0f, r.y + 7.0f, 12.0f, accent);
+    (void)cameraYaw;
 }
 
-void HudRenderer::drawTopRightStatus(const GameWorld& world, int screenW, bool firstPerson) {
-    const float rightEdge = static_cast<float>(screenW) - 24.0f;
+void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const GameWorld& world,
+                                         int screenW, int screenH) {
+    const FullMapLayout l = computeFullMapLayout(screenW, screenH);
+    const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
+    const CityMap& city = world.city();
 
-    // Time of day + District + Camera View Mode ([V] 1st / 3rd Person)
-    const int hour = static_cast<int>(world.timeOfDayHours()) % 24;
-    const int minute = static_cast<int>((world.timeOfDayHours() - std::floor(world.timeOfDayHours())) * 60.0f);
-    const Vec2 pPos = (world.playerVehicle() != nullptr) ? world.playerVehicle()->pos : world.player().pos;
+    // Backdrop dim + sleek dark command panel
+    ui.drawRect(0, 0, static_cast<float>(screenW), static_cast<float>(screenH), {6, 10, 18, 212});
+    ui.drawRoundedRect(l.panel.x, l.panel.y, l.panel.w, l.panel.h, 14.0f, {12, 18, 28, 248});
+    ui.drawRoundedRectOutline(l.panel.x, l.panel.y, l.panel.w, l.panel.h, 14.0f, 2.0f, accent);
 
-    const char* distName = "MIDTOWN";
-    if (pPos.x < -682.0f) {
-        distName = pickText("SUNSET OCEAN PIER", "선셋 오션 비치·피어");
-    } else if (world.city().isOnNorthBridge(pPos, 2.5f)) {
-        distName = pickText("GOLDEN BAY BRIDGE", "골든 베이 현수교");
-    } else {
-        switch (world.city().districtAtWorld(pPos)) {
-            case DistrictType::Downtown:           distName = pickText("DOWNTOWN", "다운타운 금융가"); break;
-            case DistrictType::Midtown:            distName = pickText("MIDTOWN", "미드타운 상업지구"); break;
-            case DistrictType::Industrial:         distName = pickText("HARBOR DOCKS", "항구 공업단지"); break;
-            case DistrictType::CoastalResidential: distName = pickText("SUNSET BEACH", "선셋 해변지구"); break;
-            case DistrictType::CentralPark:        distName = pickText("CENTRAL PARK", "그랜드 센트럴 파크"); break;
-            case DistrictType::CivicCenter:        distName = pickText("CIVIC CENTER", "시청·행정타운"); break;
-            case DistrictType::SuburbanEstates:    distName = pickText("HILLCREST VILLAS", "힐크레스트 빌라지구"); break;
-            case DistrictType::NorthPeninsula:     distName = pickText("LIGHTHOUSE POINT", "북부 등대 반도"); break;
+    // Header title bar
+    const std::string title = pickText(
+        "SEOUL METROPOLIS FULL MAP (30km x 25km) — Click map to set GPS or Fast-Travel",
+        "서울특별시 전체 지도 (실제 크기 30km × 25km) — 지도를 클릭해 목적지 설정 또는 빠른 이동");
+    ui.drawText(title, l.panel.x + 18.0f, l.panel.y + 13.0f, 19.0f, {242, 248, 255, 255});
+
+    // Close button
+    ui.drawRoundedRect(l.btnClose.x, l.btnClose.y, l.btnClose.w, l.btnClose.h, 8.0f, {182, 42, 52, 235});
+    ui.drawTextCentered(pickText("CLOSE [M]", "닫기 [M]"),
+                        l.btnClose.x + l.btnClose.w * 0.5f, l.btnClose.y + 7.0f, 14.5f, {255, 255, 255, 255});
+
+    // --- MAP CANVAS (clipped cleanly!) ---
+    ui.drawRoundedRect(l.canvas.x, l.canvas.y, l.canvas.w, l.canvas.h, 10.0f, {18, 24, 34, 255});
+    ui.pushScissor(vk, static_cast<int>(l.canvas.x), static_cast<int>(l.canvas.y),
+                   static_cast<int>(l.canvas.w), static_cast<int>(l.canvas.h));
+
+    auto toScr = [&](const Vec2& wp) -> Vec2 {
+        return mapWorldToScreen(l, wp, mapCenterWorld_, mapZoom_);
+    };
+
+    // 1. Subtle 5km cartographic coordinate grid
+    for (float gx = -15000.0f; gx <= 15000.0f; gx += 3000.0f) {
+        const Vec2 a = toScr({gx, CityMap::kWorldMinZ});
+        const Vec2 b = toScr({gx, CityMap::kWorldMaxZ});
+        ui.drawLine(a.x, a.z, b.x, b.z, 1.0f, {36, 46, 62, 120});
+    }
+    for (float gz = -12000.0f; gz <= 12000.0f; gz += 3000.0f) {
+        const Vec2 a = toScr({CityMap::kWorldMinX, gz});
+        const Vec2 b = toScr({CityMap::kWorldMaxX, gz});
+        ui.drawLine(a.x, a.z, b.x, b.z, 1.0f, {36, 46, 62, 120});
+    }
+
+    // 2. 7 Real Seoul Mountains (topographic green contour ovals!)
+    for (const auto& m : city.mountains()) {
+        const Vec2 c = toScr(m.center);
+        const Vec2 edge = toScr({m.center.x + m.radiusX, m.center.z});
+        const float rPx = std::max(12.0f, std::abs(edge.x - c.x));
+        ui.drawCircle(c.x, c.z, rPx, {36, 76, 48, 130}, 24);
+        ui.drawCircle(c.x, c.z, rPx * 0.65f, {48, 96, 60, 155}, 20);
+        ui.drawCircle(c.x, c.z, rPx * 0.30f, {72, 118, 78, 175}, 16);
+        ui.drawTextCentered(pickText(m.nameEn.c_str(), m.nameKo.c_str()), c.x, c.z - 7.0f, 12.5f, {168, 224, 178, 230});
+    }
+
+    // 3. Real S-Curve Han River (한강) across all 30 km!
+    const int riverSteps = 90;
+    for (int i = 0; i < riverSteps; ++i) {
+        const float x0 = CityMap::kWorldMinX + (CityMap::kWorldMaxX - CityMap::kWorldMinX) * (static_cast<float>(i) / riverSteps);
+        const float x1 = CityMap::kWorldMinX + (CityMap::kWorldMaxX - CityMap::kWorldMinX) * (static_cast<float>(i + 1) / riverSteps);
+        const float cz0 = city.hanRiverCenterZ(x0);
+        const float cz1 = city.hanRiverCenterZ(x1);
+        const float hw0 = city.hanRiverHalfWidth(x0);
+        const float hw1 = city.hanRiverHalfWidth(x1);
+        const Vec2 a = toScr({x0, cz0 - hw0});
+        const Vec2 b = toScr({x1, cz1 - hw1});
+        const Vec2 c = toScr({x1, cz1 + hw1});
+        const Vec2 d = toScr({x0, cz0 + hw0});
+        ui.drawTriangle(a.x, a.z, b.x, b.z, c.x, c.z, {26, 94, 168, 240});
+        ui.drawTriangle(a.x, a.z, c.x, c.z, d.x, d.z, {26, 94, 168, 240});
+    }
+
+    // Yeouido Island (여의도) perched cleanly inside the Han River!
+    {
+        const Vec2 yC = toScr({-4500.0f, 320.0f});
+        const Vec2 yR = toScr({-4500.0f + 1320.0f, 320.0f});
+        const float rx = std::max(14.0f, std::abs(yR.x - yC.x));
+        ui.drawRoundedRect(yC.x - rx, yC.z - rx * 0.34f, rx * 2.0f, rx * 0.68f, rx * 0.28f, {58, 68, 82, 250});
+        ui.drawTextCentered(pickText("Yeouido", "여의도"), yC.x, yC.z - 7.0f, 12.5f, {236, 242, 250, 255});
+    }
+
+    // Seokchon Lake & Cheonggyecheon
+    for (const auto& lake : city.lakes()) {
+        const Vec2 p0 = toScr(lake.bounds.min);
+        const Vec2 p1 = toScr(lake.bounds.max);
+        ui.drawRect(p0.x, p0.z, std::max(4.0f, p1.x - p0.x), std::max(3.0f, p1.z - p0.z), {42, 134, 212, 235});
+    }
+
+    // 4. Major Seoul Arterial Corridors (Gangnam-daero, Teheran-ro, Sejong-daero, Olympic-daero, Gangbyeonbuk-ro)
+    auto drawArterial = [&](Vec2 wA, Vec2 wB, ColorRGBA col) {
+        const Vec2 sA = toScr(wA), sB = toScr(wB);
+        ui.drawLine(sA.x, sA.z, sB.x, sB.z, 2.2f, col);
+    };
+    const ColorRGBA kArtCol{112, 124, 146, 170};
+    drawArterial({-13000.0f, 2940.0f}, {13000.0f, 2940.0f}, kArtCol);   // 테헤란로 / 남부순환축
+    drawArterial({-13000.0f, -4620.0f}, {13000.0f, -4620.0f}, kArtCol); // 종로 / 퇴계로 / 을지로축
+    drawArterial({588.0f, -9000.0f}, {588.0f, 9500.0f}, kArtCol);       // 반포대로 / 강남대로축
+    drawArterial({-924.0f, -9500.0f}, {-924.0f, 8000.0f}, kArtCol);     // 세종대로 / 한강대로축
+    drawArterial({2436.0f, -8000.0f}, {2436.0f, 9500.0f}, kArtCol);     // 영동대로 / 성수축
+
+    // 5. All 15 Real Drivable Han River Bridges!
+    for (const auto& br : city.bridges()) {
+        const Vec2 a = toScr({br.centerX, br.zNorth - 40.0f});
+        const Vec2 b = toScr({br.centerX, br.zSouth + 40.0f});
+        ui.drawLine(a.x, a.z, b.x, b.z, 3.6f, {242, 198, 86, 245});
+        if (mapZoom_ >= 1.55f || br.hasRainbowFountain || br.isCableStayed) {
+            ui.drawTextCentered(pickText(br.nameEn.c_str(), br.nameKo.c_str()),
+                                a.x, 0.5f * (a.z + b.z) - 6.0f, 11.0f, {255, 232, 152, 240});
         }
     }
 
-    char clockBuf[160];
-    if (mobileUi_) {
-        // Compact header on touchscreens (top-center pills already show 1st/3rd view and weather)
-        std::snprintf(clockBuf, sizeof(clockBuf), "%02d:%02d  |  %s", hour, minute, distName);
-    } else {
-        const char* viewBadge = firstPerson
-                                    ? pickText("[V] 1ST PERSON", "[V] 1인칭 시점")
-                                    : pickText("[V] 3RD PERSON", "[V] 3인칭 시점");
-        const char* weatherBadge = world.isRainWeather()
-                                       ? pickText("  |  [U] RAIN", "  |  [U] 우천")
-                                       : "";
-        std::snprintf(clockBuf, sizeof(clockBuf), "%s  |  %02d:%02d  |  %s%s",
-                      viewBadge, hour, minute, distName, weatherBadge);
+    // 6. All 12 Iconic Real Seoul Landmarks (clickable gold/cyan pins!)
+    for (const auto& lm : city.landmarks()) {
+        const Vec2 sp = toScr(lm.pos);
+        const bool isSel = mapHasSelection_ && (lm.pos - mapSelectedWorld_).length() < 60.0f;
+        const ColorRGBA pinCol = isSel ? ColorRGBA{72, 232, 255, 255} : ColorRGBA{255, 206, 62, 255};
+        ui.drawCircle(sp.x, sp.z, isSel ? 7.5f : 5.5f, pinCol, 14);
+        ui.drawCircleRing(sp.x, sp.z, isSel ? 9.5f : 7.0f, isSel ? 12.0f : 8.5f, pinCol, 16);
+        const std::string lbl = pickText(lm.nameEn.c_str(), lm.nameKo.c_str());
+        const float lw = ui.measureTextWidth(lbl, 12.5f) + 8.0f;
+        ui.drawRoundedRect(sp.x - lw * 0.5f, sp.z - 25.0f, lw, 17.0f, 4.0f, {10, 16, 26, 210});
+        ui.drawTextCentered(lbl, sp.x, sp.z - 23.0f, 12.5f, {245, 248, 255, 255});
     }
-    const float clockW = measureUiText(clockBuf, 17.5f);
-    drawUiText(clockBuf, rightEdge - clockW, 18.0f, 17.5f,
-               firstPerson ? Color{128, 228, 255, 250} : Color{225, 232, 242, 245});
 
-    // Classic GTA green cash counter
-    char cashBuf[48];
-    std::snprintf(cashBuf, sizeof(cashBuf), "$%08d", world.player().cash);
-    const float cashW = measureUiText(cashBuf, 32.0f);
-    drawUiText(cashBuf, rightEdge - cashW, 42.0f, 32.0f, Color{92, 232, 112, 255});
+    // 7. Active Police Last-Known Search Zone & Cruisers
+    if (world.player().wantedLevel > 0) {
+        if (world.player().policeSearching) {
+            const Vec2 lp = toScr(world.player().policeLastKnownPos);
+            const Vec2 re = toScr({world.player().policeLastKnownPos.x + 280.0f, world.player().policeLastKnownPos.z});
+            const float rad = std::max(16.0f, std::abs(re.x - lp.x));
+            ui.drawCircle(lp.x, lp.z, rad, {235, 52, 62, 58}, 24);
+            ui.drawCircleRing(lp.x, lp.z, rad - 2.0f, rad + 1.5f, {255, 76, 86, 215}, 24);
+            ui.drawTextCentered(pickText("POLICE SEARCH", "경찰 수색 구역"), lp.x, lp.z - rad - 16.0f, 12.0f, {255, 118, 124, 255});
+        }
+        for (const auto& v : world.vehicles()) {
+            if (!v.isPolice || v.destroyed) continue;
+            const Vec2 vp = toScr(v.pos);
+            ui.drawCircle(vp.x, vp.z, 4.5f, {255, 62, 72, 255}, 10);
+        }
+    }
 
-    // Passive income / Smartphone + Custom Studio quick hint line
+    // 8. Selected GPS Waypoint Pin & Route Line
+    if (world.player().hasWaypoint || mapHasSelection_) {
+        const Vec2 targetW = mapHasSelection_ ? mapSelectedWorld_ : world.player().waypointPos;
+        const Vec2 pScr = toScr(world.player().pos);
+        const Vec2 tScr = toScr(targetW);
+        ui.drawLine(pScr.x, pScr.z, tScr.x, tScr.z, 2.2f, {72, 228, 255, 190});
+        ui.drawCircle(tScr.x, tScr.z, 7.0f, {72, 228, 255, 255}, 14);
+        ui.drawCircleRing(tScr.x, tScr.z, 10.0f, 13.0f, {72, 228, 255, 230}, 18);
+    }
+
+    // 9. Live Player Location Beacon (bright white-cyan chevron!)
+    {
+        const Vec2 ps = toScr(world.player().pos);
+        const float yaw = world.player().drivingVehicleId >= 0 && world.playerVehicle()
+            ? world.playerVehicle()->heading : world.player().facingYaw;
+        const Vec2 fwd{std::cos(yaw), std::sin(yaw)};
+        const Vec2 rt{-fwd.z, fwd.x};
+        ui.drawCircle(ps.x, ps.z, 12.0f, {64, 212, 255, 65}, 16);
+        ui.drawTriangle(ps.x + fwd.x * 11.0f, ps.z + fwd.z * 11.0f,
+                        ps.x - fwd.x * 7.5f + rt.x * 7.2f, ps.z - fwd.z * 7.5f + rt.z * 7.2f,
+                        ps.x - fwd.x * 7.5f - rt.x * 7.2f, ps.z - fwd.z * 7.5f - rt.z * 7.2f,
+                        {255, 255, 255, 255});
+        ui.drawTextCentered(pickText("YOU", "내 위치"), ps.x, ps.z + 13.0f, 12.5f, {118, 238, 255, 255});
+    }
+
+    ui.popScissor(vk);
+    ui.drawRoundedRectOutline(l.canvas.x, l.canvas.y, l.canvas.w, l.canvas.h, 10.0f, 1.5f, {64, 82, 112, 210});
+
+    // Zoom & Recenter Floating Controls inside Map Canvas
+    ui.drawRoundedRect(l.btnZoomIn.x, l.btnZoomIn.y, l.btnZoomIn.w, l.btnZoomIn.h, 7.0f, {24, 34, 52, 235});
+    ui.drawTextCentered("+", l.btnZoomIn.x + l.btnZoomIn.w * 0.5f, l.btnZoomIn.y + 5.0f, 22.0f, {242, 248, 255, 255});
+    ui.drawRoundedRect(l.btnZoomOut.x, l.btnZoomOut.y, l.btnZoomOut.w, l.btnZoomOut.h, 7.0f, {24, 34, 52, 235});
+    ui.drawTextCentered("-", l.btnZoomOut.x + l.btnZoomOut.w * 0.5f, l.btnZoomOut.y + 5.0f, 22.0f, {242, 248, 255, 255});
+    ui.drawRoundedRect(l.btnRecenter.x, l.btnRecenter.y, l.btnRecenter.w, l.btnRecenter.h, 7.0f, {24, 34, 52, 235});
+    ui.drawTextCentered(pickText("MY POS", "내 위치"), l.btnRecenter.x + l.btnRecenter.w * 0.5f, l.btnRecenter.y + 8.0f, 14.0f, accent);
+
+    // Map scale bar & zoom readout at bottom-left of canvas
+    char zBuf[160];
+    std::snprintf(zBuf, sizeof(zBuf), "%s  |  %.1fx  |  %s",
+                  pickText("30km x 25km Real-Scale Seoul", "서울 실측 30km × 25km"),
+                  mapZoom_,
+                  pickText("Drag RMB/WASD: Pan", "우클릭 드래그/WASD: 이동"));
+    ui.drawRoundedRect(l.canvas.x + 12.0f, l.canvas.y + l.canvas.h - 32.0f,
+                       ui.measureTextWidth(zBuf, 13.0f) + 20.0f, 24.0f, 6.0f, {10, 16, 26, 215});
+    ui.drawText(zBuf, l.canvas.x + 22.0f, l.canvas.y + l.canvas.h - 28.0f, 13.0f, {212, 224, 242, 255});
+
+    // --- RIGHT SIDEBAR: SEOUL LANDMARKS & FAST-TRAVEL ---
+    ui.drawRoundedRect(l.sidebar.x, l.sidebar.y, l.sidebar.w, l.sidebar.h, 10.0f, {16, 22, 34, 245});
+    ui.drawRoundedRectOutline(l.sidebar.x, l.sidebar.y, l.sidebar.w, l.sidebar.h, 10.0f, 1.5f, {58, 76, 104, 210});
+    ui.drawText(pickText("SEOUL LANDMARKS", "서울 주요 랜드마크 (클릭 선택)"),
+                l.sidebar.x + 12.0f, l.sidebar.y + 10.0f, 14.5f, accent);
+
+    const float listTop = l.sidebar.y + 38.0f;
+    const float listBottom = l.btnSetGps.y - 10.0f;
+    const auto& landmarks = city.landmarks();
+    const float rowH = std::min(32.0f, (listBottom - listTop) / std::max(1.0f, static_cast<float>(landmarks.size())));
+    for (std::size_t i = 0; i < landmarks.size(); ++i) {
+        const auto& lm = landmarks[i];
+        const bool isSel = mapHasSelection_ && (lm.pos - mapSelectedWorld_).length() < 60.0f;
+        const RectF row{l.sidebar.x + 8.0f, listTop + static_cast<float>(i) * rowH, l.sidebar.w - 16.0f, rowH - 3.0f};
+        ui.drawRoundedRect(row.x, row.y, row.w, row.h, 6.0f,
+                           isSel ? ColorRGBA{32, 86, 128, 235} : ColorRGBA{24, 32, 46, 210});
+        const float distKm = (lm.pos - world.player().pos).length() / 1000.0f;
+        char dBuf[24];
+        std::snprintf(dBuf, sizeof(dBuf), "%.1fkm", distKm);
+        ui.drawText(pickText(lm.nameEn.c_str(), lm.nameKo.c_str()), row.x + 8.0f, row.y + 6.0f, 13.0f,
+                    isSel ? ColorRGBA{255, 255, 255, 255} : ColorRGBA{222, 232, 246, 255});
+        const float dw = ui.measureTextWidth(dBuf, 12.0f);
+        ui.drawText(dBuf, row.x + row.w - dw - 8.0f, row.y + 7.0f, 12.0f, {146, 178, 212, 230});
+    }
+
+    // Set GPS Waypoint + Fast-Travel Buttons!
+    ui.drawRoundedRect(l.btnSetGps.x, l.btnSetGps.y, l.btnSetGps.w, l.btnSetGps.h, 8.0f, {32, 86, 132, 240});
+    ui.drawTextCentered(pickText("SET GPS WAYPOINT", "GPS 목적지 설정"),
+                        l.btnSetGps.x + l.btnSetGps.w * 0.5f, l.btnSetGps.y + 9.0f, 15.0f, {245, 250, 255, 255});
+
+    ui.drawRoundedRect(l.btnFastTravel.x, l.btnFastTravel.y, l.btnFastTravel.w, l.btnFastTravel.h, 8.0f, {34, 148, 92, 245});
+    const std::string ftLbl = mapHasSelection_
+        ? (std::string(pickText("FAST TRAVEL: ", "빠른 이동: ")) + mapSelectedNameKo_)
+        : std::string(pickText("FAST TRAVEL [ENTER]", "선택 지점으로 빠른 이동"));
+    ui.drawTextCentered(ftLbl, l.btnFastTravel.x + l.btnFastTravel.w * 0.5f, l.btnFastTravel.y + 10.0f,
+                        14.5f, {255, 255, 255, 255});
+}
+
+void HudRenderer::drawTopRightStatus(Vulkan2D& ui, const GameWorld& world, int screenW, bool firstPerson) {
     const auto& pl = world.player();
-    const ColorRGBA themeRgba = getHudThemeColorRGBA(pl.hudCustom.hudThemeIdx);
-    const Color themeCol = toRayColor(themeRgba, 245);
+    const ColorRGBA accent = getHudThemeColorRGBA(pl.hudCustom.hudThemeIdx);
+    const float panelW = 286.0f;
+    const float x = static_cast<float>(screenW) - panelW - 18.0f;
+    const float y = 16.0f;
 
-    char assetBuf[160];
-    const int propCount = world.ownedPropertyCount();
-    if (mobileUi_) {
-        if (propCount > 0) {
-            std::snprintf(assetBuf, sizeof(assetBuf),
-                          pickText("INCOME +$%d / 25s (%d/6)", "수익 +$%d / 25초 (자산 %d/6)"),
-                          world.passiveIncomePerCycle(), propCount);
-        } else {
-            std::snprintf(assetBuf, sizeof(assetBuf), "%s",
-                          pickText("OPEN CITY v1.3.0 MOBILE", "오픈 시티 v1.3.0 모바일"));
-        }
-    } else if (propCount > 0) {
-        std::snprintf(assetBuf, sizeof(assetBuf),
-                      pickText("INCOME +$%d / 25s (%d/6)  |  [P] Phone  ·  [K] Studio",
-                               "수익 +$%d / 25초 (자산 %d/6)  |  [P] 스마트폰  ·  [K] 커스텀"),
-                      world.passiveIncomePerCycle(), propCount);
+    ui.drawRoundedRect(x, y, panelW, 118.0f, 11.0f, {10, 14, 22, 208});
+    ui.drawRoundedRectOutline(x, y, panelW, 118.0f, 11.0f, 1.5f, accent);
+
+    // Cash & Clock & Weather
+    ui.drawText(fmtCash(pl.cash), x + 12.0f, y + 8.0f, 22.0f, {92, 238, 136, 255});
+    const std::string clk = fmtClock(world.timeOfDayHours()) + "  " +
+        pickText(world.weatherNameEn(), world.weatherNameKo());
+    const float cw = ui.measureTextWidth(clk, 13.5f);
+    ui.drawText(clk, x + panelW - cw - 12.0f, y + 12.0f, 13.5f, {208, 222, 242, 240});
+
+    // HP Bar
+    const float barW = panelW - 24.0f;
+    const float hpF = clampf(pl.health / std::max(1.0f, pl.maxHealth), 0.0f, 1.0f);
+    ui.drawRoundedRect(x + 12.0f, y + 40.0f, barW, 13.0f, 5.0f, {34, 38, 48, 230});
+    ui.drawRoundedRect(x + 12.0f, y + 40.0f, barW * hpF, 13.0f, 5.0f, {62, 206, 108, 255});
+    // Armor Bar
+    const float armF = clampf(pl.armor / std::max(1.0f, pl.maxArmor), 0.0f, 1.0f);
+    ui.drawRoundedRect(x + 12.0f, y + 58.0f, barW, 10.0f, 4.0f, {34, 38, 48, 230});
+    ui.drawRoundedRect(x + 12.0f, y + 58.0f, barW * armF, 10.0f, 4.0f, {68, 172, 248, 255});
+
+    // Current Weapon & Ammo + Camera tag
+    const auto& ws = getWeaponSpec(pl.currentWeapon);
+    const auto& slot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
+    char wBuf[96];
+    if (pl.currentWeapon == WeaponId::Fists) {
+        std::snprintf(wBuf, sizeof(wBuf), "%s", pickText(ws.nameEn, ws.nameKo));
     } else {
-        std::snprintf(assetBuf, sizeof(assetBuf), "%s",
-                      pickText("[P] Smartphone  |  [K] Custom Studio  |  [U] Wet Road",
-                               "[P] 스마트폰  |  [K] 커스텀 스튜디오  |  [U] 우천·노면반사"));
+        std::snprintf(wBuf, sizeof(wBuf), "%s  %d / %d", pickText(ws.nameEn, ws.nameKo), slot.magAmmo, slot.reserveAmmo);
     }
-    const Color assetCol = (propCount > 0) ? Color{255, 218, 92, 250} : toRayColor(themeRgba, 232);
-    const float assetW = measureUiText(assetBuf, 16.0f);
-    drawUiText(assetBuf, rightEdge - assetW, 78.0f, 16.0f, assetCol);
+    ui.drawText(wBuf, x + 12.0f, y + 76.0f, 14.5f, {240, 244, 252, 255});
 
-    float weaponCardY = 102.0f;
+    const std::string tag = std::string("Vulkan 1.0  |  ") +
+                            (firstPerson ? pickText("1ST PERSON", "1인칭") : pickText("3RD PERSON", "3인칭"));
+    ui.drawText(tag, x + 12.0f, y + 96.0f, 12.0f, {148, 178, 216, 220});
 
-    // 1-5 Star SBPD Wanted Level HUD + Evasion Progress Bar!
+    // --- REALISTIC ESCAPABLE SEOUL POLICE WANTED & EVASION HUD ---
     if (pl.wantedLevel > 0) {
-        const float boxW = 248.0f;
-        const float boxH = pl.policeLineOfSight ? 52.0f : 62.0f;
-        const float boxX = rightEdge - boxW;
-        const float boxY = 100.0f;
-        const bool redBeat = (std::fmod(GetTime() * 4.2, 1.0) < 0.5);
+        const float wy = y + 126.0f;
+        const bool flash = std::sin(world.elapsedTime() * 9.0f) > 0.0f;
+        const ColorRGBA badgeBg = pl.policeLineOfSight
+            ? (flash ? ColorRGBA{128, 22, 32, 228} : ColorRGBA{22, 48, 128, 228})
+            : ColorRGBA{16, 28, 46, 228};
+        ui.drawRoundedRect(x, wy, panelW, 64.0f, 10.0f, badgeBg);
+        ui.drawRoundedRectOutline(x, wy, panelW, 64.0f, 10.0f, 1.5f,
+                                  pl.policeLineOfSight ? ColorRGBA{255, 78, 86, 255} : ColorRGBA{78, 212, 255, 255});
 
-        DrawRectangleRounded({boxX, boxY, boxW, boxH}, 0.22f, 6, Color{10, 13, 18, 206});
-        const Color borderCol = pl.policeLineOfSight
-                                    ? (redBeat ? Color{255, 64, 74, 230} : Color{56, 148, 255, 230})
-                                    : Color{118, 206, 255, 185};
-        DrawRectangleRoundedLinesEx({boxX, boxY, boxW, boxH}, 0.22f, 6, 1.8f, borderCol);
-
-        const float blinkMul = pl.policeLineOfSight
-                                   ? 1.0f
-                                   : static_cast<float>(0.34 + 0.66 * (0.5 + 0.5 * std::sin(GetTime() * 9.0)));
-
-        for (int s = 0; s < 5; ++s) {
-            const Vector2 sc{boxX + 28.0f + static_cast<float>(s) * 34.0f, boxY + 21.0f};
-            drawFivePointStar2D({sc.x + 1.2f, sc.y + 1.4f}, 12.5f, 5.2f, Color{6, 8, 12, 210});
-            if (s < pl.wantedLevel) {
-                const auto starAlpha = static_cast<unsigned char>(clampf(255.0f * blinkMul, 70.0f, 255.0f));
-                const Color litCol = pl.policeLineOfSight
-                                         ? Color{255, 214, 58, starAlpha}
-                                         : Color{176, 228, 255, starAlpha};
-                drawFivePointStar2D(sc, 12.2f, 5.0f, litCol);
-                drawFivePointStar2D(sc, 6.2f, 2.6f, Color{255, 248, 205, starAlpha});
-            } else {
-                drawFivePointStar2D(sc, 11.2f, 4.6f, Color{54, 64, 78, 185});
-            }
-        }
-
-        // Badge label on right of stars + status/evasion bar underneath
-        const char* unitTag = (pl.wantedLevel >= 4) ? "SWAT" : "SBPD";
-        const float uw = measureUiText(unitTag, 15.0f);
-        drawUiText(unitTag, boxX + boxW - uw - 12.0f, boxY + 13.0f, 15.0f,
-                   redBeat ? Color{255, 96, 102, 255} : Color{102, 186, 255, 255});
+        // 5 Stars
+        std::string stars;
+        for (int i = 0; i < 5; ++i) stars += (i < pl.wantedLevel) ? "★ " : "☆ ";
+        ui.drawText(stars, x + 12.0f, wy + 6.0f, 20.0f, {255, 212, 62, 255});
 
         if (pl.policeLineOfSight) {
-            const char* pTxt = (pl.wantedLevel >= 4)
-                                   ? pickText("SWAT PURSUIT ACTIVE", "특수기동대 무장 추격 중")
-                                   : pickText("POLICE IN PURSUIT", "경찰 순찰대 추격 중");
-            drawUiText(pTxt, boxX + 14.0f, boxY + 34.0f, 14.0f, Color{255, 198, 196, 245});
+            ui.drawText(pickText("CHASE: IN SIGHT! Break LOS behind buildings",
+                                 "경찰 추격 중 — 시야 노출! 건물 뒤로 숨으세요"),
+                        x + 12.0f, wy + 34.0f, 13.0f, {255, 214, 214, 255});
         } else {
-            const float needed = 11.5f + static_cast<float>(pl.wantedLevel) * 2.5f;
-            const float evFrac = clampf(pl.wantedEvadeTimer / needed, 0.0f, 1.0f);
-            drawUiText(pickText("EVADING SIGHT...", "시야 이탈 도주 중"), boxX + 14.0f, boxY + 35.0f, 13.5f,
-                       Color{152, 226, 255, 245});
-            DrawRectangleRounded({boxX + 132.0f, boxY + 40.0f, boxW - 144.0f, 8.0f}, 0.4f, 4, Color{28, 38, 52, 240});
-            DrawRectangleRounded({boxX + 132.0f, boxY + 40.0f, (boxW - 144.0f) * evFrac, 8.0f},
-                                 0.4f, 4, Color{84, 224, 255, 255});
-        }
-
-        weaponCardY = boxY + boxH + 8.0f;
-    }
-
-    // Equipped weapon & ammo card (AAA frosted dark glass + HUD theme accent)
-    const auto& wspec = getWeaponSpec(pl.currentWeapon);
-    const auto& wslot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
-
-    DrawRectangleRounded({rightEdge - 264.0f, weaponCardY, 264.0f, 54.0f}, 0.22f, 6, Color{10, 13, 18, 198});
-    DrawRectangleRoundedLinesEx({rightEdge - 264.0f, weaponCardY, 264.0f, 54.0f},
-                                0.22f, 6, 1.1f, toRayColor(themeRgba, 118));
-    char wTitleBuf[96];
-    std::snprintf(wTitleBuf, sizeof(wTitleBuf), "[%d/%d] %s",
-                  static_cast<int>(pl.currentWeapon) + 1,
-                  static_cast<int>(WeaponId::Count),
-                  pickText(wspec.nameEn, wspec.nameKo));
-    drawUiText(wTitleBuf, rightEdge - 250.0f, weaponCardY + 6.0f, 17.5f, Color{242, 246, 252, 255});
-
-    char ammoBuf[64];
-    if (pl.reloadTimer > 0.0f) {
-        std::snprintf(ammoBuf, sizeof(ammoBuf), "%s", pickText("RELOADING...", "재장전 중..."));
-    } else if (wspec.magazineSize > 0) {
-        std::snprintf(ammoBuf, sizeof(ammoBuf), "%d / %d", wslot.magAmmo, wslot.reserveAmmo);
-    } else {
-        std::snprintf(ammoBuf, sizeof(ammoBuf), "%s",
-                      mobileUi_ ? pickText("MELEE COMBAT", "근접 격투")
-                                : pickText("MELEE [1-0,- · Z/X]", "근접 격투 [1~0,- · Z/X]"));
-    }
-    drawUiText(ammoBuf, rightEdge - 250.0f, weaponCardY + 28.0f, 16.5f, Color{255, 214, 92, 255});
-
-    if (pl.currentWeapon != WeaponId::Fists) {
-        char modBuf[48];
-        int modLen = 0;
-        if (wslot.suppressor) modLen += std::snprintf(modBuf + modLen, sizeof(modBuf) - modLen, "SUP ");
-        if (wslot.extendedMag) modLen += std::snprintf(modBuf + modLen, sizeof(modBuf) - modLen, "EXT ");
-        if (wslot.laserSightColor > 0) modLen += std::snprintf(modBuf + modLen, sizeof(modBuf) - modLen, "LSR");
-        if (modLen > 0) {
-            const float mw = measureUiText(modBuf, 13.5f);
-            drawUiText(modBuf, rightEdge - mw - 12.0f, weaponCardY + 31.0f, 13.5f, themeCol);
+            const float evadeTarget = 11.5f + static_cast<float>(pl.wantedLevel) * 4.5f;
+            const float pct = clampf(pl.wantedEvadeTimer / std::max(1.0f, evadeTarget), 0.0f, 1.0f);
+            char eBuf[96];
+            std::snprintf(eBuf, sizeof(eBuf), "%s %d%%",
+                          pickText("HIDING — ESCAPING POLICE", "경찰 수색 중 (시야 이탈) — 도주"),
+                          static_cast<int>(pct * 100.0f));
+            ui.drawText(eBuf, x + 12.0f, wy + 31.0f, 13.0f, {122, 236, 255, 255});
+            ui.drawRoundedRect(x + 12.0f, wy + 50.0f, barW, 8.0f, 4.0f, {26, 36, 52, 230});
+            ui.drawRoundedRect(x + 12.0f, wy + 50.0f, barW * pct, 8.0f, 4.0f, {72, 228, 255, 255});
         }
     }
 }
 
-void HudRenderer::drawSpeedometerAndDrift(const GameWorld& world, int screenW, int screenH) {
+void HudRenderer::drawSpeedometerAndDrift(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH) {
     const Vehicle* car = world.playerVehicle();
     if (!car) return;
 
     const auto& spec = getVehicleSpec(car->kind);
-    const auto& hc = world.player().hudCustom;
-    const ColorRGBA themeRgba = getHudThemeColorRGBA(hc.hudThemeIdx);
-    const float phoneShift = phoneOpen_ ? 342.0f : 0.0f;
-    const float rx = mobileUi_
-                         ? (static_cast<float>(screenW) - 234.0f) * 0.5f
-                         : (static_cast<float>(screenW) - 256.0f - phoneShift);
-    const float ry = mobileUi_
-                         ? (static_cast<float>(screenH) - 148.0f)
-                         : (static_cast<float>(screenH) - 164.0f);
+    const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
+    const float w = 232.0f, h = 104.0f;
+    const float x = static_cast<float>(screenW) - w - (mobileUi_ ? 16.0f : 22.0f);
+    const float y = mobileUi_ ? 142.0f : (static_cast<float>(screenH) - h - 22.0f);
 
-    DrawRectangleRounded({rx, ry, 234.0f, 138.0f}, 0.18f, 8, Color{10, 13, 18, 202});
-    DrawRectangleRoundedLinesEx({rx, ry, 234.0f, 138.0f}, 0.18f, 8, 1.1f, toRayColor(themeRgba, 118));
+    ui.drawRoundedRect(x, y, w, h, 12.0f, {10, 14, 22, 212});
+    ui.drawRoundedRectOutline(x, y, w, h, 12.0f, 1.5f, accent);
 
-    const char* vName = pickText(spec.nameEn, spec.nameKo);
-    drawUiText(vName, rx + 14.0f, ry + 8.0f, 17.0f,
-               car->isPersonalCar ? toRayColor(themeRgba, 255) : Color{182, 216, 250, 255});
+    const float spdMs = car->speed();
+    const bool useMph = world.player().hudCustom.useMph;
+    const int dispSpd = static_cast<int>(spdMs * (useMph ? 2.23694f : 3.6f));
+    char sBuf[32];
+    std::snprintf(sBuf, sizeof(sBuf), "%3d", dispSpd);
+    ui.drawText(sBuf, x + 14.0f, y + 10.0f, 36.0f, {248, 252, 255, 255});
+    ui.drawText(useMph ? "MPH" : "KM/H", x + 98.0f, y + 26.0f, 14.0f, accent);
 
-    const int dispSpd = static_cast<int>(std::round(car->speed() * (hc.useMph ? 2.23694f : 3.6f)));
-    char spdBuf[32];
-    std::snprintf(spdBuf, sizeof(spdBuf), "%3d", dispSpd);
-    drawUiText(spdBuf, rx + 14.0f, ry + 28.0f, 36.0f,
-               car->nitroActive ? Color{92, 224, 255, 255} : Color{255, 255, 255, 255});
-    drawUiText(hc.useMph ? "MPH" : "KM/H", rx + 92.0f, ry + 32.0f, 15.5f, Color{175, 185, 198, 255});
+    // Live Gear Indicator (R / 1..6)
+    char gBuf[16];
+    if (car->currentGear == 0) std::snprintf(gBuf, sizeof(gBuf), "R");
+    else std::snprintf(gBuf, sizeof(gBuf), "G%d", car->currentGear);
+    ui.drawRoundedRect(x + w - 48.0f, y + 12.0f, 36.0f, 30.0f, 6.0f, {24, 34, 52, 235});
+    ui.drawTextCentered(gBuf, x + w - 30.0f, y + 17.0f, 17.0f, {255, 214, 72, 255});
 
-    // Rust 6-Speed Dual-Clutch Transmission Gear + Shift Flash + Airborne Badge
-    char gearBuf[32];
-    if (car->airborne) {
-        std::snprintf(gearBuf, sizeof(gearBuf), "AIR");
-    } else if (car->currentGear <= 0) {
-        std::snprintf(gearBuf, sizeof(gearBuf), "R");
-    } else {
-        std::snprintf(gearBuf, sizeof(gearBuf), "D%d", car->currentGear);
-    }
-    const bool shiftFlash = (car->shiftCutTimer > 0.0f || car->backfireTimer > 0.08f);
-    DrawRectangleRounded({rx + 148.0f, ry + 30.0f, 36.0f, 22.0f}, 0.30f, 4,
-                         shiftFlash ? Color{255, 118, 38, 235} : Color{26, 34, 48, 240});
-    drawUiText(gearBuf, rx + 155.0f, ry + 33.0f, 15.5f,
-               shiftFlash ? Color{255, 252, 235, 255}
-                          : (car->airborne ? Color{255, 214, 68, 255} : toRayColor(themeRgba, 255)));
+    // RPM Bar + Nitro Bar
+    const float rpmFrac = clampf((car->engineRpm - 880.0f) / 7200.0f, 0.0f, 1.0f);
+    const ColorRGBA rpmCol = (rpmFrac > 0.84f) ? ColorRGBA{248, 62, 62, 255} : accent;
+    ui.drawRoundedRect(x + 14.0f, y + 54.0f, w - 28.0f, 10.0f, 4.0f, {30, 36, 48, 230});
+    ui.drawRoundedRect(x + 14.0f, y + 54.0f, (w - 28.0f) * rpmFrac, 10.0f, 4.0f, rpmCol);
 
-    if (car->engineUpgradeLevel > 0 || car->armorUpgradeLevel > 0) {
-        char tuneBuf[48];
-        std::snprintf(tuneBuf, sizeof(tuneBuf), "T%d·A%d", car->engineUpgradeLevel, car->armorUpgradeLevel);
-        drawUiText(tuneBuf, rx + 188.0f, ry + 34.0f, 13.5f, Color{255, 212, 88, 255});
-    }
+    ui.drawRoundedRect(x + 14.0f, y + 69.0f, w - 28.0f, 7.0f, 3.0f, {30, 36, 48, 230});
+    ui.drawRoundedRect(x + 14.0f, y + 69.0f, (w - 28.0f) * clampf(car->nitroCharge, 0.0f, 1.0f),
+                       7.0f, 3.0f, {72, 206, 255, 255});
 
-    // RPM Tachometer Bar (driven by Rust powertrain simulation, 880..8150 RPM)
-    drawUiText("RPM", rx + 14.0f, ry + 66.0f, 13.5f, Color{255, 168, 92, 255});
-    DrawRectangleRounded({rx + 70.0f, ry + 69.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
-    const float rpmFrac = clampf((car->engineRpm - 850.0f) / 7300.0f, 0.08f, 1.0f);
-    const Color rpmCol = (rpmFrac > 0.86f) ? Color{255, 68, 72, 255} : Color{255, 184, 68, 255};
-    DrawRectangleRounded({rx + 70.0f, ry + 69.0f, 148.0f * rpmFrac, 7.5f}, 0.4f, 4, rpmCol);
+    ui.drawText(pickText(spec.nameEn, spec.nameKo), x + 14.0f, y + 82.0f, 13.0f, {196, 212, 232, 235});
 
-    // Live Turbocharger Boost Spool Bar (v1.2.0 Drivetrain)
-    drawUiText("TURBO", rx + 14.0f, ry + 82.0f, 13.5f, Color{255, 206, 86, 255});
-    DrawRectangleRounded({rx + 70.0f, ry + 85.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
-    const float spoolFrac = clampf(car->turboSpool, 0.0f, 1.0f);
-    const Color spoolCol = (spoolFrac > 0.78f) ? Color{255, 132, 44, 255} : Color{255, 208, 72, 255};
-    DrawRectangleRounded({rx + 70.0f, ry + 85.0f, 148.0f * spoolFrac, 7.5f}, 0.4f, 4, spoolCol);
-
-    // Nitro & Vehicle Integrity bars
-    drawUiText("NITRO", rx + 14.0f, ry + 98.0f, 13.5f, Color{118, 212, 255, 255});
-    DrawRectangleRounded({rx + 70.0f, ry + 101.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
-    DrawRectangleRounded({rx + 70.0f, ry + 101.0f, 148.0f * clampf(car->nitroCharge, 0.0f, 1.0f), 7.5f},
-                         0.4f, 4, Color{68, 205, 255, 255});
-
-    drawUiText("BODY", rx + 14.0f, ry + 114.0f, 13.5f, Color{235, 196, 98, 255});
-    DrawRectangleRounded({rx + 70.0f, ry + 117.0f, 148.0f, 7.5f}, 0.4f, 4, Color{32, 40, 52, 255});
-    const float hpFrac = clampf(car->health / car->maxHealth, 0.0f, 1.0f);
-    const Color hpCol = (hpFrac < 0.35f) ? Color{245, 76, 68, 255} : Color{98, 232, 132, 255};
-    DrawRectangleRounded({rx + 70.0f, ry + 117.0f, 148.0f * hpFrac, 7.5f}, 0.4f, 4, hpCol);
-
-    // Live Drift Combo Meter
-    if (world.player().activeDriftScore > 8.0f) {
-        char driftBuf[64];
-        std::snprintf(driftBuf, sizeof(driftBuf), "DRIFT  %d PTS",
-                      static_cast<int>(world.player().activeDriftScore));
-        const float dw = measureUiText(driftBuf, 24.0f);
-        drawUiText(driftBuf, rx + 117.0f - dw * 0.5f, ry - 34.0f, 24.0f, Color{255, 208, 56, 255});
+    if (world.player().activeDriftScore > 25.0f) {
+        char dBuf[48];
+        std::snprintf(dBuf, sizeof(dBuf), "DRIFT +%d", static_cast<int>(world.player().activeDriftScore));
+        ui.drawTextCentered(dBuf, x + w * 0.5f, y - 28.0f, 19.0f, {255, 208, 62, 255});
     }
 }
 
-void HudRenderer::drawCrosshair(const GameWorld& world, int screenW, int screenH,
-                                bool firstPerson, float adsBlend) {
-    if (shopMenuOpen_) return;
-    if (world.player().drivingVehicleId >= 0 && !(customStudioOpen_ && customTab_ == 3)) return;
-    if (customStudioOpen_ && !firstPerson && (customTab_ == 0 || customTab_ == 2)) return;
-
+void HudRenderer::drawCrosshair(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH,
+                                bool /*firstPerson*/, float adsBlend) {
+    const auto& pl = world.player();
+    if (pl.drivingVehicleId >= 0 || isAnyModalOpen()) return;
     const float cx = static_cast<float>(screenW) * 0.5f;
     const float cy = static_cast<float>(screenH) * 0.5f;
+    const ColorRGBA col = pl.crosshairOnTarget
+        ? ColorRGBA{255, 68, 72, 255}
+        : getCrosshairColorRGBA(pl.hudCustom.crosshairColorIdx);
+    const float gap = 5.0f * (1.0f - adsBlend * 0.45f);
+    const float len = 8.0f;
+    ui.drawLine(cx - gap - len, cy, cx - gap, cy, 2.0f, col);
+    ui.drawLine(cx + gap, cy, cx + gap + len, cy, 2.0f, col);
+    ui.drawLine(cx, cy - gap - len, cx, cy - gap, 2.0f, col);
+    ui.drawLine(cx, cy + gap, cx, cy + gap + len, 2.0f, col);
+    ui.drawCircle(cx, cy, 2.0f, col, 10);
 
-    const auto& pl = world.player();
-    const auto& hc = pl.hudCustom;
-    const auto& wslot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
-    const float ads = clampf(adsBlend, 0.0f, 1.0f);
-
-    // Illuminated 3.2x Optical Mil-Dot Sniper Scope & Laser Rangefinder HUD (tinted by Gunsmith Optic Reticle!)
-    if (pl.currentWeapon == WeaponId::SniperRifle && ads > 0.72f) {
-        const float scopeR = std::min(static_cast<float>(screenW), static_cast<float>(screenH)) * 0.415f;
-        const float outerR = std::hypot(cx, cy) + 48.0f;
-        const ColorRGBA optRgba = getOpticReticleColorRGBA(wslot.opticColorIdx, {106, 236, 255, 255});
-
-        DrawRing({cx, cy}, scopeR, outerR, 0.0f, 360.0f, 96, Color{5, 8, 13, 240});
-        DrawRing({cx, cy}, scopeR - 5.0f, scopeR + 4.5f, 0.0f, 360.0f, 96, Color{24, 32, 44, 250});
-        DrawRing({cx, cy}, scopeR - 6.8f, scopeR - 5.0f, 0.0f, 360.0f, 96, toRayColor(optRgba, 195));
-        DrawRing({cx, cy}, scopeR * 0.86f, scopeR - 6.8f, 0.0f, 360.0f, 96, toRayColor(optRgba, 22));
-
-        const float postOuter = scopeR - 5.5f;
-        const float postInner = scopeR * 0.48f;
-        const Color postCol{12, 18, 26, 238};
-        DrawLineEx({cx - postOuter, cy}, {cx - postInner, cy}, 3.2f, postCol);
-        DrawLineEx({cx + postInner, cy}, {cx + postOuter, cy}, 3.2f, postCol);
-        DrawLineEx({cx, cy - postOuter}, {cx, cy - postInner}, 3.2f, postCol);
-        DrawLineEx({cx, cy + postInner}, {cx, cy + postOuter}, 3.2f, postCol);
-
-        const Color hairCol = toRayColor(optRgba, 195);
-        DrawLineEx({cx - postInner, cy}, {cx - 7.0f, cy}, 1.3f, hairCol);
-        DrawLineEx({cx + 7.0f, cy}, {cx + postInner, cy}, 1.3f, hairCol);
-        DrawLineEx({cx, cy - postInner}, {cx, cy - 7.0f}, 1.3f, hairCol);
-        DrawLineEx({cx, cy + 7.0f}, {cx, cy + postInner}, 1.3f, hairCol);
-
-        const float milStep = scopeR * 0.092f;
-        for (int k = -4; k <= 4; ++k) {
-            if (k == 0) continue;
-            const float off = static_cast<float>(k) * milStep;
-            const float tickH = (std::abs(k) % 2 == 0) ? 5.5f : 3.2f;
-            DrawLineEx({cx + off, cy - tickH}, {cx + off, cy + tickH}, 1.2f, hairCol);
-            DrawLineEx({cx - tickH, cy + off}, {cx + tickH, cy + off}, 1.2f, hairCol);
-            DrawCircleV({cx + off, cy}, 1.8f, toRayColor(optRgba, 225));
-            if (k > 0) {
-                DrawCircleV({cx, cy + off}, 1.8f, toRayColor(optRgba, 225));
-            }
-        }
-
-        const Color centerCol = pl.crosshairOnTarget ? Color{255, 72, 68, 255} : toRayColor(optRgba, 250);
-        DrawCircleV({cx, cy}, 3.2f, Color{8, 12, 18, 185});
-        DrawCircleV({cx, cy}, 2.1f, centerCol);
-
-        drawUiText("OPTIC 3.2X  ·  MIL-DOT", cx - scopeR * 0.54f, cy - scopeR * 0.48f, 15.0f,
-                   toRayColor(optRgba, 225));
-        char rngBuf[64];
-        std::snprintf(rngBuf, sizeof(rngBuf), "%s %5.1f M",
-                      pickText("RNG", "거리"), pl.crosshairHitDist);
-        drawUiText(rngBuf, cx + scopeR * 0.16f, cy + scopeR * 0.36f, 16.5f,
-                   pl.crosshairOnTarget ? Color{255, 214, 92, 245} : toRayColor(optRgba, 235));
-        if (pl.crosshairOnTarget) {
-            drawUiText(pickText("TARGET ACQUIRED", "표적 정밀 포착"),
-                       cx + scopeR * 0.16f, cy + scopeR * 0.43f, 15.0f, Color{255, 88, 82, 248});
-        }
-    } else {
-        // Customizable 4-style steady reticle (Cross+Dot / Pinpoint Dot / Circle+Dot / Tactical Chevron)
-        const float scale = (hc.crosshairScaleIdx == 0) ? 0.80f : ((hc.crosshairScaleIdx == 2) ? 1.32f : 1.0f);
-        const float moveSpread = clampf(pl.velocity.length() * 0.16f, 0.0f, 1.4f) * (1.0f - ads * 0.65f);
-        const float gap = (lerpf(5.6f, 3.2f, ads) + moveSpread) * scale;
-        const float armLen = lerpf(7.2f, 5.4f, ads) * scale;
-
-        float tickFade = 1.0f;
-        if (firstPerson && pl.currentWeapon != WeaponId::Fists && ads > 0.55f) {
-            tickFade = clampf((0.88f - ads) / 0.33f, 0.0f, 1.0f);
-        }
-
-        const ColorRGBA customRgba = getCrosshairColorRGBA(hc.crosshairColorIdx);
-        const Color col = pl.crosshairOnTarget
-                              ? Color{255, 78, 72, 248}
-                              : Color{customRgba.r, customRgba.g, customRgba.b, 238};
-        const bool drawOut = hc.crosshairOutline;
-
-        if (tickFade > 0.02f && hc.crosshairStyle != 1) {
-            const unsigned char shA = static_cast<unsigned char>(175.0f * tickFade);
-            const unsigned char fgA = static_cast<unsigned char>(static_cast<float>(col.a) * tickFade);
-            const Color shadowCol{10, 14, 20, shA};
-            const Color tickCol{col.r, col.g, col.b, fgA};
-
-            if (hc.crosshairStyle == 0) {
-                // Style 0: Dynamic Cross + Dot
-                if (drawOut) {
-                    DrawLineEx({cx - gap - armLen - 1.0f, cy}, {cx - gap + 1.0f, cy}, 3.0f * scale, shadowCol);
-                    DrawLineEx({cx + gap - 1.0f, cy}, {cx + gap + armLen + 1.0f, cy}, 3.0f * scale, shadowCol);
-                    DrawLineEx({cx, cy - gap - armLen - 1.0f}, {cx, cy - gap + 1.0f}, 3.0f * scale, shadowCol);
-                    DrawLineEx({cx, cy + gap - 1.0f}, {cx, cy + gap + armLen + 1.0f}, 3.0f * scale, shadowCol);
-                }
-                DrawLineEx({cx - gap - armLen, cy}, {cx - gap, cy}, 1.7f * scale, tickCol);
-                DrawLineEx({cx + gap, cy}, {cx + gap + armLen, cy}, 1.7f * scale, tickCol);
-                DrawLineEx({cx, cy - gap - armLen}, {cx, cy - gap}, 1.7f * scale, tickCol);
-                DrawLineEx({cx, cy + gap}, {cx, cy + gap + armLen}, 1.7f * scale, tickCol);
-            } else if (hc.crosshairStyle == 2) {
-                // Style 2: Tactical Circle + Dot + 4 Micro Compass Ticks
-                const float ringR = gap + 4.8f * scale;
-                if (drawOut) {
-                    DrawRing({cx, cy}, ringR - 1.7f, ringR + 1.7f, 0.0f, 360.0f, 40, shadowCol);
-                }
-                DrawRing({cx, cy}, ringR - 0.85f, ringR + 0.85f, 0.0f, 360.0f, 40, tickCol);
-                const float tk = 3.2f * scale;
-                DrawLineEx({cx - ringR - tk, cy}, {cx - ringR + 0.5f, cy}, 1.5f * scale, tickCol);
-                DrawLineEx({cx + ringR - 0.5f, cy}, {cx + ringR + tk, cy}, 1.5f * scale, tickCol);
-                DrawLineEx({cx, cy - ringR - tk}, {cx, cy - ringR + 0.5f}, 1.5f * scale, tickCol);
-                DrawLineEx({cx, cy + ringR - 0.5f}, {cx, cy + ringR + tk}, 1.5f * scale, tickCol);
-            } else if (hc.crosshairStyle == 3) {
-                // Style 3: Spec-Ops Inverted V Chevron ^
-                const float chevW = 7.4f * scale;
-                const float chevH = 8.4f * scale;
-                if (drawOut) {
-                    DrawLineEx({cx, cy}, {cx - chevW, cy + chevH}, 3.2f * scale, shadowCol);
-                    DrawLineEx({cx, cy}, {cx + chevW, cy + chevH}, 3.2f * scale, shadowCol);
-                    DrawLineEx({cx - gap - 5.5f * scale, cy}, {cx - gap - 1.5f * scale, cy}, 2.8f * scale, shadowCol);
-                    DrawLineEx({cx + gap + 1.5f * scale, cy}, {cx + gap + 5.5f * scale, cy}, 2.8f * scale, shadowCol);
-                }
-                DrawLineEx({cx, cy}, {cx - chevW, cy + chevH}, 1.8f * scale, tickCol);
-                DrawLineEx({cx, cy}, {cx + chevW, cy + chevH}, 1.8f * scale, tickCol);
-                DrawLineEx({cx - gap - 5.2f * scale, cy}, {cx - gap - 1.8f * scale, cy}, 1.5f * scale, tickCol);
-                DrawLineEx({cx + gap + 1.8f * scale, cy}, {cx + gap + 5.2f * scale, cy}, 1.5f * scale, tickCol);
-            }
-        }
-
-        // Crisp center pinpoint dot (for Styles 0, 1, 2; Style 3 uses Chevron apex!)
-        if (hc.crosshairStyle != 3) {
-            const float baseDotR = (hc.crosshairStyle == 1) ? 2.35f : 1.9f;
-            const float dotR = ((firstPerson && ads > 0.65f && pl.currentWeapon != WeaponId::Fists)
-                                    ? 1.35f
-                                    : baseDotR) * scale;
-            if (drawOut) {
-                DrawCircleV({cx, cy}, dotR + 0.8f, Color{10, 14, 20, 175});
-            }
-            DrawCircleV({cx, cy}, dotR, col);
-        }
-    }
-
-    if (pl.hitMarkerTimer > 0.0f) {
-        const float alpha = clampf(pl.hitMarkerTimer / 0.16f, 0.0f, 1.0f);
-        const unsigned char aByte = static_cast<unsigned char>(alpha * 255.0f);
-        const Color hmCol = pl.hitMarkerCritical ? Color{255, 196, 52, aByte} : Color{255, 255, 255, aByte};
-        const float r0 = 4.5f;
-        const float r1 = pl.hitMarkerCritical ? 11.5f : 9.5f;
-        DrawLineEx({cx - r1, cy - r1}, {cx - r0, cy - r0}, 2.2f, hmCol);
-        DrawLineEx({cx + r0, cy - r0}, {cx + r1, cy - r1}, 2.2f, hmCol);
-        DrawLineEx({cx - r1, cy + r1}, {cx - r0, cy + r0}, 2.2f, hmCol);
-        DrawLineEx({cx + r0, cy + r0}, {cx + r1, cy + r1}, 2.2f, hmCol);
+    if (pl.hitMarkerTimer > 0.01f) {
+        const ColorRGBA hc = pl.hitMarkerCritical ? ColorRGBA{255, 62, 62, 255} : ColorRGBA{255, 255, 255, 255};
+        ui.drawLine(cx - 12, cy - 12, cx - 5, cy - 5, 2.2f, hc);
+        ui.drawLine(cx + 12, cy - 12, cx + 5, cy - 5, 2.2f, hc);
+        ui.drawLine(cx - 12, cy + 12, cx - 5, cy + 5, 2.2f, hc);
+        ui.drawLine(cx + 12, cy + 12, cx + 5, cy + 5, 2.2f, hc);
     }
 }
 
-void HudRenderer::drawContextPromptsAndMission(const GameWorld& world, int screenW, int screenH) {
-    const float midX = static_cast<float>(screenW) * 0.5f;
-
-    // Active Mission top-center objective bar
+void HudRenderer::drawContextPromptsAndMission(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH) {
+    const float cx = static_cast<float>(screenW) * 0.5f;
     if (world.mission().kind != ActiveMissionKind::None) {
-        const auto& m = world.mission();
-        const float ms = clampf(static_cast<float>(screenH) / 820.0f, 0.70f, 1.38f);
-        const float missionY = mobileUi_ ? (58.0f * ms) : 16.0f;
-        DrawRectangleRounded({midX - 280.0f, missionY, 560.0f, 58.0f}, 0.22f, 8, Color{14, 18, 26, 225});
-
-        const char* objText = pickText(m.objectiveEn.c_str(), m.objectiveKo.c_str());
-        const float ow = measureUiText(objText, 19.0f);
-        drawUiText(objText, midX - ow * 0.5f, missionY + 6.0f, 19.0f, Color{255, 224, 78, 255});
-
-        const int sec = std::max(0, static_cast<int>(std::ceil(m.timeRemaining)));
-        char timerBuf[96];
-        if (mobileUi_) {
-            std::snprintf(timerBuf, sizeof(timerBuf), "%s %02d:%02d",
-                          pickText("TIME", "남은 시간"), sec / 60, sec % 60);
-        } else {
-            std::snprintf(timerBuf, sizeof(timerBuf), "%s %02d:%02d   |   [Backspace] %s",
-                          pickText("TIME", "남은 시간"), sec / 60, sec % 60,
-                          pickText("Abort", "미션 취소"));
-        }
-        const float tw = measureUiText(timerBuf, 17.0f);
-        const Color tCol = (sec <= 15) ? Color{255, 88, 82, 255} : Color{210, 220, 232, 245};
-        drawUiText(timerBuf, midX - tw * 0.5f, missionY + 32.0f, 17.0f, tCol);
+        const std::string obj = pickText(world.mission().objectiveEn.c_str(), world.mission().objectiveKo.c_str());
+        const float ow = ui.measureTextWidth(obj, 15.5f) + 28.0f;
+        ui.drawRoundedRect(cx - ow * 0.5f, 16.0f, ow, 32.0f, 8.0f, {14, 22, 36, 215});
+        ui.drawTextCentered(obj, cx, 23.0f, 15.5f, {255, 218, 86, 255});
+    } else if (world.player().hasWaypoint) {
+        const float distKm = (world.player().waypointPos - world.player().pos).length() / 1000.0f;
+        char wBuf[96];
+        std::snprintf(wBuf, sizeof(wBuf), "GPS: %s (%.2f km)",
+                      world.player().waypointLabelKo.empty() ? "목적지" : world.player().waypointLabelKo.c_str(),
+                      distKm);
+        const float ww = ui.measureTextWidth(wBuf, 14.5f) + 26.0f;
+        ui.drawRoundedRect(cx - ww * 0.5f, 16.0f, ww, 30.0f, 8.0f, {12, 24, 40, 215});
+        ui.drawTextCentered(wBuf, cx, 22.0f, 14.5f, {86, 228, 255, 255});
     }
 
-    // Bottom-center interaction prompt (Shops / Mission Coronas / Vehicles)
-    std::string prompt;
-    if (!shopMenuOpen_ && !(mobileUi_ && (phoneOpen_ || customStudioOpen_))) {
-        const char* shopPrefixEn = mobileUi_ ? "Tap [SHOP]: " : "Press [B] to open ";
-        const char* shopPrefixKo = mobileUi_ ? "[매장] 버튼 탭 · " : "[B] 키를 눌러 ";
-        if (world.isPlayerInWeaponShopZone()) {
-            prompt = std::string(pickText(shopPrefixEn, shopPrefixKo)) +
-                     pickText("Ammu-Tech Weapon & Heavy Ordnance Shop", "AMMU-TECH 중화기 · 방탄복 상점 열기");
-        } else if (world.isPlayerInGarageZone()) {
-            prompt = std::string(pickText(shopPrefixEn, shopPrefixKo)) +
-                     pickText("Pay 'n' Tune Full Custom Shop", "PAY 'N' TUNE 풀튜닝 · 네온 공방 열기");
-        } else if (world.isPlayerInDealershipZone()) {
-            prompt = std::string(pickText(shopPrefixEn, shopPrefixKo)) +
-                     pickText("Luxury Autos Supercar Showroom", "LUXURY AUTOS 슈퍼카 전시장 열기");
-        } else if (world.isPlayerInBoutiqueZone()) {
-            prompt = std::string(pickText(shopPrefixEn, shopPrefixKo)) +
-                     pickText("Moda Designer Clothing Boutique", "MODA 프리미엄 의상 부티크 열기");
-        } else if (world.isPlayerInGasStationZone()) {
-            prompt = std::string(pickText(shopPrefixEn, shopPrefixKo)) +
-                     pickText("Globe Oil Pit Service & Property Investment", "GLOBE OIL 급속 주유 · 주유소 매입 열기");
-        } else if (world.isPlayerInNightclubZone()) {
-            prompt = std::string(pickText(shopPrefixEn, shopPrefixKo)) +
-                     pickText("Pulse Nightclub & Eclipse Penthouse", "PULSE 나이트클럽 · 펜트하우스 매입 열기");
-        } else if (const auto* poi = world.activePoiNearPlayer()) {
-            if (world.mission().kind == ActiveMissionKind::None &&
-                (poi->kind == PoiKind::MissionDelivery ||
-                 poi->kind == PoiKind::MissionRace ||
-                 poi->kind == PoiKind::MissionGangRaid)) {
-                char buf[196];
-                std::snprintf(buf, sizeof(buf), "%s %s",
-                              mobileUi_ ? pickText("[JOB]", "[미션]") : "[F]",
-                              pickText(poi->nameEn.c_str(), poi->nameKo.c_str()));
-                prompt = buf;
-            }
-        } else if (const Vehicle* nearCar = world.nearestEnterableVehicle()) {
-            const auto& spec = getVehicleSpec(nearCar->kind);
-            char buf[196];
-            const char* actTag = mobileUi_ ? pickText("[DRIVE]", "[탑승]") : "[F]";
-            if (nearCar->hasNpcDriver) {
-                std::snprintf(buf, sizeof(buf), "%s %s (%s)", actTag,
-                              pickText("Carjack Vehicle", "주행 차량 탈취하기"),
-                              pickText(spec.nameEn, spec.nameKo));
-            } else {
-                std::snprintf(buf, sizeof(buf), "%s %s (%s)", actTag,
-                              pickText("Drive Vehicle", "차량 탑승하기"),
-                              pickText(spec.nameEn, spec.nameKo));
-            }
-            prompt = buf;
-        }
-    }
-
-    if (!prompt.empty()) {
-        const float pw = measureUiText(prompt.c_str(), 20.0f);
-        const float py = (mobileUi_ && world.playerVehicle() != nullptr)
-                             ? (static_cast<float>(screenH) - 180.0f)
-                             : (static_cast<float>(screenH) - 60.0f);
-        DrawRectangleRounded({midX - pw * 0.5f - 18.0f, py - 8.0f, pw + 36.0f, 36.0f},
-                             0.30f, 6, Color{12, 16, 24, 228});
-        drawUiText(prompt.c_str(), midX - pw * 0.5f, py, 20.0f, Color{255, 242, 152, 255});
+    if (const PointOfInterest* poi = world.nearbyPoi()) {
+        const std::string msg = std::string("[E] ") + pickText(poi->nameEn.c_str(), poi->nameKo.c_str());
+        const float mw = ui.measureTextWidth(msg, 15.5f) + 28.0f;
+        ui.drawRoundedRect(cx - mw * 0.5f, static_cast<float>(screenH) - 108.0f, mw, 32.0f, 8.0f, {14, 20, 32, 220});
+        ui.drawTextCentered(msg, cx, static_cast<float>(screenH) - 101.0f, 15.5f, poi->markerColor);
     }
 }
 
-void HudRenderer::drawShopModal(const GameWorld& world, int screenW, int screenH) {
-    if (!world.isPlayerInAnyShopZone()) return;
+void HudRenderer::drawShopModal(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH) {
+    const float w = static_cast<float>(screenW), h = static_cast<float>(screenH);
+    const float mw = std::min(580.0f, w * 0.84f);
+    const float mh = std::min(520.0f, h * 0.82f);
+    const RectF box{(w - mw) * 0.5f, (h - mh) * 0.5f, mw, mh};
+    const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
 
-    auto optKeyLabel = [](int opt1) -> const char* {
-        static const char* kKeys[13] = {"", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="};
-        return (opt1 >= 1 && opt1 <= 12) ? kKeys[opt1] : "?";
+    ui.drawRoundedRect(box.x, box.y, box.w, box.h, 12.0f, {12, 18, 28, 244});
+    ui.drawRoundedRectOutline(box.x, box.y, box.w, box.h, 12.0f, 2.0f, accent);
+    const auto* poi = world.nearbyPoi();
+    ui.drawText(poi ? pickText(poi->nameEn.c_str(), poi->nameKo.c_str()) : pickText("SHOP", "상점"),
+                box.x + 18.0f, box.y + 14.0f, 20.0f, accent);
+    ui.drawRoundedRect(box.x + box.w - 86.0f, box.y + 10.0f, 74.0f, 30.0f, 6.0f, {178, 44, 52, 235});
+    ui.drawTextCentered(pickText("CLOSE", "닫기"), box.x + box.w - 49.0f, box.y + 16.0f, 14.0f, {255, 255, 255, 255});
+
+    const char* itemsKo[8] = {
+        "[1] 체력/방탄복 보급 ($250)", "[2] 9mm 권총/탄약 ($350)",
+        "[3] 기관단총 SMG ($950)", "[4] 전술 샷건 ($1400)",
+        "[5] 돌격소총 AR ($2200)", "[6] 저격소총 ($3400)",
+        "[7] 차량 수리/엔진 튜닝 ($600)", "[8] 니트로/네온 커스텀 ($450)"
     };
-
-    struct ShopRow {
-        std::string labelEn;
-        std::string labelKo;
-        std::string priceTag;
-        Color tagColor{102, 238, 122, 255};
-    };
-
-    std::vector<ShopRow> rows;
-    std::string titleEn;
-    std::string titleKo;
-    Color accent{88, 226, 255, 255};
-
-    const auto& pl = world.player();
-
-    if (world.isPlayerInWeaponShopZone()) {
-        titleEn = "AMMU-TECH WEAPONS & HEAVY ORDNANCE";
-        titleKo = "AMMU-TECH 무기 · 중화기 전문점";
-        accent = Color{255, 116, 76, 255};
-        rows = {
-            {"[1] Tactical SMG (+120 Ammo)",          "[1] 전술 기관단총 (+120발)",           "$350"},
-            {"[2] Pump Shotgun (+32 Shells)",         "[2] 펌프 샷건 (+32발)",                "$500"},
-            {"[3] Carbine Rifle (+150 Ammo)",         "[3] 돌격 카빈소총 (+150발)",           "$850"},
-            {"[4] Full Ammo Pack (+4 Mags)",          "[4] 보유 무기 전체 탄약 보충",         "$150"},
-            {"[5] Heavy Body Armor (100%)",           "[5] 중형 방탄복 100% 장착",            "$200"},
-            {"[6] Emergency Medkit (100%)",           "[6] 응급 의료 키트 (체력 100%)",       "$100"},
-            {"[7] Combat MG (+240 Rounds)",           "[7] 컴뱃 중기관총 (+240발 대용량)",    "$2,800"},
-            {"[8] Tactical Explosive Launcher (+12)", "[8] 전술 폭발 런처 (+12발 광역폭발)",  "$6,500"},
-            {"[9] .44 Magnum Revolver (+36 Rds)",     "[9] 44 매그넘 리볼버 (+36발 고화력)",  "$650"},
-            {"[0] Assault Drum Shotgun (+48 Shells)", "[0] 전자동 드럼 샷건 (+48발 연사)",    "$1,600"},
-            {"[-] Marksman Sniper Rifle (+24 Rds)",   "[-] 전술 저격소총 (+24발 스코프)",     "$2,400"},
-            {"[=] Vulcan 6-Barrel Minigun (+400)",    "[=] 6열 개틀링 미니건 (+400발 초고속)", "$5,200"}
-        };
-    } else if (world.isPlayerInGarageZone()) {
-        const float disc = world.tuningDiscountScale();
-        auto costStr = [&](int basePrice) {
-            const int p = std::max(20, static_cast<int>(std::round(static_cast<float>(basePrice) * disc)));
-            char buf[32];
-            std::snprintf(buf, sizeof(buf), "$%d", p);
-            return std::string(buf);
-        };
-
-        const Vehicle* car = world.playerVehicle();
-        if (!car) {
-            if (const auto* gPoi = world.city().findPoi(PoiKind::TuneGarage)) {
-                for (const auto& v : world.vehicles()) {
-                    if (!v.destroyed && (v.pos - gPoi->pos).length() <= gPoi->radius + 3.0f) {
-                        car = &v;
-                        break;
-                    }
-                }
-            }
-        }
-
-        titleEn = (disc < 0.99f) ? "PAY 'N' TUNE  (-50% FRANCHISE VIP)" : "PAY 'N' TUNE FULL CUSTOM GARAGE";
-        titleKo = (disc < 0.99f) ? "PAY 'N' TUNE 커스텀 공방 (-50% 본점 할인중)" : "PAY 'N' TUNE 차량 수리 · 풀튜닝 공방";
-        accent = Color{68, 224, 255, 255};
-
-        const int engLv = car ? car->engineUpgradeLevel : 0;
-        const int armLv = car ? car->armorUpgradeLevel : 0;
-        const int neonId = car ? car->neonPreset : 0;
-        const int rimId = car ? car->rimStyle : 0;
-        const bool wingOn = car ? car->customSpoiler : false;
-
-        char eEn[80], eKo[96], aEn[80], aKo[96], nEn[80], nKo[96], wEn[80], wKo[96], rEn[80], rKo[96];
-        std::snprintf(eEn, sizeof(eEn), "[2] Turbo Engine Upgrade (Lv %d/3)", engLv);
-        std::snprintf(eKo, sizeof(eKo), "[2] 터보 엔진 스테이지 업그레이드 (Lv %d/3)", engLv);
-        std::snprintf(aEn, sizeof(aEn), "[3] Armor & Bulletproof Tires (Lv %d/3)", armLv);
-        std::snprintf(aKo, sizeof(aKo), "[3] 방탄 차체 · 방탄 타이어 보강 (Lv %d/3)", armLv);
-        std::snprintf(nEn, sizeof(nEn), "[4] LED Neon Underglow (%s)", neonPresetNameEn(neonId));
-        std::snprintf(nKo, sizeof(nKo), "[4] 하부 LED 네온 언더글로우 (%s)", neonPresetNameKo(neonId));
-        std::snprintf(wEn, sizeof(wEn), "[5] Carbon GT Aero Spoiler (%s)", wingOn ? "ON" : "OFF");
-        std::snprintf(wKo, sizeof(wKo), "[5] 카본 GT 에어로 스포일러 (%s)", wingOn ? "장착됨" : "미장착");
-        std::snprintf(rEn, sizeof(rEn), "[6] Forged Alloy Rims (%s)", rimStyleNameEn(rimId));
-        std::snprintf(rKo, sizeof(rKo), "[6] 커스텀 단조 휠 교체 (%s)", rimStyleNameKo(rimId));
-
-        rows = {
-            {"[1] Full Chassis & Engine Repair",          "[1] 차체 및 엔진 100% 완벽 수리",         costStr(120)},
-            {eEn,                                         eKo,                                       (engLv >= 3) ? "MAX" : costStr(450)},
-            {aEn,                                         aKo,                                       (armLv >= 3) ? "MAX" : costStr(600)},
-            {nEn,                                         nKo,                                       costStr(350)},
-            {wEn,                                         wKo,                                       costStr(300)},
-            {rEn,                                         rKo,                                       costStr(250)},
-            {"[7] Cycle Metallic & Matte Satin Paint",    "[7] 메탈릭 · 무광 새틴 프리미엄 도색",    costStr(150)},
-            {"[8] Nitrous Oxide Tank 100% Refill",        "[8] 니트로 부스트 탱크 100% 충전",        costStr(80)}
-        };
-    } else if (world.isPlayerInDealershipZone()) {
-        titleEn = "LUXURY AUTOS SUPERCAR SHOWROOM";
-        titleKo = "LUXURY AUTOS 프리미엄 슈퍼카 전시장";
-        accent = Color{255, 206, 72, 255};
-        const int catalogCount = static_cast<int>(kDealershipCatalog.size());
-        for (int i = 0; i < catalogCount; ++i) {
-            const VehicleKind vk = kDealershipCatalog[static_cast<std::size_t>(i)];
-            const auto& spec = getVehicleSpec(vk);
-            const bool owned = pl.garage[static_cast<std::size_t>(vk)].owned;
-            char lEn[96], lKo[112], pBuf[48];
-            std::snprintf(lEn, sizeof(lEn), "[%s] %s", optKeyLabel(i + 1), spec.nameEn);
-            std::snprintf(lKo, sizeof(lKo), "[%s] %s", optKeyLabel(i + 1), spec.nameKo);
-            if (owned) {
-                std::snprintf(pBuf, sizeof(pBuf), "%s", pickText("SUMMON FREE", "보유중 · 즉시호출"));
-            } else {
-                std::snprintf(pBuf, sizeof(pBuf), "$%d", spec.dealershipPrice);
-            }
-            rows.push_back({lEn, lKo, pBuf, owned ? Color{92, 228, 255, 255} : Color{102, 238, 122, 255}});
-        }
-        const auto& prop = getPropertySpec(PropertyId::LuxuryShowroom);
-        const bool propOwned = pl.ownedProperties[static_cast<std::size_t>(PropertyId::LuxuryShowroom)];
-        char pTag[48], fEn[96], fKo[128];
-        if (propOwned) {
-            std::snprintf(pTag, sizeof(pTag), "%s", pickText("OWNED", "매입 완료"));
-        } else {
-            std::snprintf(pTag, sizeof(pTag), "$%d", prop.price);
-        }
-        std::snprintf(fEn, sizeof(fEn), "[%s] Buy Showroom Stake (+$%d/25s, %s)",
-                      optKeyLabel(catalogCount + 1), prop.incomePerCycle, prop.perkEn);
-        std::snprintf(fKo, sizeof(fKo), "[%s] 전시장 지분 인수 (+$%d/25초 · %s)",
-                      optKeyLabel(catalogCount + 1), prop.incomePerCycle, prop.perkKo);
-        rows.push_back({
-            fEn, fKo, pTag,
-            propOwned ? Color{180, 205, 230, 255} : Color{255, 214, 78, 255}
-        });
-    } else if (world.isPlayerInBoutiqueZone()) {
-        titleEn = "MODA DESIGNER CLOTHING BOUTIQUE";
-        titleKo = "MODA 하이엔드 의상 · 방탄 수트 부티크";
-        accent = Color{246, 128, 224, 255};
-        for (int i = 0; i < 6; ++i) {
-            const auto oid = static_cast<OutfitId>(i);
-            const auto& ospec = getOutfitSpec(oid);
-            const bool owned = pl.ownedOutfits[static_cast<std::size_t>(i)];
-            const bool equipped = (pl.currentOutfit == oid);
-            const int drPct = static_cast<int>(std::round((1.0f - ospec.damageTakenScale) * 100.0f));
-            char lEn[112], lKo[128], pTag[48];
-            if (drPct > 0) {
-                std::snprintf(lEn, sizeof(lEn), "[%d] %s  (-%d%% Dmg)", i + 1, ospec.nameEn, drPct);
-                std::snprintf(lKo, sizeof(lKo), "[%d] %s  (피해 -%d%%)", i + 1, ospec.nameKo, drPct);
-            } else {
-                std::snprintf(lEn, sizeof(lEn), "[%d] %s", i + 1, ospec.nameEn);
-                std::snprintf(lKo, sizeof(lKo), "[%d] %s", i + 1, ospec.nameKo);
-            }
-            if (equipped) {
-                std::snprintf(pTag, sizeof(pTag), "%s", pickText("EQUIPPED", "착용중"));
-            } else if (owned) {
-                std::snprintf(pTag, sizeof(pTag), "%s", pickText("WEAR", "보유중 · 착용"));
-            } else {
-                std::snprintf(pTag, sizeof(pTag), "$%d", ospec.price);
-            }
-            rows.push_back({
-                lEn, lKo, pTag,
-                equipped ? Color{255, 218, 92, 255}
-                         : (owned ? Color{96, 226, 255, 255} : Color{102, 238, 122, 255})
-            });
-        }
-    } else if (world.isPlayerInGasStationZone()) {
-        titleEn = "GLOBE OIL EXPRESS PIT & INVESTMENT";
-        titleKo = "GLOBE OIL 주유소 정비 · 사업장 매입";
-        accent = Color{255, 148, 68, 255};
-        const auto& prop = getPropertySpec(PropertyId::GlobeOilGas);
-        const bool owned = pl.ownedProperties[static_cast<std::size_t>(PropertyId::GlobeOilGas)];
-        char pTag[48], gEn[96], gKo[128];
-        if (owned) std::snprintf(pTag, sizeof(pTag), "%s", pickText("OWNED", "매입 완료"));
-        else std::snprintf(pTag, sizeof(pTag), "$%d", prop.price);
-        std::snprintf(gEn, sizeof(gEn), "[2] Buy Globe Oil Station (+$%d/25s, %s)", prop.incomePerCycle, prop.perkEn);
-        std::snprintf(gKo, sizeof(gKo), "[2] 글로브 오일 주유소 인수 (+$%d/25초 · %s)", prop.incomePerCycle, prop.perkKo);
-
-        rows = {
-            {"[1] Premium Fuel, Full Repair & Nitro (In Car)", "[1] 고급유 주유 · 차체 수리 · 니트로 충전 (탑승시)", "$60"},
-            {gEn, gKo, pTag, owned ? Color{180, 205, 230, 255} : Color{255, 214, 78, 255}}
-        };
-    } else if (world.isPlayerInNightclubZone()) {
-        titleEn = "PULSE NIGHTCLUB & ECLIPSE PENTHOUSE";
-        titleKo = "PULSE 나이트클럽 · 이클립스 펜트하우스";
-        accent = Color{216, 108, 255, 255};
-        const auto& club = getPropertySpec(PropertyId::PulseNightclub);
-        const auto& pent = getPropertySpec(PropertyId::EclipsePenthouse);
-        const bool clubOwned = pl.ownedProperties[static_cast<std::size_t>(PropertyId::PulseNightclub)];
-        const bool pentOwned = pl.ownedProperties[static_cast<std::size_t>(PropertyId::EclipsePenthouse)];
-        char cTag[48], eTag[48], cEn[96], cKo[128], pEn[96], pKo[128];
-        if (clubOwned) std::snprintf(cTag, sizeof(cTag), "%s", pickText("OWNED", "매입 완료"));
-        else std::snprintf(cTag, sizeof(cTag), "$%d", club.price);
-        if (pentOwned) std::snprintf(eTag, sizeof(eTag), "%s", pickText("OWNED", "매입 완료"));
-        else std::snprintf(eTag, sizeof(eTag), "$%d", pent.price);
-        std::snprintf(cEn, sizeof(cEn), "[1] Buy Pulse Nightclub (+$%d/25s, %s)", club.incomePerCycle, club.perkEn);
-        std::snprintf(cKo, sizeof(cKo), "[1] 펄스 나이트클럽 인수 (+$%d/25초 · %s)", club.incomePerCycle, club.perkKo);
-        std::snprintf(pEn, sizeof(pEn), "[2] Buy Eclipse Penthouse (+$%d/25s, %s)", pent.incomePerCycle, pent.perkEn);
-        std::snprintf(pKo, sizeof(pKo), "[2] 이클립스 펜트하우스 매입 (+$%d/25초 · %s)", pent.incomePerCycle, pent.perkKo);
-
-        rows = {
-            {cEn, cKo, cTag, clubOwned ? Color{180, 205, 230, 255} : Color{255, 214, 78, 255}},
-            {pEn, pKo, eTag, pentOwned ? Color{180, 205, 230, 255} : Color{255, 214, 78, 255}}
-        };
+    const float top = box.y + 58.0f;
+    const float rowH = (box.y + box.h - 20.0f - top) / 8.0f;
+    for (int i = 0; i < 8; ++i) {
+        ui.drawRoundedRect(box.x + 16.0f, top + static_cast<float>(i) * rowH, box.w - 32.0f, rowH - 6.0f, 7.0f, {22, 32, 48, 225});
+        ui.drawText(itemsKo[i], box.x + 28.0f, top + static_cast<float>(i) * rowH + 10.0f, 15.0f, {236, 244, 255, 255});
     }
-
-    if (rows.empty()) return;
-
-    const ShopModalGeom g = computeShopModalGeom(static_cast<int>(rows.size()), screenW, screenH);
-    const float mx = g.panel.x;
-    const float my = g.panel.y;
-    const float mw = g.panel.width;
-    const float mh = g.panel.height;
-
-    DrawRectangleRounded(g.panel, 0.06f, 8, Color{12, 18, 28, 244});
-    DrawRectangleRoundedLinesEx(g.panel, 0.06f, 8, 2.4f, accent);
-
-    drawUiText(pickText(titleEn.c_str(), titleKo.c_str()), mx + 22.0f, my + 16.0f, 21.5f, accent);
-    if (mobileUi_) {
-        drawModalCloseButton(g.closeBtn);
-    }
-
-    for (std::size_t i = 0; i < rows.size(); ++i) {
-        const float ry = g.rowsStartY + static_cast<float>(i) * g.rowStep;
-        DrawRectangleRounded({mx + 18.0f, ry, mw - 36.0f, g.rowBoxH}, 0.24f, 4, Color{24, 33, 46, 228});
-        drawUiText(pickText(rows[i].labelEn.c_str(), rows[i].labelKo.c_str()),
-                   mx + 28.0f, ry + 4.5f, g.fontSz, Color{238, 243, 250, 255});
-        const float pw = measureUiText(rows[i].priceTag.c_str(), g.fontSz);
-        drawUiText(rows[i].priceTag.c_str(), mx + mw - 28.0f - pw, ry + 4.5f, g.fontSz, rows[i].tagColor);
-    }
-
-    char hintEn[112], hintKo[128];
-    if (mobileUi_) {
-        std::snprintf(hintEn, sizeof(hintEn), "Tap any item to buy/select   |   Tap X or outside to close");
-        std::snprintf(hintKo, sizeof(hintKo), "항목 터치로 구매·선택   |   우측 상단 닫기 또는 바깥 터치");
-    } else if (rows.size() == 12) {
-        std::snprintf(hintEn, sizeof(hintEn), "Keys [1-9, 0, -, =] Select   |   [B] or [ESC] Close");
-        std::snprintf(hintKo, sizeof(hintKo), "키 [1~9, 0, -, =] 구매·선택   |   [B] 또는 [ESC] 닫기");
-    } else if (rows.size() == 11) {
-        std::snprintf(hintEn, sizeof(hintEn), "Keys [1-9, 0, -] Select   |   [B] or [ESC] Close");
-        std::snprintf(hintKo, sizeof(hintKo), "키 [1~9, 0, -] 구매·호출   |   [B] 또는 [ESC] 닫기");
-    } else {
-        std::snprintf(hintEn, sizeof(hintEn), "Press [1-%zu] to select   |   [B] or [ESC] Close", rows.size());
-        std::snprintf(hintKo, sizeof(hintKo), "숫자키 [1~%zu] 구매·선택   |   [B] 또는 [ESC] 닫기", rows.size());
-    }
-    drawUiText(pickText(hintEn, hintKo), mx + 22.0f, my + mh - 29.0f, 16.0f, Color{182, 194, 210, 255});
 }
 
-void HudRenderer::drawSmartphoneModal(const GameWorld& world, int screenW, int screenH) {
-    auto optKeyLabel = [](int opt1) -> const char* {
-        static const char* kKeys[13] = {"", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="};
-        return (opt1 >= 1 && opt1 <= 12) ? kKeys[opt1] : "?";
-    };
+void HudRenderer::drawSmartphoneModal(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH) {
+    const float w = static_cast<float>(screenW), h = static_cast<float>(screenH);
+    const float mw = std::min(580.0f, w * 0.84f);
+    const float mh = std::min(520.0f, h * 0.82f);
+    const RectF box{(w - mw) * 0.5f, (h - mh) * 0.5f, mw, mh};
+    const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
 
-    const int rowCount = (phoneTab_ == 0 || phoneTab_ == 3) ? 10 : 6;
-    const PhoneModalGeom g = computePhoneModalGeom(phoneTab_, screenW, screenH);
-    const bool densePhone = g.dense;
-    const float px = g.panel.x;
-    const float py = g.panel.y;
-    const float pw = g.panel.width;
-    const float ph = g.panel.height;
+    ui.drawRoundedRect(box.x, box.y, box.w, box.h, 12.0f, {12, 18, 28, 244});
+    ui.drawRoundedRectOutline(box.x, box.y, box.w, box.h, 12.0f, 2.0f, accent);
+    ui.drawText(pickText("SEOUL SMARTPHONE [P]", "서울 스마트폰 [P]"), box.x + 18.0f, box.y + 14.0f, 20.0f, accent);
+    ui.drawRoundedRect(box.x + box.w - 86.0f, box.y + 10.0f, 74.0f, 30.0f, 6.0f, {178, 44, 52, 235});
+    ui.drawTextCentered(pickText("CLOSE", "닫기"), box.x + box.w - 49.0f, box.y + 16.0f, 14.0f, {255, 255, 255, 255});
 
-    // Sleek metallic smartphone chassis + glass OLED screen
-    DrawRectangleRounded({px - 5.0f, py - 5.0f, pw + 10.0f, ph + 10.0f}, 0.09f, 10, Color{38, 46, 62, 248});
-    DrawRectangleRounded({px, py, pw, ph}, 0.08f, 10, Color{11, 16, 25, 246});
-
-    const Color tabAccents[4] = {
-        Color{76, 222, 255, 255},
-        Color{104, 242, 148, 255},
-        Color{246, 132, 228, 255},
-        Color{255, 184, 72, 255}
-    };
-    const Color activeAccent = tabAccents[phoneTab_];
-    DrawRectangleRoundedLinesEx({px, py, pw, ph}, 0.08f, 10, 2.0f, activeAccent);
-
-    // Top speaker notch & status bar
-    DrawRectangleRounded({px + pw * 0.5f - 36.0f, py + 7.0f, 72.0f, 5.0f}, 0.5f, 4, Color{42, 52, 68, 255});
-    drawUiText(mobileUi_
-                   ? pickText("iFRUIT OS  |  Tap Tabs", "iFRUIT 스마트폰")
-                   : pickText("iFRUIT OS  |  [Q/E] Switch App", "iFRUIT 스마트폰  |  [Q/E] 앱 전환"),
-               px + 16.0f, py + 17.0f, 15.2f, Color{198, 212, 228, 245});
-    if (mobileUi_) {
-        drawModalCloseButton(g.closeBtn);
-    }
-
-    // 4 App Tab Pills
-    const char* tabEn[4] = {"AUTOS", "REALTY", "STYLE", "SUPPLY"};
-    const char* tabKo[4] = {"차량호출", "부동산", "의상실", "긴급보급"};
+    const char* tabs[4] = {"차고 호출", "부동산", "긴급 지원", "서울 미션"};
+    const float tabW = (box.w - 28.0f) / 4.0f;
     for (int t = 0; t < 4; ++t) {
-        const Rectangle tr = g.tabs[static_cast<std::size_t>(t)];
-        const bool sel = (t == phoneTab_);
-        DrawRectangleRounded(tr, 0.30f, 6,
-                             sel ? Color{activeAccent.r, activeAccent.g, activeAccent.b, 56}
-                                 : Color{22, 30, 42, 230});
-        if (sel) {
-            DrawRectangleRoundedLinesEx(tr, 0.30f, 6, 1.5f, activeAccent);
-        }
-        const char* tLabel = pickText(tabEn[t], tabKo[t]);
-        const float tw = measureUiText(tLabel, 14.8f);
-        drawUiText(tLabel, tr.x + (tr.width - tw) * 0.5f, tr.y + 5.5f, 14.8f,
-                   sel ? activeAccent : Color{168, 180, 198, 235});
+        const float tx = box.x + 14.0f + static_cast<float>(t) * tabW;
+        ui.drawRoundedRect(tx, box.y + 48.0f, tabW - 4.0f, 32.0f, 6.0f,
+                           (phoneTab_ == t) ? accent : ColorRGBA{26, 36, 52, 230});
+        ui.drawTextCentered(tabs[t], tx + (tabW - 4.0f) * 0.5f, box.y + 55.0f, 14.0f,
+                            (phoneTab_ == t) ? ColorRGBA{12, 16, 22, 255} : ColorRGBA{222, 232, 245, 255});
     }
 
-    const auto& pl = world.player();
-    const float listTop = g.listTop;
-    const float rowH = g.rowH;
-    const float rowGap = g.rowGap;
-
-    for (int i = 0; i < rowCount; ++i) {
-        const float ry = listTop + static_cast<float>(i) * (rowH + rowGap);
-        const bool isBribeRow = (phoneTab_ == 3 && i == 6);
-        DrawRectangleRounded({px + 12.0f, ry, pw - 24.0f, rowH}, 0.20f, 6,
-                             (isBribeRow && pl.wantedLevel > 0) ? Color{28, 34, 54, 242} : Color{20, 28, 40, 235});
-        if (isBribeRow && pl.wantedLevel > 0) {
-            DrawRectangleRoundedLinesEx({px + 12.0f, ry, pw - 24.0f, rowH}, 0.20f, 6, 1.2f, Color{96, 178, 255, 210});
+    const float top = box.y + 92.0f;
+    const float rowH = (box.y + box.h - 20.0f - top) / 8.0f;
+    for (int i = 0; i < 8; ++i) {
+        char lblBuf[160];
+        lblBuf[0] = '\0';
+        if (phoneTab_ == 0 && i < static_cast<int>(kDealershipCatalog.size())) {
+            const auto& sp = getVehicleSpec(kDealershipCatalog[static_cast<std::size_t>(i)]);
+            std::snprintf(lblBuf, sizeof(lblBuf), "[%d] %s", i + 1, pickText(sp.nameEn, sp.nameKo));
+        } else if (phoneTab_ == 1 && i < static_cast<int>(PropertyId::Count)) {
+            const auto& pr = getPropertySpec(static_cast<PropertyId>(i));
+            std::snprintf(lblBuf, sizeof(lblBuf), "[%d] %s ($%d)", i + 1, pickText(pr.nameEn, pr.nameKo), pr.price);
         }
-
-        char line1En[96] = {};
-        char line1Ko[112] = {};
-        char line2En[96] = {};
-        char line2Ko[112] = {};
-        char rightTag[48] = {};
-        Color rightCol{102, 238, 122, 255};
-
-        if (phoneTab_ == 0) {
-            const VehicleKind vk = kDealershipCatalog[static_cast<std::size_t>(i)];
-            const auto& spec = getVehicleSpec(vk);
-            const auto& slot = pl.garage[static_cast<std::size_t>(vk)];
-            std::snprintf(line1En, sizeof(line1En), "[%s] %s", optKeyLabel(i + 1), spec.nameEn);
-            std::snprintf(line1Ko, sizeof(line1Ko), "[%s] %s", optKeyLabel(i + 1), spec.nameKo);
-            std::snprintf(line2En, sizeof(line2En), "Top %d km/h  |  Turbo Lv%d · Armor Lv%d",
-                          static_cast<int>(std::round(spec.maxForwardSpeed * 3.6f)),
-                          slot.engineUpgradeLevel, slot.armorUpgradeLevel);
-            std::snprintf(line2Ko, sizeof(line2Ko), "최고 %d km/h  |  터보 Lv%d · 방탄 Lv%d",
-                          static_cast<int>(std::round(spec.maxForwardSpeed * 3.6f)),
-                          slot.engineUpgradeLevel, slot.armorUpgradeLevel);
-            if (slot.owned) {
-                std::snprintf(rightTag, sizeof(rightTag), "%s", pickText("SUMMON", "즉시 호출"));
-                rightCol = Color{84, 228, 255, 255};
-            } else {
-                std::snprintf(rightTag, sizeof(rightTag), "$%d", spec.dealershipPrice);
-            }
-        } else if (phoneTab_ == 1) {
-            const auto pid = static_cast<PropertyId>(i);
-            const auto& pspec = getPropertySpec(pid);
-            const bool owned = pl.ownedProperties[static_cast<std::size_t>(i)];
-            std::snprintf(line1En, sizeof(line1En), "[%d] %s", i + 1, pspec.nameEn);
-            std::snprintf(line1Ko, sizeof(line1Ko), "[%d] %s", i + 1, pspec.nameKo);
-            std::snprintf(line2En, sizeof(line2En), "+$%d / 25s  |  %s", pspec.incomePerCycle, pspec.perkEn);
-            std::snprintf(line2Ko, sizeof(line2Ko), "+$%d / 25초  |  %s", pspec.incomePerCycle, pspec.perkKo);
-            if (owned) {
-                std::snprintf(rightTag, sizeof(rightTag), "%s", pickText("OWNED", "보유 완료"));
-                rightCol = Color{108, 242, 152, 255};
-            } else {
-                std::snprintf(rightTag, sizeof(rightTag), "$%d", pspec.price);
-            }
-        } else if (phoneTab_ == 2) {
-            const auto oid = static_cast<OutfitId>(i);
-            const auto& ospec = getOutfitSpec(oid);
-            const bool owned = pl.ownedOutfits[static_cast<std::size_t>(i)];
-            const bool eq = (pl.currentOutfit == oid);
-            const int drPct = static_cast<int>(std::round((1.0f - ospec.damageTakenScale) * 100.0f));
-            std::snprintf(line1En, sizeof(line1En), "[%d] %s", i + 1, ospec.nameEn);
-            std::snprintf(line1Ko, sizeof(line1Ko), "[%d] %s", i + 1, ospec.nameKo);
-            if (drPct > 0) {
-                std::snprintf(line2En, sizeof(line2En), "Perk: -%d%% Incoming Damage", drPct);
-                std::snprintf(line2Ko, sizeof(line2Ko), "착용 효과: 피격 데미지 -%d%% 감소", drPct);
-            } else {
-                std::snprintf(line2En, sizeof(line2En), "Classic Street Style");
-                std::snprintf(line2Ko, sizeof(line2Ko), "기본 스트리트 스타일");
-            }
-            if (eq) {
-                std::snprintf(rightTag, sizeof(rightTag), "%s", pickText("WORN", "착용중"));
-                rightCol = Color{255, 218, 92, 255};
-            } else if (owned) {
-                std::snprintf(rightTag, sizeof(rightTag), "%s", pickText("WEAR", "착용하기"));
-                rightCol = Color{92, 226, 255, 255};
-            } else {
-                std::snprintf(rightTag, sizeof(rightTag), "$%d", ospec.price);
-            }
-        } else if (i < 6) {
-            struct SupplyRow { const char* nEn; const char* nKo; const char* dEn; const char* dKo; const char* cost; };
-            const SupplyRow srows[6] = {
-                {"[1] Heavy Armor Drop",    "[1] 긴급 방탄복 보급",      "Restore Armor 100%",   "방탄복 100% 즉시 충전",      "$250"},
-                {"[2] Field Medkit Drop",   "[2] 긴급 의료 키트 보급",   "Restore Health 100%",  "체력 100% 즉시 회복",        "$150"},
-                {"[3] Full Ammo Resupply",  "[3] 전 무기 탄약 보급",     "+4 Mags All Weapons",  "보유 무기 +4탄창 보충",      "$200"},
-                {"[4] Carbine Rifle",       "[4] 돌격 카빈소총 보급",    "Auto Rifle + 150 Rds", "연사 소총 + 150발 즉시 지급", "$900"},
-                {"[5] Combat MG",           "[5] 컴뱃 중기관총 보급",    "Heavy MG + 240 Rds",   "100발 탄창 중기관총 지급",   "$2,800"},
-                {"[6] Tactical Launcher",   "[6] 전술 폭발 런처 보급",   "Explosive + 12 Rds",   "광역 폭발 런처 + 12발 지급", "$6,500"}
+        std::string label = lblBuf;
+        if (phoneTab_ == 2) {
+            const char* srv[8] = {
+                "[1] 수배 해제 (뇌물 $600)", "[2] 현장 차량 수리 ($250)",
+                "[3] 119 응급 구급키트 ($200)", "[4] 맑은 날씨로 변경",
+                "[5] 비 오는 서울 날씨", "[6] 시간 +2시간 이동",
+                "[7] 서울 해치 택시 호출", "[8] 내 차로 즉시 복귀"
             };
-            std::snprintf(line1En, sizeof(line1En), "%s", srows[i].nEn);
-            std::snprintf(line1Ko, sizeof(line1Ko), "%s", srows[i].nKo);
-            std::snprintf(line2En, sizeof(line2En), "%s", srows[i].dEn);
-            std::snprintf(line2Ko, sizeof(line2Ko), "%s", srows[i].dKo);
-            std::snprintf(rightTag, sizeof(rightTag), "%s", srows[i].cost);
-        } else if (i == 6) {
-            // Option [7]: SBPD Police Bribe / Dispatch Record Wipe!
-            std::snprintf(line1En, sizeof(line1En), "[7] Clear Wanted Level");
-            std::snprintf(line1Ko, sizeof(line1Ko), "[7] 경찰 수배 즉시 해제 브로커");
-            if (pl.wantedLevel > 0) {
-                std::snprintf(line2En, sizeof(line2En), "Wipe %d-Star SBPD Dispatch", pl.wantedLevel);
-                std::snprintf(line2Ko, sizeof(line2Ko), "현재 수배 %d단계 기록 즉시 말소", pl.wantedLevel);
-                std::snprintf(rightTag, sizeof(rightTag), "$%d", pl.wantedLevel * 400);
-                rightCol = Color{102, 224, 255, 255};
-            } else {
-                std::snprintf(line2En, sizeof(line2En), "$400 per Wanted Star");
-                std::snprintf(line2Ko, sizeof(line2Ko), "수배 별 1개당 $400 즉시 해제");
-                std::snprintf(rightTag, sizeof(rightTag), "%s", pickText("CLEAN", "수배 없음"));
-                rightCol = Color{154, 170, 190, 230};
-            }
+            label = srv[i];
         } else {
-            struct ExtraSupplyRow { const char* nEn; const char* nKo; const char* dEn; const char* dKo; const char* cost; };
-            const ExtraSupplyRow erows[3] = {
-                {"[8] Assault Shotgun", "[8] 전자동 드럼 샷건 보급", "Auto Drum + 48 Shells", "16발 드럼 연사샷건 지급",   "$1,700"},
-                {"[9] Marksman Sniper", "[9] 전술 저격소총 보급",   "3.2x Scope + 24 Rds",   "정밀 저격총 + 스코프 지급", "$2,500"},
-                {"[0] Vulcan Minigun",  "[0] 6열 개틀링 미니건 보급", "6-Barrel + 400 Rds",   "초고속 개틀링 + 400발 지급", "$5,400"}
+            const char* mis[8] = {
+                "[1] 강남 슈퍼카 배달 시작", "[2] 한강변 스트리트 레이스",
+                "[3] 갱단 아지트 소탕 작전", "[4] 현재 미션 포기",
+                "", "", "", ""
             };
-            const int idx = i - 7;
-            std::snprintf(line1En, sizeof(line1En), "%s", erows[idx].nEn);
-            std::snprintf(line1Ko, sizeof(line1Ko), "%s", erows[idx].nKo);
-            std::snprintf(line2En, sizeof(line2En), "%s", erows[idx].dEn);
-            std::snprintf(line2Ko, sizeof(line2Ko), "%s", erows[idx].dKo);
-            std::snprintf(rightTag, sizeof(rightTag), "%s", erows[idx].cost);
+            label = mis[i];
         }
-
-        const float y1Off = densePhone ? 3.5f : 7.0f;
-        const float y2Off = densePhone ? 21.0f : 29.0f;
-        const float f1 = densePhone ? 14.5f : 15.5f;
-        const float f2 = densePhone ? 12.6f : 13.8f;
-        drawUiText(pickText(line1En, line1Ko), px + 20.0f, ry + y1Off, f1, Color{240, 245, 252, 255});
-        drawUiText(pickText(line2En, line2Ko), px + 20.0f, ry + y2Off, f2, Color{164, 180, 200, 240});
-
-        const float tw = measureUiText(rightTag, f1);
-        drawUiText(rightTag, px + pw - 20.0f - tw, ry + y1Off + 0.5f, f1, rightCol);
-    }
-
-    if (mobileUi_) {
-        drawUiText(pickText("Tap tabs & items   |   Tap X or outside to close",
-                            "탭 · 항목 터치로 즉시 실행   |   우측 상단 닫기"),
-                   px + 18.0f, py + ph - 23.0f, 14.5f, Color{186, 198, 214, 245});
-    } else if (phoneTab_ == 0) {
-        drawUiText(pickText("Keys [1-9, 0] Select   |   [P] Close Phone",
-                            "숫자 [1~9, 0] 구매·호출   |   [P] 닫기"),
-                   px + 18.0f, py + ph - 23.0f, 14.5f, Color{186, 198, 214, 245});
-    } else if (phoneTab_ == 3) {
-        drawUiText(pickText("Keys [1-9, 0] Select   |   [P] Close Phone",
-                            "숫자 [1~9, 0] 보급·수배해제   |   [P] 닫기"),
-                   px + 18.0f, py + ph - 23.0f, 14.5f, Color{186, 198, 214, 245});
-    } else {
-        drawUiText(pickText("Keys [1-6] Select   |   [P] Close Phone",
-                            "숫자 [1~6] 구매·호출   |   [P] 휴대폰 닫기"),
-                   px + 18.0f, py + ph - 24.0f, 15.0f, Color{186, 198, 214, 245});
+        if (label.empty()) continue;
+        ui.drawRoundedRect(box.x + 16.0f, top + static_cast<float>(i) * rowH, box.w - 32.0f, rowH - 5.0f, 7.0f, {22, 32, 48, 225});
+        ui.drawText(label, box.x + 28.0f, top + static_cast<float>(i) * rowH + 9.0f, 14.5f, {236, 244, 255, 255});
     }
 }
 
-void HudRenderer::drawCustomStudioModal(const GameWorld& world, int screenW, int screenH) {
-    const auto& pl = world.player();
-    const auto& cc = pl.characterCustom;
-    const auto& hc = pl.hudCustom;
-    const ColorRGBA themeRgba = getHudThemeColorRGBA(hc.hudThemeIdx);
-    const Color themeCol = toRayColor(themeRgba, 255);
+void HudRenderer::drawCustomStudioModal(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH) {
+    const float w = static_cast<float>(screenW), h = static_cast<float>(screenH);
+    const float mw = std::min(580.0f, w * 0.84f);
+    const float mh = std::min(520.0f, h * 0.82f);
+    const RectF box{(w - mw) * 0.5f, (h - mh) * 0.5f, mw, mh};
+    const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
 
-    const StudioModalGeom g = computeStudioModalGeom(customTab_, screenW, screenH);
-    const float px = g.panel.x;
-    const float py = g.panel.y;
-    const float pw = g.panel.width;
-    const float ph = g.panel.height;
+    ui.drawRoundedRect(box.x, box.y, box.w, box.h, 12.0f, {12, 18, 28, 244});
+    ui.drawRoundedRectOutline(box.x, box.y, box.w, box.h, 12.0f, 2.0f, accent);
+    ui.drawText(pickText("CUSTOM STUDIO [K]", "커스텀 스튜디오 [K]"), box.x + 18.0f, box.y + 14.0f, 20.0f, accent);
+    ui.drawRoundedRect(box.x + box.w - 86.0f, box.y + 10.0f, 74.0f, 30.0f, 6.0f, {178, 44, 52, 235});
+    ui.drawTextCentered(pickText("CLOSE", "닫기"), box.x + box.w - 49.0f, box.y + 16.0f, 14.0f, {255, 255, 255, 255});
 
-    // Studio glass backdrop & themed neon bezel
-    DrawRectangleRounded({px - 4.0f, py - 4.0f, pw + 8.0f, ph + 8.0f}, 0.05f, 8, Color{6, 9, 15, 238});
-    DrawRectangleRounded(g.panel, 0.05f, 8, Color{13, 19, 30, 236});
-    DrawRectangleRoundedLinesEx(g.panel, 0.05f, 8, 1.8f, toRayColor(themeRgba, 195));
-
-    // Title bar
-    drawUiText(pickText("CUSTOM STUDIO", "커스텀 스튜디오"), px + 16.0f, py + 11.0f, 21.0f, themeCol);
-    if (mobileUi_) {
-        drawModalCloseButton(g.closeBtn);
-    } else {
-        const char* topHint = pickText("[Q/E] Tab  ·  [K] Close", "[Q/E] 탭 전환  ·  [K] 닫기");
-        const float thw = measureUiText(topHint, 14.5f);
-        drawUiText(topHint, px + pw - 16.0f - thw, py + 15.0f, 14.5f, Color{196, 210, 228, 240});
-    }
-
-    // 4 Studio Category Tabs
-    const char* tabsEn[4] = {"CHARACTER", "GUNSMITH", "VEHICLE", "HUD / AIM"};
-    const char* tabsKo[4] = {"캐릭터", "총기 건스미스", "차량 커스텀", "조준·HUD"};
+    const char* tabs[4] = {"차량 커스텀", "캐릭터", "무기 도색", "HUD 테마"};
+    const float tabW = (box.w - 28.0f) / 4.0f;
     for (int t = 0; t < 4; ++t) {
-        const Rectangle tr = g.tabs[static_cast<std::size_t>(t)];
-        const bool active = (customTab_ == t);
-        DrawRectangleRounded(tr, 0.26f, 6,
-                             active ? toRayColor(themeRgba, 235) : Color{26, 35, 50, 230});
-        const char* tLabel = pickText(tabsEn[t], tabsKo[t]);
-        const float lw = measureUiText(tLabel, 14.5f);
-        drawUiText(tLabel, tr.x + (tr.width - lw) * 0.5f, tr.y + 6.0f, 14.5f,
-                   active ? Color{10, 14, 20, 255} : Color{205, 216, 232, 240});
+        const float tx = box.x + 14.0f + static_cast<float>(t) * tabW;
+        ui.drawRoundedRect(tx, box.y + 48.0f, tabW - 4.0f, 32.0f, 6.0f,
+                           (customTab_ == t) ? accent : ColorRGBA{26, 36, 52, 230});
+        ui.drawTextCentered(tabs[t], tx + (tabW - 4.0f) * 0.5f, box.y + 55.0f, 14.0f,
+                            (customTab_ == t) ? ColorRGBA{12, 16, 22, 255} : ColorRGBA{222, 232, 245, 255});
     }
-
-    // Target / Context status strip
-    DrawRectangleRounded({px + 16.0f, py + 79.0f, pw - 32.0f, 30.0f}, 0.22f, 6, Color{20, 29, 44, 232});
-    char ctxBuf[144];
-    Color ctxCol = Color{212, 228, 246, 248};
-
-    const WeaponId gunWid =
-        (pl.currentWeapon == WeaponId::Fists && pl.weapons[static_cast<std::size_t>(WeaponId::Pistol)].owned)
-            ? WeaponId::Pistol
-            : pl.currentWeapon;
-    const auto& gunSpec = getWeaponSpec(gunWid);
-    const auto& gunSlot = pl.weapons[static_cast<std::size_t>(gunWid)];
-    const Vehicle* targetCar = world.customizationTargetVehicle();
-
-    if (customTab_ == 0) {
-        const auto& ospec = getOutfitSpec(pl.currentOutfit);
-        if (cc.hairOrHatStyle == 4) {
-            std::snprintf(ctxBuf, sizeof(ctxBuf), "%s  |  %s",
-                          pickText(ospec.nameEn, ospec.nameKo),
-                          pickText("Helmet Armor -8% DMG", "풀페이스 헬멧 피해 -8% 적용"));
-            ctxCol = Color{112, 245, 162, 255};
-        } else {
-            std::snprintf(ctxBuf, sizeof(ctxBuf), "%s  |  %s",
-                          pickText("Live 1st & 3rd Person Avatar", "1·3인칭 캐릭터 실시간 반영"),
-                          pickText(ospec.nameEn, ospec.nameKo));
-        }
-    } else if (customTab_ == 1) {
-        std::snprintf(ctxBuf, sizeof(ctxBuf), "%s: %s  (%d %s)",
-                      pickText("TARGET", "대상 총기"),
-                      pickText(gunSpec.nameEn, gunSpec.nameKo),
-                      effectiveMagazineSize(gunWid, gunSlot.extendedMag),
-                      pickText("rds", "발 탄창"));
-        ctxCol = Color{255, 218, 98, 255};
-    } else if (customTab_ == 2) {
-        if (targetCar != nullptr) {
-            const auto& vspec = getVehicleSpec(targetCar->kind);
-            std::snprintf(ctxBuf, sizeof(ctxBuf), "%s  |  %s",
-                          pickText(vspec.nameEn, vspec.nameKo),
-                          targetCar->isPersonalCar
-                              ? pickText("Saved to Personal Garage", "내 차고 영구 저장됨")
-                              : pickText("Live Street Custom", "현장 즉시 풀 커스텀"));
-            ctxCol = Color{108, 236, 255, 255};
-        } else {
-            std::snprintf(ctxBuf, sizeof(ctxBuf), "%s",
-                          pickText("Enter a car or stand within 9.5m (or [P] Summon)",
-                                   "차량 탑승 또는 근처(9.5m) 이동 시 개조 가능 ([P] 호출)"));
-            ctxCol = Color{255, 168, 88, 255};
-        }
-    } else {
-        std::snprintf(ctxBuf, sizeof(ctxBuf), "%s",
-                      pickText("Live Reticle, Sniper Optic, Speedometer & Theme",
-                               "실시간 조준선 · 속도계 단위 · 인터페이스 테마"));
-    }
-    drawUiText(ctxBuf, px + 26.0f, py + 86.0f, 14.2f, ctxCol);
-
-    const float disc = world.tuningDiscountScale();
-    auto discounted = [&](int basePrice) {
-        return std::max(20, static_cast<int>(std::round(static_cast<float>(basePrice) * disc)));
+    const char* opts[4][6] = {
+        {"[1] 메탈릭 컬러 변경", "[2] 레이싱 스트라이프", "[3] 카본 GT 윙", "[4] 휠 림 스타일", "[5] 서스펜션 스탠스", "[6] 무광/크롬 전환"},
+        {"[1] 헤어/헬멧 변경", "[2] 헤어 컬러", "[3] 선글라스/고글", "[4] 의상 변경", "[5] 재킷 컬러", "[6] 백팩 장비"},
+        {"[1] 무기 스킨 변경", "[2] 소음기 탈착", "[3] 대용량 탄창", "[4] 레이저 사이트", "[5] 예광탄 컬러", "[6] 조준경 컬러"},
+        {"[1] 조준선 모양", "[2] 조준선 색상", "[3] KM/H ↔ MPH 전환", "[4] HUD 강조 테마", "", ""}
     };
-
-    const int rowCount = g.rowCount;
-    const float rowStep = g.rowStep;
-    const float rowH = g.rowH;
-
-    for (int i = 0; i < rowCount; ++i) {
-        const float ry = g.rowsTop + static_cast<float>(i) * rowStep;
-        DrawRectangleRounded({px + 16.0f, ry, pw - 32.0f, rowH}, 0.20f, 6, Color{22, 31, 46, 224});
-        DrawRectangleRoundedLinesEx({px + 16.0f, ry, pw - 32.0f, rowH}, 0.20f, 6, 1.0f, Color{54, 74, 102, 130});
-
-        char titleEn[96] = "";
-        char titleKo[96] = "";
-        char valEn[96] = "";
-        char valKo[96] = "";
-        char badge[40] = "";
-        Color badgeCol = Color{124, 236, 162, 245};
-        bool hasSwatch = false;
-        Color swatchCol = WHITE;
-
-        if (customTab_ == 0) {
-            std::snprintf(badge, sizeof(badge), "%s", pickText("FREE", "무료"));
-            switch (i) {
-                case 0: {
-                    static constexpr const char* kEn[7] = {
-                        "Classic Short", "Slick Pompadour", "Spiky Mohawk", "Street Snapback",
-                        "Aero Moto Helmet (-8% DMG)", "Cyber Neon Visor", "24K VIP Gold Crown"
-                    };
-                    static constexpr const char* kKo[7] = {
-                        "클래식 숏컷", "슬릭 포마드", "스트리트 모호크", "스트리트 스냅백 캡",
-                        "풀페이스 헬멧 (피해 -8%)", "사이버 네온 바이저", "24K VIP 골드 크라운"
-                    };
-                    std::snprintf(titleEn, sizeof(titleEn), "[1] Hair & Headgear (7 Models)");
-                    std::snprintf(titleKo, sizeof(titleKo), "[1] 헤어 · 헤드기어 (7종)");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.hairOrHatStyle % 7]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.hairOrHatStyle % 7]);
-                    break;
-                }
-                case 1: {
-                    static constexpr const char* kEn[6] = {
-                        "Jet Black", "Chestnut Brown", "Platinum Blonde", "Crimson Red", "Cyber Cyan", "Royal Gold"
-                    };
-                    static constexpr const char* kKo[6] = {
-                        "제트 블랙", "체스트넛 브라운", "플래티넘 블론드", "크림슨 레드", "사이버 시안", "로얄 골드"
-                    };
-                    std::snprintf(titleEn, sizeof(titleEn), "[2] Hair / Cap Accent Color");
-                    std::snprintf(titleKo, sizeof(titleKo), "[2] 헤어 · 모자 컬러");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.hairColorIdx % 6]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.hairColorIdx % 6]);
-                    hasSwatch = true;
-                    swatchCol = toRayColor(getPlayerHairColor(pl.currentOutfit, cc.hairColorIdx));
-                    break;
-                }
-                case 2: {
-                    static constexpr const char* kEn[4] = {"None", "Dark Shades", "Gold Aviator", "Cyan Tactical Goggles"};
-                    static constexpr const char* kKo[4] = {"착용 안 함", "다크 선글라스", "골드 에비에이터", "사이버 전술 고글"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[3] Eyewear & Goggles");
-                    std::snprintf(titleKo, sizeof(titleKo), "[3] 선글라스 · 전술 고글");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.glassesStyle % 4]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.glassesStyle % 4]);
-                    break;
-                }
-                case 3: {
-                    static constexpr const char* kEn[5] = {"Warm Ivory", "Natural Beige", "Golden Tan", "Olive Bronze", "Deep Espresso"};
-                    static constexpr const char* kKo[5] = {"웜 아이보리", "내추럴 베이지", "골든 태닝", "올리브 브론즈", "딥 에스프레소"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[4] Skin Tone (1st & 3rd Person)");
-                    std::snprintf(titleKo, sizeof(titleKo), "[4] 피부 톤 (1인칭 손 포함)");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.skinToneIdx % 5]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.skinToneIdx % 5]);
-                    hasSwatch = true;
-                    swatchCol = toRayColor(getPlayerSkinColor(cc.skinToneIdx));
-                    break;
-                }
-                case 4: {
-                    static constexpr const char* kEn[9] = {
-                        "Outfit Default", "Crimson Red", "Sapphire Blue", "Stealth Black",
-                        "Arctic White", "Emerald Green", "Royal Gold", "Cyber Cyan", "Neon Violet"
-                    };
-                    static constexpr const char* kKo[9] = {
-                        "의상 기본 컬러", "크림슨 레드", "사파이어 블루", "스텔스 블랙",
-                        "아틱 화이트", "에메랄드 그린", "로얄 골드", "사이버 시안", "네온 바이올렛"
-                    };
-                    std::snprintf(titleEn, sizeof(titleEn), "[5] Jacket / Top Custom Color");
-                    std::snprintf(titleKo, sizeof(titleKo), "[5] 재킷 · 상의 커스텀 컬러");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.customTopColorIdx % 9]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.customTopColorIdx % 9]);
-                    hasSwatch = true;
-                    swatchCol = toRayColor(getPlayerTopColor(pl.currentOutfit, cc.customTopColorIdx));
-                    break;
-                }
-                case 5: {
-                    static constexpr const char* kEn[7] = {
-                        "Outfit Default", "Jet Black", "Indigo Denim", "Arctic White",
-                        "Tactical Khaki", "Crimson Track", "Charcoal Grey"
-                    };
-                    static constexpr const char* kKo[7] = {
-                        "의상 기본 컬러", "제트 블랙", "인디고 데님", "아틱 화이트",
-                        "택티컬 카키", "크림슨 트랙", "차콜 그레이"
-                    };
-                    std::snprintf(titleEn, sizeof(titleEn), "[6] Pants Custom Color");
-                    std::snprintf(titleKo, sizeof(titleKo), "[6] 바지 · 하의 커스텀 컬러");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.customBottomColorIdx % 7]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.customBottomColorIdx % 7]);
-                    hasSwatch = true;
-                    swatchCol = toRayColor(getPlayerBottomColor(pl.currentOutfit, cc.customBottomColorIdx));
-                    break;
-                }
-                case 6: {
-                    static constexpr const char* kEn[4] = {"None", "Tactical Backpack", "Heist Duffle Bag", "Cyber Neon Wing Pack"};
-                    static constexpr const char* kKo[4] = {"착용 안 함", "전술 백팩", "하이스트 더플백", "사이버 네온 윙팩"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[7] 3D Back Gear Accessory");
-                    std::snprintf(titleKo, sizeof(titleKo), "[7] 등 액세서리 (백팩·윙팩)");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[cc.backGearStyle % 4]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[cc.backGearStyle % 4]);
-                    break;
-                }
-                case 7: {
-                    const auto& ospec = getOutfitSpec(pl.currentOutfit);
-                    std::snprintf(titleEn, sizeof(titleEn), "[8] Cycle Owned Base Outfit");
-                    std::snprintf(titleKo, sizeof(titleKo), "[8] 베이스 의상 프리셋 교체");
-                    std::snprintf(valEn, sizeof(valEn), "%s", ospec.nameEn);
-                    std::snprintf(valKo, sizeof(valKo), "%s", ospec.nameKo);
-                    std::snprintf(badge, sizeof(badge), "%s", pickText("CYCLE", "교체"));
-                    badgeCol = themeCol;
-                    break;
-                }
-            }
-        } else if (customTab_ == 1) {
-            switch (i) {
-                case 0: {
-                    static constexpr const char* kEn[6] = {
-                        "Factory Black", "Brushed Chrome", "24K Royal Gold",
-                        "Crimson Carbon", "Cyber Neon", "Arctic Whiteout"
-                    };
-                    static constexpr const char* kKo[6] = {
-                        "팩토리 블랙", "브러시드 실버 크롬", "24K 로얄 골드",
-                        "크림슨 카본", "사이버 네온", "아틱 화이트아웃"
-                    };
-                    std::snprintf(titleEn, sizeof(titleEn), "[1] Weapon Finish & Skin");
-                    std::snprintf(titleKo, sizeof(titleKo), "[1] 총기 메탈릭 도색 · 스킨");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[gunSlot.skinIndex % 6]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[gunSlot.skinIndex % 6]);
-                    std::snprintf(badge, sizeof(badge), "%s", pickText("FREE", "무료"));
-                    hasSwatch = true;
-                    swatchCol = toRayColor(getWeaponFinishMaterial(gunWid, gunSlot.skinIndex).primary);
-                    break;
-                }
-                case 1: {
-                    std::snprintf(titleEn, sizeof(titleEn), "[2] Tactical Barrel Suppressor");
-                    std::snprintf(titleKo, sizeof(titleKo), "[2] 전술 소음기 (은밀 사격·집탄 향상)");
-                    if (!weaponSupportsSuppressor(gunWid)) {
-                        std::snprintf(valEn, sizeof(valEn), "Not supported on heavy ordnance");
-                        std::snprintf(valKo, sizeof(valKo), "중화기 장착 불가");
-                        std::snprintf(badge, sizeof(badge), "N/A");
-                        badgeCol = Color{150, 160, 175, 220};
-                    } else if (!gunSlot.suppressorOwned) {
-                        std::snprintf(valEn, sizeof(valEn), "Stealth audio + -80%% police heat");
-                        std::snprintf(valKo, sizeof(valKo), "소음 사격 · 경찰 수배열기 -80%% 감소");
-                        std::snprintf(badge, sizeof(badge), "$%d", discounted(250));
-                        badgeCol = Color{255, 214, 82, 255};
-                    } else {
-                        std::snprintf(valEn, sizeof(valEn), "%s", gunSlot.suppressor ? "Equipped (Stealth Active)" : "Detached (Loud)");
-                        std::snprintf(valKo, sizeof(valKo), "%s", gunSlot.suppressor ? "장착됨 (은밀 소음 사격)" : "탈거됨 (일반 격발)");
-                        std::snprintf(badge, sizeof(badge), "%s", gunSlot.suppressor ? "ON" : "OFF");
-                        badgeCol = gunSlot.suppressor ? Color{96, 245, 168, 255} : Color{178, 190, 208, 240};
-                    }
-                    break;
-                }
-                case 2: {
-                    std::snprintf(titleEn, sizeof(titleEn), "[3] Extended Magazine (+50%% Ammo)");
-                    std::snprintf(titleKo, sizeof(titleKo), "[3] 대용량 확장 탄창 (+50%% 장탄수)");
-                    const int extCap = effectiveMagazineSize(gunWid, true);
-                    if (!gunSlot.extendedMagOwned) {
-                        std::snprintf(valEn, sizeof(valEn), "Boost magazine %d -> %d rounds", gunSpec.magazineSize, extCap);
-                        std::snprintf(valKo, sizeof(valKo), "탄창 용량 %d발 -> %d발 확장", gunSpec.magazineSize, extCap);
-                        std::snprintf(badge, sizeof(badge), "$%d", discounted(200));
-                        badgeCol = Color{255, 214, 82, 255};
-                    } else {
-                        std::snprintf(valEn, sizeof(valEn), "%s (%d rds)",
-                                      gunSlot.extendedMag ? "Extended Drum/Box" : "Standard Mag",
-                                      effectiveMagazineSize(gunWid, gunSlot.extendedMag));
-                        std::snprintf(valKo, sizeof(valKo), "%s (%d발)",
-                                      gunSlot.extendedMag ? "대용량 탄창 장착됨" : "기본 탄창 장착됨",
-                                      effectiveMagazineSize(gunWid, gunSlot.extendedMag));
-                        std::snprintf(badge, sizeof(badge), "%s", gunSlot.extendedMag ? "ON" : "OFF");
-                        badgeCol = gunSlot.extendedMag ? Color{96, 245, 168, 255} : Color{178, 190, 208, 240};
-                    }
-                    break;
-                }
-                case 3: {
-                    static constexpr const char* kEn[4] = {"OFF", "Tactical Red (+30% Hip)", "Spec-Ops Green (+30% Hip)", "Cyber Cyan (+30% Hip)"};
-                    static constexpr const char* kKo[4] = {"꺼짐", "레드 레이저 (지향집탄 +30%)", "그린 레이저 (지향집탄 +30%)", "시안 레이저 (지향집탄 +30%)"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[4] 3D Tactical Laser Sight");
-                    std::snprintf(titleKo, sizeof(titleKo), "[4] 3D 전술 레이저 사이트");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[gunSlot.laserSightColor % 4]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[gunSlot.laserSightColor % 4]);
-                    std::snprintf(badge, sizeof(badge), "%s", (gunSlot.laserSightColor > 0) ? "ON" : "OFF");
-                    if (gunSlot.laserSightColor > 0) {
-                        hasSwatch = true;
-                        swatchCol = toRayColor(getLaserSightColorRGBA(gunSlot.laserSightColor));
-                    } else {
-                        badgeCol = Color{178, 190, 208, 240};
-                    }
-                    break;
-                }
-                case 4: {
-                    static constexpr const char* kEn[6] = {"Standard", "Solar Gold", "Cyber Cyan", "Crimson Red", "Plasma Purple", "Emerald Green"};
-                    static constexpr const char* kKo[6] = {"기본 예광탄", "솔라 골드", "사이버 시안", "크림슨 레드", "플라즈마 퍼플", "에메랄드 그린"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[5] Bullet Tracer Beam Color");
-                    std::snprintf(titleKo, sizeof(titleKo), "[5] 사격 예광탄 궤적 컬러");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[gunSlot.tracerColorIdx % 6]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[gunSlot.tracerColorIdx % 6]);
-                    std::snprintf(badge, sizeof(badge), "%s", pickText("FREE", "무료"));
-                    hasSwatch = true;
-                    swatchCol = toRayColor(getCustomTracerColorRGBA(gunWid, gunSlot.tracerColorIdx));
-                    break;
-                }
-                case 5: {
-                    static constexpr const char* kEn[5] = {"Default", "Crimson Red", "Emerald Green", "Cyber Cyan", "Solar Gold"};
-                    static constexpr const char* kKo[5] = {"기본 조준경", "레드 도트·스코프", "그린 도트·스코프", "시안 도트·스코프", "골드 도트·스코프"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[6] 1st-Person Optic & Scope Tint");
-                    std::snprintf(titleKo, sizeof(titleKo), "[6] 1인칭 도트 · 저격 스코프 색상");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[gunSlot.opticColorIdx % 5]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[gunSlot.opticColorIdx % 5]);
-                    std::snprintf(badge, sizeof(badge), "%s", pickText("FREE", "무료"));
-                    hasSwatch = true;
-                    swatchCol = toRayColor(getOpticReticleColorRGBA(gunSlot.opticColorIdx, {96, 236, 255, 255}));
-                    break;
-                }
-            }
-        } else if (customTab_ == 2) {
-            std::snprintf(badge, sizeof(badge), "%s", pickText("FREE", "무료"));
-            static constexpr const char* kPaintEn[12] = {
-                "Candy Crimson", "Sapphire Blue", "Stealth Matte", "Pearl White",
-                "Solar Gold", "Emerald GT", "Ultraviolet", "Titanium Satin",
-                "Mirror Chrome", "24K Gold Chrome", "Cyber Cyan", "Vice Rose"
-            };
-            static constexpr const char* kPaintKo[12] = {
-                "캔디 크림슨", "사파이어 블루", "스텔스 매트 블랙", "펄 화이트",
-                "솔라 골드", "에메랄드 그린", "울트라바이올렛", "티타늄 새틴",
-                "미러 실버 크롬", "24K 골드 크롬", "사이버 네온 시안", "바이스 로즈"
-            };
-            const int pIdx = targetCar ? (targetCar->paintPresetIndex % 12) : 0;
-            const int stIdx = targetCar ? (targetCar->stripeStyle % 5) : 0;
-            const int rmIdx = targetCar ? (targetCar->rimStyle % 5) : 0;
-            const int spIdx = targetCar ? (targetCar->spoilerStyle % 3) : 0;
-            const int scIdx = targetCar ? (targetCar->stanceStyle % 4) : 0;
-            const int hlIdx = targetCar ? (targetCar->headlightColorIdx % 5) : 0;
-            const int nnIdx = targetCar ? (targetCar->neonPreset % 6) : 0;
-            const int smIdx = targetCar ? (targetCar->driftSmokeColorIdx % 6) : 0;
-
-            switch (i) {
-                case 0: {
-                    std::snprintf(titleEn, sizeof(titleEn), "[1] Body Paint & Chrome Wrap (12)");
-                    std::snprintf(titleKo, sizeof(titleKo), "[1] 차체 도색 · 미러 크롬 랩핑 (12종)");
-                    std::snprintf(valEn, sizeof(valEn), "%s", targetCar ? kPaintEn[pIdx] : "-");
-                    std::snprintf(valKo, sizeof(valKo), "%s", targetCar ? kPaintKo[pIdx] : "차량 없음");
-                    if (targetCar) {
-                        hasSwatch = true;
-                        swatchCol = toRayColor(targetCar->paintColor);
-                    }
-                    break;
-                }
-                case 1: {
-                    static constexpr const char* kEn[5] = {"None", "White Dual GT", "Royal Gold GT", "Cyber Cyan GT", "Stealth Carbon"};
-                    static constexpr const char* kKo[5] = {"없음", "화이트 듀얼 GT", "로얄 골드 스트라이프", "사이버 시안 스트라이프", "스텔스 카본 블랙"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[2] Racing Stripe Livery");
-                    std::snprintf(titleKo, sizeof(titleKo), "[2] 듀얼 GT 레이싱 스트라이프");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[stIdx]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[stIdx]);
-                    if (targetCar && stIdx > 0) {
-                        hasSwatch = true;
-                        swatchCol = toRayColor(getVehicleStripeColorRGBA(stIdx, targetCar->stripeColor));
-                    }
-                    break;
-                }
-                case 2: {
-                    std::snprintf(titleEn, sizeof(titleEn), "[3] Forged Alloy Rims (5 Styles)");
-                    std::snprintf(titleKo, sizeof(titleKo), "[3] 커스텀 단조 휠 컬러 (5종)");
-                    std::snprintf(valEn, sizeof(valEn), "%s", rimStyleNameEn(rmIdx));
-                    std::snprintf(valKo, sizeof(valKo), "%s", rimStyleNameKo(rmIdx));
-                    break;
-                }
-                case 3: {
-                    static constexpr const char* kEn[3] = {"Stock (No Wing)", "Carbon GT Wing (+2% Grip)", "Swan-Neck Time-Attack (+6% Grip)"};
-                    static constexpr const char* kKo[3] = {"순정 (스포일러 없음)", "카본 GT 윙 (그립 +2%)", "스완넥 타임어택 대형 윙 (그립 +6%)"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[4] Rear Aero Wing & Downforce");
-                    std::snprintf(titleKo, sizeof(titleKo), "[4] 리어 에어로 스포일러 · 대형 윙");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[spIdx]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[spIdx]);
-                    break;
-                }
-                case 4: {
-                    static constexpr const char* kEn[4] = {"Stock Height", "Street Lowered (-32mm)", "Slammed Camber (-48mm)", "Rally Lift (+95mm)"};
-                    static constexpr const char* kKo[4] = {"순정 차고", "스트리트 로우다운 (-32mm)", "슬램드 마이너스 캠버 (-48mm)", "오프로드 리프트업 (+95mm)"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[5] Suspension Stance & Camber");
-                    std::snprintf(titleKo, sizeof(titleKo), "[5] 서스펜션 차고 · 마이너스 캠버");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[scIdx]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[scIdx]);
-                    break;
-                }
-                case 5: {
-                    static constexpr const char* kEn[5] = {"Xenon White", "Cyber Cyan", "GT Yellow", "UV Purple", "Demon-Eye Red"};
-                    static constexpr const char* kKo[5] = {"제논 화이트", "사이버 시안", "GT 레이싱 옐로우", "UV 네온 퍼플", "데몬아이 레드"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[6] Headlight & Night Beam Tint");
-                    std::snprintf(titleKo, sizeof(titleKo), "[6] 헤드라이트 · 야간 빔 컬러");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[hlIdx]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[hlIdx]);
-                    hasSwatch = true;
-                    swatchCol = toRayColor(getVehicleHeadlightColorRGBA(hlIdx, true));
-                    break;
-                }
-                case 6: {
-                    std::snprintf(titleEn, sizeof(titleEn), "[7] LED Neon Underglow");
-                    std::snprintf(titleKo, sizeof(titleKo), "[7] 하부 LED 네온 언더글로우");
-                    std::snprintf(valEn, sizeof(valEn), "%s", neonPresetNameEn(nnIdx));
-                    std::snprintf(valKo, sizeof(valKo), "%s", neonPresetNameKo(nnIdx));
-                    if (nnIdx > 0) {
-                        hasSwatch = true;
-                        swatchCol = toRayColor(getNeonPresetColor(nnIdx));
-                    }
-                    break;
-                }
-                case 7: {
-                    static constexpr const char* kEn[6] = {"Classic White", "Cyber Cyan", "Crimson Red", "Royal Gold", "Violet", "Emerald"};
-                    static constexpr const char* kKo[6] = {"클래식 화이트", "사이버 시안", "크림슨 레드", "로얄 골드", "바이올렛", "에메랄드"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[8] Drift Tire Smoke Color");
-                    std::snprintf(titleKo, sizeof(titleKo), "[8] 드리프트 타이어 연기 컬러");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[smIdx]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[smIdx]);
-                    hasSwatch = true;
-                    swatchCol = toRayColor(getDriftSmokeColorRGBA(smIdx));
-                    break;
-                }
-            }
-        } else {
-            std::snprintf(badge, sizeof(badge), "%s", pickText("SET", "적용"));
-            badgeCol = themeCol;
-            switch (i) {
-                case 0: {
-                    static constexpr const char* kEn[4] = {"Dynamic Cross + Dot", "Pinpoint Dot", "Tactical Circle + Dot", "Spec-Ops Chevron"};
-                    static constexpr const char* kKo[4] = {"다이나믹 십자선 + 도트", "핀포인트 정밀 도트", "택티컬 서클 + 도트", "특수전 쉐브론 (^)"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[1] Crosshair Reticle Shape");
-                    std::snprintf(titleKo, sizeof(titleKo), "[1] 조준선 모양 스타일 (4종)");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[hc.crosshairStyle % 4]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[hc.crosshairStyle % 4]);
-                    break;
-                }
-                case 1: {
-                    static constexpr const char* kEn[6] = {"Pure White", "Neon Green", "Cyber Cyan", "Solar Gold", "Hot Magenta", "Crimson Red"};
-                    static constexpr const char* kKo[6] = {"퓨어 화이트", "네온 그린", "사이버 시안", "솔라 골드", "핫 마젠타", "크림슨 레드"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[2] Crosshair Color");
-                    std::snprintf(titleKo, sizeof(titleKo), "[2] 조준선 컬러 (6종)");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[hc.crosshairColorIdx % 6]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[hc.crosshairColorIdx % 6]);
-                    hasSwatch = true;
-                    swatchCol = toRayColor(getCrosshairColorRGBA(hc.crosshairColorIdx));
-                    break;
-                }
-                case 2: {
-                    static constexpr const char* kEn[3] = {"Compact (80%)", "Standard (100%)", "Large (130%)"};
-                    static constexpr const char* kKo[3] = {"소형 (80%)", "표준 (100%)", "대형 (130%)"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[3] Crosshair Size Scale");
-                    std::snprintf(titleKo, sizeof(titleKo), "[3] 조준선 크기 배율");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[hc.crosshairScaleIdx % 3]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[hc.crosshairScaleIdx % 3]);
-                    break;
-                }
-                case 3: {
-                    std::snprintf(titleEn, sizeof(titleEn), "[4] High-Contrast Shadow Outline");
-                    std::snprintf(titleKo, sizeof(titleKo), "[4] 조준선 명암 외곽 테두리");
-                    std::snprintf(valEn, sizeof(valEn), "%s", hc.crosshairOutline ? "Enabled" : "Disabled");
-                    std::snprintf(valKo, sizeof(valKo), "%s", hc.crosshairOutline ? "켜짐 (시인성 강화)" : "꺼짐 (미니멀)");
-                    std::snprintf(badge, sizeof(badge), "%s", hc.crosshairOutline ? "ON" : "OFF");
-                    break;
-                }
-                case 4: {
-                    std::snprintf(titleEn, sizeof(titleEn), "[5] Speedometer Unit");
-                    std::snprintf(titleKo, sizeof(titleKo), "[5] 디지털 속도계 단위");
-                    std::snprintf(valEn, sizeof(valEn), "%s", hc.useMph ? "MPH (Miles / Hour)" : "KM/H (Kilometers / Hour)");
-                    std::snprintf(valKo, sizeof(valKo), "%s", hc.useMph ? "MPH (마일 단위)" : "KM/H (킬로미터 단위)");
-                    std::snprintf(badge, sizeof(badge), "%s", hc.useMph ? "MPH" : "KM/H");
-                    break;
-                }
-                case 5: {
-                    static constexpr const char* kEn[4] = {"Cyber Cyan", "Vice Neon Pink", "VIP Royal Gold", "Emerald Matrix"};
-                    static constexpr const char* kKo[4] = {"사이버 시안", "바이스 네온 핑크", "VIP 로얄 골드", "에메랄드 그린"};
-                    std::snprintf(titleEn, sizeof(titleEn), "[6] HUD Interface Accent Theme");
-                    std::snprintf(titleKo, sizeof(titleKo), "[6] 인터페이스 HUD 테마 컬러");
-                    std::snprintf(valEn, sizeof(valEn), "%s", kEn[hc.hudThemeIdx % 4]);
-                    std::snprintf(valKo, sizeof(valKo), "%s", kKo[hc.hudThemeIdx % 4]);
-                    hasSwatch = true;
-                    swatchCol = themeCol;
-                    break;
-                }
-            }
-        }
-
-        const float tOffY = (rowCount == 8) ? 3.5f : 6.0f;
-        const float vOffY = (rowCount == 8) ? 20.5f : 25.0f;
-        const float fTitle = (rowCount == 8) ? 14.5f : 15.2f;
-        const float fVal = (rowCount == 8) ? 12.8f : 13.6f;
-
-        drawUiText(pickText(titleEn, titleKo), px + 26.0f, ry + tOffY, fTitle, Color{242, 246, 252, 255});
-        drawUiText(pickText(valEn, valKo), px + 28.0f, ry + vOffY, fVal, Color{166, 206, 238, 244});
-
-        const float bw = measureUiText(badge, 14.0f);
-        const float bx = px + pw - 26.0f - bw;
-        drawUiText(badge, bx, ry + (rowH - 15.0f) * 0.5f, 14.0f, badgeCol);
-
-        if (hasSwatch) {
-            const Vector2 sc{bx - 16.0f, ry + rowH * 0.5f};
-            DrawCircleV(sc, 7.2f, Color{8, 12, 18, 245});
-            DrawCircleV(sc, 5.6f, swatchCol);
-        }
-    }
-
-    const char* footTxt =
-        mobileUi_
-            ? pickText("Tap tabs & items  |  Drag right side to orbit 3D",
-                       "탭 · 항목 터치로 즉시 적용  |  우측 화면 드래그 회전")
-            : ((rowCount == 8)
-                   ? pickText("Keys [1-8] Customize  |  [V] 1st/3rd View  |  Mouse Orbit",
-                              "숫자 [1~8] 즉시 적용  |  [V] 1·3인칭 전환  |  마우스 회전")
-                   : pickText("Keys [1-6] Customize  |  [V] 1st/3rd View  |  Mouse Orbit",
-                              "숫자 [1~6] 즉시 적용  |  [V] 1·3인칭 전환  |  마우스 회전"));
-    drawUiText(footTxt, px + 18.0f, py + ph - 23.0f, 14.0f, Color{190, 204, 222, 245});
-}
-
-void HudRenderer::drawBannerToast(const GameWorld& world, int screenW, int screenH) {
-    const float midX = static_cast<float>(screenW) * 0.5f;
-
-    // Cinematic WASTED / BUSTED letterbox bar when incapacitated or arrested
-    if (world.player().wasted) {
-        const bool busted = world.player().lastDeathWasBusted;
-        const bool redPulse = (std::fmod(GetTime() * 4.0, 1.0) < 0.5);
-        const Color overlayCol = busted
-                                     ? (redPulse ? Color{18, 36, 78, 128} : Color{68, 18, 34, 128})
-                                     : Color{56, 10, 14, 132};
-        DrawRectangle(0, 0, screenW, screenH, overlayCol);
-        DrawRectangle(0, static_cast<int>(screenH * 0.12f), screenW, 92, Color{8, 12, 18, 210});
-    }
-
-    if (gfxToastTimer_ > 0.0f) {
-        const float ga = clampf(gfxToastTimer_ * 2.0f, 0.0f, 1.0f);
-        const char* gtxt = pickText(gfxToastEn_.c_str(), gfxToastKo_.c_str());
-        const float gw = measureUiText(gtxt, 19.0f);
-        const float gy = (mobileUi_ && world.playerVehicle() != nullptr)
-                             ? (static_cast<float>(screenH) - 178.0f)
-                             : (static_cast<float>(screenH) - 112.0f);
-        DrawRectangleRounded({midX - gw * 0.5f - 16.0f, gy - 6.0f, gw + 32.0f, 32.0f},
-                             0.35f, 6, Color{10, 16, 26, static_cast<unsigned char>(215.0f * ga)});
-        DrawRectangleRoundedLinesEx({midX - gw * 0.5f - 16.0f, gy - 6.0f, gw + 32.0f, 32.0f},
-                                    0.35f, 6, 1.4f, Color{86, 212, 255, static_cast<unsigned char>(220.0f * ga)});
-        drawUiText(gtxt, midX - gw * 0.5f, gy, 19.0f, Color{128, 228, 255, static_cast<unsigned char>(255.0f * ga)});
-    }
-
-    const auto& b = world.banner();
-    if (b.timer <= 0.0f) return;
-
-    const float alpha = clampf(b.timer * 1.8f, 0.0f, 1.0f);
-    const unsigned char aByte = static_cast<unsigned char>(alpha * 255.0f);
-    const float y = static_cast<float>(screenH) * 0.145f;
-
-    const char* title = pickText(b.titleEn.c_str(), b.titleKo.c_str());
-    const float tw = measureUiText(title, 33.0f);
-    drawUiText(title, midX - tw * 0.5f, y, 33.0f,
-               Color{b.accent.r, b.accent.g, b.accent.b, aByte});
-
-    const char* sub = pickText(b.subEn.c_str(), b.subKo.c_str());
-    if (sub && sub[0] != '\0') {
-        const float sw = measureUiText(sub, 20.0f);
-        drawUiText(sub, midX - sw * 0.5f, y + 39.0f, 20.0f, Color{240, 244, 250, aByte});
+    const float top = box.y + 92.0f;
+    const float rowH = (box.y + box.h - 20.0f - top) / 6.0f;
+    for (int i = 0; i < 6; ++i) {
+        if (opts[customTab_][i][0] == '\0') continue;
+        ui.drawRoundedRect(box.x + 16.0f, top + static_cast<float>(i) * rowH, box.w - 32.0f, rowH - 6.0f, 7.0f, {22, 32, 48, 225});
+        ui.drawText(opts[customTab_][i], box.x + 28.0f, top + static_cast<float>(i) * rowH + 10.0f, 15.0f, {236, 244, 255, 255});
     }
 }
 
-void HudRenderer::drawHelpOverlay(const GameWorld& world, int screenW, int screenH, bool cursorLocked) {
+void HudRenderer::drawBannerToast(Vulkan2D& ui, const GameWorld& world, int screenW, int /*screenH*/) {
+    const float cx = static_cast<float>(screenW) * 0.5f;
+    if (world.banner().timer > 0.01f) {
+        const std::string t = pickText(world.banner().titleEn.c_str(), world.banner().titleKo.c_str());
+        const std::string s = pickText(world.banner().subEn.c_str(), world.banner().subKo.c_str());
+        const float bw = std::max(ui.measureTextWidth(t, 20.0f), ui.measureTextWidth(s, 14.0f)) + 44.0f;
+        ui.drawRoundedRect(cx - bw * 0.5f, 64.0f, bw, 58.0f, 10.0f, {10, 16, 26, 222});
+        ui.drawRoundedRectOutline(cx - bw * 0.5f, 64.0f, bw, 58.0f, 10.0f, 1.5f, world.banner().accent);
+        ui.drawTextCentered(t, cx, 71.0f, 20.0f, world.banner().accent);
+        ui.drawTextCentered(s, cx, 98.0f, 14.0f, {236, 242, 252, 255});
+    }
+    if (gfxToastTimer_ > 0.01f) {
+        const std::string msg = pickText(gfxToastEn_.c_str(), gfxToastKo_.c_str());
+        const float tw = ui.measureTextWidth(msg, 14.5f) + 28.0f;
+        ui.drawRoundedRect(cx - tw * 0.5f, 130.0f, tw, 30.0f, 8.0f, {12, 20, 32, 218});
+        ui.drawTextCentered(msg, cx, 136.0f, 14.5f, {118, 228, 255, 255});
+    }
+}
+
+void HudRenderer::drawHelpOverlay(Vulkan2D& ui, const GameWorld& world, int screenW, int /*screenH*/, bool /*cursorLocked*/) {
+    if (!showHelp_ || mobileUi_ || isAnyModalOpen()) return;
+    const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
+    const float w = 310.0f, h = 156.0f;
+    ui.drawRoundedRect(18.0f, 16.0f, w, h, 10.0f, {10, 14, 22, 198});
+    ui.drawRoundedRectOutline(18.0f, 16.0f, w, h, 10.0f, 1.2f, accent);
+    ui.drawText(pickText("OPEN CITY SEOUL v2.0 (VULKAN)", "오픈 시티 서울 v2.0 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
+    const char* lines[6] = {
+        "WASD: 이동/운전 | Space: 점프/핸드브레이크",
+        "Shift: 달리기/니트로 | F/E: 차량 탑승/상점",
+        "M 또는 미니맵 클릭: 서울 전체 지도 & 빠른이동",
+        "V: 1인칭/3인칭 | P: 스마트폰 | K: 커스텀",
+        "Y: 날씨 변경 | T: 시간 이동 | U: Vulkan 품질",
+        "H: 도움말 숨기기 | Tab: 마우스 잠금 해제"
+    };
+    for (int i = 0; i < 6; ++i) {
+        ui.drawText(lines[i], 28.0f, 48.0f + static_cast<float>(i) * 18.5f, 12.5f, {214, 226, 242, 235});
+    }
     (void)screenW;
-    (void)screenH;
-    const ColorRGBA themeRgba = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
-    if (!showHelp_) {
-        drawUiText(pickText("[H] Controls  |  [K] Custom Studio  |  [U] Wet Road",
-                            "[H] 조작키 도움말  |  [K] 커스텀 스튜디오  |  [U] 우천·노면반사"),
-                   20.0f, 18.0f, 17.0f, Color{200, 214, 232, 215});
+}
+
+void HudRenderer::renderHud(Vulkan2D& ui, VulkanContext& vk, const GameWorld& world,
+                            int screenW, int screenH, float cameraYaw,
+                            bool cursorLocked, bool firstPerson, float adsBlend) {
+    if (fullMapOpen_) {
+        drawFullScreenSeoulMap(ui, vk, world, screenW, screenH);
         return;
     }
 
-    DrawRectangleRounded({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, Color{10, 13, 18, 202});
-    DrawRectangleRoundedLinesEx({18.0f, 16.0f, 468.0f, 290.0f}, 0.08f, 6, 1.1f, toRayColor(themeRgba, 118));
-    drawUiText(pickText("OPEN CITY C++ + RUST v1.3.0 - CONTROLS", "OPEN CITY C++ + RUST v1.3.0 - 조작 안내"),
-               30.0f, 24.0f, 18.5f, toRayColor(themeRgba, 255));
+    drawRadarMinimap(ui, vk, world, screenW, screenH, cameraYaw);
+    drawTopRightStatus(ui, world, screenW, firstPerson);
+    drawSpeedometerAndDrift(ui, world, screenW, screenH);
+    if (showCrosshair_) drawCrosshair(ui, world, screenW, screenH, firstPerson, adsBlend);
+    drawContextPromptsAndMission(ui, world, screenW, screenH);
+    drawBannerToast(ui, world, screenW, screenH);
+    drawHelpOverlay(ui, world, screenW, screenH, cursorLocked);
 
-    const char* linesEn[11] = {
-        "WASD : Walk / Drive & Steer (16 Cars · 6-Speed · Golden Bay Bridge)",
-        "Mouse : 1:1 Aim (RMB Precision / Scope) & Shoot (LMB)",
-        "V (or MMB) : Toggle 1st-Person / 3rd-Person View",
-        "K : Custom Studio (Character / Gunsmith / Car / HUD)",
-        "P : Smartphone (10 Cars / Realty / Style / Supply)",
-        "B : Enter Shop (11 Weapons / Tune / Luxury Autos)",
-        "F or E : Enter / Carjack / Exit / Start Mission",
-        "Space : Jump (On-Foot) / Drift (Car) | Shift : Sprint",
-        "1-0,- / Z·X / Wheel : 11 Weapons   |   R : Reload",
-        "[ / ] : Mouse Sensitivity   |   I : Invert Y",
-        "U : Rain/Wet Road | G : Siren | T : Time | F3 : GFX"
-    };
-    const char* linesKo[11] = {
-        "WASD : 이동 / 16종 차량 6단변속 · 골든 베이 현수교 주행",
-        "마우스 : 1:1 정밀조준 · 저격스코프(우클릭) · 사격(좌클릭)",
-        "V (또는 휠클릭) : 1인칭(FPS·운전석) / 3인칭 시점 전환",
-        "K : 커스텀 스튜디오 (캐릭터 · 총기 · 차량 · 조준선·HUD)",
-        "P : 스마트폰 (10종 차량호출 · 부동산 · 중화기보급)",
-        "B : 매장 이용 (11종 무기점 · 풀튜닝 공방 · 슈퍼카 전시장)",
-        "F / E : 차량 탑승·탈취·하차 / 미션 시작",
-        "Space : 점프(도보) · 드리프트(차량) | Shift : 질주·니트로",
-        "1~0,- · Z/X · 휠 : 11종 무기교체  |  R : 재장전",
-        "[ / ] : 마우스 감도 조절  |  I : 마우스 상하 반전",
-        "U : 우천·노면반사 | G : 사이렌 | T : 시간 | F3 : 그래픽"
-    };
+    if (shopMenuOpen_) drawShopModal(ui, world, screenW, screenH);
+    else if (phoneOpen_) drawSmartphoneModal(ui, world, screenW, screenH);
+    else if (customStudioOpen_) drawCustomStudioModal(ui, world, screenW, screenH);
 
-
-    for (int i = 0; i < 11; ++i) {
-        const Color lineCol = (i == 3) ? toRayColor(themeRgba, 255) : Color{226, 232, 242, 242};
-        drawUiText(pickText(linesEn[i], linesKo[i]),
-                   30.0f, 50.0f + static_cast<float>(i) * 21.6f, 15.0f, lineCol);
-    }
-
-    if (!cursorLocked) {
-        drawUiText(pickText("Click window or press [Tab] to lock mouse camera",
-                            "화면을 클릭하거나 [Tab]을 누르면 마우스 시점이 활성화됩니다"),
-                   30.0f, 312.0f, 16.5f, Color{255, 214, 88, 255});
+    // Wasted / Busted Screen Overlay
+    if (world.player().wasted) {
+        ui.drawRect(0, 0, static_cast<float>(screenW), static_cast<float>(screenH), {24, 6, 10, 145});
+        const char* bigTxt = world.player().lastDeathWasBusted
+            ? pickText("BUSTED — SEOUL POLICE", "체포됨 — 서울 경찰")
+            : pickText("WASTED — RECOVERING AT HOSPITAL", "기절함 — 병원 이송 중");
+        ui.drawTextCentered(bigTxt, static_cast<float>(screenW) * 0.5f,
+                            static_cast<float>(screenH) * 0.44f, 34.0f, {255, 84, 88, 255});
     }
 }
 
