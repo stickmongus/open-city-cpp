@@ -150,7 +150,7 @@ if(OPEN_CITY_BUILD_APP)
             COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-sign-compare"
         )
         add_library(open_city SHARED ${OPEN_CITY_APP_SOURCES} "${ANDROID_GLUE_SRC}")
-        target_include_directories(open_city PRIVATE
+        target_include_directories(open_city SYSTEM PRIVATE
             "${vulkan_headers_SOURCE_DIR}/include"
             "${volk_headers_SOURCE_DIR}"
             "${miniaudio_headers_SOURCE_DIR}"
@@ -159,11 +159,14 @@ if(OPEN_CITY_BUILD_APP)
         )
         target_compile_definitions(open_city PRIVATE VK_NO_PROTOTYPES VK_USE_PLATFORM_ANDROID_KHR)
         target_link_libraries(open_city PRIVATE open_city_core log android dl OpenSLES)
-        target_link_options(open_city PRIVATE "-u" "ANativeActivity_onCreate" "-Wl,-z,max-page-size=16384")
+        target_link_options(open_city PRIVATE "-u" "ANativeActivity_onCreate")
+        if(ANDROID_ABI STREQUAL "arm64-v8a" OR ANDROID_ABI STREQUAL "x86_64")
+            target_link_options(open_city PRIVATE "-Wl,-z,max-page-size=16384")
+        endif()
         target_compile_options(open_city PRIVATE -Wall -Wextra -Wpedantic)
     else()
         add_executable(open_city ${OPEN_CITY_APP_SOURCES})
-        target_include_directories(open_city PRIVATE
+        target_include_directories(open_city SYSTEM PRIVATE
             "${vulkan_headers_SOURCE_DIR}/include"
             "${volk_headers_SOURCE_DIR}"
             "${miniaudio_headers_SOURCE_DIR}"

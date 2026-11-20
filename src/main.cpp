@@ -44,6 +44,7 @@ struct CliOptions {
     bool fleetLineup = false;
 };
 
+#if !defined(__ANDROID__)
 CliOptions parseArgs(int argc, char** argv) {
     CliOptions o{};
     for (int i = 1; i < argc; ++i) {
@@ -75,6 +76,7 @@ CliOptions parseArgs(int argc, char** argv) {
     }
     return o;
 }
+#endif
 
 int runApplication(PlatformApp& app, const CliOptions& cli) {
     // Wait until surface/window is ready (especially important on Android lifecycle!)

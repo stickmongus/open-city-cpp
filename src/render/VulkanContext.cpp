@@ -1201,9 +1201,11 @@ bool VulkanContext::init(const PlatformApp& app) {
 
     VkFormatProperties hdrProps{};
     vkGetPhysicalDeviceFormatProperties(impl_->physicalDevice, VK_FORMAT_R16G16B16A16_SFLOAT, &hdrProps);
-    if ((hdrProps.optimalTilingFeatures &
-         (VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) ==
-        (VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) {
+    const VkFormatFeatureFlags hdrReq =
+        VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
+        VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+        VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    if ((hdrProps.optimalTilingFeatures & hdrReq) == hdrReq) {
         impl_->hdrFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
         impl_->hdr16Enabled = true;
     } else {

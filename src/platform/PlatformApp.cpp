@@ -54,6 +54,73 @@ struct PlatformApp::Impl {
     bool resizedFlag = false;
     bool backKeyPending = false;
     std::array<TouchPointState, 8> liveTouches{};
+
+    static void onAndroidAppCmd(struct android_app* app, int32_t cmd) {
+        auto* self = static_cast<Impl*>(app->userData);
+        if (!self) return;
+        switch (cmd) {
+            case APP_CMD_INIT_WINDOW:
+                if (app->window != nullptr) {
+                    self->windowReady = true;
+                    self->surfaceDirty = true;
+                    self->resizedFlag = true;
+                }
+                break;
+            case APP_CMD_TERM_WINDOW:
+                self->windowReady = false;
+                self->surfaceDirty = true;
+                break;
+            case APP_CMD_WINDOW_RESIZED:
+            case APP_CMD_CONFIG_CHANGED:
+                self->resizedFlag = true;
+                break;
+            default:
+                break;
+        }
+    }
+
+    static int32_t onAndroidInputEvent(struct android_app* app, AInputEvent* event) {
+        auto* self = static_cast<Impl*>(app->userData);
+        if (!self || !event) return 0;
+
+        const int32_t type = AInputEvent_getType(event);
+        if (type == AINPUT_EVENT_TYPE_KEY) {
+            const int32_t key = AKeyEvent_getKeyCode(event);
+            const int32_t action = AKeyEvent_getAction(event);
+            if (key == AKEYCODE_BACK && action == AKEY_EVENT_ACTION_DOWN) {
+                self->backKeyPending = true;
+                return 1;
+            }
+            return 0;
+        }
+
+        if (type == AINPUT_EVENT_TYPE_MOTION) {
+            const int32_t actionFull = AMotionEvent_getAction(event);
+            const int32_t action = actionFull & AMOTION_EVENT_ACTION_MASK;
+            const int32_t actionIdx = (actionFull & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)
+                                      >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+            const size_t ptrCount = AMotionEvent_getPointerCount(event);
+
+            for (auto& t : self->liveTouches) t.active = false;
+            int outSlot = 0;
+            for (size_t i = 0; i < ptrCount && outSlot < 8; ++i) {
+                if ((action == AMOTION_EVENT_ACTION_UP ||
+                     action == AMOTION_EVENT_ACTION_POINTER_UP ||
+                     action == AMOTION_EVENT_ACTION_CANCEL) &&
+                    static_cast<int32_t>(i) == actionIdx) {
+                    continue;
+                }
+                if (action == AMOTION_EVENT_ACTION_CANCEL) continue;
+                self->liveTouches[static_cast<std::size_t>(outSlot)].id = AMotionEvent_getPointerId(event, i);
+                self->liveTouches[static_cast<std::size_t>(outSlot)].x = AMotionEvent_getX(event, i);
+                self->liveTouches[static_cast<std::size_t>(outSlot)].y = AMotionEvent_getY(event, i);
+                self->liveTouches[static_cast<std::size_t>(outSlot)].active = true;
+                ++outSlot;
+            }
+            return 1;
+        }
+        return 0;
+    }
 #else
     GLFWwindow* window = nullptr;
     float scrollAccumY = 0.0f;
@@ -97,81 +164,15 @@ bool PlatformApp::consumeResize() {
 
 #if defined(__ANDROID__)
 
-namespace {
-void onAndroidAppCmd(struct android_app* app, int32_t cmd) {
-    auto* self = static_cast<PlatformApp::Impl*>(app->userData);
-    if (!self) return;
-    switch (cmd) {
-        case APP_CMD_INIT_WINDOW:
-            if (app->window != nullptr) {
-                self->windowReady = true;
-                self->surfaceDirty = true;
-                self->resizedFlag = true;
-            }
-            break;
-        case APP_CMD_TERM_WINDOW:
-            self->windowReady = false;
-            self->surfaceDirty = true;
-            break;
-        case APP_CMD_WINDOW_RESIZED:
-        case APP_CMD_CONFIG_CHANGED:
-            self->resizedFlag = true;
-            break;
-        default:
-            break;
-    }
-}
-
-int32_t onAndroidInputEvent(struct android_app* app, AInputEvent* event) {
-    auto* self = static_cast<PlatformApp::Impl*>(app->userData);
-    if (!self || !event) return 0;
-
-    const int32_t type = AInputEvent_getType(event);
-    if (type == AINPUT_EVENT_TYPE_KEY) {
-        const int32_t key = AKeyEvent_getKeyCode(event);
-        const int32_t action = AKeyEvent_getAction(event);
-        if (key == AKEYCODE_BACK && action == AKEY_EVENT_ACTION_DOWN) {
-            self->backKeyPending = true;
-            return 1;
-        }
-        return 0;
-    }
-
-    if (type == AINPUT_EVENT_TYPE_MOTION) {
-        const int32_t actionFull = AMotionEvent_getAction(event);
-        const int32_t action = actionFull & AMOTION_EVENT_ACTION_MASK;
-        const int32_t actionIdx = (actionFull & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)
-                                  >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
-        const size_t ptrCount = AMotionEvent_getPointerCount(event);
-
-        for (auto& t : self->liveTouches) t.active = false;
-        int outSlot = 0;
-        for (size_t i = 0; i < ptrCount && outSlot < 8; ++i) {
-            if ((action == AMOTION_EVENT_ACTION_UP ||
-                 action == AMOTION_EVENT_ACTION_POINTER_UP ||
-                 action == AMOTION_EVENT_ACTION_CANCEL) &&
-                static_cast<int32_t>(i) == actionIdx) {
-                continue;
-            }
-            if (action == AMOTION_EVENT_ACTION_CANCEL) continue;
-            self->liveTouches[static_cast<std::size_t>(outSlot)].id = AMotionEvent_getPointerId(event, i);
-            self->liveTouches[static_cast<std::size_t>(outSlot)].x = AMotionEvent_getX(event, i);
-            self->liveTouches[static_cast<std::size_t>(outSlot)].y = AMotionEvent_getY(event, i);
-            self->liveTouches[static_cast<std::size_t>(outSlot)].active = true;
-            ++outSlot;
-        }
-        return 1;
-    }
-    return 0;
-}
-} // namespace
-
 bool PlatformApp::initAndroid(struct android_app* app) {
     impl_->app = app;
     app->userData = impl_;
-    app->onAppCmd = onAndroidAppCmd;
-    app->onInputEvent = onAndroidInputEvent;
+    app->onAppCmd = &Impl::onAndroidAppCmd;
+    app->onInputEvent = &Impl::onAndroidInputEvent;
     lastTime_ = monotonicSeconds();
+    if (app->window != nullptr) {
+        impl_->windowReady = true;
+    }
 
     // Wait briefly for initial ANativeWindow before Vulkan surface creation
     while (!impl_->windowReady && app->destroyRequested == 0) {
@@ -180,12 +181,16 @@ bool PlatformApp::initAndroid(struct android_app* app) {
         while (ALooper_pollOnce(16, nullptr, &events, reinterpret_cast<void**>(&source)) >= 0) {
             if (source) source->process(app, source);
             if (app->destroyRequested != 0) return false;
+            if (impl_->windowReady) break;
         }
     }
     if (app->window) {
         screenW_ = std::max(1, static_cast<int>(ANativeWindow_getWidth(app->window)));
         screenH_ = std::max(1, static_cast<int>(ANativeWindow_getHeight(app->window)));
     }
+    // Initial Vulkan init will create the surface & swapchain directly
+    impl_->surfaceDirty = false;
+    impl_->resizedFlag = false;
     return impl_->windowReady;
 }
 
@@ -261,7 +266,7 @@ std::vector<const char*> PlatformApp::getVulkanInstanceExtensions() const {
 }
 
 bool PlatformApp::createVulkanSurface(VkInstance instance, VkSurfaceKHR* outSurface) const {
-    if (!impl_ || !impl_->app || !impl_->app->window) return false;
+    if (!impl_ || !impl_->app || !impl_->app->window || !vkCreateAndroidSurfaceKHR) return false;
     VkAndroidSurfaceCreateInfoKHR ci{};
     ci.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
     ci.window = impl_->app->window;
