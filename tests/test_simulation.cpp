@@ -2938,6 +2938,31 @@ void testV340ExpresswayVsCityRoadDistinction() {
     ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
     const oc::RealSeoulData& real = world.city().realData();
 
+    // 0. Verify Default Teheran-ro Spawn faces WITH one-way traffic (ZERO wrong-way!), stands dead-center
+    //    inside a painted lane (never straddling a white dash), and all parked starter cars face forward!
+    {
+        const oc::NearestOsmRoad sNr = real.findNearestRoad(world.player().pos, 25.0f);
+        ASSERT_TRUE(sNr.found && sNr.isOneway);
+        const oc::OsmRoadRec& sRoad = real.roads()[sNr.roadIdx];
+        const oc::RoadLaneLayout sLayout = oc::RealSeoulData::computeRoadLaneLayout(sRoad);
+        const oc::Vec2 spawnFwd = oc::forwardFromHeading(world.player().facingYaw);
+        ASSERT_TRUE(spawnFwd.dot(sNr.tangent) > 0.95f); // Strictly WITH one-way traffic!
+        const oc::Vec2 sRight{-sNr.tangent.z, sNr.tangent.x};
+        const float signedLat = (world.player().pos - sNr.closestPt).dot(sRight);
+        float minLaneCenterErr = 1e9f;
+        for (int li = 0; li < sLayout.lanesInDir; ++li) {
+            minLaneCenterErr = std::min(minLaneCenterErr, std::abs(signedLat - sLayout.laneCenterOffset(li)));
+        }
+        ASSERT_TRUE(minLaneCenterErr < 0.20f);
+        for (const auto& v : world.vehicles()) {
+            if (!v.isParked) continue;
+            const oc::NearestOsmRoad vNr = real.findNearestRoad(v.pos, 20.0f);
+            if (vNr.found && vNr.roadIdx == sNr.roadIdx) {
+                ASSERT_TRUE(oc::forwardFromHeading(v.heading).dot(sNr.tangent) > 0.90f);
+            }
+        }
+    }
+
     // 1. Verify Gyeongbu Expressway (경부고속도로, Road #18548 Banpo~Seocho stretch at (2680.9, 1225.1)) is roadClass <= 1
     //    and streams ONLY authentic Korean highway infrastructure (tall silver cobra lights variant=3 +
     //    GREEN expressway truss gantries with bit 7 set), with ZERO crosswalk traffic lights / kiosks /
@@ -2945,6 +2970,17 @@ void testV340ExpresswayVsCityRoadDistinction() {
     const oc::Vec2 gyeongbuPos{2680.9f, 1225.1f};
     const oc::NearestOsmRoad gNr = real.findNearestRoad(gyeongbuPos, 35.0f);
     ASSERT_TRUE(gNr.found && gNr.roadClass <= 1u);
+
+    // Verify exact Korean Expressway 4-lane + emergency shoulder (갓길) layout math on Gyeongbu Expressway!
+    {
+        const oc::OsmRoadRec& expR = real.roads()[gNr.roadIdx];
+        const oc::RoadLaneLayout eLay = oc::RealSeoulData::computeRoadLaneLayout(expR);
+        ASSERT_TRUE(eLay.styleByte == 176u);
+        ASSERT_TRUE(eLay.totalLanes == 4 && eLay.lanesInDir == 4);
+        ASSERT_TRUE(eLay.laneWidth > 3.45f && eLay.laneWidth < 3.75f);
+        const float outerBusRightEdge = eLay.laneCenterOffset(eLay.lanesInDir - 1) + 1.24f;
+        ASSERT_TRUE(outerBusRightEdge < eLay.driveRight - 0.15f); // Even 2.48m SeoulBus stays cleanly out of 갓길!
+    }
 
     world.fastTravelTo(gNr.closestPt, "경부고속도로");
     oc::PlayerInput idle{};
@@ -2984,17 +3020,19 @@ void testV340ExpresswayVsCityRoadDistinction() {
     }
 
     // 2. Verify Expressway Traffic AI Cruises at Korean Highway Speed (> 19.5 m/s, targeting 25 m/s = 90 km/h)
-    //    — noticeably faster than city local streets (~10 m/s)!
+    //    AND stays strictly centered in its assigned highway lane (never straddling white dashes or entering 갓길)!
     world.player().pos = gNr.closestPt + oc::Vec2{42.0f, 0.0f};
     for (auto& v : world.vehicles()) {
         v.pos = {-9000.0f, -9000.0f};
         v.velocity = {0.0f, 0.0f};
     }
     const oc::OsmRoadRec& expRoad = real.roads()[gNr.roadIdx];
+    const oc::RoadLaneLayout expLayout = oc::RealSeoulData::computeRoadLaneLayout(expRoad);
     const oc::Vec2 expDir = gNr.tangent.normalized();
+    const oc::Vec2 expRight{-expDir.z, expDir.x};
     const float expYaw = std::atan2(expDir.z, expDir.x);
     oc::Vehicle& hwCar = world.spawnCustomVehicle(
-        oc::VehicleKind::SportsCoupe, gNr.closestPt, expYaw, {225, 232, 240, 255});
+        oc::VehicleKind::SportsCoupe, gNr.closestPt + expRight * expLayout.laneCenterOffset(1), expYaw, {225, 232, 240, 255});
     hwCar.isParked = false;
     hwCar.hasNpcDriver = true;
     hwCar.osmRoadIdx = gNr.roadIdx;
@@ -3002,6 +3040,9 @@ void testV340ExpresswayVsCityRoadDistinction() {
     hwCar.osmDir = 1;
     hwCar.velocity = expDir * 12.0f;
     const int hwCarId = hwCar.id;
+    const int hwLaneIdx = hwCarId % std::max(1, expLayout.lanesInDir);
+    // Start hwCar in its assigned AI lane so we verify zero drift onto lane dashes or emergency shoulder!
+    hwCar.pos = gNr.closestPt + expRight * expLayout.laneCenterOffset(hwLaneIdx);
 
     float maxHwSpeed = 0.0f;
     for (int f = 0; f < 180; ++f) {
@@ -3011,6 +3052,15 @@ void testV340ExpresswayVsCityRoadDistinction() {
         }
     }
     ASSERT_TRUE(maxHwSpeed > 19.5f);
+    if (const oc::Vehicle* cv = world.findVehicle(hwCarId)) {
+        const oc::NearestOsmRoad cnr = real.findNearestRoad(cv->pos, 25.0f);
+        ASSERT_TRUE(cnr.found && cnr.roadClass <= 1u);
+        const oc::Vec2 cr{-cnr.tangent.z, cnr.tangent.x};
+        const float lat = (cv->pos - cnr.closestPt).dot(cr);
+        const float expectedLat = expLayout.laneCenterOffset(hwLaneIdx);
+        ASSERT_TRUE(std::abs(lat - expectedLat) < 0.55f); // Stays dead-center in its highway lane!
+        ASSERT_TRUE(lat + 1.03f < expLayout.driveRight);  // Never enters right emergency shoulder (갓길)!
+    }
 
     // 3. Contrast Check: City Boulevard Teheran-ro (테헤란로, roadClass == 2) MUST stream
     //    ROYAL-BLUE City Gantries ((variant & 0x80u) == 0u), Traffic Lights, and Pedestrian Guardrails!
@@ -3069,7 +3119,7 @@ int main() {
     testV330MobileUiScalingAndIntersectionDiscipline();
     testV340ExpresswayVsCityRoadDistinction();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.4.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.4.1 simulation test suites succeeded!\n";
     return 0;
 }
 

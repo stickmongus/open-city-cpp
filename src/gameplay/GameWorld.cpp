@@ -471,11 +471,12 @@ void GameWorld::spawnParkedShowroomCars() {
         // Park curated starter & showroom cars cleanly centered inside the outer 3.25m curb lane on Teheran-ro!
         const NearestOsmRoad nr = city_.realData().findNearestRoad(player_.pos, 60.0f);
         if (nr.found) {
+            const OsmRoadRec& rr = city_.realData().roads()[nr.roadIdx];
+            const RoadLaneLayout layout = RealSeoulData::computeRoadLaneLayout(rr);
             const float yaw = std::atan2(nr.tangent.z, nr.tangent.x);
             const Vec2 fwd = nr.tangent;
             const Vec2 rightN{-fwd.z, fwd.x};
-            const float hw = std::max(2.6f, nr.halfWidth);
-            const float curbLat = std::max(1.8f, hw - 1.90f);
+            const float rightCurbLaneOff = layout.laneCenterOffset(std::max(0, layout.lanesInDir - 1));
             struct CurbSlot { VehicleKind kind; float along; float side; ColorRGBA paint; int rims; bool police; };
             const CurbSlot kSlots[] = {
                 {VehicleKind::SportsCoupe,      12.0f,  1.0f, {168,  24,  34, 255}, 1, false},
@@ -484,16 +485,19 @@ void GameWorld::spawnParkedShowroomCars() {
                 {VehicleKind::Taxi,            -14.0f,  1.0f, {232, 114,  34, 255}, 0, false},
                 {VehicleKind::JdmTuner,        -26.0f,  1.0f, { 32,  76, 158, 255}, 1, false},
                 {VehicleKind::PoliceCruiser,    46.0f,  1.0f, {240, 244, 248, 255}, 2, true},
-                {VehicleKind::ClassicRoadster,  18.0f, -1.0f, {154,  28,  36, 255}, 0, false},
-                {VehicleKind::SUV,              30.0f, -1.0f, { 54,  62,  72, 255}, 1, false},
-                {VehicleKind::Ambulance,       -20.0f, -1.0f, {242, 244, 248, 255}, 0, false},
-                {VehicleKind::PoliceCruiser,   -36.0f, -1.0f, {240, 244, 248, 255}, 2, true}
+                {VehicleKind::ClassicRoadster,  58.0f, -1.0f, {154,  28,  36, 255}, 0, false},
+                {VehicleKind::SUV,             -38.0f, -1.0f, { 54,  62,  72, 255}, 1, false},
+                {VehicleKind::Ambulance,        70.0f, -1.0f, {242, 244, 248, 255}, 0, false},
+                {VehicleKind::PoliceCruiser,   -50.0f, -1.0f, {240, 244, 248, 255}, 2, true}
             };
             for (const auto& sl : kSlots) {
-                Vec2 p = nr.closestPt + fwd * sl.along + rightN * (sl.side * curbLat);
+                const bool useOppSide = (!nr.isOneway && sl.side < 0.0f);
+                const float latOff = useOppSide ? (-rightCurbLaneOff) : rightCurbLaneOff;
+                const float carYaw = useOppSide ? wrapAngle(yaw + kPi) : yaw;
+                Vec2 p = nr.closestPt + fwd * sl.along + rightN * latOff;
                 Vec2 test = p;
                 if (!city_.realData().isInWater(p) && !city_.realData().resolveCircleBuildings(test, 1.55f)) {
-                    addParked(sl.kind, p, (sl.side > 0.0f) ? yaw : wrapAngle(yaw + kPi), sl.paint, 0, sl.rims);
+                    addParked(sl.kind, p, carYaw, sl.paint, 0, sl.rims);
                     if (sl.police) {
                         vehicles_.back().isPolice = true;
                         vehicles_.back().stripeColor = {24, 54, 126, 255};
@@ -712,8 +716,10 @@ bool GameWorld::fastTravelTo(const Vec2& targetPos, const std::string& labelKo) 
         if (blocked) {
             const NearestOsmRoad nr = city_.realData().findNearestRoad(dest, 240.0f);
             if (nr.found) {
+                const OsmRoadRec& rr = city_.realData().roads()[nr.roadIdx];
+                const RoadLaneLayout layout = RealSeoulData::computeRoadLaneLayout(rr);
                 const Vec2 rightN{-nr.tangent.z, nr.tangent.x};
-                dest = nr.closestPt + rightN * clampf(nr.halfWidth * 0.45f, 1.4f, 3.8f);
+                dest = nr.closestPt + rightN * layout.laneCenterOffset(layout.lanesInDir / 2);
             }
         }
     } else {
@@ -1128,20 +1134,9 @@ void GameWorld::maintainTrafficPopulation() {
             const Vec2 tang = (osmD > 0 ? e : (e * -1.0f)).normalized();
             const Vec2 rightN{-tang.z, tang.x};
             heading = std::atan2(tang.z, tang.x);
-            const float hw = std::max(2.6f, r.halfWidth);
-            const float usableH = std::max(1.8f, hw - 0.34f);
-            float laneOff = 0.0f;
-            if (isOneway) {
-                const int nLanes = std::clamp(static_cast<int>(std::lround((hw * 2.0f - 0.68f) / 3.25f)), 1, 8);
-                const float laneW = (2.0f * usableH) / static_cast<float>(nLanes);
-                const int laneIdx = rng_.rangeInt(0, nLanes - 1);
-                laneOff = -usableH + (static_cast<float>(laneIdx) + 0.5f) * laneW;
-            } else {
-                const int nDir = std::clamp(static_cast<int>(std::lround((hw - 0.56f) / 3.25f)), 1, 4);
-                const float laneW = (usableH - 0.22f) / static_cast<float>(nDir);
-                const int laneIdx = rng_.rangeInt(0, nDir - 1);
-                laneOff = 0.22f + (static_cast<float>(laneIdx) + 0.5f) * laneW;
-            }
+            const RoadLaneLayout layout = RealSeoulData::computeRoadLaneLayout(r);
+            const int laneIdx = (layout.lanesInDir > 1) ? rng_.rangeInt(0, layout.lanesInDir - 1) : 0;
+            const float laneOff = layout.laneCenterOffset(laneIdx);
             spawnPos = a + e * rng_.range(0.15f, 0.85f) + rightN * laneOff;
             osmVi = (osmD > 0) ? (seg + 1) : seg;
             if (city_.realData().isInWater(spawnPos) && (r.flags & 2u) == 0u) continue;
@@ -4332,21 +4327,11 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
             const Vec2 seg = b - a;
             const Vec2 tang = (seg.lengthSq() > 0.01f) ? seg.normalized() : forwardFromHeading(v.heading);
             const Vec2 rightN{-tang.z, tang.x};
-            const float hw = std::max(2.6f, r.halfWidth);
-            const float usableH = std::max(1.8f, hw - 0.34f);
-            float laneOff = 0.0f;
-            if ((r.flags & 1u) != 0u) {
-                const int nLanes = std::clamp(static_cast<int>(std::lround((hw * 2.0f - 0.68f) / 3.25f)), 1, 8);
-                const float laneW = (2.0f * usableH) / static_cast<float>(nLanes);
-                // Buses naturally prefer the outer right Seoul Bus-Only lane!
-                const int laneIdx = (v.kind == VehicleKind::SeoulBus) ? (nLanes - 1) : (v.id % nLanes);
-                laneOff = -usableH + (static_cast<float>(laneIdx) + 0.5f) * laneW;
-            } else {
-                const int nDir = std::clamp(static_cast<int>(std::lround((hw - 0.56f) / 3.25f)), 1, 4);
-                const float laneW = (usableH - 0.22f) / static_cast<float>(nDir);
-                const int laneIdx = (v.kind == VehicleKind::SeoulBus) ? (nDir - 1) : (v.id % nDir);
-                laneOff = 0.22f + (static_cast<float>(laneIdx) + 0.5f) * laneW;
-            }
+            const RoadLaneLayout layout = RealSeoulData::computeRoadLaneLayout(r);
+            const int nLanes = std::max(1, layout.lanesInDir);
+            // Buses naturally prefer the outer right Seoul Bus-Only lane (still strictly inside drivable lanes, never in highway 갓길!)
+            const int laneIdx = (v.kind == VehicleKind::SeoulBus) ? (nLanes - 1) : (v.id % nLanes);
+            const float laneOff = layout.laneCenterOffset(laneIdx);
             targetPoint = b + rightN * laneOff;
 
             if ((v.pos - targetPoint).lengthSq() < 7.5f * 7.5f) {

@@ -90,6 +90,21 @@ struct NearestOsmRoad {
     Vec2 tangent{1.0f, 0.0f}; // Unit direction along road segment
 };
 
+struct RoadLaneLayout {
+    int totalLanes = 0;         // Total painted lanes across entire road width (0 = unmarked alley)
+    int lanesInDir = 1;         // Number of drivable lanes for one travel direction
+    float driveLeft = 0.0f;     // Left boundary of drivable lane strip along travel rightN (meters)
+    float driveRight = 0.0f;    // Right boundary of drivable lane strip along travel rightN (excludes right 갓길!)
+    float laneWidth = 3.25f;    // Exact width of each painted lane (meters)
+    std::uint8_t styleByte = 0; // Matches world.frag styleByte encoding identically
+
+    float laneCenterOffset(int laneIdx) const {
+        if (totalLanes <= 0 || lanesInDir <= 0) return 0.0f;
+        const int idx = std::clamp(laneIdx, 0, lanesInDir - 1);
+        return driveLeft + (static_cast<float>(idx) + 0.5f) * laneWidth;
+    }
+};
+
 class RealSeoulData {
 public:
     bool loadFromBytes(const std::uint8_t* data, std::size_t size);
@@ -119,6 +134,50 @@ public:
     // Exact nearest real OSM road & bridge / water queries
     static constexpr float roadClassLift(std::uint8_t roadClass) {
         return 0.035f + static_cast<float>(roadClass < 6u ? (6u - roadClass) : 0u) * 0.008f;
+    }
+    static RoadLaneLayout computeRoadLaneLayout(const OsmRoadRec& r) {
+        RoadLaneLayout out{};
+        const float hw = std::max(2.6f, r.halfWidth);
+        const bool isOneway = (r.flags & 1u) != 0u;
+        const bool isBridge = (r.flags & 2u) != 0u;
+        const bool isExpressway = (r.roadClass <= 1u);
+        if (isExpressway && isOneway && hw >= 3.2f) {
+            // Exact match with world.frag isHighway (styleByte == 176):
+            // Inner median shoulder (shL) + outer emergency shoulder 갓길 (shR) + 3.45m Korean highway lanes!
+            const float shR = (hw >= 7.0f) ? 1.15f : 0.55f;
+            const float shL = (hw >= 7.0f) ? 0.58f : 0.32f;
+            out.driveLeft = -hw + shL;
+            out.driveRight = hw - shR;
+            const float driveSpan = std::max(2.6f, out.driveRight - out.driveLeft);
+            out.totalLanes = std::clamp(static_cast<int>(std::lround(driveSpan / 3.45f)), 1, 6);
+            out.lanesInDir = out.totalLanes;
+            out.laneWidth = driveSpan / static_cast<float>(out.totalLanes);
+            out.styleByte = 176u;
+        } else if (r.roadClass <= 4u && hw >= 3.2f) {
+            const float usableH = std::max(1.8f, hw - 0.34f);
+            if (isOneway) {
+                out.totalLanes = std::clamp(static_cast<int>(std::lround((hw * 2.0f - 0.68f) / 3.25f)), 1, 8);
+                out.lanesInDir = out.totalLanes;
+                out.driveLeft = -usableH;
+                out.driveRight = usableH;
+                out.laneWidth = (2.0f * usableH) / static_cast<float>(out.totalLanes);
+                if (isBridge) {
+                    out.styleByte = 204u; // Bridge one-way: white edge lines, NO crosswalks
+                } else if (r.roadClass == 2u && out.totalLanes >= 4) {
+                    out.styleByte = 240u; // Major Seoul city boulevard with iconic blue bus-only lane!
+                } else {
+                    out.styleByte = 128u; // Standard city one-way multi-lane street
+                }
+            } else {
+                out.lanesInDir = std::clamp(static_cast<int>(std::lround((hw - 0.56f) / 3.25f)), 1, 4);
+                out.totalLanes = out.lanesInDir * 2;
+                out.driveLeft = 0.22f;
+                out.driveRight = usableH;
+                out.laneWidth = (usableH - 0.22f) / static_cast<float>(out.lanesInDir);
+                out.styleByte = 64u; // Two-way street with double yellow centerline
+            }
+        }
+        return out;
     }
     NearestOsmRoad findNearestRoad(const Vec2& p, float maxSearchDist = 48.0f) const;
     float roadSurfaceLiftAt(const Vec2& p) const;

@@ -1880,7 +1880,6 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             miters[i] = Vec2{-dir.z, dir.x};
         }
 
-        const bool isOneway = (r.flags & 1u) != 0u;
         float distM = 0.0f;
         float nextPierDist = 18.0f;
         for (std::uint16_t i = 0; i + 1 < r.vertCount; ++i) {
@@ -1931,32 +1930,11 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 const float uR =  hw;
                 const float v0 = 10.0f + dist0;
                 const float v1 = 10.0f + distM;
-                int totalLanes = 0;
-                std::uint8_t styleByte = 0u; // 0 = unmarked alley
-                if (isExpressway && hw >= 3.2f) {
-                    const float driveW = std::max(3.2f, hw * 2.0f - ((hw >= 7.0f) ? 1.73f : 0.87f));
-                    totalLanes = std::clamp(static_cast<int>(std::lround(driveW / 3.45f)), 1, 6);
-                    styleByte = 176u; // Authentic Korean Expressway: wide shoulders, solid white/yellow edges, 8m/12m dashes, ZERO crosswalks!
-                } else if (r.roadClass <= 4 && hw >= 3.2f) {
-                    if (isOneway) {
-                        totalLanes = std::clamp(static_cast<int>(std::lround((hw * 2.0f - 0.68f) / 3.25f)), 1, 8);
-                        if (isBridge) {
-                            styleByte = 204u; // Bridge one-way: white edge lines, NO crosswalks
-                        } else if (r.roadClass == 2 && totalLanes >= 4) {
-                            styleByte = 240u; // Major Seoul city boulevard with iconic blue bus-only lane!
-                        } else {
-                            styleByte = 128u; // Standard city one-way multi-lane street
-                        }
-                    } else {
-                        const int lanesPerDir = std::clamp(static_cast<int>(std::lround((hw - 0.56f) / 3.25f)), 1, 4);
-                        totalLanes = lanesPerDir * 2;
-                        styleByte = 64u; // Two-way Korean city street with double yellow centerline
-                    }
-                }
+                const RoadLaneLayout laneLayout = RealSeoulData::computeRoadLaneLayout(r);
                 const ColorRGBA roadMeta{
                     static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(hw * 10.0f)), 24, 255)),
-                    static_cast<std::uint8_t>(std::clamp(totalLanes * 16, 0, 255)),
-                    styleByte,
+                    static_cast<std::uint8_t>(std::clamp(laneLayout.totalLanes * 16, 0, 255)),
+                    laneLayout.styleByte,
                     255u
                 };
                 pushQuadV3(roadsV, aL, aR, bR, bL, {0, 1, 0},

@@ -903,6 +903,8 @@ void CityMap::buildRealSeoulMacroGeography() {
         for (std::uint32_t ri : candRoads) {
             const OsmRoadRec& r = roads[ri];
             if (r.roadClass > 2 || r.halfWidth < 7.5f || (r.flags & 2u) != 0u || r.vertCount < 2) continue;
+            const bool isOneway = (r.flags & 1u) != 0u;
+            const RoadLaneLayout layout = RealSeoulData::computeRoadLaneLayout(r);
             for (std::uint16_t i = 0; i + 1 < r.vertCount; ++i) {
                 const Vec2 p0 = rVerts[r.firstVert + i];
                 const Vec2 p1 = rVerts[r.firstVert + i + 1];
@@ -910,13 +912,16 @@ void CityMap::buildRealSeoulMacroGeography() {
                 const float segLen = seg.length();
                 if (segLen < 20.0f) continue;
                 const Vec2 dir = seg / segLen;
+                // On divided one-way Teheran-ro, pick the TRUE Eastbound carriageway (dir.x > 0) so the player
+                // never spawns facing oncoming traffic (and the blue Seoul bus-only lane sits properly on the RIGHT)!
+                if (isOneway && dir.x < 0.15f) continue;
+                const Vec2 lookDir = isOneway ? dir : ((dir.x >= 0.0f) ? dir : (dir * -1.0f));
                 const Vec2 mid = (p0 + p1) * 0.5f;
-                const Vec2 rightN{-dir.z, dir.x};
-                const Vec2 cand = mid + rightN * 2.2f;
+                const Vec2 rightN{-lookDir.z, lookDir.x};
+                const int spawnLane = std::max(0, (layout.lanesInDir >= 3) ? (layout.lanesInDir - 2) : (layout.lanesInDir / 2));
+                const Vec2 cand = mid + rightN * layout.laneCenterOffset(spawnLane);
                 Vec2 probe = cand;
                 if (realData_.isInWater(cand) || realData_.resolveCircleBuildings(probe, 4.5f)) continue;
-                // Prefer looking ENE down Teheran-ro toward COEX & Lotte World Tower (dir.x > 0)!
-                const Vec2 lookDir = (dir.x >= 0.0f) ? dir : (dir * -1.0f);
                 const float fwdClear = realData_.raycastBuildings2D(cand, lookDir, 55.0f);
                 const float bwdClear = realData_.raycastBuildings2D(cand, lookDir * -1.0f, 18.0f);
                 if (fwdClear >= 0.0f || bwdClear >= 0.0f) continue;
