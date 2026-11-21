@@ -302,14 +302,16 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         const float invUiScale = 1.0f / uiScale;
         const int uiW = std::max(1, static_cast<int>(std::lround(static_cast<float>(sw) * invUiScale)));
         const int uiH = std::max(1, static_cast<int>(std::lround(static_cast<float>(sh) * invUiScale)));
+        const float inputScaleX = static_cast<float>(uiW) / std::max(1.0f, static_cast<float>(app.screenWidth()));
+        const float inputScaleY = static_cast<float>(uiH) / std::max(1.0f, static_cast<float>(app.screenHeight()));
         PlatformInput uiPi = pi;
-        uiPi.mouseX *= invUiScale;
-        uiPi.mouseY *= invUiScale;
-        uiPi.mouseDeltaX *= invUiScale;
-        uiPi.mouseDeltaY *= invUiScale;
+        uiPi.mouseX *= inputScaleX;
+        uiPi.mouseY *= inputScaleY;
+        uiPi.mouseDeltaX *= inputScaleX;
+        uiPi.mouseDeltaY *= inputScaleY;
         for (int ti = 0; ti < uiPi.touchCount; ++ti) {
-            uiPi.touches[static_cast<std::size_t>(ti)].x *= invUiScale;
-            uiPi.touches[static_cast<std::size_t>(ti)].y *= invUiScale;
+            uiPi.touches[static_cast<std::size_t>(ti)].x *= inputScaleX;
+            uiPi.touches[static_cast<std::size_t>(ti)].y *= inputScaleY;
         }
 
         hud.updateTimers(dt);

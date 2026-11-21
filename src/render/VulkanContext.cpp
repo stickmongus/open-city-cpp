@@ -880,9 +880,24 @@ struct VulkanContext::Impl {
         }
         swapchainFormat = chosen.format;
 
+        const bool useIdentityTransform =
+            (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) != 0;
+        const VkSurfaceTransformFlagBitsKHR chosenPreTransform =
+            useIdentityTransform ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR : caps.currentTransform;
+
         if (caps.currentExtent.width != std::numeric_limits<std::uint32_t>::max() &&
             caps.currentExtent.width > 0 && caps.currentExtent.height > 0) {
             swapchainExtent = caps.currentExtent;
+#if defined(__ANDROID__)
+            // With IDENTITY preTransform, keep swapchainExtent aligned with ANativeWindow's upright
+            // landscape dimensions even if a mobile driver reports portrait panel currentExtent.
+            const bool appLandscape = (app.screenWidth() > app.screenHeight());
+            const bool extLandscape = (swapchainExtent.width > swapchainExtent.height);
+            if (useIdentityTransform && app.screenWidth() > 0 && app.screenHeight() > 0 &&
+                appLandscape != extLandscape) {
+                std::swap(swapchainExtent.width, swapchainExtent.height);
+            }
+#endif
         } else {
             swapchainExtent.width = std::clamp<std::uint32_t>(
                 static_cast<std::uint32_t>(std::max(1, app.screenWidth())),
@@ -932,7 +947,7 @@ struct VulkanContext::Impl {
         } else {
             sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         }
-        sci.preTransform = caps.currentTransform;
+        sci.preTransform = chosenPreTransform;
         sci.compositeAlpha = compAlpha;
         sci.presentMode = VK_PRESENT_MODE_FIFO_KHR;
         sci.clipped = VK_TRUE;
@@ -2224,7 +2239,14 @@ bool VulkanContext::endFrameAndPresent(const std::string* screenshotPngPath) {
 
     impl_->frameIdx = (impl_->frameIdx + 1) % kMaxFramesInFlight;
     impl_->frameActive = false;
+    if (presRes == VK_ERROR_OUT_OF_DATE_KHR) return false;
+#if defined(__ANDROID__)
+    // Android WSI returns VK_SUBOPTIMAL_KHR on every frame when IDENTITY preTransform lets HWC
+    // rotate upright landscape buffers onto portrait phone panels; genuine resizes use app.consumeResize().
+    return (presRes == VK_SUCCESS || presRes == VK_SUBOPTIMAL_KHR);
+#else
     return presRes == VK_SUCCESS;
+#endif
 }
 
 } // namespace oc

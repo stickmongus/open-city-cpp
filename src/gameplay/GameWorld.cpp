@@ -440,8 +440,13 @@ void GameWorld::reset() {
     spawnInitialWorld();
     pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL GIS v3.4 (VULKAN)" : "WELCOME TO SEOUL (VULKAN)",
                city_.hasRealSeoulMap() ? "실제 서울 OSM 지도 v3.4에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
-               "[M] Full Seoul Map  |  [K] Custom Studio  |  [U] Rain  |  [V] 1st/3rd Person",
-               "미니맵 터치/[M] 서울 전체 지도 · [K] 커스텀 · [U] 날씨 · [V] 1·3인칭",
+#if defined(__ANDROID__)
+               "Tap Minimap: Full Seoul Map  |  Top Bar: Custom · Weather · Camera",
+               "미니맵 터치: 서울 전체 지도 · 상단 버튼: 커스텀 · 날씨 · 시점 전환",
+#else
+               "[M] Full Seoul Map  |  [K] Custom Studio  |  [Y] Rain  |  [V] 1st/3rd Person",
+               "미니맵 클릭/[M] 서울 전체 지도 · [K] 커스텀 · [Y] 날씨 · [V] 1·3인칭",
+#endif
                {118, 192, 232, 255}, 5.2f);
 }
 

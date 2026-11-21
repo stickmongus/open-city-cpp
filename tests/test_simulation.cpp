@@ -3119,7 +3119,7 @@ int main() {
     testV330MobileUiScalingAndIntersectionDiscipline();
     testV340ExpresswayVsCityRoadDistinction();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.4.1 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.4.2 simulation test suites succeeded!\n";
     return 0;
 }
 

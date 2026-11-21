@@ -1,4 +1,4 @@
-# Open City Seoul — Native Vulkan (`open-city-cpp`) v3.4.1
+# Open City Seoul — Native Vulkan (`open-city-cpp`) v3.4.2
 
 실제 AAA 오픈월드처럼 **모던 C++20 + Native Vulkan 1.0+ 렌더링 엔진 (volk · SPIR-V 1.0 · 카메라 상대 고정밀 뎁스 · DPI 독립 반응형 모바일 HUD · 16-bit HDR + 4× MSAA + 2048px Soft PCF 그림자 + 2048×2048 8× 이방성 밉맵 PBR 텍스처/노멀맵 + 실시간 동적 20광원 PBR) + 실제 OpenStreetMap 서울 GIS & SRTM 30m 고도 지형 + 한국 고속도로/일반도로 완전 분리 인프라 + Rust (`#![no_std]` 네이티브 물리 커널 v2000) + Python 3 (OSM/SRTM GIS · PBR 아틀라스 · SPIR-V 셰이더 빌더)** 아키텍처로 구축된 **크로스플랫폼(Android · Windows · Linux) 실제 지도 기반 서울 3D 오픈월드 대도시 샌드박스 게임**입니다.
 
@@ -11,13 +11,13 @@
 
 ## 바로 플레이하기 (Android `.apk` / Windows `.exe` 다운로드)
 
-컴파일러 설치 없이 바로 플레이하려면 GitHub **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 페이지에서 최신 버전(**`v3.4.1`**)을 내려받으세요:
+컴파일러 설치 없이 바로 플레이하려면 GitHub **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 페이지에서 최신 버전(**`v3.4.2`**)을 내려받으세요:
 
 ### Android 스마트폰 / 태블릿 (Android 7.0+ / Native Vulkan 1.0+)
-1. **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 에서 **`OpenCity-Android-v3.4.1.apk`** 를 다운로드합니다.
+1. **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 에서 **`OpenCity-Android-v3.4.2.apk`** 를 다운로드합니다.
 2. 다운로드한 `.apk` 파일을 탭해 설치합니다 *(최초 1회 "출처를 알 수 없는 앱 설치" 허용 필요 — 기존 v3.x / v2.x / v1.x 버전 위에도 동일 서명으로 그대로 덮어쓰기 업데이트 가능!)*.
 3. **Open City** 앱 아이콘을 눌러 가로 모드 전체화면으로 바로 플레이하세요!
-   * **패키지명**: `com.stickmongus.opencity` (`v3.4.1`, `versionCode 341`)
+   * **패키지명**: `com.stickmongus.opencity` (`v3.4.2`, `versionCode 342`)
    * **그래픽 API**: Native Vulkan 1.0+ (`libopen_city.so`, OpenGL/GLES 완전 제거, arm64 16KB 페이지 정렬)
    * **서명 인증서 SHA-256 지문**: `6C:9B:7E:D9:1E:60:AA:E2:E9:B3:2F:70:D6:D9:F1:A1:EB:A4:86:05:6D:35:8E:00:C9:75:EF:28:3C:41:A9:5E`
 
@@ -27,7 +27,10 @@
 
 ---
 
-## 주요 혁신 (v3.4.1 한국 고속도로 vs 시내 일반도로 전면 구분 · 차선·주행 정렬 정밀 동기화)
+## 주요 혁신 (v3.4.2 Android 스마트폰 90° 회전 핫픽스 · 고속도로 vs 시내도로 전면 구분 · 차선 정렬)
+
+0. **Android 스마트폰 Vulkan 90° 회전·화면비 찌그러짐 핫픽스 & Android 11+ 전체화면 (`VulkanContext.cpp` · `NativeLoader.java`)**
+   * 세로 패널 기반 스마트폰(갤럭시 등)에서 가로 모드 실행 시 `VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR` + 방향 일치 Extent 가드 + Android `VK_SUBOPTIMAL_KHR` 무중단 프레젠트를 적용해 화면이 90° 돌아가거나 비율이 찌그러지는 현상을 완벽히 해결하고, Android 11+ `WindowInsetsController` 몰입형 전체화면 및 터치 1:1 매핑을 강화했습니다.
 
 1. **한국 고속도로 전용 3D 노면·방호벽·방음벽·초록 갠트리 표지판 (`world.frag` · `Renderer3D.cpp` · `CityMap.cpp`)**
    * 경부고속도로·올림픽대로·강변북로·내부순환로·동부간선도로 등 실제 OSM 고속화도로 **878개 구간(`roadClass <= 1`)**에 **어두운 저소음 SMA 아스팔트 · 넓은 갓길 · 외측 백색 실선 & 내측 황색 실선 · 8m/12m(20m 주기) 고속도로 장거리 점선 · 12m 간격 야광 표지병(Cat's-eye)** 셰이더를 적용하고 횡단보도·정지선·보도를 완전 제거했습니다.
@@ -109,13 +112,13 @@ ctest --test-dir build --output-on-failure
 
 ```text
 open-city-cpp/
-├── CMakeLists.txt                       # Native Vulkan (Vulkan-Headers + volk + GLFW 3.4 + miniaudio + stb + Rust) v3.4.1
+├── CMakeLists.txt                       # Native Vulkan (Vulkan-Headers + volk + GLFW 3.4 + miniaudio + stb + Rust) v3.4.2
 ├── assets/
 │   ├── maps/seoul_real.ocmap            # 실제 OSM 서울 25,295 도로 · 107,600 건물 · 3,581 수계 · 17,931 공원 · SRTM 30m DEM
 │   ├── maps/seoul_map_2d.png            # 2048×1312 실제 서울 카토그래피 미니맵 & 전체 지도 텍스처 (고속도로 에메랄드 그린 강조)
 │   └── textures/pbr_{albedo,normal_rough}.png # 2048×2048 16타일 밉맵·8×이방성 PBR 알베도 & 탄젠트 노멀/러프니스 아틀라스
 ├── android/
-│   ├── AndroidManifest.xml              # Vulkan 1.0+ 하드웨어 기능 · 가로 전체화면 NativeActivity (v3.4.1 / 341)
+│   ├── AndroidManifest.xml              # Vulkan 1.0+ 하드웨어 기능 · 가로 전체화면 NativeActivity (v3.4.2 / 342)
 │   └── src/com/stickmongus/opencity/
 │       └── NativeLoader.java            # 몰입형 전체화면 + 디스플레이 컷아웃 + libopen_city.so 로더
 ├── tools/
