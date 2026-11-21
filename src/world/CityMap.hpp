@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/Math.hpp"
+#include "world/RealSeoulData.hpp"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -289,7 +290,7 @@ public:
     float terrainElevationAt(const Vec2& p) const;
     float terrainSlopeAlong(const Vec2& p, const Vec2& dir) const;
     const SeoulBridge* findBridgeAt(const Vec2& p, float margin = 0.0f) const;
-    bool isOnBridge(const Vec2& p, float margin = 0.0f) const { return findBridgeAt(p, margin) != nullptr; }
+    bool isOnBridge(const Vec2& p, float margin = 0.0f) const;
     float bridgeDeckElevationAt(const Vec2& p, float* outSlopeZ = nullptr) const;
     float surfaceHeightAt(const Vec2& p) const;
 
@@ -333,13 +334,29 @@ public:
     float raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDist) const;
     float raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const;
 
-    // Default iconic Seoul spawn (Banpo-daero clear sidewalk looking North toward Korean road gantry, Banpo Bridge & Namsan!)
+    // Real-World OpenStreetMap + SRTM 30m DEM Seoul GIS Loader (v3.0.0)
+    bool loadRealSeoulMap(const std::uint8_t* bytes, std::size_t size);
+    bool loadRealSeoulMapFromFile(const std::string& path);
+    bool hasRealSeoulMap() const { return realData_.isLoaded(); }
+    const RealSeoulData& realData() const { return realData_; }
+
+    // Default iconic Seoul spawn (Analytic Banpo-daero fallback or Real OSM Gangnam/Teheran-ro boulevard!)
     static Vec2 defaultSpawnPos() { return {599.0f, 996.0f}; }
+    Vec2 spawnPos() const { return hasRealSeoulMap() ? realSpawnPos_ : defaultSpawnPos(); }
+    float spawnYaw() const { return hasRealSeoulMap() ? realSpawnYaw_ : -kHalfPi; }
+    Vec2 policeRespawnPos() const { return hasRealSeoulMap() ? realPoliceRespawnPos_ : Vec2{656.0f, 1000.8f}; }
 
 private:
     void buildSeoulMacroGeography();
+    void buildRealSeoulMacroGeography();
     void generateChunk(int chunkX, int chunkZ);
+    void streamRealSeoulProps(const Vec2& focus);
     void rebuildActiveSpatialGrid();
+
+    RealSeoulData realData_;
+    Vec2 realSpawnPos_{3764.4f, 2845.6f};
+    float realSpawnYaw_ = -0.35f;
+    Vec2 realPoliceRespawnPos_{3820.0f, 2825.0f};
 
     std::uint64_t seed_ = 20261107ULL;
     int lastCenterChunkX_ = 999999;

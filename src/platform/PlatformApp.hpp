@@ -91,6 +91,7 @@ public:
 
     // Reads bundled font/asset bytes (AAssetManager on Android, filesystem on Desktop)
     std::vector<std::uint8_t> loadAssetOrSystemFont() const;
+    std::vector<std::uint8_t> loadAssetBytes(const char* relPath) const;
 
     bool isAndroid() const {
 #if defined(__ANDROID__)

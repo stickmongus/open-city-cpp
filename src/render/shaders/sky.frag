@@ -37,10 +37,10 @@ float fbmClouds(vec2 p) {
     float v = 0.0;
     float a = 0.52;
     mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 5; ++i) {
         v += a * valueNoise(p);
-        p = rot * p * 2.05 + vec2(11.3, 5.7);
-        a *= 0.50;
+        p = rot * p * 2.03 + vec2(11.3, 5.7);
+        a *= 0.49;
     }
     return v;
 }
@@ -54,94 +54,99 @@ void main() {
     float wetWeather = ubo.groundAmbientAndWet.w;
 
     float h = clamp(dir.y, 0.0, 1.0);
-    float sunsetBand = clamp(1.0 - abs(timeHours - 18.0) * 0.55, 0.0, 1.0)
-                     + clamp(1.0 - abs(timeHours - 6.5) * 0.60, 0.0, 1.0);
+    float sunsetBand = clamp(1.0 - abs(timeHours - 18.0) * 0.52, 0.0, 1.0)
+                     + clamp(1.0 - abs(timeHours - 6.5) * 0.58, 0.0, 1.0);
     sunsetBand = clamp(sunsetBand, 0.0, 1.0);
     float night = 1.0 - clamp(dayFactor * 1.45, 0.0, 1.0);
 
-    vec3 zenithDay   = vec3(0.08, 0.28, 0.72);
-    vec3 horizDay    = vec3(0.56, 0.74, 0.92);
-    vec3 zenithSun   = vec3(0.14, 0.14, 0.36);
-    vec3 horizSun    = vec3(1.05, 0.44, 0.22);
-    vec3 zenithNight = vec3(0.008, 0.014, 0.038);
-    vec3 horizNight  = vec3(0.032, 0.052, 0.105);
+    // Rich Physical Rayleigh Sky Palette (vivid clear Seoul cobalt-azure daytime, dramatic sunset, velvet night)
+    vec3 zenithDay   = vec3(0.038, 0.20, 0.66);
+    vec3 midDay      = vec3(0.14,  0.42, 0.84);
+    vec3 horizDay    = vec3(0.48,  0.71, 0.92);
+    vec3 zenithSun   = vec3(0.09,  0.11, 0.34);
+    vec3 horizSun    = vec3(1.18,  0.44, 0.18);
+    vec3 zenithNight = vec3(0.005, 0.011, 0.032);
+    vec3 horizNight  = vec3(0.024, 0.042, 0.088);
 
-    vec3 zenithCol = mix(zenithNight, mix(zenithDay, zenithSun, sunsetBand * 0.78), dayFactor);
-    vec3 horizCol  = mix(horizNight,  mix(horizDay,  horizSun,  sunsetBand * 0.92), dayFactor);
+    vec3 dayGrad = mix(horizDay, midDay, pow(h, 0.38));
+    dayGrad = mix(dayGrad, zenithDay, pow(h, 0.92));
 
-    vec3 stormZenith = mix(vec3(0.015, 0.022, 0.036), vec3(0.16, 0.20, 0.26), dayFactor);
-    vec3 stormHoriz  = mix(vec3(0.04, 0.055, 0.085), vec3(0.38, 0.43, 0.49), dayFactor);
-    zenithCol = mix(zenithCol, stormZenith, wetWeather * 0.78);
-    horizCol  = mix(horizCol,  stormHoriz,  wetWeather * 0.78);
+    vec3 sunGrad = mix(horizSun, zenithSun, pow(h, 0.46));
+    vec3 nightGrad = mix(horizNight, zenithNight, pow(h, 0.55));
 
-    vec3 sky = mix(horizCol, zenithCol, pow(h, 0.52));
+    vec3 sky = mix(nightGrad, mix(dayGrad, sunGrad, sunsetBand * 0.88), dayFactor);
 
-    // Mie forward scattering solar/lunar halo
+    // Overcast rain-storm sky modulation
+    vec3 stormZenith = mix(vec3(0.012, 0.018, 0.030), vec3(0.15, 0.19, 0.25), dayFactor);
+    vec3 stormHoriz  = mix(vec3(0.036, 0.048, 0.072), vec3(0.36, 0.42, 0.48), dayFactor);
+    vec3 stormSky    = mix(stormHoriz, stormZenith, pow(h, 0.55));
+    sky = mix(sky, stormSky, wetWeather * 0.78);
+
+    // Atmospheric Rayleigh horizon airglow + warm Mie solar forward scattering
     float sunDot = max(dot(dir, S), 0.0);
-    vec3 mieCol = mix(vec3(0.45, 0.62, 1.0), mix(vec3(1.15, 0.96, 0.72), vec3(1.45, 0.56, 0.20), sunsetBand), dayFactor);
-    sky += mieCol * pow(sunDot, 10.0) * (0.28 + 0.55 * sunsetBand) * (1.0 - wetWeather * 0.65);
+    float horizGlow = exp(-h * 7.5);
+    vec3 mieCol = mix(vec3(0.38, 0.56, 0.96),
+                      mix(vec3(1.22, 0.96, 0.68), vec3(1.55, 0.54, 0.18), sunsetBand),
+                      dayFactor);
+    sky += mieCol * pow(sunDot, 7.0) * (0.24 + 0.52 * sunsetBand + 0.25 * horizGlow) * (1.0 - wetWeather * 0.68);
 
     if (S.y > -0.05 && wetWeather < 0.75) {
-        float sunDisc = smoothstep(0.99920, 0.99975, dot(dir, S));
-        float corona  = pow(sunDot, 180.0) * 1.15;
-        vec3 discCol  = mix(vec3(0.90, 0.94, 1.0), vec3(2.8, 2.2, 1.4), dayFactor);
-        sky += discCol * (sunDisc * 2.2 + corona) * (1.0 - wetWeather * 0.9);
+        float sunDisc = smoothstep(0.99935, 0.99982, dot(dir, S));
+        float corona  = pow(sunDot, 160.0) * 1.10;
+        vec3 discCol  = mix(vec3(0.88, 0.94, 1.0), vec3(3.0, 2.3, 1.45), dayFactor);
+        sky += discCol * (sunDisc * 2.4 + corona) * (1.0 - wetWeather * 0.92);
     }
 
-    // Subtle twinkling stars at night
-    if (night > 0.15 && dir.y > 0.05 && wetWeather < 0.7) {
-        vec2 starUv = dir.xz / (dir.y + 0.35) * 95.0;
+    // Crisp twinkling stars & subtle Seoul urban horizon skyglow at night
+    if (night > 0.15 && dir.y > 0.04 && wetWeather < 0.7) {
+        vec2 starUv = dir.xz / (dir.y + 0.35) * 105.0;
         vec2 cell = floor(starUv);
         vec2 f = fract(starUv) - 0.5;
         float rnd = hash12(cell);
-        if (rnd > 0.968) {
+        if (rnd > 0.966) {
             float d = length(f);
-            float twinkle = 0.65 + 0.35 * sin(animTime * 2.7 + rnd * 91.0);
-            float star = (1.0 - smoothstep(0.02, 0.22, d)) * twinkle * night * smoothstep(0.04, 0.28, dir.y);
-            sky += vec3(0.75, 0.86, 1.0) * star * 1.3 * (1.0 - wetWeather * 0.85);
+            float twinkle = 0.65 + 0.35 * sin(animTime * 2.6 + rnd * 91.0);
+            float star = (1.0 - smoothstep(0.02, 0.21, d)) * twinkle * night * smoothstep(0.04, 0.26, dir.y);
+            sky += vec3(0.76, 0.88, 1.0) * star * 1.35 * (1.0 - wetWeather * 0.85);
         }
+        sky += vec3(0.036, 0.046, 0.072) * horizGlow * night * 0.85;
     }
 
-    // Layered volumetric-style FBM clouds
-    if (dir.y > 0.02) {
-        vec2 cloudUv = dir.xz / (dir.y + 0.16) * 0.92 + vec2(animTime * 0.0085, animTime * 0.0042);
+    // Sculpted 2-Layer Sunlit Cumulus + High Cirrus Clouds (crisp depth, never muddy grey!)
+    if (dir.y > 0.015) {
+        vec2 cloudUv = dir.xz / (dir.y + 0.18) * 0.88 + vec2(animTime * 0.0065, animTime * 0.0032);
         float n1 = fbmClouds(cloudUv);
-        float n2 = fbmClouds(cloudUv * 2.1 + vec2(4.2, -3.1));
-        float lowThresh = mix(0.46, 0.26, wetWeather);
-        float density = smoothstep(lowThresh, mix(0.80, 0.66, wetWeather), n1 * 0.72 + n2 * 0.28);
-        float horizonFade = smoothstep(0.015, 0.20, dir.y);
-        density *= horizonFade * mix(0.84, 0.96, wetWeather);
+        float n2 = fbmClouds(cloudUv * 2.25 + vec2(4.7, -3.3));
+        float highWisps = smoothstep(0.56, 0.86, fbmClouds(cloudUv * 1.7 + vec2(-8.2, 12.1))) * 0.24 * (1.0 - wetWeather);
 
-        float detailLight = 0.50 + 0.50 * (n1 - n2) * 1.6 + pow(sunDot, 5.0) * 0.55;
-        vec3 cloudLit = mix(vec3(0.11, 0.14, 0.22),
-                            mix(vec3(1.06, 1.04, 1.00), vec3(1.32, 0.68, 0.38), sunsetBand), dayFactor);
-        vec3 cloudShade = mix(vec3(0.03, 0.04, 0.07),
-                              mix(vec3(0.46, 0.52, 0.64), vec3(0.36, 0.25, 0.34), sunsetBand), dayFactor);
+        float lowThresh = mix(0.49, 0.26, wetWeather);
+        float density = smoothstep(lowThresh, mix(0.79, 0.62, wetWeather), n1 * 0.70 + n2 * 0.30);
+        float horizonFade = smoothstep(0.015, 0.22, dir.y);
+        density = clamp((density + highWisps) * horizonFade * mix(0.86, 0.96, wetWeather), 0.0, 1.0);
+
+        // Directional self-shadowing: sample slightly toward sun direction for bright silver cloud tops!
+        vec2 sunStep = normalize(S.xz + vec2(0.001)) * 0.11;
+        float nSun = fbmClouds(cloudUv + sunStep);
+        float rimLit = clamp(0.55 + (n1 - nSun) * 2.4 + pow(sunDot, 4.0) * 0.58, 0.0, 1.0);
+
+        vec3 cloudLit = mix(vec3(0.08, 0.11, 0.19),
+                            mix(vec3(1.16, 1.13, 1.08), vec3(1.42, 0.70, 0.36), sunsetBand), dayFactor);
+        vec3 cloudShade = mix(vec3(0.025, 0.035, 0.065),
+                              mix(vec3(0.36, 0.46, 0.62), vec3(0.32, 0.22, 0.34), sunsetBand), dayFactor);
         if (wetWeather > 0.1) {
             cloudLit   = mix(cloudLit,   vec3(0.34, 0.38, 0.44), wetWeather * 0.72);
-            cloudShade = mix(cloudShade, vec3(0.15, 0.17, 0.21), wetWeather * 0.78);
+            cloudShade = mix(cloudShade, vec3(0.14, 0.16, 0.20), wetWeather * 0.78);
             cloudLit   = mix(cloudLit,   vec3(0.06, 0.08, 0.12), night);
             cloudShade = mix(cloudShade, vec3(0.02, 0.03, 0.05), night);
         }
-        vec3 cloudCol = mix(cloudShade, cloudLit, clamp(detailLight, 0.0, 1.0));
-        sky = mix(sky, cloudCol, density * (0.80 + 0.16 * wetWeather));
-    }
-
-    // Distant Seoul Bukhansan / Gwanaksan mountain ring silhouette on horizon
-    float azimuth = atan(dir.z, dir.x);
-    float mtnHeight = 0.018 + 0.024 * sin(azimuth * 2.0 + 1.1)
-                    + 0.014 * sin(azimuth * 5.0 - 0.8)
-                    + 0.007 * sin(azimuth * 13.0);
-    if (dir.y > -0.04 && dir.y < mtnHeight) {
-        float ridge = 1.0 - smoothstep(mtnHeight - 0.004, mtnHeight, dir.y);
-        vec3 mtnCol = mix(horizCol * 0.46, zenithCol * 0.52, 0.36);
-        sky = mix(sky, mtnCol, ridge * 0.76);
+        vec3 cloudCol = mix(cloudShade, cloudLit, rimLit);
+        sky = mix(sky, cloudCol, density * (0.82 + 0.14 * wetWeather));
     }
 
     if (dir.y < 0.0) {
-        sky = mix(sky, horizCol * 0.46, clamp(-dir.y * 6.0, 0.0, 1.0));
+        vec3 belowCol = mix(horizNight, horizDay, dayFactor) * 0.42;
+        sky = mix(sky, belowCol, clamp(-dir.y * 6.0, 0.0, 1.0));
     }
 
-    // Output linear HDR directly into our 16-bit HDR scene framebuffer!
     outColor = vec4(sky, 1.0);
 }

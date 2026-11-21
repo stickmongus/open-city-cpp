@@ -140,6 +140,11 @@ struct Vehicle {
     int lastTurnIntersectionKey = -1;
     float hornCooldown = 0.0f;
 
+    // Real OpenStreetMap Seoul curved road-graph tracking (v3.0.0)
+    std::uint32_t osmRoadIdx = UINT32_MAX;
+    std::uint32_t osmVertIdx = 0;
+    int osmDir = 1;
+
     // Mission / Law-Enforcement / Emergency / Driver panic tags
     bool isMissionTarget = false;
     bool isPolice = false;
@@ -508,6 +513,12 @@ struct NpcCharacter {
     float idlePauseTimer = 0.0f;
     Vec2 homeAnchor{0.0f, 0.0f};
     bool waitingAtCrosswalk = false;
+
+    // Real OpenStreetMap Seoul curved sidewalk navigation (v3.0.0)
+    std::uint32_t osmRoadIdx = UINT32_MAX;
+    std::uint32_t osmVertIdx = 0;
+    int osmDir = 1;
+    float osmSideSign = 1.0f;
 };
 
 enum class PickupKind {

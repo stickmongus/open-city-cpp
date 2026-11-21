@@ -96,12 +96,17 @@ struct VulkanContext::Impl {
     VkFramebuffer sceneFramebuffer = VK_NULL_HANDLE;
     VkSampler linearClampSampler = VK_NULL_HANDLE;
 
-    // Font atlas R8_UNORM texture for Vulkan2D
+    // Font atlas R8_UNORM texture & 2D Real Seoul Map RGBA8 texture for Vulkan2D
     AllocatedImage fontAtlasImage{};
+    AllocatedImage uiMapImage{};
     VkSampler fontSampler = VK_NULL_HANDLE;
 
-    // 3D Seoul Hangul Sign Atlas RGBA8_UNORM texture (set=0, binding=2)
+    // 3D Seoul Hangul Sign Atlas (binding=2) & 2048x2048 Mipmapped PBR Atlases (bindings 3 & 4)
     AllocatedImage signAtlasImage{};
+    AllocatedImage pbrAlbedoImage{};
+    AllocatedImage pbrNormalRoughImage{};
+    VkSampler pbrSampler = VK_NULL_HANDLE;
+    bool anisotropyEnabled = false;
 
     // Descriptors
     VkDescriptorPool descPool = VK_NULL_HANDLE;
@@ -206,12 +211,13 @@ struct VulkanContext::Impl {
     }
 
     bool createImage(std::uint32_t w, std::uint32_t h, VkFormat fmt, VkSampleCountFlagBits samples,
-                     VkImageUsageFlags usage, VkImageAspectFlags aspect, AllocatedImage& out) {
+                     VkImageUsageFlags usage, VkImageAspectFlags aspect, AllocatedImage& out,
+                     std::uint32_t mipLevels = 1) {
         VkImageCreateInfo ici{};
         ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         ici.imageType = VK_IMAGE_TYPE_2D;
         ici.extent = {w, h, 1};
-        ici.mipLevels = 1;
+        ici.mipLevels = std::max<std::uint32_t>(1u, mipLevels);
         ici.arrayLayers = 1;
         ici.format = fmt;
         ici.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -242,7 +248,7 @@ struct VulkanContext::Impl {
         vci.format = fmt;
         vci.subresourceRange.aspectMask = aspect;
         vci.subresourceRange.baseMipLevel = 0;
-        vci.subresourceRange.levelCount = 1;
+        vci.subresourceRange.levelCount = std::max<std::uint32_t>(1u, mipLevels);
         vci.subresourceRange.baseArrayLayer = 0;
         vci.subresourceRange.layerCount = 1;
         if (vkCreateImageView(device, &vci, nullptr, &out.view) != VK_SUCCESS) {
@@ -1160,6 +1166,153 @@ struct VulkanContext::Impl {
         }
         return true;
     }
+
+    bool uploadMipmappedRGBA8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h,
+                              AllocatedImage& dstImage, bool generateMips) {
+        if (!device || !pixels || w == 0 || h == 0) return false;
+        vkDeviceWaitIdle(device);
+        destroyImage(dstImage);
+
+        // Check linear blit support for automatic GPU mipmap chain generation!
+        std::uint32_t mipLevels = 1;
+        if (generateMips && w >= 4 && h >= 4) {
+            VkFormatProperties fp{};
+            vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, &fp);
+            if ((fp.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0u &&
+                (fp.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) != 0u &&
+                (fp.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0u) {
+                // Limit to 8 mips so 4x4 512px tiles never cross-bleed into adjacent tiles at coarse mips!
+                const std::uint32_t maxDim = std::max(w, h);
+                std::uint32_t lv = 1;
+                std::uint32_t d = maxDim;
+                while (d > 1 && lv < 8) { d >>= 1; ++lv; }
+                mipLevels = lv;
+            }
+        }
+
+        const VkImageUsageFlags usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                                        (mipLevels > 1 ? static_cast<VkImageUsageFlags>(VK_IMAGE_USAGE_TRANSFER_SRC_BIT) : 0u);
+        if (!createImage(w, h, VK_FORMAT_R8G8B8A8_UNORM, VK_SAMPLE_COUNT_1_BIT,
+                         usage, VK_IMAGE_ASPECT_COLOR_BIT, dstImage, mipLevels)) {
+            return false;
+        }
+
+        const VkDeviceSize byteSize = static_cast<VkDeviceSize>(w) * static_cast<VkDeviceSize>(h) * 4u;
+        AllocatedBuffer staging{};
+        if (!createBuffer(byteSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                          staging, true)) {
+            return false;
+        }
+        std::memcpy(staging.mapped, pixels, static_cast<std::size_t>(byteSize));
+
+        VkCommandBuffer cmd = beginSingleTimeCommands();
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = dstImage.image;
+        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, mipLevels, 0, 1};
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageExtent = {w, h, 1};
+        vkCmdCopyBufferToImage(cmd, staging.buffer, dstImage.image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+        std::int32_t mipW = static_cast<std::int32_t>(w);
+        std::int32_t mipH = static_cast<std::int32_t>(h);
+        barrier.subresourceRange.levelCount = 1;
+        for (std::uint32_t lv = 1; lv < mipLevels; ++lv) {
+            barrier.subresourceRange.baseMipLevel = lv - 1;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            VkImageBlit blit{};
+            blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, lv - 1, 0, 1};
+            blit.srcOffsets[0] = {0, 0, 0};
+            blit.srcOffsets[1] = {mipW, mipH, 1};
+            blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, lv, 0, 1};
+            blit.dstOffsets[0] = {0, 0, 0};
+            blit.dstOffsets[1] = {std::max(1, mipW / 2), std::max(1, mipH / 2), 1};
+            vkCmdBlitImage(cmd, dstImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           dstImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &blit, VK_FILTER_LINEAR);
+
+            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            mipW = std::max(1, mipW / 2);
+            mipH = std::max(1, mipH / 2);
+        }
+
+        barrier.subresourceRange.baseMipLevel = mipLevels - 1;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        endSingleTimeCommands(cmd);
+        destroyBuffer(staging);
+        return true;
+    }
+
+    bool uploadPbrRGBA8(const std::uint8_t* albedoPixels, std::uint32_t w, std::uint32_t h,
+                        const std::uint8_t* normalRoughPixels, std::uint32_t nw, std::uint32_t nh) {
+        if (!uploadMipmappedRGBA8(albedoPixels, w, h, pbrAlbedoImage, true)) return false;
+        if (!uploadMipmappedRGBA8(normalRoughPixels, nw, nh, pbrNormalRoughImage, true)) return false;
+
+        VkDescriptorImageInfo ii0{pbrSampler, pbrAlbedoImage.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo ii1{pbrSampler, pbrNormalRoughImage.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        for (int i = 0; i < kMaxFramesInFlight; ++i) {
+            std::array<VkWriteDescriptorSet, 2> wds{};
+            wds[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            wds[0].dstSet = sceneDescSets[i];
+            wds[0].dstBinding = 3;
+            wds[0].descriptorCount = 1;
+            wds[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            wds[0].pImageInfo = &ii0;
+
+            wds[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            wds[1].dstSet = sceneDescSets[i];
+            wds[1].dstBinding = 4;
+            wds[1].descriptorCount = 1;
+            wds[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            wds[1].pImageInfo = &ii1;
+            vkUpdateDescriptorSets(device, 2, wds.data(), 0, nullptr);
+        }
+        return true;
+    }
+
+    bool uploadUiMapRGBA8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h) {
+        if (!uploadMipmappedRGBA8(pixels, w, h, uiMapImage, true)) return false;
+        VkDescriptorImageInfo ii{pbrSampler, uiMapImage.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet wds{};
+        wds.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        wds.dstSet = uiDescSet;
+        wds.dstBinding = 1;
+        wds.descriptorCount = 1;
+        wds.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        wds.pImageInfo = &ii;
+        vkUpdateDescriptorSets(device, 1, &wds, 0, nullptr);
+        return true;
+    }
 };
 
 VulkanContext::VulkanContext() : impl_(new Impl()) {}
@@ -1321,7 +1474,13 @@ bool VulkanContext::init(const PlatformApp& app) {
     }
 
     const char* devExtNames[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    VkPhysicalDeviceFeatures availFeatures{};
+    vkGetPhysicalDeviceFeatures(impl_->physicalDevice, &availFeatures);
     VkPhysicalDeviceFeatures enabledFeatures{};
+    if (availFeatures.samplerAnisotropy) {
+        enabledFeatures.samplerAnisotropy = VK_TRUE;
+        impl_->anisotropyEnabled = true;
+    }
     VkDeviceCreateInfo dci{};
     dci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     dci.queueCreateInfoCount = static_cast<std::uint32_t>(qcis.size());
@@ -1359,16 +1518,27 @@ bool VulkanContext::init(const PlatformApp& app) {
         sci.minFilter = VK_FILTER_LINEAR;
         if (vkCreateSampler(impl_->device, &sci, nullptr, &impl_->linearClampSampler) != VK_SUCCESS) return false;
         if (vkCreateSampler(impl_->device, &sci, nullptr, &impl_->fontSampler) != VK_SUCCESS) return false;
+
+        sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        sci.minLod = 0.0f;
+        sci.maxLod = 12.0f;
+        sci.anisotropyEnable = impl_->anisotropyEnabled ? VK_TRUE : VK_FALSE;
+        sci.maxAnisotropy = impl_->anisotropyEnabled ? 8.0f : 1.0f;
+        if (vkCreateSampler(impl_->device, &sci, nullptr, &impl_->pbrSampler) != VK_SUCCESS) return false;
     }
 
     // Descriptor layouts
     {
-        std::array<VkDescriptorSetLayoutBinding, 3> sb{};
+        std::array<VkDescriptorSetLayoutBinding, 5> sb{};
         sb[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
                  VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
         sb[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                  VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
         sb[2] = {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                 VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+        sb[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                 VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+        sb[4] = {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                  VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
         VkDescriptorSetLayoutCreateInfo lci{};
         lci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -1381,6 +1551,12 @@ bool VulkanContext::init(const PlatformApp& app) {
         lci.bindingCount = 1;
         lci.pBindings = &imgBind;
         if (vkCreateDescriptorSetLayout(impl_->device, &lci, nullptr, &impl_->postDescLayout) != VK_SUCCESS) return false;
+
+        std::array<VkDescriptorSetLayoutBinding, 2> ub{};
+        ub[0] = {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+        ub[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+        lci.bindingCount = static_cast<std::uint32_t>(ub.size());
+        lci.pBindings = ub.data();
         if (vkCreateDescriptorSetLayout(impl_->device, &lci, nullptr, &impl_->uiDescLayout) != VK_SUCCESS) return false;
     }
 
@@ -1388,7 +1564,7 @@ bool VulkanContext::init(const PlatformApp& app) {
     {
         std::array<VkDescriptorPoolSize, 2> ps{};
         ps[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<std::uint32_t>(kMaxFramesInFlight)};
-        ps[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<std::uint32_t>(kMaxFramesInFlight * 2 + 2)};
+        ps[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<std::uint32_t>(kMaxFramesInFlight * 4 + 3)};
         VkDescriptorPoolCreateInfo dpci{};
         dpci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         dpci.maxSets = static_cast<std::uint32_t>(kMaxFramesInFlight + 2);
@@ -1482,7 +1658,7 @@ bool VulkanContext::init(const PlatformApp& app) {
         }
     }
 
-    // Upload initial 2x2 white dummy atlases so uiDescSet & sceneDescSets[binding=2] are always valid
+    // Upload initial 2x2 dummy atlases so all scene & UI bindings are always valid from frame 0
     const std::uint8_t dummyWhite[4] = {255, 255, 255, 255};
     impl_->uploadFontR8(dummyWhite, 2, 2);
     const std::uint8_t dummySignRGBA[16] = {
@@ -1490,6 +1666,16 @@ bool VulkanContext::init(const PlatformApp& app) {
         255, 255, 255, 255, 255, 255, 255, 255
     };
     impl_->uploadSignRGBA8(dummySignRGBA, 2, 2);
+    const std::uint8_t dummyNormRoughRGBA[16] = {
+        128, 128, 175, 255, 128, 128, 175, 255,
+        128, 128, 175, 255, 128, 128, 175, 255
+    };
+    impl_->uploadPbrRGBA8(dummySignRGBA, 2, 2, dummyNormRoughRGBA, 2, 2);
+    const std::uint8_t dummyMapRGBA[16] = {
+        28, 34, 44, 255, 28, 34, 44, 255,
+        28, 34, 44, 255, 28, 34, 44, 255
+    };
+    impl_->uploadUiMapRGBA8(dummyMapRGBA, 2, 2);
 
     // Create all graphics pipelines
     if (!impl_->createPipelines()) {
@@ -1498,9 +1684,9 @@ bool VulkanContext::init(const PlatformApp& app) {
     }
 
     impl_->ready = true;
-    OC_VK_LOG("Initialized Native Vulkan 1.0 on '%s' (%ux%u, HDR16=%d, MSAA=%dx)",
+    OC_VK_LOG("Initialized Native Vulkan 1.0 on '%s' (%ux%u, HDR16=%d, MSAA=%dx, Aniso=%d)",
               impl_->gpuName.c_str(), impl_->swapchainExtent.width, impl_->swapchainExtent.height,
-              impl_->hdr16Enabled ? 1 : 0, static_cast<int>(impl_->msaa));
+              impl_->hdr16Enabled ? 1 : 0, static_cast<int>(impl_->msaa), impl_->anisotropyEnabled ? 1 : 0);
     return true;
 }
 
@@ -1512,7 +1698,10 @@ void VulkanContext::shutdown() {
         if (impl_->shadowFramebuffer) { vkDestroyFramebuffer(impl_->device, impl_->shadowFramebuffer, nullptr); impl_->shadowFramebuffer = VK_NULL_HANDLE; }
         impl_->destroyImage(impl_->shadowImage);
         impl_->destroyImage(impl_->fontAtlasImage);
+        impl_->destroyImage(impl_->uiMapImage);
         impl_->destroyImage(impl_->signAtlasImage);
+        impl_->destroyImage(impl_->pbrAlbedoImage);
+        impl_->destroyImage(impl_->pbrNormalRoughImage);
 
         for (int i = 0; i < kMaxFramesInFlight; ++i) {
             impl_->destroyBuffer(impl_->sceneUboBufs[i]);
@@ -1548,6 +1737,7 @@ void VulkanContext::shutdown() {
         if (impl_->shadowSampler) { vkDestroySampler(impl_->device, impl_->shadowSampler, nullptr); impl_->shadowSampler = VK_NULL_HANDLE; }
         if (impl_->linearClampSampler) { vkDestroySampler(impl_->device, impl_->linearClampSampler, nullptr); impl_->linearClampSampler = VK_NULL_HANDLE; }
         if (impl_->fontSampler) { vkDestroySampler(impl_->device, impl_->fontSampler, nullptr); impl_->fontSampler = VK_NULL_HANDLE; }
+        if (impl_->pbrSampler) { vkDestroySampler(impl_->device, impl_->pbrSampler, nullptr); impl_->pbrSampler = VK_NULL_HANDLE; }
 
         if (impl_->commandPool) { vkDestroyCommandPool(impl_->device, impl_->commandPool, nullptr); impl_->commandPool = VK_NULL_HANDLE; }
         vkDestroyDevice(impl_->device, nullptr);
@@ -1634,6 +1824,15 @@ bool VulkanContext::uploadFontAtlasR8(const std::uint8_t* pixels, std::uint32_t 
 
 bool VulkanContext::uploadSignAtlasRGBA8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h) {
     return impl_->uploadSignRGBA8(pixels, w, h);
+}
+
+bool VulkanContext::uploadPbrTexturesRGBA8(const std::uint8_t* albedoPixels, std::uint32_t w, std::uint32_t h,
+                                           const std::uint8_t* normalRoughPixels, std::uint32_t nw, std::uint32_t nh) {
+    return impl_->uploadPbrRGBA8(albedoPixels, w, h, normalRoughPixels, nw, nh);
+}
+
+bool VulkanContext::uploadUiMapRGBA8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h) {
+    return impl_->uploadUiMapRGBA8(pixels, w, h);
 }
 
 bool VulkanContext::beginFrame() {

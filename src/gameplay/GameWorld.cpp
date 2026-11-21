@@ -328,6 +328,22 @@ GameWorld::GameWorld(std::uint64_t seed)
     reset();
 }
 
+bool GameWorld::loadRealSeoulMap(const std::uint8_t* bytes, std::size_t size) {
+    if (!city_.loadRealSeoulMap(bytes, size)) {
+        return false;
+    }
+    reset();
+    return true;
+}
+
+bool GameWorld::loadRealSeoulMapFromFile(const std::string& path) {
+    if (!city_.loadRealSeoulMapFromFile(path)) {
+        return false;
+    }
+    reset();
+    return true;
+}
+
 void GameWorld::reset() {
     rng_ = Rng(seed_);
     vehicles_.clear();
@@ -341,9 +357,9 @@ void GameWorld::reset() {
     nextNpcId_ = 1;
 
     player_ = PlayerState{};
-    player_.pos = CityMap::defaultSpawnPos();
+    player_.pos = city_.spawnPos();
     player_.policeLastKnownPos = player_.pos;
-    player_.facingYaw = -kHalfPi; // Facing North toward Banpo Bridge, Han River & N Seoul Tower!
+    player_.facingYaw = city_.spawnYaw();
     player_.cash = 2500;
     player_.health = 100.0f;
     player_.maxHealth = 100.0f;
@@ -422,7 +438,8 @@ void GameWorld::reset() {
     player_.onGround = true;
 
     spawnInitialWorld();
-    pushBanner("WELCOME TO SEOUL (VULKAN)", "서울 메트로폴리스에 오신 것을 환영합니다",
+    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL GIS v3.0 (VULKAN)" : "WELCOME TO SEOUL (VULKAN)",
+               city_.hasRealSeoulMap() ? "실제 서울 OSM 지도 v3.0에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
                "[M] Full Seoul Map  |  [K] Custom Studio  |  [U] Rain  |  [V] 1st/3rd Person",
                "미니맵 터치/[M] 서울 전체 지도 · [K] 커스텀 · [U] 날씨 · [V] 1·3인칭",
                {118, 192, 232, 255}, 5.2f);
@@ -449,6 +466,42 @@ void GameWorld::spawnParkedShowroomCars() {
         v.hasNpcDriver = false;
         vehicles_.push_back(v);
     };
+
+    if (city_.hasRealSeoulMap()) {
+        // Park curated starter & showroom cars cleanly along the real Teheran-ro / Gangnam boulevard curb!
+        const NearestOsmRoad nr = city_.realData().findNearestRoad(player_.pos, 60.0f);
+        if (nr.found) {
+            const float yaw = std::atan2(nr.tangent.z, nr.tangent.x);
+            const Vec2 fwd = nr.tangent;
+            const Vec2 rightN{-fwd.z, fwd.x};
+            const float curbLat = std::max(2.0f, nr.halfWidth - 1.55f);
+            struct CurbSlot { VehicleKind kind; float along; float side; ColorRGBA paint; int rims; bool police; };
+            const CurbSlot kSlots[] = {
+                {VehicleKind::SportsCoupe,      12.0f,  1.0f, {168,  24,  34, 255}, 1, false},
+                {VehicleKind::Hypercar,         23.0f,  1.0f, { 26,  30,  38, 255}, 1, false},
+                {VehicleKind::LuxurySedan,      34.0f,  1.0f, { 34,  42,  54, 255}, 1, false},
+                {VehicleKind::Taxi,            -14.0f,  1.0f, {232, 114,  34, 255}, 0, false},
+                {VehicleKind::JdmTuner,        -26.0f,  1.0f, { 32,  76, 158, 255}, 1, false},
+                {VehicleKind::PoliceCruiser,    46.0f,  1.0f, {240, 244, 248, 255}, 2, true},
+                {VehicleKind::ClassicRoadster,  18.0f, -1.0f, {154,  28,  36, 255}, 0, false},
+                {VehicleKind::SUV,              30.0f, -1.0f, { 54,  62,  72, 255}, 1, false},
+                {VehicleKind::Ambulance,       -20.0f, -1.0f, {242, 244, 248, 255}, 0, false},
+                {VehicleKind::PoliceCruiser,   -36.0f, -1.0f, {240, 244, 248, 255}, 2, true}
+            };
+            for (const auto& sl : kSlots) {
+                Vec2 p = nr.closestPt + fwd * sl.along + rightN * (sl.side * curbLat);
+                Vec2 test = p;
+                if (!city_.realData().isInWater(p) && !city_.realData().resolveCircleBuildings(test, 1.55f)) {
+                    addParked(sl.kind, p, (sl.side > 0.0f) ? yaw : wrapAngle(yaw + kPi), sl.paint, 0, sl.rims);
+                    if (sl.police) {
+                        vehicles_.back().isPolice = true;
+                        vehicles_.back().stripeColor = {24, 54, 126, 255};
+                    }
+                }
+            }
+        }
+        return;
+    }
 
     // Starter CAD-sculpted cars parked cleanly along Banpo/Gangnam Boulevard ({588, 1008} crossroads!)
     addParked(VehicleKind::SportsCoupe,     {605.5f, 1015.2f},  0.0f,    {168,  24,  34, 255}, 0, 1);
@@ -649,19 +702,34 @@ bool GameWorld::fastTravelTo(const Vec2& targetPos, const std::string& labelKo) 
         clampf(targetPos.x, CityMap::kWorldMinX + 90.0f, CityMap::kWorldMaxX - 90.0f),
         clampf(targetPos.z, CityMap::kWorldMinZ + 90.0f, CityMap::kWorldMaxZ - 90.0f)
     };
-    const int rx = city_.nearestRoadIndex(dest.x);
-    const int rz = city_.nearestRoadIndex(dest.z);
-    if (city_.isInHanRiverWater(dest, -12.0f) && !city_.isOnBridge(dest, 10.0f)) {
-        const float rCenter = city_.hanRiverCenterZ(dest.x);
-        const float rHw = city_.hanRiverHalfWidth(dest.x);
-        dest.z = (dest.z >= rCenter) ? (rCenter + rHw + 60.0f) : (rCenter - rHw - 60.0f);
-    } else if (!city_.isOnBridge(dest, 2.0f)) {
-        const float candX = city_.roadCoord(rx);
-        const float candZ = city_.roadCoord(rz);
-        if (std::abs(dest.x - candX) <= std::abs(dest.z - candZ)) {
-            dest.x = candX + CityMap::kLaneOffset;
-        } else {
-            dest.z = candZ + CityMap::kLaneOffset;
+    if (city_.hasRealSeoulMap() && city_.realData().isInCoreBounds(dest)) {
+        // Snap smoothly onto the nearest real drivable OpenStreetMap road if inside water, building, or off-road plaza!
+        Vec2 probe = dest;
+        const bool blocked = city_.realData().isInWater(dest) ||
+                             city_.realData().resolveCircleBuildings(probe, 2.0f) ||
+                             !city_.realData().isOnRoad(dest, 6.0f);
+        if (blocked) {
+            const NearestOsmRoad nr = city_.realData().findNearestRoad(dest, 240.0f);
+            if (nr.found) {
+                const Vec2 rightN{-nr.tangent.z, nr.tangent.x};
+                dest = nr.closestPt + rightN * clampf(nr.halfWidth * 0.45f, 1.4f, 3.8f);
+            }
+        }
+    } else {
+        const int rx = city_.nearestRoadIndex(dest.x);
+        const int rz = city_.nearestRoadIndex(dest.z);
+        if (city_.isInHanRiverWater(dest, -12.0f) && !city_.isOnBridge(dest, 10.0f)) {
+            const float rCenter = city_.hanRiverCenterZ(dest.x);
+            const float rHw = city_.hanRiverHalfWidth(dest.x);
+            dest.z = (dest.z >= rCenter) ? (rCenter + rHw + 60.0f) : (rCenter - rHw - 60.0f);
+        } else if (!city_.isOnBridge(dest, 2.0f)) {
+            const float candX = city_.roadCoord(rx);
+            const float candZ = city_.roadCoord(rz);
+            if (std::abs(dest.x - candX) <= std::abs(dest.z - candZ)) {
+                dest.x = candX + CityMap::kLaneOffset;
+            } else {
+                dest.z = candZ + CityMap::kLaneOffset;
+            }
         }
     }
 
@@ -1022,36 +1090,73 @@ void GameWorld::maintainTrafficPopulation() {
     }
 
     int attempts = 0;
+    std::vector<std::uint32_t> osmRoadPool;
+    if (city_.hasRealSeoulMap() && city_.realData().isInCoreBounds(center)) {
+        std::vector<std::uint32_t> rawRoads;
+        city_.realData().queryChunkRoads(center, 235.0f, rawRoads);
+        for (std::uint32_t ri : rawRoads) {
+            const OsmRoadRec& r = city_.realData().roads()[ri];
+            if (r.roadClass <= 4 && r.vertCount >= 2 && (r.flags & 4u) == 0u) {
+                osmRoadPool.push_back(ri);
+            }
+        }
+    }
     const int centerRx = city_.nearestRoadIndex(center.x);
     const int centerRz = city_.nearestRoadIndex(center.z);
-    while (activeTraffic < kTargetTraffic && attempts < 64) {
+    while (activeTraffic < kTargetTraffic && attempts < 80) {
         ++attempts;
-        const bool horiz = rng_.chance(0.5f);
-        const int baseRoad = horiz ? centerRz : centerRx;
-        const int minR = horiz ? -140 : -170;
-        const int maxR = horiz ?  140 :  170;
-        const int roadIdx = std::clamp(baseRoad + rng_.rangeInt(-3, 3), minR, maxR);
-        const int dir = rng_.chance(0.5f) ? 1 : -1;
-        const float axisBase = horiz ? center.x : center.z;
-        const float axisMin = horiz ? -14280.0f : -11760.0f;
-        const float axisMax = horiz ?  14280.0f :  11760.0f;
-        const float along = clampf(axisBase + rng_.range(-240.0f, 240.0f), axisMin, axisMax);
-        const float rCoord = city_.roadCoord(roadIdx);
-
+        bool horiz = true;
+        int roadIdx = 0;
+        int dir = 1;
         float heading = 0.0f;
         Vec2 spawnPos{};
-        if (horiz) {
-            heading = (dir > 0) ? 0.0f : kPi;
-            const Vec2 right = rightFromHeading(heading);
-            spawnPos = {along, rCoord + right.z * CityMap::kLaneOffset};
-        } else {
-            heading = (dir > 0) ? kHalfPi : -kHalfPi;
-            const Vec2 right = rightFromHeading(heading);
-            spawnPos = {rCoord + right.x * CityMap::kLaneOffset, along};
-        }
+        std::uint32_t osmRi = UINT32_MAX;
+        std::uint32_t osmVi = 0;
+        int osmD = 1;
 
-        if (city_.isInHanRiverWater(spawnPos, -6.0f) && !city_.isOnBridge(spawnPos, 0.0f)) continue;
-        if (city_.terrainElevationAt(spawnPos) > 42.0f) continue;
+        if (!osmRoadPool.empty()) {
+            osmRi = osmRoadPool[static_cast<std::size_t>(rng_.rangeInt(0, static_cast<int>(osmRoadPool.size()) - 1))];
+            const OsmRoadRec& r = city_.realData().roads()[osmRi];
+            const std::uint32_t seg = static_cast<std::uint32_t>(rng_.rangeInt(0, static_cast<int>(r.vertCount) - 2));
+            const Vec2 a = city_.realData().roadVerts()[r.firstVert + seg];
+            const Vec2 b = city_.realData().roadVerts()[r.firstVert + seg + 1];
+            const Vec2 e = b - a;
+            if (e.lengthSq() < 4.0f) continue;
+            osmD = ((r.flags & 1u) != 0u) ? 1 : (rng_.chance(0.5f) ? 1 : -1);
+            const Vec2 tang = (osmD > 0 ? e : (e * -1.0f)).normalized();
+            const Vec2 rightN{-tang.z, tang.x};
+            heading = std::atan2(tang.z, tang.x);
+            const float laneOff = clampf(r.halfWidth * 0.46f, 1.5f, 4.1f);
+            spawnPos = a + e * rng_.range(0.15f, 0.85f) + rightN * laneOff;
+            osmVi = (osmD > 0) ? (seg + 1) : seg;
+            if (city_.realData().isInWater(spawnPos) && (r.flags & 2u) == 0u) continue;
+            Vec2 chk = spawnPos;
+            if (city_.realData().resolveCircleBuildings(chk, 1.5f)) continue;
+        } else {
+            horiz = rng_.chance(0.5f);
+            const int baseRoad = horiz ? centerRz : centerRx;
+            const int minR = horiz ? -140 : -170;
+            const int maxR = horiz ?  140 :  170;
+            roadIdx = std::clamp(baseRoad + rng_.rangeInt(-3, 3), minR, maxR);
+            dir = rng_.chance(0.5f) ? 1 : -1;
+            const float axisBase = horiz ? center.x : center.z;
+            const float axisMin = horiz ? -14280.0f : -11760.0f;
+            const float axisMax = horiz ?  14280.0f :  11760.0f;
+            const float along = clampf(axisBase + rng_.range(-240.0f, 240.0f), axisMin, axisMax);
+            const float rCoord = city_.roadCoord(roadIdx);
+
+            if (horiz) {
+                heading = (dir > 0) ? 0.0f : kPi;
+                const Vec2 right = rightFromHeading(heading);
+                spawnPos = {along, rCoord + right.z * CityMap::kLaneOffset};
+            } else {
+                heading = (dir > 0) ? kHalfPi : -kHalfPi;
+                const Vec2 right = rightFromHeading(heading);
+                spawnPos = {rCoord + right.x * CityMap::kLaneOffset, along};
+            }
+            if (city_.isInHanRiverWater(spawnPos, -6.0f) && !city_.isOnBridge(spawnPos, 0.0f)) continue;
+            if (city_.terrainElevationAt(spawnPos) > 42.0f) continue;
+        }
 
         const float distPlayer = (spawnPos - center).length();
         if (distPlayer < 32.0f || distPlayer > 265.0f) continue;
@@ -1086,6 +1191,7 @@ void GameWorld::maintainTrafficPopulation() {
         v.id = nextVehicleId_++;
         v.kind = kind;
         v.pos = spawnPos;
+        v.posY = surfaceHeightAt(spawnPos);
         v.heading = heading;
         v.velocity = forwardFromHeading(heading) * 14.5f;
         v.health = spec.maxHealth;
@@ -1097,6 +1203,9 @@ void GameWorld::maintainTrafficPopulation() {
         v.aiHorizontalRoad = horiz;
         v.aiRoadIndex = roadIdx;
         v.aiDirection = dir;
+        v.osmRoadIdx = osmRi;
+        v.osmVertIdx = osmVi;
+        v.osmDir = osmD;
         vehicles_.push_back(v);
         ++activeTraffic;
     }
@@ -1124,6 +1233,18 @@ void GameWorld::maintainCivilianPopulation() {
         if (n.alive && n.role == NpcRole::Civilian) ++civCount;
     }
 
+    std::vector<std::uint32_t> osmPedRoads;
+    if (city_.hasRealSeoulMap() && city_.realData().isInCoreBounds(center)) {
+        std::vector<std::uint32_t> rawRoads;
+        city_.realData().queryChunkRoads(center, 185.0f, rawRoads);
+        for (std::uint32_t ri : rawRoads) {
+            const OsmRoadRec& r = city_.realData().roads()[ri];
+            if (r.roadClass >= 1 && r.roadClass <= 5 && r.vertCount >= 2 && (r.flags & 6u) == 0u) {
+                osmPedRoads.push_back(ri);
+            }
+        }
+    }
+
     int attempts = 0;
     const int minU = -170 * 2 + 1;
     const int maxU =  170 * 2 - 2;
@@ -1131,43 +1252,71 @@ void GameWorld::maintainCivilianPopulation() {
     const int maxV =  140 * 2 - 2;
     const int centerNodeU = std::clamp(city_.nearestSidewalkNodeIndex(center.x), minU, maxU);
     const int centerNodeV = std::clamp(city_.nearestSidewalkNodeIndex(center.z), minV, maxV);
-    while (civCount < kTargetCivilians && attempts < 96) {
+    while (civCount < kTargetCivilians && attempts < 110) {
         ++attempts;
-        const bool horiz = rng_.chance(0.5f);
-        const int uNear = std::clamp(centerNodeU + rng_.rangeInt(-5, 5), minU, maxU);
-        const int vNear = std::clamp(centerNodeV + rng_.rangeInt(-5, 5), minV, maxV);
-        const int rawIdx = horiz ? uNear : vNear;
-        const int blk = (rawIdx >= 1) ? ((rawIdx - 1) / 2) : ((rawIdx - 2) / 2);
-        const int sideLine = horiz ? vNear : uNear;
-        const bool fwdOrder = rng_.chance(0.5f);
+        int fromU = 0, fromV = 0, toU = 0, toV = 0;
+        float edgeYaw = 0.0f;
+        Vec2 p{};
+        std::uint32_t osmRi = UINT32_MAX;
+        std::uint32_t osmVi = 0;
+        int osmD = 1;
+        float osmSide = 1.0f;
 
-        int n0 = 2 * blk + 1;
-        int n1 = 2 * blk + 2;
-        if (!fwdOrder) std::swap(n0, n1);
+        if (!osmPedRoads.empty()) {
+            osmRi = osmPedRoads[static_cast<std::size_t>(rng_.rangeInt(0, static_cast<int>(osmPedRoads.size()) - 1))];
+            const OsmRoadRec& r = city_.realData().roads()[osmRi];
+            const std::uint32_t seg = static_cast<std::uint32_t>(rng_.rangeInt(0, static_cast<int>(r.vertCount) - 2));
+            const Vec2 a = city_.realData().roadVerts()[r.firstVert + seg];
+            const Vec2 b = city_.realData().roadVerts()[r.firstVert + seg + 1];
+            const Vec2 e = b - a;
+            if (e.lengthSq() < 4.0f) continue;
+            osmD = rng_.chance(0.5f) ? 1 : -1;
+            osmSide = rng_.chance(0.5f) ? 1.0f : -1.0f;
+            const Vec2 tang = (osmD > 0 ? e : (e * -1.0f)).normalized();
+            const Vec2 rightN{-tang.z, tang.x};
+            edgeYaw = std::atan2(tang.z, tang.x);
+            p = a + e * rng_.range(0.15f, 0.85f) + rightN * (osmSide * (r.halfWidth + 1.95f));
+            osmVi = (osmD > 0) ? (seg + 1) : seg;
+            if (city_.realData().isInWater(p)) continue;
+            Vec2 chk = p;
+            if (city_.realData().resolveCircleBuildings(chk, 0.60f)) continue;
+        } else {
+            const bool horiz = rng_.chance(0.5f);
+            const int uNear = std::clamp(centerNodeU + rng_.rangeInt(-5, 5), minU, maxU);
+            const int vNear = std::clamp(centerNodeV + rng_.rangeInt(-5, 5), minV, maxV);
+            const int rawIdx = horiz ? uNear : vNear;
+            const int blk = (rawIdx >= 1) ? ((rawIdx - 1) / 2) : ((rawIdx - 2) / 2);
+            const int sideLine = horiz ? vNear : uNear;
+            const bool fwdOrder = rng_.chance(0.5f);
 
-        const int fromU = horiz ? n0 : sideLine;
-        const int fromV = horiz ? sideLine : n0;
-        const int toU   = horiz ? n1 : sideLine;
-        const int toV   = horiz ? sideLine : n1;
+            int n0 = 2 * blk + 1;
+            int n1 = 2 * blk + 2;
+            if (!fwdOrder) std::swap(n0, n1);
 
-        const Vec2 a{city_.sidewalkCoord(fromU), city_.sidewalkCoord(fromV)};
-        const Vec2 b{city_.sidewalkCoord(toU), city_.sidewalkCoord(toV)};
-        const Vec2 segDir = (b - a).normalized();
-        const float edgeYaw = std::atan2(segDir.z, segDir.x);
-        const Vec2 laneOffset = rightFromHeading(edgeYaw) * 0.45f;
-        const float frac = rng_.range(0.15f, 0.85f);
-        Vec2 p = a + (b - a) * frac + laneOffset;
-        const Vec2 mid = (a + b) * 0.5f;
-        const Vec2 q1 = a + (b - a) * 0.25f;
-        const Vec2 q3 = a + (b - a) * 0.75f;
-        if (city_.isInHanRiverWater(p, -8.0f) || city_.isInTributaryWater(p, 2.0f) ||
-            city_.isOnRiversideExpressway(p) || city_.isOnRiversideExpressway(a) ||
-            city_.isOnRiversideExpressway(b) || city_.isOnRiversideExpressway(mid) ||
-            city_.isOnRiversideExpressway(q1) || city_.isOnRiversideExpressway(q3) ||
-            city_.terrainElevationAt(p) > 36.0f) continue;
+            fromU = horiz ? n0 : sideLine;
+            fromV = horiz ? sideLine : n0;
+            toU   = horiz ? n1 : sideLine;
+            toV   = horiz ? sideLine : n1;
+
+            const Vec2 a{city_.sidewalkCoord(fromU), city_.sidewalkCoord(fromV)};
+            const Vec2 b{city_.sidewalkCoord(toU), city_.sidewalkCoord(toV)};
+            const Vec2 segDir = (b - a).normalized();
+            edgeYaw = std::atan2(segDir.z, segDir.x);
+            const Vec2 laneOffset = rightFromHeading(edgeYaw) * 0.45f;
+            const float frac = rng_.range(0.15f, 0.85f);
+            p = a + (b - a) * frac + laneOffset;
+            const Vec2 mid = (a + b) * 0.5f;
+            const Vec2 q1 = a + (b - a) * 0.25f;
+            const Vec2 q3 = a + (b - a) * 0.75f;
+            if (city_.isInHanRiverWater(p, -8.0f) || city_.isInTributaryWater(p, 2.0f) ||
+                city_.isOnRiversideExpressway(p) || city_.isOnRiversideExpressway(a) ||
+                city_.isOnRiversideExpressway(b) || city_.isOnRiversideExpressway(mid) ||
+                city_.isOnRiversideExpressway(q1) || city_.isOnRiversideExpressway(q3) ||
+                city_.terrainElevationAt(p) > 36.0f) continue;
+        }
 
         const float d = (p - center).length();
-        if (d < 20.0f || d > 185.0f) continue;
+        if (d < 16.0f || d > 185.0f) continue;
 
         bool tooCloseNpc = false;
         for (const auto& other : npcs_) {
@@ -1188,6 +1337,10 @@ void GameWorld::maintainCivilianPopulation() {
         npc.navFromV = fromV;
         npc.navToU = toU;
         npc.navToV = toV;
+        npc.osmRoadIdx = osmRi;
+        npc.osmVertIdx = osmVi;
+        npc.osmDir = osmD;
+        npc.osmSideSign = osmSide;
 
         // 5 natural skin tones matching getPlayerSkinColor palette
         static constexpr std::array<ColorRGBA, 5> kNpcSkinTones = {{
@@ -2981,7 +3134,7 @@ void GameWorld::update(float dt, const PlayerInput& input) {
             player_.wasted = false;
             player_.lastDeathWasBusted = false;
             player_.drivingVehicleId = -1;
-            player_.pos = wasBusted ? Vec2{656.0f, 1000.8f} : CityMap::defaultSpawnPos();
+            player_.pos = wasBusted ? city_.policeRespawnPos() : city_.spawnPos();
             city_.updateStreaming(player_.pos, true);
             player_.posY = surfaceHeightAt(player_.pos);
             player_.verticalVel = 0.0f;
@@ -3552,7 +3705,7 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
         Particle mag{};
         mag.kind = ParticleKind::DroppedMag;
         mag.pos = {player_.pos.x + fwd2.x * 0.32f + right2.x * 0.16f,
-                   surfaceHeightAt(player_.pos) + player_.posY + 1.18f,
+                   std::max(surfaceHeightAt(player_.pos), player_.posY) + 1.18f,
                    player_.pos.z + fwd2.z * 0.32f + right2.z * 0.16f};
         mag.vel = {right2.x * rng_.range(-0.45f, 0.35f) + fwd2.x * rng_.range(0.15f, 0.55f),
                    rng_.range(-0.35f, 0.30f),
@@ -4127,60 +4280,102 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
         }
     }
 
-    const float roadCenter = city_.roadCoord(v.aiRoadIndex);
-    float desiredHeading = 0.0f;
-    if (v.aiHorizontalRoad) {
-        desiredHeading = (v.aiDirection > 0) ? 0.0f : kPi;
-    } else {
-        desiredHeading = (v.aiDirection > 0) ? kHalfPi : -kHalfPi;
-    }
+    Vec2 targetPoint{};
+    bool useOsmNav = false;
+    if (city_.hasRealSeoulMap() && v.osmRoadIdx < city_.realData().roads().size()) {
+        useOsmNav = true;
+        const auto& rd = city_.realData();
+        const OsmRoadRec& r = rd.roads()[v.osmRoadIdx];
+        if (r.vertCount >= 2) {
+            v.osmVertIdx = std::min<std::uint32_t>(v.osmVertIdx, r.vertCount - 1);
+            const std::uint32_t prevVi = (v.osmDir > 0)
+                                             ? ((v.osmVertIdx > 0) ? (v.osmVertIdx - 1) : 0)
+                                             : ((v.osmVertIdx + 1 < r.vertCount) ? (v.osmVertIdx + 1) : (r.vertCount - 1));
+            const Vec2 a = rd.roadVerts()[r.firstVert + prevVi];
+            const Vec2 b = rd.roadVerts()[r.firstVert + v.osmVertIdx];
+            const Vec2 seg = b - a;
+            const Vec2 tang = (seg.lengthSq() > 0.01f) ? seg.normalized() : forwardFromHeading(v.heading);
+            const Vec2 rightN{-tang.z, tang.x};
+            const float laneOff = clampf(r.halfWidth * 0.46f, 1.5f, 4.1f);
+            targetPoint = b + rightN * laneOff;
 
-    // Check intersection turning across signed 30km x 25km Seoul avenues (avoid driving into Han River!)
-    const int nearRx = city_.nearestRoadIndex(v.pos.x);
-    const int nearRz = city_.nearestRoadIndex(v.pos.z);
-    const Vec2 interCenter{city_.roadCoord(nearRx), city_.roadCoord(nearRz)};
-    const int interKey = nearRz * 1024 + nearRx;
-
-    if ((v.pos - interCenter).length() < 3.6f && v.lastTurnIntersectionKey != interKey) {
-        const Vec2 probeAhead = interCenter + forwardFromHeading(desiredHeading) * (CityMap::kBlockPitch * 0.75f);
-        const bool waterAhead = city_.isInHanRiverWater(probeAhead, -6.0f) && !city_.isOnBridge(probeAhead, 0.0f);
-        const bool atCityEdge = waterAhead ||
-                                (v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRx >= 170) ||
-                                                        (v.aiDirection < 0 && nearRx <= -170))) ||
-                                (!v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRz >= 140) ||
-                                                         (v.aiDirection < 0 && nearRz <= -140)));
-        if (atCityEdge || rng_.chance(0.28f)) {
-            v.aiHorizontalRoad = !v.aiHorizontalRoad;
-            v.aiRoadIndex = v.aiHorizontalRoad ? nearRz : nearRx;
-            if (v.aiHorizontalRoad) {
-                if (nearRx <= -170) v.aiDirection = 1;
-                else if (nearRx >= 170) v.aiDirection = -1;
-                else v.aiDirection = rng_.chance(0.5f) ? 1 : -1;
-            } else {
-                if (nearRz <= -140) v.aiDirection = 1;
-                else if (nearRz >= 140) v.aiDirection = -1;
-                else v.aiDirection = rng_.chance(0.5f) ? 1 : -1;
+            if ((v.pos - targetPoint).lengthSq() < 7.5f * 7.5f) {
+                const int nextIdx = static_cast<int>(v.osmVertIdx) + v.osmDir;
+                if (nextIdx >= 0 && nextIdx < static_cast<int>(r.vertCount)) {
+                    v.osmVertIdx = static_cast<std::uint32_t>(nextIdx);
+                } else {
+                    std::uint32_t connR = 0, connV = 0;
+                    int connD = 1;
+                    if (rd.findConnectingRoadAt(b, v.osmRoadIdx, connR, connV, connD)) {
+                        v.osmRoadIdx = connR;
+                        v.osmVertIdx = connV;
+                        v.osmDir = connD;
+                    } else {
+                        v.osmDir = -v.osmDir;
+                        v.osmVertIdx = static_cast<std::uint32_t>(
+                            std::clamp(static_cast<int>(v.osmVertIdx) + v.osmDir, 0, static_cast<int>(r.vertCount) - 1));
+                    }
+                }
             }
-            v.lastTurnIntersectionKey = interKey;
-        } else {
-            v.lastTurnIntersectionKey = interKey;
         }
     }
 
-    if (v.aiHorizontalRoad) {
-        desiredHeading = (v.aiDirection > 0) ? 0.0f : kPi;
-    } else {
-        desiredHeading = (v.aiDirection > 0) ? kHalfPi : -kHalfPi;
-    }
+    const int nearRx = city_.nearestRoadIndex(v.pos.x);
+    const int nearRz = city_.nearestRoadIndex(v.pos.z);
+    const Vec2 interCenter{city_.roadCoord(nearRx), city_.roadCoord(nearRz)};
+    if (!useOsmNav) {
+        const float roadCenter = city_.roadCoord(v.aiRoadIndex);
+        float desiredHeading = 0.0f;
+        if (v.aiHorizontalRoad) {
+            desiredHeading = (v.aiDirection > 0) ? 0.0f : kPi;
+        } else {
+            desiredHeading = (v.aiDirection > 0) ? kHalfPi : -kHalfPi;
+        }
 
-    const Vec2 laneRight = rightFromHeading(desiredHeading);
-    Vec2 targetPoint = v.pos + forwardFromHeading(desiredHeading) * 10.0f;
-    if (v.aiHorizontalRoad) {
-        targetPoint.z = city_.roadCoord(v.aiRoadIndex) + laneRight.z * CityMap::kLaneOffset;
-    } else {
-        targetPoint.x = city_.roadCoord(v.aiRoadIndex) + laneRight.x * CityMap::kLaneOffset;
+        // Check intersection turning across signed 30km x 25km Seoul avenues (avoid driving into Han River!)
+        const int interKey = nearRz * 1024 + nearRx;
+
+        if ((v.pos - interCenter).length() < 3.6f && v.lastTurnIntersectionKey != interKey) {
+            const Vec2 probeAhead = interCenter + forwardFromHeading(desiredHeading) * (CityMap::kBlockPitch * 0.75f);
+            const bool waterAhead = city_.isInHanRiverWater(probeAhead, -6.0f) && !city_.isOnBridge(probeAhead, 0.0f);
+            const bool atCityEdge = waterAhead ||
+                                    (v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRx >= 170) ||
+                                                            (v.aiDirection < 0 && nearRx <= -170))) ||
+                                    (!v.aiHorizontalRoad && ((v.aiDirection > 0 && nearRz >= 140) ||
+                                                             (v.aiDirection < 0 && nearRz <= -140)));
+            if (atCityEdge || rng_.chance(0.28f)) {
+                v.aiHorizontalRoad = !v.aiHorizontalRoad;
+                v.aiRoadIndex = v.aiHorizontalRoad ? nearRz : nearRx;
+                if (v.aiHorizontalRoad) {
+                    if (nearRx <= -170) v.aiDirection = 1;
+                    else if (nearRx >= 170) v.aiDirection = -1;
+                    else v.aiDirection = rng_.chance(0.5f) ? 1 : -1;
+                } else {
+                    if (nearRz <= -140) v.aiDirection = 1;
+                    else if (nearRz >= 140) v.aiDirection = -1;
+                    else v.aiDirection = rng_.chance(0.5f) ? 1 : -1;
+                }
+                v.lastTurnIntersectionKey = interKey;
+            } else {
+                v.lastTurnIntersectionKey = interKey;
+            }
+        }
+
+        if (v.aiHorizontalRoad) {
+            desiredHeading = (v.aiDirection > 0) ? 0.0f : kPi;
+        } else {
+            desiredHeading = (v.aiDirection > 0) ? kHalfPi : -kHalfPi;
+        }
+
+        const Vec2 laneRight = rightFromHeading(desiredHeading);
+        targetPoint = v.pos + forwardFromHeading(desiredHeading) * 10.0f;
+        if (v.aiHorizontalRoad) {
+            targetPoint.z = city_.roadCoord(v.aiRoadIndex) + laneRight.z * CityMap::kLaneOffset;
+        } else {
+            targetPoint.x = city_.roadCoord(v.aiRoadIndex) + laneRight.x * CityMap::kLaneOffset;
+        }
+        (void)roadCenter;
     }
-    (void)roadCenter;
 
     const float toTargetYaw = std::atan2(targetPoint.z - v.pos.z, targetPoint.x - v.pos.x);
     const float headingErr = angleDiff(v.heading, toTargetYaw);
@@ -4192,7 +4387,7 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
     const Vec2 right = rightFromHeading(v.heading);
 
     // Obey red traffic signal unless the driver is fleeing in panic!
-    if (!v.driverPanicked) {
+    if (!v.driverPanicked && !useOsmNav) {
         const float aheadInter = (interCenter - v.pos).dot(fwd);
         const float sideInter = std::abs((interCenter - v.pos).dot(right));
         if (aheadInter >= 10.2f && aheadInter <= 17.5f && sideInter < 8.5f) {
@@ -5232,8 +5427,47 @@ void GameWorld::updateNpcs(float dt) {
             // 3. Calm Civilian & Calm Beat-Police Structured Sidewalk & Crosswalk Navigation
             npc.behavior = NpcBehavior::Stroll;
 
-            // If a beat cop was left on mid-block asphalt after a pursuit ended, walk onto nearest sidewalk first
-            if (npc.role == NpcRole::Police && city_.isOnRoad(npc.pos, -0.35f) && !city_.isInIntersection(npc.pos)) {
+            if (city_.hasRealSeoulMap() && npc.osmRoadIdx < city_.realData().roads().size()) {
+                const auto& rd = city_.realData();
+                const OsmRoadRec& r = rd.roads()[npc.osmRoadIdx];
+                if (r.vertCount >= 2) {
+                    npc.osmVertIdx = std::min<std::uint32_t>(npc.osmVertIdx, r.vertCount - 1);
+                    const std::uint32_t prevVi = (npc.osmDir > 0)
+                                                     ? ((npc.osmVertIdx > 0) ? (npc.osmVertIdx - 1) : 0)
+                                                     : ((npc.osmVertIdx + 1 < r.vertCount) ? (npc.osmVertIdx + 1) : (r.vertCount - 1));
+                    const Vec2 a = rd.roadVerts()[r.firstVert + prevVi];
+                    const Vec2 b = rd.roadVerts()[r.firstVert + npc.osmVertIdx];
+                    const Vec2 seg = b - a;
+                    const Vec2 tang = (seg.lengthSq() > 0.01f) ? seg.normalized() : forwardFromHeading(npc.facingYaw);
+                    const Vec2 rightN{-tang.z, tang.x};
+                    const Vec2 targetSidewalk = b + rightN * (npc.osmSideSign * (r.halfWidth + 1.95f));
+                    const Vec2 toTgt = targetSidewalk - npc.pos;
+                    if (toTgt.lengthSq() < 2.2f * 2.2f) {
+                        const int nextIdx = static_cast<int>(npc.osmVertIdx) + npc.osmDir;
+                        if (nextIdx >= 0 && nextIdx < static_cast<int>(r.vertCount)) {
+                            npc.osmVertIdx = static_cast<std::uint32_t>(nextIdx);
+                        } else {
+                            std::uint32_t connR = 0, connV = 0;
+                            int connD = 1;
+                            if (rd.findConnectingRoadAt(b, npc.osmRoadIdx, connR, connV, connD)) {
+                                npc.osmRoadIdx = connR;
+                                npc.osmVertIdx = connV;
+                                npc.osmDir = connD;
+                            } else {
+                                npc.osmDir = -npc.osmDir;
+                                npc.osmVertIdx = static_cast<std::uint32_t>(
+                                    std::clamp(static_cast<int>(npc.osmVertIdx) + npc.osmDir, 0, static_cast<int>(r.vertCount) - 1));
+                            }
+                        }
+                    } else {
+                        const Vec2 dir = toTgt.normalized();
+                        npc.facingYaw = moveTowardsAngle(npc.facingYaw, std::atan2(dir.z, dir.x), dt * 8.0f);
+                        npc.velocity = dir * npc.walkSpeed;
+                    }
+                }
+                npc.pos += npc.velocity * dt;
+                city_.resolveCircleWorld(npc.pos, 0.42f);
+            } else if (npc.role == NpcRole::Police && city_.isOnRoad(npc.pos, -0.35f) && !city_.isInIntersection(npc.pos)) {
                 const int minU = CityMap::kMinRoadIndexX * 2 + 1;
                 const int maxU = CityMap::kMaxRoadIndexX * 2 - 2;
                 const int minV = CityMap::kMinRoadIndexZ * 2 + 1;

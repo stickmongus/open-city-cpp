@@ -9,8 +9,8 @@ OUT_DIR="${OUT_DIR:-${ROOT_DIR}/build-android}"
 ANDROID_API="${ANDROID_API:-24}"
 ANDROID_TARGET_SDK="${ANDROID_TARGET_SDK:-34}"
 ANDROID_ABIS="${ANDROID_ABIS:-arm64-v8a armeabi-v7a}"
-ANDROID_VERSION_NAME="${ANDROID_VERSION_NAME:-2.3.0}"
-ANDROID_VERSION_CODE="${ANDROID_VERSION_CODE:-230}"
+ANDROID_VERSION_NAME="${ANDROID_VERSION_NAME:-3.0.0}"
+ANDROID_VERSION_CODE="${ANDROID_VERSION_CODE:-300}"
 APK_OUTPUT="${APK_OUTPUT:-${OUT_DIR}/OpenCity-Android-v${ANDROID_VERSION_NAME}.apk}"
 
 ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
@@ -47,14 +47,24 @@ echo "Build-Tools : ${BUILD_TOOLS_DIR}"
 echo "Android JAR : ${ANDROID_JAR}"
 echo "ABIs        : ${ANDROID_ABIS}"
 
-mkdir -p "${OUT_DIR}/staging/assets/fonts" "${OUT_DIR}/staging/lib" "${OUT_DIR}/compiled_res" "${OUT_DIR}/java_gen" "${OUT_DIR}/java_obj" "${OUT_DIR}/dex"
+mkdir -p "${OUT_DIR}/staging/assets/fonts" "${OUT_DIR}/staging/assets/maps" "${OUT_DIR}/staging/assets/textures" "${OUT_DIR}/staging/lib" "${OUT_DIR}/compiled_res" "${OUT_DIR}/java_gen" "${OUT_DIR}/java_obj" "${OUT_DIR}/dex"
 rm -f "${OUT_DIR}/base-unaligned.apk" "${OUT_DIR}/base-aligned.apk"
 
 # 1) Generate launcher icons & sync compact Korean glyph table for zero missing Hangul on mobile
 python3 "${ROOT_DIR}/tools/gen_android_icons.py"
 python3 "${ROOT_DIR}/tools/gen_korean_glyphs.py"
 
-# 2) Bundle crisp Korean TrueType font into APK assets/fonts/korean.ttf
+# 2) Bundle Real OpenStreetMap Seoul GIS map, 2D cartographic map & 2048x2048 PBR texture atlases!
+if [[ -d "${ROOT_DIR}/assets/maps" ]]; then
+    cp -f "${ROOT_DIR}/assets/maps/"* "${OUT_DIR}/staging/assets/maps/"
+    echo "Bundled real Seoul GIS map assets: $(du -sh "${OUT_DIR}/staging/assets/maps" | cut -f1)"
+fi
+if [[ -d "${ROOT_DIR}/assets/textures" ]]; then
+    cp -f "${ROOT_DIR}/assets/textures/"* "${OUT_DIR}/staging/assets/textures/"
+    echo "Bundled high-res PBR texture atlases: $(du -sh "${OUT_DIR}/staging/assets/textures" | cut -f1)"
+fi
+
+# 2B) Bundle crisp Korean TrueType font into APK assets/fonts/korean.ttf
 FONT_SRC="${OPEN_CITY_ANDROID_FONT:-}"
 if [[ -z "${FONT_SRC}" ]]; then
     for cand in \

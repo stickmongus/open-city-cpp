@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <set>
 
@@ -2497,6 +2498,116 @@ void testV230SeoulBusMagDropAndSignPolish() {
 }
 
 
+void testV300RealOsmSeoulMapAndPbr() {
+    auto findAsset = [](const char* rel) -> std::string {
+        const char* prefixes[] = {"assets/", "../assets/", "../../assets/"};
+        for (const char* pre : prefixes) {
+            const std::string p = std::string(pre) + rel;
+            std::ifstream f(p, std::ios::binary);
+            if (f.good()) return p;
+        }
+        return {};
+    };
+
+    // 1. Verify bundled 2048x1312 cartographic map & 2048x2048 PBR texture atlases have valid PNG headers
+    auto checkPng = [&](const char* rel, std::uint32_t expW, std::uint32_t expH) {
+        const std::string p = findAsset(rel);
+        ASSERT_TRUE(!p.empty());
+        std::ifstream f(p, std::ios::binary);
+        unsigned char hdr[24]{};
+        ASSERT_TRUE(static_cast<bool>(f.read(reinterpret_cast<char*>(hdr), 24)));
+        ASSERT_TRUE(hdr[0] == 0x89 && hdr[1] == 'P' && hdr[2] == 'N' && hdr[3] == 'G');
+        const std::uint32_t w = (static_cast<std::uint32_t>(hdr[16]) << 24) |
+                                (static_cast<std::uint32_t>(hdr[17]) << 16) |
+                                (static_cast<std::uint32_t>(hdr[18]) << 8) |
+                                static_cast<std::uint32_t>(hdr[19]);
+        const std::uint32_t h = (static_cast<std::uint32_t>(hdr[20]) << 24) |
+                                (static_cast<std::uint32_t>(hdr[21]) << 16) |
+                                (static_cast<std::uint32_t>(hdr[22]) << 8) |
+                                static_cast<std::uint32_t>(hdr[23]);
+        ASSERT_TRUE(w == expW && h == expH);
+    };
+    checkPng("maps/seoul_map_2d.png", 2048, 1312);
+    checkPng("textures/pbr_albedo.png", 2048, 2048);
+    checkPng("textures/pbr_normal_rough.png", 2048, 2048);
+
+    // 2. Load Real OpenStreetMap Seoul GIS + SRTM 30m DEM binary into GameWorld
+    const std::string ocmapPath = findAsset("maps/seoul_real.ocmap");
+    ASSERT_TRUE(!ocmapPath.empty());
+    oc::GameWorld world(20263000ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+
+    const oc::CityMap& city = world.city();
+    ASSERT_TRUE(city.hasRealSeoulMap());
+    const oc::RealSeoulData& real = city.realData();
+    ASSERT_TRUE(real.roads().size() >= 20000);
+    ASSERT_TRUE(real.buildings().size() >= 90000);
+    ASSERT_TRUE(real.waterTris().size() >= 2500);
+    ASSERT_TRUE(real.parkTris().size() >= 10000);
+    ASSERT_TRUE(real.pois().size() >= 3000);
+
+    // 3. Verify Real SRTM 30m DEM Elevations (Namsan ~262m, Bukhansan >500m, Gwanaksan >500m, Han River ~0m)
+    ASSERT_TRUE(city.terrainElevationAt({283.0f, -3078.0f}) > 200.0f);   // Real Namsan peak
+    ASSERT_TRUE(city.terrainElevationAt({-618.0f, -12725.0f}) > 450.0f); // Real Bukhansan
+    ASSERT_TRUE(city.terrainElevationAt({-1854.0f, 8724.0f}) > 500.0f);  // Real Gwanaksan
+    ASSERT_TRUE(real.isInWater({971.0f, 945.0f}));                       // Real Han River at Banpo
+
+    // 4. Verify Exact 2D Polygon Building Collision & 3D Raycasting on Real OSM Buildings
+    bool testedBldg = false;
+    for (const auto& b : real.buildings()) {
+        if (b.height > 12.0f && b.halfX > 8.0f && b.halfZ > 8.0f && b.vertCount >= 4) {
+            oc::Vec2 probe{b.cx, b.cz};
+            oc::Vec2 outN{};
+            const bool pushed = real.resolveCircleBuildings(probe, 0.8f, &outN);
+            ASSERT_TRUE(pushed);
+            ASSERT_TRUE((probe - oc::Vec2{b.cx, b.cz}).length() > 0.5f);
+
+            const oc::Vec3 rayFrom{b.cx - b.halfX - 24.0f, b.baseY + 4.0f, b.cz};
+            const float hitT = city.raycastBuildings3D(rayFrom, {1.0f, 0.0f, 0.0f}, 60.0f);
+            ASSERT_TRUE(hitT > 0.0f && hitT < 60.0f);
+            testedBldg = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(testedBldg);
+
+    // 5. Verify Real OSM Curved-Road Traffic & Sidewalk Pedestrians simulate cleanly without NaN!
+    const oc::Vec2 spawnPos = world.player().pos;
+    ASSERT_TRUE(real.isInCoreBounds(spawnPos));
+    std::vector<oc::Vec2> initVehPos;
+    for (const auto& v : world.vehicles()) {
+        if (v.hasNpcDriver) initVehPos.push_back(v.pos);
+    }
+    ASSERT_TRUE(!initVehPos.empty());
+    ASSERT_TRUE(!world.npcs().empty());
+
+    for (int f = 0; f < 120; ++f) {
+        world.update(1.0f / 60.0f, oc::PlayerInput{});
+    }
+
+    int movedCars = 0;
+    std::size_t idx = 0;
+    for (const auto& v : world.vehicles()) {
+        ASSERT_TRUE(std::isfinite(v.pos.x) && std::isfinite(v.pos.z) && std::isfinite(v.posY));
+        if (v.hasNpcDriver && idx < initVehPos.size()) {
+            if ((v.pos - initVehPos[idx]).length() > 1.5f) ++movedCars;
+            ++idx;
+        }
+    }
+    ASSERT_TRUE(movedCars >= 1);
+    for (const auto& n : world.npcs()) {
+        ASSERT_TRUE(std::isfinite(n.pos.x) && std::isfinite(n.pos.z));
+    }
+
+    // Verify Fast-Travel onto Real OSM Gwanghwamun snaps safely onto a dry road!
+    world.fastTravelTo({-715.0f, -5450.0f}, "광화문");
+    ASSERT_TRUE(!city.isInHanRiverWater(world.player().pos));
+    ASSERT_TRUE(city.isOnRoad(world.player().pos, 10.0f));
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -2526,8 +2637,9 @@ int main() {
     testV210SeoulMapFidelityAndOrientations();
     testV220WeaponAnimationsEdgesAndSeoulProps();
     testV230SeoulBusMagDropAndSignPolish();
+    testV300RealOsmSeoulMapAndPbr();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v2.3.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.0.0 simulation test suites succeeded!\n";
     return 0;
 }
 

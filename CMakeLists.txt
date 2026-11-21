@@ -9,7 +9,7 @@ endif()
 # without requiring a separate VC++ Redistributable install.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(open_city VERSION 2.3.0 LANGUAGES C CXX)
+project(open_city VERSION 3.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -42,9 +42,10 @@ if(UNIX AND NOT ANDROID AND RUSTC_EXECUTABLE)
     list(APPEND OPEN_CITY_RUST_OBJECTS "${RUST_PHYSICS_OBJ}")
 endif()
 
-# Pure C++20 + Rust simulation core (Real-Scale 30km x 25km Seoul Metropolis, 15 Han River Bridges,
-# 7 Seoul Mountains, 12 Macro Landmarks, realistic v2.0.0 car physics, escapable LOS/LKP police AI)
+# Pure C++20 + Rust simulation core (Real OpenStreetMap Seoul GIS + SRTM 30m DEM,
+# 25k real roads, 107k real building polygons, realistic car physics, escapable police AI)
 add_library(open_city_core STATIC
+    src/world/RealSeoulData.cpp
     src/world/CityMap.cpp
     src/gameplay/GameWorld.cpp
     ${OPEN_CITY_RUST_OBJECTS}
@@ -190,6 +191,15 @@ if(OPEN_CITY_BUILD_APP)
             target_link_options(open_city PRIVATE -mwindows -static -static-libgcc -static-libstdc++)
         else()
             target_compile_options(open_city PRIVATE -Wall -Wextra -Wpedantic)
+        endif()
+
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+            add_custom_command(TARGET open_city POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+                    "$<TARGET_FILE_DIR:open_city>/assets"
+                COMMENT "Staging real Seoul GIS & PBR assets next to open_city binary"
+            )
         endif()
     endif()
 endif()

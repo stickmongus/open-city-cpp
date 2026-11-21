@@ -27,6 +27,8 @@ public:
 
     // Initializes stb_truetype Korean+ASCII R8_UNORM atlas from font bytes (loaded by PlatformApp)
     bool init(VulkanContext& vk, const std::vector<std::uint8_t>& fontBytes);
+    // Initializes 2048x1312 Real OpenStreetMap Seoul cartographic texture (loaded by PlatformApp)
+    bool initMapTexture(VulkanContext& vk, const std::vector<std::uint8_t>& mapPngBytes);
 
     void beginBatch();
     void flush(VulkanContext& vk);
@@ -43,6 +45,9 @@ public:
     void drawCircleRing(float cx, float cy, float innerR, float outerR, ColorRGBA col, int segments = 28);
     void drawLine(float x0, float y0, float x1, float y1, float thick, ColorRGBA col);
     void drawTriangle(float x0, float y0, float x1, float y1, float x2, float y2, ColorRGBA col);
+    void drawMapImage(float x, float y, float w, float h,
+                      float u0 = 0.0f, float v0 = 0.0f, float u1 = 1.0f, float v1 = 1.0f,
+                      ColorRGBA tint = {255, 255, 255, 255});
 
     // UTF-8 Korean + English TrueType Text Rendering
     void drawText(const std::string& utf8, float x, float y, float fontSizePx, ColorRGBA col, bool shadow = true);
@@ -50,6 +55,7 @@ public:
     float measureTextWidth(const std::string& utf8, float fontSizePx) const;
 
     bool hasFont() const { return fontLoaded_; }
+    bool hasMapTexture() const { return mapTexLoaded_; }
 
 private:
     struct GlyphInfo {
@@ -65,6 +71,7 @@ private:
                  ColorRGBA col);
 
     bool fontLoaded_ = false;
+    bool mapTexLoaded_ = false;
     float basePixelHeight_ = 36.0f;
     float ascentPx_ = 29.0f;
     std::unordered_map<std::uint32_t, GlyphInfo> glyphs_;

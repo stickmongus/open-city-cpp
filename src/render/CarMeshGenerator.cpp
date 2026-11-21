@@ -366,16 +366,16 @@ CarBlueprint makeBlueprint(VehicleKind kind) {
             b.groundClear = 0.16f;
             b.frontAxleX = b.halfL * 0.62f;
             b.rearAxleX = -b.halfL * 0.60f;
-            b.wheelR = 0.355f; b.wheelW = 0.26f;
+            b.wheelR = 0.345f; b.wheelW = 0.25f;
             b.xHoodStart = b.halfL - 0.24f;
             b.xCowl = b.halfL * 0.28f;
             b.xRoofFront = -b.halfL * 0.02f;
             b.xBpillar = -b.halfL * 0.22f;
             b.xRoofRear = -b.halfL * 0.50f;
             b.xRearDeck = -b.halfL * 0.86f;
-            b.yNose = 0.59f; b.yCowl = 0.80f; b.yBeltRear = 0.88f; b.yRearDeck = 0.87f;
-            b.yRoof = 1.24f; b.roofHalfW = b.halfW * 0.68f;
-            b.noseTaper = 0.87f; b.rearTaper = 0.92f;
+            b.yNose = 0.66f; b.yCowl = 0.83f; b.yBeltRear = 0.89f; b.yRearDeck = 0.88f;
+            b.yRoof = 1.26f; b.roofHalfW = b.halfW * 0.68f;
+            b.noseTaper = 0.89f; b.rearTaper = 0.92f;
             b.hasRearDoor = false;
             b.integratedSpoiler = true;
             break;
@@ -385,16 +385,16 @@ CarBlueprint makeBlueprint(VehicleKind kind) {
             b.groundClear = 0.135f;
             b.frontAxleX = b.halfL * 0.61f;
             b.rearAxleX = -b.halfL * 0.59f;
-            b.wheelR = 0.36f; b.wheelW = 0.29f;
+            b.wheelR = 0.335f; b.wheelW = 0.26f;
             b.xHoodStart = b.halfL - 0.25f;
             b.xCowl = b.halfL * 0.36f;
             b.xRoofFront = b.halfL * 0.04f;
             b.xBpillar = -b.halfL * 0.19f;
             b.xRoofRear = -b.halfL * 0.44f;
             b.xRearDeck = -b.halfL * 0.88f;
-            b.yNose = 0.50f; b.yCowl = 0.72f; b.yBeltRear = 0.82f; b.yRearDeck = 0.84f;
-            b.yRoof = 1.14f; b.roofHalfW = b.halfW * 0.62f;
-            b.noseTaper = 0.84f; b.rearTaper = 0.95f;
+            b.yNose = 0.66f; b.yCowl = 0.80f; b.yBeltRear = 0.88f; b.yRearDeck = 0.89f;
+            b.yRoof = 1.18f; b.roofHalfW = b.halfW * 0.63f;
+            b.noseTaper = 0.88f; b.rearTaper = 0.95f;
             b.hasRearDoor = false;
             b.tallGtWing = true;
             break;
@@ -404,16 +404,16 @@ CarBlueprint makeBlueprint(VehicleKind kind) {
             b.groundClear = 0.125f;
             b.frontAxleX = b.halfL * 0.62f;
             b.rearAxleX = -b.halfL * 0.60f;
-            b.wheelR = 0.36f; b.wheelW = 0.30f;
+            b.wheelR = 0.335f; b.wheelW = 0.27f;
             b.xHoodStart = b.halfL - 0.25f;
             b.xCowl = b.halfL * 0.34f;
             b.xRoofFront = b.halfL * 0.05f;
             b.xBpillar = -b.halfL * 0.18f;
             b.xRoofRear = -b.halfL * 0.44f;
             b.xRearDeck = -b.halfL * 0.90f;
-            b.yNose = 0.48f; b.yCowl = 0.69f; b.yBeltRear = 0.80f; b.yRearDeck = 0.82f;
-            b.yRoof = 1.10f; b.roofHalfW = b.halfW * 0.59f;
-            b.noseTaper = 0.85f; b.rearTaper = 0.96f;
+            b.yNose = 0.64f; b.yCowl = 0.78f; b.yBeltRear = 0.86f; b.yRearDeck = 0.87f;
+            b.yRoof = 1.15f; b.roofHalfW = b.halfW * 0.60f;
+            b.noseTaper = 0.88f; b.rearTaper = 0.96f;
             b.hasRearDoor = false;
             b.tallGtWing = true;
             break;
@@ -423,16 +423,16 @@ CarBlueprint makeBlueprint(VehicleKind kind) {
             b.groundClear = 0.155f;
             b.frontAxleX = b.halfL * 0.61f;
             b.rearAxleX = -b.halfL * 0.59f;
-            b.wheelR = 0.345f; b.wheelW = 0.26f;
+            b.wheelR = 0.340f; b.wheelW = 0.25f;
             b.xHoodStart = b.halfL - 0.22f;
             b.xCowl = b.halfL * 0.30f;
             b.xRoofFront = 0.05f;
             b.xBpillar = -b.halfL * 0.22f;
             b.xRoofRear = -b.halfL * 0.52f;
             b.xRearDeck = -b.halfL * 0.80f;
-            b.yNose = 0.61f; b.yCowl = 0.81f; b.yBeltRear = 0.87f; b.yRearDeck = 0.86f;
-            b.yRoof = 1.27f; b.roofHalfW = b.halfW * 0.71f;
-            b.noseTaper = 0.88f; b.rearTaper = 0.93f;
+            b.yNose = 0.66f; b.yCowl = 0.82f; b.yBeltRear = 0.88f; b.yRearDeck = 0.87f;
+            b.yRoof = 1.28f; b.roofHalfW = b.halfW * 0.71f;
+            b.noseTaper = 0.89f; b.rearTaper = 0.93f;
             b.hasRearDoor = false;
             b.tallGtWing = true;
             break;
@@ -442,14 +442,14 @@ CarBlueprint makeBlueprint(VehicleKind kind) {
             b.groundClear = 0.18f;
             b.frontAxleX = b.halfL * 0.62f;
             b.rearAxleX = -b.halfL * 0.58f;
-            b.wheelR = 0.37f; b.wheelW = 0.27f;
+            b.wheelR = 0.365f; b.wheelW = 0.26f;
             b.xHoodStart = b.halfL - 0.16f;
             b.xCowl = b.halfL * 0.22f;
             b.xRoofFront = -b.halfL * 0.04f;
             b.xBpillar = -b.halfL * 0.24f;
             b.xRoofRear = -b.halfL * 0.54f;
             b.xRearDeck = -b.halfL * 0.84f;
-            b.yNose = 0.72f; b.yCowl = 0.88f; b.yBeltRear = 0.93f; b.yRearDeck = 0.91f;
+            b.yNose = 0.73f; b.yCowl = 0.88f; b.yBeltRear = 0.93f; b.yRearDeck = 0.91f;
             b.yRoof = 1.32f; b.roofHalfW = b.halfW * 0.72f;
             b.noseTaper = 0.93f; b.rearTaper = 0.95f;
             b.hasRearDoor = false;
@@ -461,14 +461,14 @@ CarBlueprint makeBlueprint(VehicleKind kind) {
             b.groundClear = 0.17f;
             b.frontAxleX = b.halfL * 0.62f;
             b.rearAxleX = -b.halfL * 0.58f;
-            b.wheelR = 0.34f; b.wheelW = 0.23f;
+            b.wheelR = 0.335f; b.wheelW = 0.23f;
             b.xCowl = b.halfL * 0.24f;
             b.xRoofFront = -b.halfL * 0.02f;
             b.xBpillar = -b.halfL * 0.35f;
             b.xRoofRear = -b.halfL * 0.46f;
             b.xRearDeck = -b.halfL * 0.52f;
-            b.yNose = 0.64f; b.yCowl = 0.79f; b.yBeltRear = 0.82f; b.yRearDeck = 0.82f;
-            b.yRoof = 1.18f; b.roofHalfW = b.halfW * 0.74f;
+            b.yNose = 0.66f; b.yCowl = 0.80f; b.yBeltRear = 0.84f; b.yRearDeck = 0.84f;
+            b.yRoof = 1.19f; b.roofHalfW = b.halfW * 0.74f;
             b.openTop = true;
             b.hasRearDoor = false;
             break;
@@ -761,16 +761,17 @@ float flankZAt(const CarBlueprint& b, float x, float y) {
 void addWheelArchAndWell(MeshBuilder3D& bodyMb, MeshBuilder3D& trimMb, const CarBlueprint& b,
                          float axleX, float sideSign) {
     (void)bodyMb;
-    const float archR = b.wheelR + 0.068f;
-    const float outerR = archR + 0.024f;
     const float centerY = b.wheelR + 0.015f;
+    const float maxArchR = std::max(b.wheelR + 0.030f, beltYAt(b, axleX) - centerY - 0.036f);
+    const float archR = std::min(b.wheelR + 0.068f, maxArchR);
+    const float outerR = archR + 0.020f;
     const float wScaleAxle = planWidthScale(b, axleX);
     const float zFlankAxle = b.halfW * wScaleAxle;
-    const float zWellIn = std::max(0.28f, zFlankAxle - b.wheelW - 0.13f);
+    const float zWellBase = std::max(0.28f, zFlankAxle - b.wheelW - 0.13f);
 
     const int segs = 18;
-    const float angStart = -0.08f;
-    const float angEnd = kPi + 0.08f;
+    const float angStart = -0.04f;
+    const float angEnd = kPi + 0.04f;
     const ColorRGBA kWellDark{18, 20, 24, 255};
     const ColorRGBA kArchLip{26, 28, 34, 255};
 
@@ -778,10 +779,10 @@ void addWheelArchAndWell(MeshBuilder3D& bodyMb, MeshBuilder3D& trimMb, const Car
         const float a0 = lerpf(angStart, angEnd, static_cast<float>(i) / static_cast<float>(segs));
         const float a1 = lerpf(angStart, angEnd, static_cast<float>(i + 1) / static_cast<float>(segs));
 
-        const float xIn0 = axleX + std::cos(a0) * archR;
-        const float xIn1 = axleX + std::cos(a1) * archR;
-        const float xOut0 = axleX + std::cos(a0) * outerR;
-        const float xOut1 = axleX + std::cos(a1) * outerR;
+        const float xIn0 = std::clamp(axleX + std::cos(a0) * archR, b.xRearTip + 0.06f, b.xFrontNose - 0.08f);
+        const float xIn1 = std::clamp(axleX + std::cos(a1) * archR, b.xRearTip + 0.06f, b.xFrontNose - 0.08f);
+        const float xOut0 = std::clamp(axleX + std::cos(a0) * outerR, b.xRearTip + 0.05f, b.xFrontNose - 0.07f);
+        const float xOut1 = std::clamp(axleX + std::cos(a1) * outerR, b.xRearTip + 0.05f, b.xFrontNose - 0.07f);
 
         // Clamp strictly below beltline AT EACH VERTEX's exact longitudinal X
         const float maxYIn0  = beltYAt(b, xIn0)  - 0.048f;
@@ -796,15 +797,17 @@ void addWheelArchAndWell(MeshBuilder3D& bodyMb, MeshBuilder3D& trimMb, const Car
 
         const float zOut0 = flankZAt(b, xOut0, yOut0) + 0.002f;
         const float zOut1 = flankZAt(b, xOut1, yOut1) + 0.002f;
-        const float zLip0 = flankZAt(b, xIn0,  yIn0)  + 0.004f; // Razor-flush 2mm OEM dark wheel-arch edge (ZERO white shelf!)
-        const float zLip1 = flankZAt(b, xIn1,  yIn1)  + 0.004f;
+        const float zLip0 = flankZAt(b, xIn0,  yIn0)  + 0.003f;
+        const float zLip1 = flankZAt(b, xIn1,  yIn1)  + 0.003f;
+        const float zWellIn0 = std::min(zWellBase, zLip0 - 0.055f);
+        const float zWellIn1 = std::min(zWellBase, zLip1 - 0.055f);
 
         const Vec3 pOut0{xOut0, yOut0, sideSign * zOut0};
         const Vec3 pOut1{xOut1, yOut1, sideSign * zOut1};
         const Vec3 pLip0{xIn0,  yIn0,  sideSign * zLip0};
         const Vec3 pLip1{xIn1,  yIn1,  sideSign * zLip1};
-        const Vec3 pRet0{xIn0,  yIn0,  sideSign * (zLip0 - 0.036f)};
-        const Vec3 pRet1{xIn1,  yIn1,  sideSign * (zLip1 - 0.036f)};
+        const Vec3 pRet0{xIn0,  yIn0,  sideSign * (zLip0 - 0.034f)};
+        const Vec3 pRet1{xIn1,  yIn1,  sideSign * (zLip1 - 0.034f)};
 
         if (sideSign > 0.0f) {
             trimMb.addQuad(pOut0, pLip0, pLip1, pOut1, kArchLip);
@@ -814,12 +817,12 @@ void addWheelArchAndWell(MeshBuilder3D& bodyMb, MeshBuilder3D& trimMb, const Car
             trimMb.addQuad(pRet0, pLip0, pLip1, pRet1, kWellDark);
         }
 
-        // Deep matte-black wheel-house arch liner & back wall (so you never see through the wheel well!)
+        // Deep matte-black wheel-house arch liner & back wall (strictly tucked inside flank!)
         const Vec3 wOuter0{xIn0, yIn0, sideSign * (zLip0 - 0.032f)};
         const Vec3 wOuter1{xIn1, yIn1, sideSign * (zLip1 - 0.032f)};
-        const Vec3 wInner0{xIn0, yIn0, sideSign * zWellIn};
-        const Vec3 wInner1{xIn1, yIn1, sideSign * zWellIn};
-        const Vec3 wCenter{axleX, centerY, sideSign * zWellIn};
+        const Vec3 wInner0{xIn0, yIn0, sideSign * zWellIn0};
+        const Vec3 wInner1{xIn1, yIn1, sideSign * zWellIn1};
+        const Vec3 wCenter{axleX, centerY, sideSign * std::min(zWellIn0, zWellIn1)};
 
         if (sideSign > 0.0f) {
             trimMb.addQuad(wOuter0, wInner0, wInner1, wOuter1, kWellDark);
@@ -1089,18 +1092,18 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
                 const float fy = lerpf(damBot, damTop, static_cast<float>(f) / 3.0f);
                 trimMb.addBox({xTipCenter + 0.004f, fy, 0.0f}, {0.030f, 0.015f, damW * 1.92f}, kTrimBlack);
             }
-            // Sculpted outer side brake-cooling vents flanking the main air dam
+            // Sculpted outer side brake-cooling vents flanking the main air dam (strictly flush inside curved bumper!)
             for (float s : {-1.0f, 1.0f}) {
-                const float vx = frontColX(0.76f, 0.98f);
-                const float vz = s * wNose * 0.74f;
-                const Vec3 fwd{std::cos(s * 0.28f), 0.0f, std::sin(s * 0.28f)};
+                const float vx = frontColX(0.70f, 0.96f);
+                const float vz = s * wNose * 0.68f;
+                const Vec3 fwd{std::cos(s * 0.26f), 0.0f, std::sin(s * 0.26f)};
                 const Vec3 lat{-fwd.z, 0.0f, fwd.x};
-                trimMb.addOrientedBox({vx - 0.01f, 0.5f * (damBot + damTop) + 0.01f, vz},
-                                      {0.042f, (damTop - damBot) * 0.44f, wNose * 0.16f},
+                trimMb.addOrientedBox({vx - 0.022f, 0.5f * (damBot + damTop) + 0.01f, vz},
+                                      {0.030f, (damTop - damBot) * 0.42f, wNose * 0.125f},
                                       fwd, {0, 1, 0}, lat, kTrimDark);
                 // Sleek carbon/gloss-black aero vane inside side intake
-                trimMb.addOrientedBox({vx + 0.012f, 0.5f * (damBot + damTop) + 0.01f, vz},
-                                      {0.014f, 0.010f, wNose * 0.15f},
+                trimMb.addOrientedBox({vx - 0.004f, 0.5f * (damBot + damTop) + 0.01f, vz},
+                                      {0.012f, 0.010f, wNose * 0.115f},
                                       fwd, {0, 1, 0}, lat, kDloGloss);
             }
             // Sleek small metallic hood crest badge on curved nose bridge
@@ -1493,16 +1496,21 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
                 bodyMb.addQuad(l0, m0, m1, l1, kWhite);
                 bodyMb.addQuad(m0, r0, r1, m1, kWhite);
             }
-            // Subtle glossy-black panoramic sunroof accent conforming flush to roof crown!
-            if (b.bodyType == CarBodyType::CoupeFastback || b.bodyType == CarBodyType::SedanFourDoor ||
-                b.bodyType == CarBodyType::SuvWagon) {
+            // Subtle glossy-black panoramic sunroof conforming 100% flush to 2-slope roof crown (ZERO holes or clipping!)
+            if ((b.bodyType == CarBodyType::CoupeFastback || b.bodyType == CarBodyType::SedanFourDoor ||
+                 b.bodyType == CarBodyType::SuvWagon) && b.yRoof >= 1.22f) {
                 const float sunF = lerpf(b.xRoofRear, b.xRoofFront, 0.78f);
                 const float sunB = lerpf(b.xRoofRear, b.xRoofFront, 0.28f);
-                const float sunYF = roofSideYAt(b, sunF) + b.yRoofCrown * 0.62f;
-                const float sunYB = roofSideYAt(b, sunB) + b.yRoofCrown * 0.62f;
-                const float sunW = b.roofHalfW * 0.62f;
-                trimMb.addQuad({sunB, sunYB, -sunW}, {sunB, sunYB, sunW},
-                               {sunF, sunYF, sunW}, {sunF, sunYF, -sunW}, kDloGloss);
+                const float sunFrac = 0.62f;
+                const float sunW = b.roofHalfW * sunFrac;
+                const float ySideF = roofSideYAt(b, sunF) + b.yRoofCrown * (1.0f - sunFrac) + 0.005f;
+                const float ySideB = roofSideYAt(b, sunB) + b.yRoofCrown * (1.0f - sunFrac) + 0.005f;
+                const float yMidF  = roofSideYAt(b, sunF) + b.yRoofCrown + 0.005f;
+                const float yMidB  = roofSideYAt(b, sunB) + b.yRoofCrown + 0.005f;
+                trimMb.addQuad({sunB, ySideB, -sunW}, {sunB, yMidB, 0.0f},
+                               {sunF, yMidF, 0.0f},   {sunF, ySideF, -sunW}, kDloGloss);
+                trimMb.addQuad({sunB, yMidB, 0.0f},   {sunB, ySideB, sunW},
+                               {sunF, ySideF, sunW},  {sunF, yMidF, 0.0f},   kDloGloss);
             }
         }
 
@@ -1600,28 +1608,32 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
 
     // ------------------------------------------------------------------------
     // 6. REAL 3D DARK LUXURY INTERIOR CABIN (Dashboard, Steering Wheel, Bucket Seats!)
-    //    (Visible cleanly through the smoked curved glass — adds HUGE realism!)
+    //    (Strictly clamped below roofline — ZERO headrest or seat roof clipping!)
     // ------------------------------------------------------------------------
     {
-        const float cabY = b.groundClear + 0.14f;
+        const float cabY = b.groundClear + 0.12f;
+        const float maxSeatTop = std::max(cabY + 0.36f, b.yRoof - 0.18f);
         const float dashX = b.xCowl - 0.16f;
         const float seatX = lerpf(b.xCowl, b.xBpillar, 0.68f);
-        const float seatZ = b.beltHalfW * 0.40f;
-        const float dashW = b.beltHalfW * 1.62f;
+        const float seatZ = b.beltHalfW * 0.38f;
+        const float dashW = b.beltHalfW * 1.56f;
         // Sculpted dark dashboard & instrument binnacle
-        interiorMb.addBox({dashX, b.yCowl - 0.10f, 0.0f}, {0.34f, 0.24f, dashW}, kInteriorDark);
-        interiorMb.addBox({dashX - 0.06f, b.yCowl + 0.02f, -seatZ}, {0.16f, 0.09f, 0.34f}, kTrimDark);
+        interiorMb.addBox({dashX, std::min(b.yCowl - 0.10f, maxSeatTop - 0.16f), 0.0f}, {0.34f, 0.22f, dashW}, kInteriorDark);
+        interiorMb.addBox({dashX - 0.06f, std::min(b.yCowl + 0.01f, maxSeatTop - 0.08f), -seatZ}, {0.16f, 0.08f, 0.32f}, kTrimDark);
         // Center infotainment screen + center console tunnel
-        interiorMb.addBox({dashX - 0.12f, b.yCowl + 0.01f, 0.0f}, {0.05f, 0.13f, 0.22f}, {32, 46, 62, 255});
-        interiorMb.addBox({seatX, cabY + 0.18f, 0.0f}, {1.25f, 0.32f, 0.26f}, kInteriorDark);
+        interiorMb.addBox({dashX - 0.12f, std::min(b.yCowl, maxSeatTop - 0.09f), 0.0f}, {0.05f, 0.12f, 0.22f}, {32, 46, 62, 255});
+        interiorMb.addBox({seatX, cabY + 0.16f, 0.0f}, {1.20f, 0.28f, 0.24f}, kInteriorDark);
         // Left-hand drive steering column & rim
-        interiorMb.addCylinderX({dashX - 0.20f, b.yCowl - 0.02f, -seatZ}, 0.14f, 0.04f, 12, kTrimDark);
-        // Twin front bucket seats + bolsters + headrests
+        interiorMb.addCylinderX({dashX - 0.20f, std::min(b.yCowl - 0.03f, maxSeatTop - 0.12f), -seatZ}, 0.13f, 0.04f, 12, kTrimDark);
+        // Twin front bucket seats + bolsters + headrests (strictly below maxSeatTop!)
+        const float backH = std::min(0.46f, std::max(0.24f, (maxSeatTop - 0.14f) - (cabY + 0.16f)));
+        const float backCenterY = cabY + 0.16f + backH * 0.5f;
+        const float headCenterY = std::min(cabY + 0.16f + backH + 0.065f, maxSeatTop - 0.065f);
         for (float s : {-1.0f, 1.0f}) {
             if (b.isSeoulBus && s > 0.0f) continue; // Right side is front boarding aisle on Seoul Bus!
-            interiorMb.addBox({seatX, cabY + 0.14f, s * seatZ}, {0.46f, 0.14f, 0.44f}, kInteriorSeat);
-            interiorMb.addBox({seatX - 0.18f, cabY + 0.42f, s * seatZ}, {0.14f, 0.50f, 0.42f}, kInteriorSeat);
-            interiorMb.addBox({seatX - 0.20f, cabY + 0.74f, s * seatZ}, {0.11f, 0.18f, 0.22f}, kInteriorDark);
+            interiorMb.addBox({seatX, cabY + 0.12f, s * seatZ}, {0.44f, 0.12f, 0.42f}, kInteriorSeat);
+            interiorMb.addBox({seatX - 0.17f, backCenterY, s * seatZ}, {0.13f, backH, 0.40f}, kInteriorSeat);
+            interiorMb.addBox({seatX - 0.19f, headCenterY, s * seatZ}, {0.10f, 0.13f, 0.20f}, kInteriorDark);
         }
         // Passenger rows & yellow grab poles inside Seoul City Bus (visible through panoramic glass!)
         if (b.isSeoulBus) {
@@ -1635,13 +1647,16 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
                 }
             }
         }
-        // Rear bench seat (for 4-door / SUV / Compact / Coupe)
-        if (!b.openTop && !b.isHighBox && !b.openBed) {
-            const float rearSeatX = lerpf(b.xBpillar, b.xRearDeck, 0.45f);
-            interiorMb.addBox({rearSeatX, cabY + 0.14f, 0.0f}, {0.42f, 0.15f, dashW * 0.86f}, kInteriorSeat);
-            interiorMb.addBox({rearSeatX - 0.16f, cabY + 0.40f, 0.0f}, {0.14f, 0.46f, dashW * 0.84f}, kInteriorSeat);
+        // Rear bench seat (ONLY for 4-door sedans/SUVs/Compacts with full rear headroom — NEVER low-slung 2-seat supercars!)
+        if (!b.openTop && !b.isHighBox && !b.openBed && b.yRoof >= 1.24f) {
+            const float rearSeatX = lerpf(b.xBpillar, b.xRearDeck, 0.40f);
+            const float rMaxTop = std::max(cabY + 0.34f, b.yRoof - 0.22f);
+            const float rBackH = std::min(0.42f, std::max(0.22f, (rMaxTop - 0.12f) - (cabY + 0.15f)));
+            interiorMb.addBox({rearSeatX, cabY + 0.12f, 0.0f}, {0.40f, 0.14f, dashW * 0.84f}, kInteriorSeat);
+            interiorMb.addBox({rearSeatX - 0.15f, cabY + 0.15f + rBackH * 0.5f, 0.0f}, {0.13f, rBackH, dashW * 0.82f}, kInteriorSeat);
             for (float s : {-1.0f, 1.0f}) {
-                interiorMb.addBox({rearSeatX - 0.18f, cabY + 0.68f, s * seatZ}, {0.10f, 0.15f, 0.20f}, kInteriorDark);
+                interiorMb.addBox({rearSeatX - 0.17f, std::min(cabY + 0.15f + rBackH + 0.06f, rMaxTop - 0.06f), s * seatZ},
+                                  {0.09f, 0.12f, 0.19f}, kInteriorDark);
             }
         }
     }
@@ -1860,7 +1875,7 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
 
     set.frontAxleX = b.frontAxleX;
     set.rearAxleX  = b.rearAxleX;
-    set.wheelTrackZ = b.halfW - b.wheelW * 0.44f;
+    set.wheelTrackZ = b.halfW * 0.96f - b.wheelW * 0.48f;
     set.wheelRadius = b.wheelR;
     set.wheelWidth  = b.wheelW;
 

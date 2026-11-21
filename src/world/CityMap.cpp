@@ -108,6 +108,9 @@ bool CityMap::isOnYeouidoIsland(const Vec2& p) const {
 }
 
 bool CityMap::isInHanRiverWater(const Vec2& p, float margin) const {
+    if (realData_.isLoaded() && realData_.isInCoreBounds(p)) {
+        return realData_.isInWater(p);
+    }
     if (isOnYeouidoIsland(p)) return false;
     const float cz = hanRiverCenterZ(p.x);
     const float hw = hanRiverHalfWidth(p.x) - margin;
@@ -188,6 +191,9 @@ bool CityMap::isOnRiversideExpressway(const Vec2& p) const {
 }
 
 float CityMap::terrainElevationAt(const Vec2& p) const {
+    if (realData_.isLoaded()) {
+        return realData_.sampleDem(p);
+    }
     // Flat inside Han River water & immediate riverside parks/islands
     if (isInHanRiverWater(p, -60.0f) || isOnYeouidoIsland(p)) {
         return 0.0f;
@@ -253,8 +259,34 @@ const SeoulBridge* CityMap::findBridgeAt(const Vec2& p, float margin) const {
     return nullptr;
 }
 
+bool CityMap::isOnBridge(const Vec2& p, float margin) const {
+    if (realData_.isLoaded() && realData_.isInCoreBounds(p)) {
+        return realData_.isOnBridge(p, margin);
+    }
+    return findBridgeAt(p, margin) != nullptr;
+}
+
 float CityMap::bridgeDeckElevationAt(const Vec2& p, float* outSlopeZ) const {
     if (outSlopeZ) *outSlopeZ = 0.0f;
+    if (realData_.isLoaded() && realData_.isInCoreBounds(p)) {
+        const NearestOsmRoad nr = realData_.findNearestRoad(p, 18.0f);
+        if (!nr.found || !nr.isBridge || nr.dist > nr.halfWidth + 2.2f) return 0.0f;
+        const Vec2 perp{-nr.tangent.z, nr.tangent.x};
+        const float demRaw = realData_.sampleDem(p);
+        // Filter SRTM 30m bridge-radar spikes so twin Han River bridge carriageways share an identical level deck!
+        const float waterRef = std::min({demRaw,
+                                         realData_.sampleDem(p + perp * 26.0f),
+                                         realData_.sampleDem(p - perp * 26.0f)});
+        float wSum = 0.0f;
+        constexpr float kOffsets[5] = {-64.0f, -32.0f, 0.0f, 32.0f, 64.0f};
+        constexpr float kWeights[5] = {0.12f, 0.20f, 0.36f, 0.20f, 0.12f};
+        for (int i = 0; i < 5; ++i) {
+            if (realData_.isInWater(p + nr.tangent * kOffsets[i])) wSum += kWeights[i];
+        }
+        const float baseElev = lerpf(demRaw, waterRef, clampf(wSum * 1.4f, 0.0f, 1.0f));
+        return baseElev + lerpf(0.06f, 9.2f, wSum);
+    }
+
     const SeoulBridge* br = findBridgeAt(p, 1.0f);
     if (!br) return 0.0f;
 
@@ -286,6 +318,13 @@ float CityMap::bridgeDeckElevationAt(const Vec2& p, float* outSlopeZ) const {
 }
 
 float CityMap::surfaceHeightAt(const Vec2& p) const {
+    if (realData_.isLoaded()) {
+        const float demY = realData_.sampleDem(p);
+        if (realData_.isInCoreBounds(p) && realData_.isOnBridge(p, 1.5f)) {
+            return std::max(demY, bridgeDeckElevationAt(p));
+        }
+        return demY;
+    }
     const SeoulBridge* br = findBridgeAt(p, 0.6f);
     if (br != nullptr) {
         return std::max(terrainElevationAt(p), bridgeDeckElevationAt(p));
@@ -312,6 +351,9 @@ bool CityMap::isMajorArterialRoad(int roadIdx, bool horizontal) const {
 }
 
 bool CityMap::isOnRoad(const Vec2& p, float margin) const {
+    if (realData_.isLoaded() && realData_.isInCoreBounds(p)) {
+        return realData_.isOnRoad(p, margin);
+    }
     if (findBridgeAt(p, margin) != nullptr) return true;
     if (isInHanRiverWater(p, -2.0f)) return false;
     if (isOnRiversideExpressway(p)) return true;
@@ -330,6 +372,47 @@ bool CityMap::isInIntersection(const Vec2& p) const {
 }
 
 DistrictType CityMap::districtAtWorld(const Vec2& p) const {
+    if (realData_.isLoaded()) {
+        if (realData_.isInWater(p)) return DistrictType::HanRiverPark;
+        // Exact GPS-calibrated real Seoul district coordinates (Origin 37.5235N, 126.9850E)
+        if (p.x >= -6900.0f && p.x <= -3400.0f && p.z >= -1350.0f && p.z <= 1150.0f) {
+            return DistrictType::YeouidoFinance;
+        }
+        if (p.x >= -2200.0f && p.x <= 1200.0f && p.z <= -5100.0f && p.z >= -7500.0f) {
+            return DistrictType::GwanghwamunPalace;
+        }
+        if (p.x >= -1500.0f && p.x <= 1400.0f && p.z > -5100.0f && p.z <= -3700.0f) {
+            return (p.z < -4500.0f) ? DistrictType::JongnoCheonggye : DistrictType::MyeongdongCityHall;
+        }
+        if (p.x > 1400.0f && p.x <= 4200.0f && p.z <= -3400.0f && p.z >= -6000.0f) {
+            return DistrictType::Dongdaemun;
+        }
+        if (p.x >= -1200.0f && p.x <= 2600.0f && p.z > -3700.0f && p.z <= -300.0f) {
+            return DistrictType::NamsanItaewon;
+        }
+        if (p.x >= -3600.0f && p.x < -1200.0f && p.z > -3700.0f && p.z <= 350.0f) {
+            return DistrictType::Yongsan;
+        }
+        if (p.x < -3600.0f && p.z < -1350.0f) {
+            return DistrictType::HongdaeMapo;
+        }
+        if (p.x >= 3400.0f && p.x <= 9400.0f && p.z < -200.0f && p.z > -4400.0f) {
+            return DistrictType::SeongsuKonkuk;
+        }
+        if (p.x >= 7600.0f && p.z >= -200.0f) {
+            return DistrictType::JamsilSongpa;
+        }
+        if (p.x >= 2100.0f && p.x < 7600.0f && p.z >= 100.0f) {
+            return DistrictType::GangnamTeheran;
+        }
+        if (p.x >= -2000.0f && p.x < 2100.0f && p.z >= 100.0f) {
+            return DistrictType::SeochoBanpo;
+        }
+        if (p.z < -4000.0f) return DistrictType::GangbukNowon;
+        if (p.x < -6200.0f) return DistrictType::GangseoMagok;
+        return DistrictType::GuroGwanak;
+    }
+
     if (isOnYeouidoIsland(p)) return DistrictType::YeouidoFinance;
     if (isInHanRiverWater(p, -10.0f) || isInHanRiverPark(p)) return DistrictType::HanRiverPark;
 
@@ -694,12 +777,207 @@ void CityMap::buildSeoulMacroGeography() {
     });
 }
 
+bool CityMap::loadRealSeoulMap(const std::uint8_t* bytes, std::size_t size) {
+    if (!realData_.loadFromBytes(bytes, size)) {
+        return false;
+    }
+    buildRealSeoulMacroGeography();
+    lastCenterChunkX_ = 999999;
+    lastCenterChunkZ_ = 999999;
+    updateStreaming(realSpawnPos_, true);
+    return true;
+}
+
+bool CityMap::loadRealSeoulMapFromFile(const std::string& path) {
+    if (!realData_.loadFromFile(path)) {
+        return false;
+    }
+    buildRealSeoulMacroGeography();
+    lastCenterChunkX_ = 999999;
+    lastCenterChunkZ_ = 999999;
+    updateStreaming(realSpawnPos_, true);
+    return true;
+}
+
+void CityMap::buildRealSeoulMacroGeography() {
+    // Keep mountains_, perimeterMountains_, bridges_, tributaries_, arterials_ metadata populated,
+    // while snapping landmarks_, macroBuildings_, spawn, and POIs to EXACT Real-OSM GPS coordinates!
+    // Origin (0,0) = 37.5235N, 126.9850E (+X=East, +Z=South).
+    landmarks_ = {
+        {SeoulLandmarkKind::LotteWorldTower,     {10376.0f,  1222.0f}, 555.0f, "Lotte World Tower (555m)", "롯데월드타워 (555m)",      DistrictType::JamsilSongpa,      -0.35f},
+        {SeoulLandmarkKind::NSeoulTower,         {  283.0f, -3078.0f}, 236.0f, "N Seoul Tower (Namsan)",   "N서울타워 (남산)",         DistrictType::NamsanItaewon,      0.00f},
+        {SeoulLandmarkKind::GyeongbokgungPalace, { -706.0f, -6235.0f},  26.0f, "Gyeongbokgung Palace",     "경복궁 · 광화문",          DistrictType::GwanghwamunPalace,  kHalfPi},
+        {SeoulLandmarkKind::Building63,          {-3947.0f,   456.0f}, 249.0f, "63 Square Tower",          "여의도 63빌딩",            DistrictType::YeouidoFinance,     0.48f},
+        {SeoulLandmarkKind::NationalAssembly,    {-6252.0f,  -922.0f},  58.0f, "National Assembly",        "국회의사당",               DistrictType::YeouidoFinance,     0.18f},
+        {SeoulLandmarkKind::Parc1RedTower,       {-5045.0f,  -248.0f}, 333.0f, "Yeouido Parc1 Tower",      "여의도 파크원",            DistrictType::YeouidoFinance,     0.24f},
+        {SeoulLandmarkKind::CoexTradeTower,      { 6587.0f,  1322.0f}, 228.0f, "COEX & Trade Tower",       "삼성동 코엑스 · 무역센터", DistrictType::GangnamTeheran,     0.00f},
+        {SeoulLandmarkKind::SeoulCityHall,       { -627.0f, -4756.0f},  72.0f, "Seoul City Hall",          "서울시청 · 서울광장",      DistrictType::MyeongdongCityHall, kHalfPi},
+        {SeoulLandmarkKind::SungnyemunGate,      { -845.0f, -4032.0f},  22.0f, "Sungnyemun Gate",          "숭례문 (남대문)",          DistrictType::MyeongdongCityHall, kHalfPi},
+        {SeoulLandmarkKind::DongdaemunDDP,       { 2155.0f, -4812.0f},  29.0f, "Dongdaemun DDP",           "동대문 DDP",               DistrictType::Dongdaemun,         0.12f},
+        {SeoulLandmarkKind::JamsilStadium,       { 7750.0f,   920.0f},  44.0f, "Jamsil Olympic Stadium",   "잠실종합운동장",           DistrictType::JamsilSongpa,       0.00f},
+        {SeoulLandmarkKind::GangnamStationPlaza, { 3764.0f,  2845.0f},  95.0f, "Gangnam Station",          "강남역 · 테헤란로",        DistrictType::GangnamTeheran,    -0.35f}
+    };
+
+    macroBuildings_.clear();
+    auto addMacro = [&](Vec2 center, Vec2 halfExt, float height, float upperH,
+                        ColorRGBA prim, ColorRGBA acc, BuildingStyle style, bool helipad = false) {
+        Building b{};
+        b.footprint = {{center.x - halfExt.x, center.z - halfExt.z},
+                       {center.x + halfExt.x, center.z + halfExt.z}};
+        b.baseY = realData_.sampleDem(center);
+        b.height = height;
+        b.upperTierHeight = upperH;
+        b.primaryColor = prim;
+        b.accentColor = acc;
+        b.style = style;
+        b.litWindows = true;
+        b.hasHelipad = helipad;
+        b.isMacroLandmark = true;
+        b.streetEdgeMask = 0x0Fu;
+        macroBuildings_.push_back(b);
+    };
+
+    addMacro({10376.0f, 1222.0f}, {30.0f, 30.0f}, 555.0f, 0.0f,
+             {162, 184, 206, 255}, {214, 224, 236, 255}, BuildingStyle::SupertallSpire, false);
+    addMacro({-3947.0f, 456.0f}, {25.0f, 21.0f}, 249.0f, 0.0f,
+             {174, 146, 84, 255}, {212, 186, 122, 255}, BuildingStyle::GlassTower, true);
+    addMacro({-5045.0f, -248.0f}, {20.0f, 20.0f}, 333.0f, 0.0f,
+             {148, 164, 184, 255}, {178, 44, 42, 255}, BuildingStyle::GlassTower, true);
+    addMacro({-6252.0f, -922.0f}, {32.0f, 40.0f}, 36.0f, 22.0f,
+             {196, 192, 184, 255}, {76, 152, 144, 255}, BuildingStyle::CivicLandmark, false);
+    addMacro({6587.0f, 1322.0f}, {24.0f, 24.0f}, 228.0f, 0.0f,
+             {96, 118, 142, 255}, {172, 190, 210, 255}, BuildingStyle::GlassTower, true);
+    addMacro({-706.0f, -6235.0f}, {32.0f, 24.0f}, 24.0f, 10.0f,
+             {162, 54, 44, 255}, {58, 116, 86, 255}, BuildingStyle::HanokPalace, false);
+    addMacro({-627.0f, -4756.0f}, {32.0f, 24.0f}, 56.0f, 16.0f,
+             {116, 144, 168, 255}, {198, 206, 216, 255}, BuildingStyle::CivicLandmark, false);
+    addMacro({-845.0f, -4032.0f}, {16.0f, 10.0f}, 18.0f, 6.0f,
+             {166, 160, 152, 255}, {58, 110, 82, 255}, BuildingStyle::HanokPalace, false);
+    addMacro({2155.0f, -4812.0f}, {48.0f, 26.0f}, 26.0f, 0.0f,
+             {196, 202, 210, 255}, {132, 140, 150, 255}, BuildingStyle::CivicLandmark, false);
+    addMacro({7750.0f, 920.0f}, {62.0f, 76.0f}, 38.0f, 0.0f,
+             {188, 186, 180, 255}, {122, 134, 152, 255}, BuildingStyle::CivicLandmark, false);
+
+    // Find guaranteed-clear sidewalk on real Gangnam Station / Teheran-ro boulevard!
+    auto pickClearSidewalk = [&](const Vec2& anchor, float sideSign, float extraDist, float& outYaw) -> Vec2 {
+        const NearestOsmRoad nr = realData_.findNearestRoad(anchor, 90.0f);
+        if (!nr.found) {
+            outYaw = -0.35f;
+            return anchor;
+        }
+        outYaw = std::atan2(nr.tangent.z, nr.tangent.x);
+        const Vec2 rightN{-nr.tangent.z, nr.tangent.x};
+        const float tryOffsets[4] = {
+            nr.halfWidth + extraDist,
+            -(nr.halfWidth + extraDist),
+            nr.halfWidth + 0.9f,
+            0.0f
+        };
+        for (int k = 0; k < 4; ++k) {
+            Vec2 cand = nr.closestPt + rightN * (tryOffsets[k] * sideSign);
+            Vec2 test = cand;
+            if (!realData_.isInWater(cand) && !realData_.resolveCircleBuildings(test, 1.35f)) {
+                return cand;
+            }
+        }
+        return nr.closestPt;
+    };
+
+    // Pick a wide, unobstructed mid-block lane on real Teheran-ro boulevard (Gangnam)
+    // with >= 50m clear skyscraper-canyon sightline straight ahead & >= 16m behind!
+    {
+        std::vector<std::uint32_t> candRoads;
+        const Vec2 teheranAnchor{4060.0f, 2720.0f};
+        realData_.queryChunkRoads(teheranAnchor, 320.0f, candRoads);
+        const auto& roads = realData_.roads();
+        const auto& rVerts = realData_.roadVerts();
+
+        bool foundBoulevard = false;
+        float bestScore = 1e18f;
+        Vec2 bestPos = teheranAnchor;
+        float bestYaw = -0.35f;
+
+        for (std::uint32_t ri : candRoads) {
+            const OsmRoadRec& r = roads[ri];
+            if (r.roadClass > 2 || r.halfWidth < 7.5f || (r.flags & 2u) != 0u || r.vertCount < 2) continue;
+            for (std::uint16_t i = 0; i + 1 < r.vertCount; ++i) {
+                const Vec2 p0 = rVerts[r.firstVert + i];
+                const Vec2 p1 = rVerts[r.firstVert + i + 1];
+                const Vec2 seg = p1 - p0;
+                const float segLen = seg.length();
+                if (segLen < 20.0f) continue;
+                const Vec2 dir = seg / segLen;
+                const Vec2 mid = (p0 + p1) * 0.5f;
+                const Vec2 rightN{-dir.z, dir.x};
+                const Vec2 cand = mid + rightN * 2.2f;
+                Vec2 probe = cand;
+                if (realData_.isInWater(cand) || realData_.resolveCircleBuildings(probe, 4.5f)) continue;
+                // Prefer looking ENE down Teheran-ro toward COEX & Lotte World Tower (dir.x > 0)!
+                const Vec2 lookDir = (dir.x >= 0.0f) ? dir : (dir * -1.0f);
+                const float fwdClear = realData_.raycastBuildings2D(cand, lookDir, 55.0f);
+                const float bwdClear = realData_.raycastBuildings2D(cand, lookDir * -1.0f, 18.0f);
+                if (fwdClear >= 0.0f || bwdClear >= 0.0f) continue;
+
+                const float dAnchor = (cand - teheranAnchor).length();
+                const float score = dAnchor - segLen * 0.4f;
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestPos = cand;
+                    bestYaw = std::atan2(lookDir.z, lookDir.x);
+                    foundBoulevard = true;
+                }
+            }
+        }
+        if (foundBoulevard) {
+            realSpawnPos_ = bestPos;
+            realSpawnYaw_ = bestYaw;
+        } else {
+            realSpawnPos_ = pickClearSidewalk(teheranAnchor, 1.0f, 2.0f, realSpawnYaw_);
+        }
+    }
+    float dummyYaw = 0.0f;
+    realPoliceRespawnPos_ = pickClearSidewalk(realSpawnPos_ + Vec2{85.0f, -32.0f}, 1.0f, 2.0f, dummyYaw);
+
+    // Place all 9 interactive POIs cleanly along real Gangnam / Teheran-ro boulevards near spawn!
+    pois_.clear();
+    const Vec2 fwd{std::cos(realSpawnYaw_), std::sin(realSpawnYaw_)};
+    const Vec2 rgt{-fwd.z, fwd.x};
+    auto addRealPoi = [&](PoiKind kind, Vec2 approxPos, float radius,
+                          const char* en, const char* ko, ColorRGBA col) {
+        float y = 0.0f;
+        const Vec2 p = pickClearSidewalk(approxPos, 1.0f, 1.8f, y);
+        pois_.push_back(PointOfInterest{kind, p, radius, en, ko, col});
+    };
+
+    addRealPoi(PoiKind::CarDealership,    realSpawnPos_ + fwd * 45.0f + rgt * 18.0f, 5.8f,
+               "GANGNAM EXOTIC SHOWROOM", "강남 럭셔리 슈퍼카 전시장", {226, 178, 76, 255});
+    addRealPoi(PoiKind::TuneGarage,       realSpawnPos_ + fwd * 45.0f - rgt * 28.0f, 5.8f,
+               "SEOUL AUTO CUSTOMS", "서울 커스텀 & 튜닝 차고", {76, 184, 218, 255});
+    addRealPoi(PoiKind::WeaponShop,       realSpawnPos_ + fwd * 95.0f + rgt * 18.0f, 5.0f,
+               "AMMU-TECH TACTICAL", "택티컬 장비 & 무기 상점", {224, 92, 66, 255});
+    addRealPoi(PoiKind::ClothingBoutique, realSpawnPos_ + fwd * 95.0f - rgt * 28.0f, 5.0f,
+               "CHEONGDAM LUXURY BOUTIQUE", "청담 명품 의상 부티크", {218, 178, 128, 255});
+    addRealPoi(PoiKind::GasStation,       realSpawnPos_ - fwd * 60.0f + rgt * 22.0f, 6.2f,
+               "SEOUL ENERGY SERVICE", "서울 주유 & 급속 정비소", {224, 94, 66, 255});
+    addRealPoi(PoiKind::NightclubProperty,realSpawnPos_ - fwd * 105.0f - rgt * 24.0f, 5.0f,
+               "GANGNAM LOUNGE CLUB", "강남 라운지 클럽", {188, 96, 236, 255});
+    addRealPoi(PoiKind::MissionDelivery,  realSpawnPos_ + fwd * 22.0f, 4.5f,
+               "EXOTIC DELIVERY CONTRACT", "강남 슈퍼카 긴급 배송", {238, 198, 66, 255});
+    addRealPoi(PoiKind::MissionRace,      realSpawnPos_ - fwd * 24.0f, 4.5f,
+               "TEHERAN-RO NIGHT SPRINT", "테헤란로 야간 스트리트 레이스", {82, 206, 232, 255});
+    addRealPoi(PoiKind::MissionGangRaid,  realSpawnPos_ + fwd * 140.0f + rgt * 20.0f, 4.5f,
+               "GANGNAM SYNDICATE RAID", "조직 거점 소탕 의뢰", {232, 84, 72, 255});
+}
+
 void CityMap::generate(std::uint64_t seed) {
     seed_ = seed;
     buildSeoulMacroGeography();
+    if (realData_.isLoaded()) {
+        buildRealSeoulMacroGeography();
+    }
     lastCenterChunkX_ = 999999;
     lastCenterChunkZ_ = 999999;
-    updateStreaming(defaultSpawnPos(), true);
+    updateStreaming(spawnPos(), true);
 }
 
 void CityMap::generateChunk(int chunkX, int chunkZ) {
@@ -1174,6 +1452,140 @@ void CityMap::generateChunk(int chunkX, int chunkZ) {
     }
 }
 
+void CityMap::streamRealSeoulProps(const Vec2& focus) {
+    // 1) Stream authentic real-world Seoul Metro entrances & Bus Stops from OSM POI table!
+    std::vector<std::uint32_t> poiIds;
+    realData_.queryChunkPois(focus, 360.0f, poiIds);
+    for (std::uint32_t pid : poiIds) {
+        const OsmPoiRec& pr = realData_.pois()[pid];
+        const Vec2 pp{pr.x, pr.z};
+        if ((pp - focus).lengthSq() > 360.0f * 360.0f) continue;
+        if (realData_.isInWater(pp)) continue;
+        const NearestOsmRoad nr = realData_.findNearestRoad(pp, 36.0f);
+        if (!nr.found) continue;
+        // Align BusShelter open front (+Z local -> (-sin yaw, cos yaw)) directly toward road centerline!
+        const Vec2 toRoad = (nr.closestPt - pp).lengthSq() > 0.01f
+                                ? (nr.closestPt - pp).normalized()
+                                : Vec2{-nr.tangent.z, nr.tangent.x};
+        const float faceRoadYaw = std::atan2(-toRoad.x, toRoad.z);
+        if (pr.kind == 0) {
+            streetProps_.push_back(StreetProp{pp, StreetPropKind::SubwayEntrance, faceRoadYaw, false, {}, 0.0f, pp});
+        } else {
+            streetProps_.push_back(StreetProp{pp, StreetPropKind::BusShelter, faceRoadYaw, false, {}, 0.0f, pp});
+        }
+    }
+
+    // 2) Stream road-aligned Korean streetlights, traffic signals, road gantries, hydrants & Ginkgo/Cherry street trees along REAL curved OSM roads!
+    std::vector<std::uint32_t> roadIds;
+    realData_.queryChunkRoads(focus, 330.0f, roadIds);
+    const DistrictType focusDist = districtAtWorld(focus);
+    const TreeSpecies streetSpecies = (focusDist == DistrictType::YeouidoFinance || focusDist == DistrictType::JamsilSongpa)
+                                          ? TreeSpecies::CherryBlossom
+                                          : TreeSpecies::GinkgoDeciduous;
+
+    int gantryCount = 0;
+    for (std::uint32_t ri : roadIds) {
+        const OsmRoadRec& r = realData_.roads()[ri];
+        if (r.roadClass > 3 || (r.flags & 6u) != 0u || r.vertCount < 2) continue; // Skip tiny alleys, bridges, tunnels
+        const auto& verts = realData_.roadVerts();
+        float distAccum = 0.0f;
+        float nextLamp = 14.0f + static_cast<float>(ri % 11u) * 2.0f;
+        float nextTree = 8.0f + static_cast<float>((ri * 7u) % 13u) * 1.5f;
+        bool placedSignal = false;
+
+        for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
+            const Vec2 a = verts[r.firstVert + s];
+            const Vec2 b = verts[r.firstVert + s + 1];
+            const Vec2 e = b - a;
+            const float segLen = e.length();
+            if (segLen < 2.0f) continue;
+            const Vec2 tang = e / segLen;
+            const Vec2 rightN{-tang.z, tang.x};
+            const Vec2 mid = (a + b) * 0.5f;
+            if ((mid - focus).lengthSq() > 340.0f * 340.0f) {
+                distAccum += segLen;
+                continue;
+            }
+
+            // Korean overhead green road gantry on major boulevards (motorway/trunk/primary)!
+            if (r.roadClass <= 2 && segLen > 24.0f && (ri % 5u) == 0u && gantryCount < 14 &&
+                distAccum < 40.0f && !realData_.isInWater(mid)) {
+                // Gantry local X spans across road width (rightN direction), facing tang!
+                const float gYaw = std::atan2(rightN.z, rightN.x);
+                streetProps_.push_back(StreetProp{mid, StreetPropKind::RoadGantry, gYaw, false, {}, 0.0f, mid});
+                ++gantryCount;
+            }
+
+            // Korean 4-aspect traffic signal near road segment junction
+            if (!placedSignal && r.roadClass <= 2 && (ri % 2u) == 0u) {
+                const Vec2 sigPos = a + rightN * (r.halfWidth + 1.15f);
+                Vec2 test = sigPos;
+                if (!realData_.isInWater(sigPos) && !realData_.resolveCircleBuildings(test, 0.7f)) {
+                    const float armYaw = std::atan2(-rightN.z, -rightN.x); // Points over road!
+                    streetProps_.push_back(StreetProp{sigPos, StreetPropKind::TrafficLight, armYaw, false, {}, 0.0f, sigPos});
+                    placedSignal = true;
+                }
+            }
+
+            // Walk segment placing alternating curb streetlights & sidewalk trees cleanly clear of buildings/roads!
+            while (nextLamp < distAccum + segLen) {
+                const float t = clampf((nextLamp - distAccum) / segLen, 0.0f, 1.0f);
+                const float side = (static_cast<int>(nextLamp / 34.0f) & 1) ? 1.0f : -1.0f;
+                const Vec2 lp = a + e * t + rightN * (side * (r.halfWidth + 1.05f));
+                Vec2 test = lp;
+                if (!realData_.isInWater(lp) && !realData_.isOnRoad(lp, 0.15f) &&
+                    !realData_.resolveCircleBuildings(test, 0.65f)) {
+                    const Vec2 armDir = rightN * (-side);
+                    const float armYaw = std::atan2(armDir.z, armDir.x);
+                    streetProps_.push_back(StreetProp{lp, StreetPropKind::StreetLight, armYaw, false, {}, 0.0f, lp});
+                }
+                nextLamp += 36.0f;
+            }
+
+            while (nextTree < distAccum + segLen) {
+                const float t = clampf((nextTree - distAccum) / segLen, 0.0f, 1.0f);
+                const float side = (static_cast<int>(nextTree / 24.0f) & 1) ? -1.0f : 1.0f;
+                const Vec2 tp = a + e * t + rightN * (side * (r.halfWidth + 1.85f));
+                Vec2 test = tp;
+                if (!realData_.isInWater(tp) && !realData_.isOnRoad(tp, 0.35f) &&
+                    !realData_.resolveCircleBuildings(test, 0.95f)) {
+                    const float gy = realData_.sampleDem(tp);
+                    const float hScale = 2.9f + static_cast<float>((ri + s) % 5u) * 0.25f;
+                    trees_.push_back(TreeProp{tp, gy, hScale, 2.3f, true, streetSpecies});
+                }
+                nextTree += 26.0f;
+            }
+            distAccum += segLen;
+        }
+    }
+
+    // 3) Scatter lush natural Korean Pines & Ginkgos inside REAL OSM park triangles near focus!
+    const auto& pTris = realData_.parkTris();
+    for (std::size_t ti = 0; ti < pTris.size(); ++ti) {
+        const OsmTri2D& tr = pTris[ti];
+        const Vec2 c{(tr.x0 + tr.x1 + tr.x2) / 3.0f, (tr.z0 + tr.z1 + tr.z2) / 3.0f};
+        if ((c - focus).lengthSq() > 340.0f * 340.0f) continue;
+        const float area2 = std::abs((tr.x1 - tr.x0) * (tr.z2 - tr.z0) - (tr.x2 - tr.x0) * (tr.z1 - tr.z0));
+        if (area2 < 90.0f) continue;
+        const int count = std::min(4, 1 + static_cast<int>(area2 / 650.0f));
+        Rng prng(hashChunkCoords(seed_, static_cast<int>(ti), 917));
+        for (int k = 0; k < count; ++k) {
+            float u = prng.nextFloat01();
+            float v = prng.nextFloat01();
+            if (u + v > 1.0f) { u = 1.0f - u; v = 1.0f - v; }
+            const float w = 1.0f - u - v;
+            const Vec2 tp{tr.x0 * w + tr.x1 * u + tr.x2 * v, tr.z0 * w + tr.z1 * u + tr.z2 * v};
+            Vec2 test = tp;
+            if (!realData_.isInWater(tp) && !realData_.isOnRoad(tp, 1.0f) &&
+                !realData_.resolveCircleBuildings(test, 1.2f)) {
+                const float gy = realData_.sampleDem(tp);
+                const TreeSpecies sp = (gy > 48.0f || prng.chance(0.45f)) ? TreeSpecies::KoreanPine : streetSpecies;
+                trees_.push_back(TreeProp{tp, gy, prng.range(3.0f, 4.6f), prng.range(2.2f, 3.3f), false, sp});
+            }
+        }
+    }
+}
+
 void CityMap::updateStreaming(const Vec2& focus, bool forceRebuild) {
     const int centerChunkX = static_cast<int>(std::floor(focus.x / kChunkSize));
     const int centerChunkZ = static_cast<int>(std::floor(focus.z / kChunkSize));
@@ -1193,9 +1605,14 @@ void CityMap::updateStreaming(const Vec2& focus, bool forceRebuild) {
     streetProps_.clear();
 
     // Always include macro Seoul landmarks first so collision & rendering work seamlessly everywhere
-    buildings_.reserve(macroBuildings_.size() + 320);
+    buildings_.reserve(macroBuildings_.size() + (realData_.isLoaded() ? 8 : 320));
     for (const auto& mb : macroBuildings_) {
         buildings_.push_back(mb);
+    }
+
+    if (realData_.isLoaded()) {
+        streamRealSeoulProps(focus);
+        return;
     }
 
     for (int dz = -kStreamRadiusChunks; dz <= kStreamRadiusChunks; ++dz) {
@@ -1265,34 +1682,61 @@ bool CityMap::resolveCircleWorld(Vec2& pos, float radius, Vec2* outHitNormal) co
     if (pos.z > kWorldMaxZ - radius) { pos.z = kWorldMaxZ - radius; accumNormal.z -= 1.0f; hit = true; }
 
     // 2) Han River Embankments & Bridge Guardrails
-    const SeoulBridge* br = findBridgeAt(pos, 2.5f);
-    if (br != nullptr) {
-        // Keep vehicle/pedestrian safely inside bridge side guardrails when over water!
-        if (isInHanRiverWater(pos, -6.0f)) {
-            const float railHalf = br->halfWidth - 0.8f - radius;
-            const float dx = pos.x - br->centerX;
-            if (dx > railHalf) {
-                pos.x = br->centerX + railHalf;
-                accumNormal.x -= 1.0f;
-                hit = true;
-            } else if (dx < -railHalf) {
-                pos.x = br->centerX - railHalf;
-                accumNormal.x += 1.0f;
-                hit = true;
+    if (realData_.isLoaded() && realData_.isInCoreBounds(pos)) {
+        if (realData_.isInWater(pos) && !realData_.isOnBridge(pos, 2.0f)) {
+            // Find nearest dry bank direction along 8 cardinal/diagonal rays
+            bool escaped = false;
+            for (float dist = radius + 2.0f; dist <= 28.0f && !escaped; dist += 3.0f) {
+                for (int k = 0; k < 8; ++k) {
+                    const float ang = static_cast<float>(k) * (kTwoPi / 8.0f);
+                    const Vec2 dir{std::cos(ang), std::sin(ang)};
+                    const Vec2 cand = pos + dir * dist;
+                    if (!realData_.isInWater(cand)) {
+                        pos = cand;
+                        accumNormal += dir;
+                        hit = true;
+                        escaped = true;
+                        break;
+                    }
+                }
             }
         }
-    } else if (isInHanRiverWater(pos, -radius)) {
-        // Push gently back onto nearest dry Han River bank!
-        const float cz = hanRiverCenterZ(pos.x);
-        const float hw = hanRiverHalfWidth(pos.x) + radius;
-        if (pos.z >= cz) {
-            pos.z = cz + hw;
-            accumNormal.z += 1.0f;
-        } else {
-            pos.z = cz - hw;
-            accumNormal.z -= 1.0f;
+        // Exact 2D Real-OSM polygon building collisions!
+        Vec2 osmN{};
+        if (realData_.resolveCircleBuildings(pos, radius, &osmN)) {
+            accumNormal += osmN;
+            hit = true;
         }
-        hit = true;
+    } else {
+        const SeoulBridge* br = findBridgeAt(pos, 2.5f);
+        if (br != nullptr) {
+            // Keep vehicle/pedestrian safely inside bridge side guardrails when over water!
+            if (isInHanRiverWater(pos, -6.0f)) {
+                const float railHalf = br->halfWidth - 0.8f - radius;
+                const float dx = pos.x - br->centerX;
+                if (dx > railHalf) {
+                    pos.x = br->centerX + railHalf;
+                    accumNormal.x -= 1.0f;
+                    hit = true;
+                } else if (dx < -railHalf) {
+                    pos.x = br->centerX - railHalf;
+                    accumNormal.x += 1.0f;
+                    hit = true;
+                }
+            }
+        } else if (isInHanRiverWater(pos, -radius)) {
+            // Push gently back onto nearest dry Han River bank!
+            const float cz = hanRiverCenterZ(pos.x);
+            const float hw = hanRiverHalfWidth(pos.x) + radius;
+            if (pos.z >= cz) {
+                pos.z = cz + hw;
+                accumNormal.z += 1.0f;
+            } else {
+                pos.z = cz - hw;
+                accumNormal.z -= 1.0f;
+            }
+            hit = true;
+        }
     }
 
     // 3) Static Streamed & Macro Building Collisions
@@ -1326,21 +1770,44 @@ bool CityMap::resolveOBBBuildings(const OBB2D& obb, Vec2& outPush) const {
     if (obb.center.z - boundR < kWorldMinZ) { outPush.z += kWorldMinZ - (obb.center.z - boundR); hit = true; }
     if (obb.center.z + boundR > kWorldMaxZ) { outPush.z += kWorldMaxZ - (obb.center.z + boundR); hit = true; }
 
-    // 2) Bridge guardrails & Han River water banks
-    const SeoulBridge* br = findBridgeAt(obb.center, 3.0f);
-    if (br != nullptr) {
-        if (isInHanRiverWater(obb.center, -8.0f)) {
-            const float railHalf = br->halfWidth - 0.9f - obb.halfExtents.z;
-            const float dx = obb.center.x - br->centerX;
-            if (dx > railHalf) { outPush.x += (br->centerX + railHalf) - obb.center.x; hit = true; }
-            else if (dx < -railHalf) { outPush.x += (br->centerX - railHalf) - obb.center.x; hit = true; }
+    // 2) Bridge guardrails, Han River water banks, and Real-OSM polygon building collisions
+    if (realData_.isLoaded() && realData_.isInCoreBounds(obb.center)) {
+        const Vec2 fwd = forwardFromHeading(obb.heading);
+        const float rWheel = std::max(0.75f, obb.halfExtents.z * 0.94f);
+        const float span = std::max(0.0f, obb.halfExtents.x - rWheel);
+        const float offsets[3] = {0.0f, span, -span};
+        for (int k = 0; k < 3; ++k) {
+            Vec2 probe = obb.center + outPush + fwd * offsets[k];
+            const Vec2 before = probe;
+            if (realData_.resolveCircleBuildings(probe, rWheel)) {
+                outPush += (probe - before);
+                hit = true;
+            }
         }
-    } else if (isInHanRiverWater(obb.center, -obb.halfExtents.z)) {
-        const float cz = hanRiverCenterZ(obb.center.x);
-        const float hw = hanRiverHalfWidth(obb.center.x) + obb.halfExtents.z + 0.5f;
-        if (obb.center.z >= cz) outPush.z += (cz + hw) - obb.center.z;
-        else outPush.z += (cz - hw) - obb.center.z;
-        hit = true;
+        Vec2 centerCheck = obb.center + outPush;
+        if (realData_.isInWater(centerCheck) && !realData_.isOnBridge(centerCheck, 2.5f)) {
+            const Vec2 before = centerCheck;
+            if (resolveCircleWorld(centerCheck, rWheel)) {
+                outPush += (centerCheck - before);
+                hit = true;
+            }
+        }
+    } else {
+        const SeoulBridge* br = findBridgeAt(obb.center, 3.0f);
+        if (br != nullptr) {
+            if (isInHanRiverWater(obb.center, -8.0f)) {
+                const float railHalf = br->halfWidth - 0.9f - obb.halfExtents.z;
+                const float dx = obb.center.x - br->centerX;
+                if (dx > railHalf) { outPush.x += (br->centerX + railHalf) - obb.center.x; hit = true; }
+                else if (dx < -railHalf) { outPush.x += (br->centerX - railHalf) - obb.center.x; hit = true; }
+            }
+        } else if (isInHanRiverWater(obb.center, -obb.halfExtents.z)) {
+            const float cz = hanRiverCenterZ(obb.center.x);
+            const float hw = hanRiverHalfWidth(obb.center.x) + obb.halfExtents.z + 0.5f;
+            if (obb.center.z >= cz) outPush.z += (cz + hw) - obb.center.z;
+            else outPush.z += (cz - hw) - obb.center.z;
+            hit = true;
+        }
     }
 
     // 3) Streamed & macro buildings
@@ -1365,6 +1832,13 @@ bool CityMap::resolveOBBBuildings(const OBB2D& obb, Vec2& outPush) const {
 float CityMap::raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDist) const {
     float bestT = maxDist;
     bool hit = false;
+    if (realData_.isLoaded()) {
+        const float osmT = realData_.raycastBuildings2D(origin, dir, bestT);
+        if (osmT >= 0.0f && osmT < bestT) {
+            bestT = osmT;
+            hit = true;
+        }
+    }
     const Vec2 invDir{
         (std::abs(dir.x) > 1e-6f) ? (1.0f / dir.x) : 1e30f,
         (std::abs(dir.z) > 1e-6f) ? (1.0f / dir.z) : 1e30f
@@ -1389,6 +1863,13 @@ float CityMap::raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDi
 float CityMap::raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const {
     float bestT = maxDist;
     bool hit = false;
+    if (realData_.isLoaded()) {
+        const float osmT = realData_.raycastBuildings3D(origin, dir, bestT);
+        if (osmT >= 0.0f && osmT < bestT) {
+            bestT = osmT;
+            hit = true;
+        }
+    }
     const Vec3 invDir{
         (std::abs(dir.x) > 1e-6f) ? (1.0f / dir.x) : 1e30f,
         (std::abs(dir.y) > 1e-6f) ? (1.0f / dir.y) : 1e30f,

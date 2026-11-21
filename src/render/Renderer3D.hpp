@@ -4,6 +4,8 @@
 #include "gameplay/GameWorld.hpp"
 #include "render/CarMeshGenerator.hpp"
 #include "render/VulkanContext.hpp"
+#include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 namespace oc {
@@ -32,7 +34,9 @@ public:
     Renderer3D& operator=(const Renderer3D&) = delete;
 
     void init(VulkanContext& vk, const CityMap& city,
-              const std::vector<std::uint8_t>& fontBytes = {});
+              const std::vector<std::uint8_t>& fontBytes = {},
+              const std::vector<std::uint8_t>& pbrAlbedoPng = {},
+              const std::vector<std::uint8_t>& pbrNormalRoughPng = {});
     void shutdown(VulkanContext& vk);
 
     GraphicsQuality quality() const { return quality_; }
@@ -67,12 +71,38 @@ private:
         GraniteRock = 14,
         HanokGiwaRoof = 15,
         KoreanAptFacade = 16,
-        SignTextured = 17
+        SignTextured = 17,
+        StuccoCommercial = 18,
+        RooftopConcrete = 19,
+        BridgeConcrete = 20,
+        FoliageCanopy = 21
+    };
+
+    struct RealChunkGpu {
+        int cx = 0;
+        int cz = 0;
+        std::uint64_t lastUsedFrame = 0;
+        GpuMesh groundMesh{};
+        GpuMesh roadsMesh{};
+        GpuMesh sidewalksMesh{};
+        GpuMesh bridgePiersMesh{};
+        GpuMesh bldgAptMesh{};
+        GpuMesh bldgGlassMesh{};
+        GpuMesh bldgGraniteMesh{};
+        GpuMesh bldgBrickMesh{};
+        GpuMesh bldgStuccoMesh{};
+        GpuMesh bldgHanokMesh{};
+        GpuMesh bldgRoofMesh{};
     };
 
     void buildStaticPrimitives(VulkanContext& vk);
     void buildSeoulSignAtlas(VulkanContext& vk, const std::vector<std::uint8_t>& fontBytes);
     void buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city);
+    void buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city, int cx, int cz, RealChunkGpu& out);
+    void destroyRealChunkGpu(VulkanContext& vk, RealChunkGpu& ch);
+    void prepareRealSeoulChunks(VulkanContext& vk, const CityMap& city, const Vec2& focus);
+    void updateAndDrawRealSeoulChunks(VulkanContext& vk, const CityMap& city,
+                                      const Vec2& focus, bool shadowPass);
 
     Vec3 computeSunDirection(const GameWorld& world) const;
     SceneUBO buildSceneUBO(const GameWorld& world, const CameraState& camera,
@@ -140,6 +170,7 @@ private:
 
     bool initialized_ = false;
     GraphicsQuality quality_ = GraphicsQuality::Ultra;
+    std::uint64_t frameCounter_ = 0;
 
     // Static reusable primitives
     GpuMesh cubeMesh_{};
@@ -147,6 +178,7 @@ private:
     GpuMesh coneMesh_{};
     GpuMesh sphereMesh_{};
     GpuMesh skyBoxMesh_{};
+    GpuMesh treeTrunkMesh_{};
     GpuMesh foliageMesh_{};
     GpuMesh pineMesh_{};
     GpuMesh ringMesh_{};
@@ -155,6 +187,9 @@ private:
     GpuMesh torsoMesh_{};
 
     // Real-Scale 30km x 25km Seoul Static Macro Meshes (built once on init!)
+    GpuMesh realTerrainMesh_{};
+    GpuMesh realWaterMesh_{};
+    GpuMesh realParksMesh_{};
     GpuMesh hanRiverWaterMesh_{};
     GpuMesh hanEmbankmentMesh_{};
     GpuMesh tributaryWaterMesh_{};
@@ -170,6 +205,9 @@ private:
     GpuMesh landmarkGiwaMesh_{};
     GpuMesh landmarkGlowMesh_{};
     GpuMesh banpoFountainMesh_{};
+
+    // Real-OSM 3D Chunk GPU Cache (keyed by (cz << 16) | cx, LRU capped at 48 chunks!)
+    std::unordered_map<std::int64_t, RealChunkGpu> realChunks_;
 
     // Distant Seoul Skyline LOD massing clusters (drawn beyond 490m so streets never end in an empty void!)
     struct DistantSkylineBlock {

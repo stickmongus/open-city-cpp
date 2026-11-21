@@ -1,5 +1,7 @@
 #include "render/Renderer3D.hpp"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 #include <stb_truetype.h>
 
 #include <algorithm>
@@ -88,8 +90,22 @@ GpuMesh buildGiwaRoofMesh(VulkanContext& vk) {
 Renderer3D::~Renderer3D() = default;
 
 void Renderer3D::init(VulkanContext& vk, const CityMap& city,
-                      const std::vector<std::uint8_t>& fontBytes) {
+                      const std::vector<std::uint8_t>& fontBytes,
+                      const std::vector<std::uint8_t>& pbrAlbedoPng,
+                      const std::vector<std::uint8_t>& pbrNormalRoughPng) {
     if (initialized_) return;
+    if (!pbrAlbedoPng.empty() && !pbrNormalRoughPng.empty()) {
+        int aw = 0, ah = 0, ac = 0;
+        int nw = 0, nh = 0, nc = 0;
+        stbi_uc* albPx = stbi_load_from_memory(pbrAlbedoPng.data(), static_cast<int>(pbrAlbedoPng.size()), &aw, &ah, &ac, 4);
+        stbi_uc* nrmPx = stbi_load_from_memory(pbrNormalRoughPng.data(), static_cast<int>(pbrNormalRoughPng.size()), &nw, &nh, &nc, 4);
+        if (albPx && nrmPx && aw > 0 && ah > 0 && nw > 0 && nh > 0) {
+            vk.uploadPbrTexturesRGBA8(albPx, static_cast<std::uint32_t>(aw), static_cast<std::uint32_t>(ah),
+                                      nrmPx, static_cast<std::uint32_t>(nw), static_cast<std::uint32_t>(nh));
+        }
+        if (albPx) stbi_image_free(albPx);
+        if (nrmPx) stbi_image_free(nrmPx);
+    }
     buildStaticPrimitives(vk);
     buildSeoulSignAtlas(vk, fontBytes);
     cars_.init(vk);
@@ -353,16 +369,36 @@ void Renderer3D::buildSeoulSignAtlas(VulkanContext& vk, const std::vector<std::u
     vk.uploadSignAtlasRGBA8(rgba.data(), static_cast<std::uint32_t>(kW), static_cast<std::uint32_t>(kH));
 }
 
+void Renderer3D::destroyRealChunkGpu(VulkanContext& vk, RealChunkGpu& ch) {
+    vk.destroyMesh(ch.groundMesh);
+    vk.destroyMesh(ch.roadsMesh);
+    vk.destroyMesh(ch.sidewalksMesh);
+    vk.destroyMesh(ch.bridgePiersMesh);
+    vk.destroyMesh(ch.bldgAptMesh);
+    vk.destroyMesh(ch.bldgGlassMesh);
+    vk.destroyMesh(ch.bldgGraniteMesh);
+    vk.destroyMesh(ch.bldgBrickMesh);
+    vk.destroyMesh(ch.bldgStuccoMesh);
+    vk.destroyMesh(ch.bldgHanokMesh);
+    vk.destroyMesh(ch.bldgRoofMesh);
+}
+
 void Renderer3D::shutdown(VulkanContext& vk) {
     if (!initialized_) return;
     vk.waitIdle();
     cars_.destroy(vk);
+
+    for (auto& kv : realChunks_) {
+        destroyRealChunkGpu(vk, kv.second);
+    }
+    realChunks_.clear();
 
     vk.destroyMesh(cubeMesh_);
     vk.destroyMesh(cylMesh_);
     vk.destroyMesh(coneMesh_);
     vk.destroyMesh(sphereMesh_);
     vk.destroyMesh(skyBoxMesh_);
+    vk.destroyMesh(treeTrunkMesh_);
     vk.destroyMesh(foliageMesh_);
     vk.destroyMesh(pineMesh_);
     vk.destroyMesh(ringMesh_);
@@ -370,6 +406,9 @@ void Renderer3D::shutdown(VulkanContext& vk) {
     vk.destroyMesh(capsuleLimbMesh_);
     vk.destroyMesh(torsoMesh_);
 
+    vk.destroyMesh(realTerrainMesh_);
+    vk.destroyMesh(realWaterMesh_);
+    vk.destroyMesh(realParksMesh_);
     vk.destroyMesh(hanRiverWaterMesh_);
     vk.destroyMesh(hanEmbankmentMesh_);
     vk.destroyMesh(tributaryWaterMesh_);
@@ -444,7 +483,6 @@ void Renderer3D::buildStaticPrimitives(VulkanContext& vk) {
         sphereMesh_ = mb.upload(vk, 65.0f);
     }
     // Smooth tapered anatomical limb segment (origin at top joint Y=0, extends down to Y=-1!)
-    // Uses compact ellipsoidal endcaps (ry=0.16) so slender limb scaling (0.11, 0.27, 0.11) forms round joints without shoulder spikes!
     {
         MeshBuilder3D mb;
         const int slices = 12;
@@ -463,13 +501,13 @@ void Renderer3D::buildStaticPrimitives(VulkanContext& vk) {
         }
         capsuleLimbMesh_ = mb.upload(vk, 65.0f);
     }
-    // Sculpted anatomical human torso (broader athletic shoulders tapering cleanly to waist, Y in [0..1]!)
+    // Sculpted anatomical human torso (natural jacket drape over waist, broader shoulders, Y in [0..1]!)
     {
         MeshBuilder3D mb;
         const int slices = 16;
-        const float yLvl[5]  = {0.00f, 0.22f, 0.55f, 0.88f, 1.00f};
-        const float rxLvl[5] = {0.36f, 0.38f, 0.44f, 0.48f, 0.34f}; // Front-back chest depth
-        const float rzLvl[5] = {0.38f, 0.40f, 0.48f, 0.54f, 0.36f}; // Left-right shoulder width
+        const float yLvl[5]  = {0.00f, 0.24f, 0.58f, 0.88f, 1.00f};
+        const float rxLvl[5] = {0.40f, 0.39f, 0.45f, 0.48f, 0.34f};
+        const float rzLvl[5] = {0.42f, 0.41f, 0.49f, 0.54f, 0.36f};
         for (int r = 0; r < 4; ++r) {
             for (int s = 0; s < slices; ++s) {
                 const float a0 = kTwoPi * static_cast<float>(s) / static_cast<float>(slices);
@@ -481,55 +519,140 @@ void Renderer3D::buildStaticPrimitives(VulkanContext& vk) {
                 mb.addQuad(p00, p01, p11, p10);
             }
         }
-        // Shoulder cap dome
         mb.addSphere({0.0f, 0.90f, 0.0f}, 0.36f, 6, 12);
         torsoMesh_ = mb.upload(vk, 60.0f);
     }
-    // Organic Multi-Layered Seoul Street Tree Crown (24 irregular foliage clusters with sunlit top & shaded interior for authentic Ginkgo/Zelkova silhouette!)
+    // Multi-Branch Architectural 3D Tree Trunk (flared root collar + curved main bole + 5 structural boughs!)
     {
         MeshBuilder3D mb;
-        struct LeafClump { Vec3 p; float r; ColorRGBA c; };
-        const LeafClump clumps[24] = {
-            // Shaded lower/interior boughs
-            {{ 0.00f,  0.04f,  0.00f}, 0.36f, {158, 178, 146, 255}},
-            {{-0.44f, -0.06f,  0.22f}, 0.30f, {164, 184, 152, 255}},
-            {{ 0.46f, -0.08f, -0.20f}, 0.29f, {162, 182, 150, 255}},
-            {{ 0.16f, -0.05f,  0.46f}, 0.28f, {168, 188, 154, 255}},
-            {{-0.20f, -0.04f, -0.45f}, 0.29f, {166, 186, 154, 255}},
-            {{ 0.48f,  0.02f,  0.28f}, 0.27f, {176, 196, 162, 255}},
-            {{-0.46f,  0.04f, -0.28f}, 0.28f, {178, 198, 164, 255}},
+        auto addBranchSeg = [&](Vec3 a, Vec3 b, float r0, float r1, int segs) {
+            const Vec3 d = b - a;
+            const float len = d.length();
+            if (len < 1e-4f) return;
+            const Vec3 yAx = d / len;
+            const Vec3 ref = (std::abs(yAx.y) < 0.9f) ? Vec3{0, 1, 0} : Vec3{1, 0, 0};
+            const Vec3 xAx = Vec3{ref.y * yAx.z - ref.z * yAx.y, ref.z * yAx.x - ref.x * yAx.z, ref.x * yAx.y - ref.y * yAx.x}.normalized();
+            const Vec3 zAx = Vec3{yAx.y * xAx.z - yAx.z * xAx.y, yAx.z * xAx.x - yAx.x * xAx.z, yAx.x * xAx.y - yAx.y * xAx.x}.normalized();
+            for (int i = 0; i < segs; ++i) {
+                const float t0 = kTwoPi * static_cast<float>(i) / static_cast<float>(segs);
+                const float t1 = kTwoPi * static_cast<float>(i + 1) / static_cast<float>(segs);
+                const Vec3 o0 = xAx * std::cos(t0) + zAx * std::sin(t0);
+                const Vec3 o1 = xAx * std::cos(t1) + zAx * std::sin(t1);
+                mb.addQuad(a + o0 * r0, a + o1 * r0, b + o1 * r1, b + o0 * r1, {195, 185, 175, 255});
+            }
+        };
+        // Root flare -> mid-trunk -> upper fork (height normalized 0..1)
+        addBranchSeg({0.0f, 0.00f, 0.0f}, {0.02f, 0.22f, -0.01f}, 0.26f, 0.19f, 10);
+        addBranchSeg({0.02f, 0.22f, -0.01f}, {-0.02f, 0.62f, 0.02f}, 0.19f, 0.14f, 10);
+        addBranchSeg({-0.02f, 0.62f, 0.02f}, {0.01f, 0.98f, -0.02f}, 0.14f, 0.08f, 8);
+        // 5 reaching architectural limbs fanning out into the canopy!
+        addBranchSeg({-0.01f, 0.58f, 0.01f}, { 0.42f, 1.06f,  0.22f}, 0.10f, 0.045f, 7);
+        addBranchSeg({-0.01f, 0.62f, 0.02f}, {-0.40f, 1.08f,  0.18f}, 0.095f, 0.042f, 7);
+        addBranchSeg({ 0.00f, 0.68f, 0.00f}, { 0.16f, 1.12f, -0.42f}, 0.09f, 0.040f, 7);
+        addBranchSeg({ 0.00f, 0.72f, 0.00f}, {-0.26f, 1.15f, -0.32f}, 0.085f, 0.038f, 7);
+        addBranchSeg({ 0.01f, 0.76f, 0.01f}, { 0.08f, 1.16f,  0.38f}, 0.085f, 0.038f, 7);
+        treeTrunkMesh_ = mb.upload(vk, 48.0f);
+    }
+    // Organic Multi-Layered Seoul Street Tree Crown (28 irregular dappled leaf sprays — ZERO lollipop spheres!)
+    {
+        MeshBuilder3D mb;
+        struct LeafClump { Vec3 p; float rx, ry, rz; ColorRGBA c; };
+        const LeafClump clumps[28] = {
+            // Shaded lower/interior bough pads (flattened horizontally like real Ginkgo & Cherry branches!)
+            {{ 0.00f,  0.04f,  0.00f}, 0.42f, 0.24f, 0.40f, {154, 174, 142, 255}},
+            {{-0.52f, -0.04f,  0.24f}, 0.36f, 0.21f, 0.34f, {162, 182, 150, 255}},
+            {{ 0.54f, -0.06f, -0.22f}, 0.35f, 0.20f, 0.33f, {160, 180, 148, 255}},
+            {{ 0.18f, -0.02f,  0.52f}, 0.34f, 0.21f, 0.34f, {166, 186, 152, 255}},
+            {{-0.24f, -0.02f, -0.50f}, 0.35f, 0.20f, 0.35f, {164, 184, 152, 255}},
+            {{ 0.54f,  0.06f,  0.32f}, 0.33f, 0.22f, 0.31f, {176, 196, 162, 255}},
+            {{-0.50f,  0.08f, -0.30f}, 0.34f, 0.22f, 0.32f, {178, 198, 164, 255}},
             // Mid-canopy irregular leafy lobes
-            {{ 0.52f,  0.20f,  0.08f}, 0.32f, {196, 214, 178, 255}},
-            {{-0.50f,  0.24f,  0.06f}, 0.33f, {202, 220, 184, 255}},
-            {{ 0.06f,  0.22f,  0.50f}, 0.31f, {194, 212, 176, 255}},
-            {{-0.08f,  0.26f, -0.48f}, 0.32f, {198, 216, 180, 255}},
-            {{ 0.34f,  0.28f,  0.38f}, 0.29f, {208, 224, 188, 255}},
-            {{-0.36f,  0.30f,  0.34f}, 0.30f, {212, 228, 192, 255}},
-            {{ 0.36f,  0.26f, -0.36f}, 0.30f, {204, 220, 186, 255}},
-            {{-0.34f,  0.28f, -0.36f}, 0.29f, {206, 222, 188, 255}},
-            {{ 0.00f,  0.36f,  0.00f}, 0.38f, {214, 228, 194, 255}},
+            {{ 0.58f,  0.22f,  0.08f}, 0.38f, 0.25f, 0.34f, {196, 214, 178, 255}},
+            {{-0.56f,  0.26f,  0.06f}, 0.39f, 0.26f, 0.35f, {202, 220, 184, 255}},
+            {{ 0.08f,  0.24f,  0.56f}, 0.36f, 0.24f, 0.36f, {194, 212, 176, 255}},
+            {{-0.10f,  0.28f, -0.54f}, 0.37f, 0.25f, 0.36f, {198, 216, 180, 255}},
+            {{ 0.38f,  0.30f,  0.42f}, 0.34f, 0.24f, 0.32f, {208, 224, 188, 255}},
+            {{-0.40f,  0.32f,  0.38f}, 0.35f, 0.24f, 0.33f, {212, 228, 192, 255}},
+            {{ 0.40f,  0.28f, -0.40f}, 0.35f, 0.24f, 0.33f, {204, 220, 186, 255}},
+            {{-0.38f,  0.30f, -0.40f}, 0.34f, 0.23f, 0.32f, {206, 222, 188, 255}},
+            {{ 0.00f,  0.36f,  0.00f}, 0.44f, 0.28f, 0.42f, {214, 228, 194, 255}},
+            // Outer reaching spray tufts (creates authentic broken organic tree silhouette against sky!)
+            {{ 0.72f,  0.16f, -0.18f}, 0.26f, 0.18f, 0.24f, {188, 208, 172, 255}},
+            {{-0.70f,  0.20f,  0.22f}, 0.26f, 0.18f, 0.25f, {194, 214, 178, 255}},
+            {{ 0.22f,  0.18f,  0.70f}, 0.25f, 0.17f, 0.25f, {190, 210, 174, 255}},
+            {{-0.24f,  0.22f, -0.68f}, 0.26f, 0.18f, 0.24f, {192, 212, 176, 255}},
             // Sunlit upper crown sprays
-            {{ 0.38f,  0.48f, -0.14f}, 0.28f, {228, 240, 204, 255}},
-            {{-0.34f,  0.52f,  0.18f}, 0.29f, {234, 244, 208, 255}},
-            {{ 0.14f,  0.54f,  0.32f}, 0.27f, {232, 242, 206, 255}},
-            {{-0.16f,  0.50f, -0.30f}, 0.28f, {226, 238, 202, 255}},
-            {{ 0.20f,  0.66f,  0.04f}, 0.26f, {244, 250, 218, 255}},
-            {{-0.18f,  0.68f, -0.08f}, 0.25f, {246, 252, 222, 255}},
-            {{ 0.02f,  0.78f,  0.06f}, 0.24f, {252, 255, 232, 255}},
-            {{-0.04f,  0.60f,  0.24f}, 0.23f, {240, 248, 214, 255}}
+            {{ 0.42f,  0.48f, -0.16f}, 0.34f, 0.23f, 0.32f, {228, 240, 204, 255}},
+            {{-0.38f,  0.52f,  0.20f}, 0.35f, 0.24f, 0.33f, {234, 244, 208, 255}},
+            {{ 0.16f,  0.54f,  0.36f}, 0.33f, 0.23f, 0.32f, {232, 242, 206, 255}},
+            {{-0.18f,  0.50f, -0.34f}, 0.34f, 0.23f, 0.32f, {226, 238, 202, 255}},
+            {{ 0.22f,  0.66f,  0.04f}, 0.30f, 0.22f, 0.28f, {244, 250, 218, 255}},
+            {{-0.20f,  0.68f, -0.10f}, 0.29f, 0.21f, 0.28f, {246, 252, 222, 255}},
+            {{ 0.02f,  0.80f,  0.06f}, 0.28f, 0.21f, 0.26f, {252, 255, 232, 255}},
+            {{-0.04f,  0.62f,  0.26f}, 0.27f, 0.20f, 0.26f, {240, 248, 214, 255}}
         };
         for (const auto& cl : clumps) {
-            mb.addSphere(cl.p, cl.r, 5, 7, cl.c);
+            // Ellipsoidal leaf-pad cluster (flattened & organic)
+            const int rings = 4, slices = 7;
+            for (int r = 0; r < rings; ++r) {
+                const float phi0 = kPi * static_cast<float>(r) / static_cast<float>(rings);
+                const float phi1 = kPi * static_cast<float>(r + 1) / static_cast<float>(rings);
+                for (int s = 0; s < slices; ++s) {
+                    const float th0 = kTwoPi * static_cast<float>(s) / static_cast<float>(slices);
+                    const float th1 = kTwoPi * static_cast<float>(s + 1) / static_cast<float>(slices);
+                    auto pt = [&](float phi, float th) -> Vec3 {
+                        return {cl.p.x + std::sin(phi) * std::cos(th) * cl.rx,
+                                cl.p.y + std::cos(phi) * cl.ry,
+                                cl.p.z + std::sin(phi) * std::sin(th) * cl.rz};
+                    };
+                    mb.addQuad(pt(phi0, th0), pt(phi1, th0), pt(phi1, th1), pt(phi0, th1), cl.c);
+                }
+            }
         }
-        foliageMesh_ = mb.upload(vk, 48.0f);
+        foliageMesh_ = mb.upload(vk, 55.0f);
     }
-    // Layered Korean Mountain Pine Tree (소나무)
+    // Authentic Layered Korean Red Pine Tree (소나무 — organic spreading asymmetric needle boughs, ZERO toy cones!)
     {
         MeshBuilder3D mb;
-        mb.addCylinderY({0, 0.00f, 0}, 0.56f, 0.16f, 0.52f, 10, {210, 222, 210, 255});
-        mb.addCylinderY({0, 0.32f, 0}, 0.46f, 0.12f, 0.50f, 10, {228, 238, 226, 255});
-        mb.addCylinderY({0, 0.62f, 0}, 0.34f, 0.02f, 0.48f, 10, {246, 255, 244, 255});
-        pineMesh_ = mb.upload(vk, 38.0f);
+        struct PinePad { Vec3 p; float rx, ry, rz; ColorRGBA c; };
+        const PinePad pads[18] = {
+            {{ 0.00f, 0.14f,  0.00f}, 0.56f, 0.18f, 0.52f, {168, 190, 170, 255}},
+            {{ 0.46f, 0.10f,  0.16f}, 0.36f, 0.13f, 0.32f, {178, 200, 178, 255}},
+            {{-0.48f, 0.14f, -0.18f}, 0.38f, 0.14f, 0.34f, {174, 196, 176, 255}},
+            {{ 0.12f, 0.12f, -0.46f}, 0.34f, 0.13f, 0.36f, {172, 194, 174, 255}},
+            {{-0.18f, 0.16f,  0.44f}, 0.34f, 0.13f, 0.35f, {176, 198, 178, 255}},
+            {{ 0.00f, 0.38f,  0.00f}, 0.48f, 0.16f, 0.46f, {192, 212, 192, 255}},
+            {{ 0.38f, 0.36f, -0.22f}, 0.33f, 0.12f, 0.31f, {202, 222, 200, 255}},
+            {{-0.38f, 0.40f,  0.20f}, 0.34f, 0.13f, 0.32f, {206, 224, 204, 255}},
+            {{ 0.22f, 0.42f,  0.34f}, 0.30f, 0.12f, 0.30f, {198, 218, 198, 255}},
+            {{-0.24f, 0.38f, -0.34f}, 0.31f, 0.12f, 0.30f, {196, 216, 196, 255}},
+            {{ 0.00f, 0.62f,  0.00f}, 0.40f, 0.15f, 0.38f, {218, 234, 216, 255}},
+            {{ 0.28f, 0.60f,  0.14f}, 0.28f, 0.11f, 0.26f, {226, 240, 222, 255}},
+            {{-0.26f, 0.64f, -0.14f}, 0.28f, 0.11f, 0.26f, {228, 242, 224, 255}},
+            {{ 0.08f, 0.66f, -0.26f}, 0.25f, 0.10f, 0.26f, {224, 238, 222, 255}},
+            {{-0.12f, 0.64f,  0.24f}, 0.26f, 0.11f, 0.25f, {222, 236, 220, 255}},
+            {{ 0.00f, 0.84f,  0.00f}, 0.30f, 0.13f, 0.28f, {238, 248, 234, 255}},
+            {{ 0.14f, 0.88f, -0.08f}, 0.22f, 0.10f, 0.20f, {244, 252, 240, 255}},
+            {{-0.08f, 0.96f,  0.06f}, 0.19f, 0.10f, 0.19f, {250, 255, 246, 255}}
+        };
+        for (const auto& pd : pads) {
+            const int rings = 4, slices = 7;
+            for (int r = 0; r < rings; ++r) {
+                const float phi0 = kPi * static_cast<float>(r) / static_cast<float>(rings);
+                const float phi1 = kPi * static_cast<float>(r + 1) / static_cast<float>(rings);
+                for (int s = 0; s < slices; ++s) {
+                    const float th0 = kTwoPi * static_cast<float>(s) / static_cast<float>(slices);
+                    const float th1 = kTwoPi * static_cast<float>(s + 1) / static_cast<float>(slices);
+                    auto pt = [&](float phi, float th) -> Vec3 {
+                        return {pd.p.x + std::sin(phi) * std::cos(th) * pd.rx,
+                                pd.p.y + std::cos(phi) * pd.ry,
+                                pd.p.z + std::sin(phi) * std::sin(th) * pd.rz};
+                    };
+                    mb.addQuad(pt(phi0, th0), pt(phi1, th0), pt(phi1, th1), pt(phi0, th1), pd.c);
+                }
+            }
+        }
+        pineMesh_ = mb.upload(vk, 55.0f);
     }
     // Hollow Ground Ring (for POIs / Mission Checkpoints / GPS beacons)
     {
@@ -550,6 +673,228 @@ void Renderer3D::buildStaticPrimitives(VulkanContext& vk) {
 }
 
 void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
+    if (city.hasRealSeoulMap()) {
+        // ====================================================================
+        // REAL-WORLD OPENSTREETMAP SEOUL + SRTM 30m DEM MACRO MESHES (v3.0.0)
+        // ====================================================================
+        const RealSeoulData& real = city.realData();
+        const OcMapHeader& hdr = real.header();
+
+        // 1. Continuous 256x204 Real SRTM 30m DEM Terrain split cleanly into:
+        //    - realTerrainMesh_     (Urban valley floor subbase -> MatId::SidewalkPavers)
+        //    - mountainForestMesh_  (Real Namsan, Bukhansan, Gwanaksan, Inwangsan, Bugaksan, Achasan -> MatId::FoliageGrass)
+        //    - mountainGraniteMesh_ (Steep high-altitude Korean granite peaks -> MatId::GraniteRock)
+        {
+            constexpr int kNx = 256;
+            constexpr int kNz = 204;
+            const float dx = (hdr.demMaxX - hdr.demMinX) / static_cast<float>(kNx);
+            const float dz = (hdr.demMaxZ - hdr.demMinZ) / static_cast<float>(kNz);
+
+            struct GridNode {
+                Vec3 pos{};
+                Vec3 norm{0.0f, 1.0f, 0.0f};
+                float rawH = 0.0f;
+                bool inCore = false;
+                bool inWater = false;
+            };
+            std::vector<GridNode> grid(static_cast<std::size_t>((kNx + 1) * (kNz + 1)));
+
+            for (int iz = 0; iz <= kNz; ++iz) {
+                const float wz = hdr.demMinZ + static_cast<float>(iz) * dz;
+                for (int ix = 0; ix <= kNx; ++ix) {
+                    const float wx = hdr.demMinX + static_cast<float>(ix) * dx;
+                    const Vec2 wp{wx, wz};
+                    const float h = real.sampleDem(wp);
+                    const bool inCore = real.isInCoreBounds(wp);
+                    const bool inWater = inCore && real.isInWater(wp);
+
+                    // Depress riverbed under water (-2.2m) & sink distant coarse urban terrain (-1.45m)
+                    // safely below per-chunk high-res 16m urban ground (-0.14m), parks (-0.05m) & roads (+0.04m)!
+                    float y = h;
+                    if (inWater) {
+                        y = h - 2.2f;
+                    } else if (inCore) {
+                        const float urbanBlend = clampf(1.0f - (h - 52.0f) / 22.0f, 0.0f, 1.0f);
+                        y = h - 1.45f * urbanBlend;
+                    }
+
+                    // Finite-difference SRTM surface normal
+                    const float hL = real.sampleDem({wx - 40.0f, wz});
+                    const float hR = real.sampleDem({wx + 40.0f, wz});
+                    const float hD = real.sampleDem({wx, wz - 40.0f});
+                    const float hU = real.sampleDem({wx, wz + 40.0f});
+                    const Vec3 n = Vec3{hL - hR, 80.0f, hD - hU}.normalized();
+
+                    GridNode& gn = grid[static_cast<std::size_t>(iz * (kNx + 1) + ix)];
+                    gn.pos = {wx, y, wz};
+                    gn.norm = n;
+                    gn.rawH = h;
+                    gn.inCore = inCore;
+                    gn.inWater = inWater;
+                }
+            }
+
+            std::vector<Vertex3D> urbanV, forestV, rockV;
+            urbanV.reserve(static_cast<std::size_t>(kNx * kNz) * 3);
+            forestV.reserve(static_cast<std::size_t>(kNx * kNz) * 3);
+            rockV.reserve(16384);
+
+            auto pushTerrainTri = [](std::vector<Vertex3D>& dst, const GridNode& a, const GridNode& b,
+                                     const GridNode& c, const ColorRGBA& col) {
+                const float cr = static_cast<float>(col.r) / 255.0f;
+                const float cg = static_cast<float>(col.g) / 255.0f;
+                const float cb = static_cast<float>(col.b) / 255.0f;
+                const GridNode* pts[3] = {&a, &b, &c};
+                for (int k = 0; k < 3; ++k) {
+                    Vertex3D v{};
+                    v.px = pts[k]->pos.x; v.py = pts[k]->pos.y; v.pz = pts[k]->pos.z;
+                    v.nx = pts[k]->norm.x; v.ny = pts[k]->norm.y; v.nz = pts[k]->norm.z;
+                    v.u = 0.0f; v.v = 0.0f;
+                    v.r = cr; v.g = cg; v.b = cb; v.a = 1.0f;
+                    dst.push_back(v);
+                }
+            };
+
+            for (int iz = 0; iz < kNz; ++iz) {
+                const std::size_t r0 = static_cast<std::size_t>(iz) * (kNx + 1);
+                const std::size_t r1 = r0 + (kNx + 1);
+                for (int ix = 0; ix < kNx; ++ix) {
+                    const GridNode& n00 = grid[r0 + static_cast<std::size_t>(ix)];
+                    const GridNode& n10 = grid[r0 + static_cast<std::size_t>(ix + 1)];
+                    const GridNode& n11 = grid[r1 + static_cast<std::size_t>(ix + 1)];
+                    const GridNode& n01 = grid[r1 + static_cast<std::size_t>(ix)];
+
+                    const float avgH = 0.25f * (n00.rawH + n10.rawH + n11.rawH + n01.rawH);
+                    const float avgNy = 0.25f * (n00.norm.y + n10.norm.y + n11.norm.y + n01.norm.y);
+                    const bool allCore = n00.inCore && n10.inCore && n11.inCore && n01.inCore;
+                    const bool anyWater = n00.inWater || n10.inWater || n11.inWater || n01.inWater;
+
+                    if (avgH > 265.0f && avgNy < 0.90f) {
+                        const ColorRGBA cRock{150, 148, 144, 255};
+                        pushTerrainTri(rockV, n00, n01, n11, cRock);
+                        pushTerrainTri(rockV, n00, n11, n10, cRock);
+                    } else if (allCore && avgH < 64.0f && !anyWater) {
+                        // Urban Seoul ground subbase (paver/concrete gray under blocks & courtyards!)
+                        const ColorRGBA cUrb{148, 150, 154, 255};
+                        pushTerrainTri(urbanV, n00, n01, n11, cUrb);
+                        pushTerrainTri(urbanV, n00, n11, n10, cUrb);
+                    } else {
+                        // Korean mountains (Namsan, Bukhansan, Gwanaksan, Achasan) & riverbeds
+                        const float hf = clampf((avgH - 40.0f) / 360.0f, 0.0f, 1.0f);
+                        const ColorRGBA cFor = anyWater
+                            ? ColorRGBA{68, 76, 70, 255}
+                            : ColorRGBA{
+                                static_cast<std::uint8_t>(lerpf(62.0f, 44.0f, hf)),
+                                static_cast<std::uint8_t>(lerpf(104.0f, 76.0f, hf)),
+                                static_cast<std::uint8_t>(lerpf(52.0f, 46.0f, hf)),
+                                255
+                            };
+                        pushTerrainTri(forestV, n00, n01, n11, cFor);
+                        pushTerrainTri(forestV, n00, n11, n10, cFor);
+                    }
+                }
+            }
+            if (!urbanV.empty())  realTerrainMesh_     = vk.createMesh(urbanV);
+            if (!forestV.empty()) mountainForestMesh_  = vk.createMesh(forestV);
+            if (!rockV.empty())   mountainGraniteMesh_ = vk.createMesh(rockV);
+        }
+
+        // 2. Real OpenStreetMap Water Mesh (3,581 exact Han River, island-holed, Seokchon Lake & stream tris!)
+        {
+            const auto& wTris = real.waterTris();
+            std::vector<Vertex3D> wv;
+            wv.reserve(wTris.size() * 3);
+            for (const auto& t : wTris) {
+                const Vec2 pts[3] = {{t.x0, t.z0}, {t.x1, t.z1}, {t.x2, t.z2}};
+                for (int k = 0; k < 3; ++k) {
+                    Vertex3D v{};
+                    v.px = pts[k].x;
+                    v.py = std::max(0.15f, real.sampleDem(pts[k]) + 0.05f);
+                    v.pz = pts[k].z;
+                    v.nx = 0.0f; v.ny = 1.0f; v.nz = 0.0f;
+                    v.u = 0.0f; v.v = 0.0f;
+                    v.r = 24.0f / 255.0f; v.g = 72.0f / 255.0f; v.b = 118.0f / 255.0f; v.a = 1.0f;
+                    wv.push_back(v);
+                }
+            }
+            if (!wv.empty()) realWaterMesh_ = vk.createMesh(wv);
+        }
+
+        // 3. Real OpenStreetMap Parks Mesh (17,931 real Yeouido, Seoul Forest, Yongsan, Namsan, Olympic, Hangang Park tris!)
+        // Subdivide large park triangles (> 28m edge) so lawns hug the 16m local ground seamlessly!
+        {
+            const auto& pTris = real.parkTris();
+            std::vector<Vertex3D> pv;
+            pv.reserve(pTris.size() * 6);
+            auto emitParkVert = [&](const Vec2& p) {
+                const float h = real.sampleDem(p);
+                const float hL = real.sampleDem({p.x - 16.0f, p.z});
+                const float hR = real.sampleDem({p.x + 16.0f, p.z});
+                const float hD = real.sampleDem({p.x, p.z - 16.0f});
+                const float hU = real.sampleDem({p.x, p.z + 16.0f});
+                const Vec3 n = Vec3{hL - hR, 32.0f, hD - hU}.normalized();
+                Vertex3D v{};
+                v.px = p.x;
+                v.py = h - 0.05f;
+                v.pz = p.z;
+                v.nx = n.x; v.ny = n.y; v.nz = n.z;
+                v.u = 0.0f; v.v = 0.0f;
+                v.r = 76.0f / 255.0f; v.g = 118.0f / 255.0f; v.b = 60.0f / 255.0f; v.a = 1.0f;
+                pv.push_back(v);
+            };
+            auto emitParkTriRec = [&](auto&& self, const Vec2& a, const Vec2& b, const Vec2& c, int depth) -> void {
+                const float dAB = (b - a).lengthSq();
+                const float dBC = (c - b).lengthSq();
+                const float dCA = (a - c).lengthSq();
+                if (depth < 3 && std::max({dAB, dBC, dCA}) > 28.0f * 28.0f) {
+                    if (dAB >= dBC && dAB >= dCA) {
+                        const Vec2 m = (a + b) * 0.5f;
+                        self(self, a, m, c, depth + 1);
+                        self(self, m, b, c, depth + 1);
+                        return;
+                    } else if (dBC >= dCA) {
+                        const Vec2 m = (b + c) * 0.5f;
+                        self(self, a, b, m, depth + 1);
+                        self(self, a, m, c, depth + 1);
+                        return;
+                    } else {
+                        const Vec2 m = (c + a) * 0.5f;
+                        self(self, a, b, m, depth + 1);
+                        self(self, m, b, c, depth + 1);
+                        return;
+                    }
+                }
+                emitParkVert(a);
+                emitParkVert(b);
+                emitParkVert(c);
+            };
+            for (const auto& t : pTris) {
+                emitParkTriRec(emitParkTriRec, {t.x0, t.z0}, {t.x1, t.z1}, {t.x2, t.z2}, 0);
+            }
+            if (!pv.empty()) realParksMesh_ = vk.createMesh(pv);
+        }
+
+        // 4. Distant Real Seoul Skyline LOD (Real OSM towers >= 46m tall beyond the active 5x5 chunk window!)
+        {
+            distantSkyline_.clear();
+            distantSkyline_.reserve(900);
+            const auto& bldgs = real.buildings();
+            const std::size_t stride = std::max<std::size_t>(1, bldgs.size() / 4200);
+            for (std::size_t i = 0; i < bldgs.size() && distantSkyline_.size() < 900; i += stride) {
+                const OsmBldgRec& b = bldgs[i];
+                if (b.height < 46.0f || (b.halfX < 7.0f && b.halfZ < 7.0f)) continue;
+                const bool isGlass = (b.style == 1);
+                const ColorRGBA c = isGlass ? ColorRGBA{84, 112, 138, 255}
+                                            : ((b.style == 0) ? ColorRGBA{204, 198, 190, 255}
+                                                              : ColorRGBA{158, 156, 152, 255});
+                distantSkyline_.push_back(DistantSkylineBlock{
+                    {b.cx, b.cz},
+                    {std::min(b.halfX * 2.0f, 68.0f), std::min(b.halfZ * 2.0f, 68.0f)},
+                    b.baseY - 2.0f, b.height + 2.0f, c, isGlass
+                });
+            }
+        }
+    } else {
     // ------------------------------------------------------------------------
     // 1. REAL S-CURVE HAN RIVER WATER + SEOKCHON LAKE + 4 SEOUL TRIBUTARIES!
     // ------------------------------------------------------------------------
@@ -940,6 +1285,7 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
         bridgeSteelMesh_    = steelMb.upload(vk, 24.0f);
         banpoFountainMesh_  = fountMb.upload(vk, 45.0f);
     }
+    } // end else (analytic macro meshes)
 
     // ------------------------------------------------------------------------
     // 4. ALL 12 ICONIC REAL SEOUL MACRO LANDMARKS WITH TRUE ORIENTATION!
@@ -1242,6 +1588,7 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                 }
 
                 case SeoulLandmarkKind::GangnamStationPlaza: {
+                    if (city.hasRealSeoulMap()) break; // Real OSM Gangnam Station towers are already extruded 1:1!
                     // Gangnam Station 4-corner modern glass media skyscrapers framing Gangnam-daero x Teheran-ro!
                     glassMb.addBox({lx - 42.0f, baseY + 72.0f, lz - 36.0f}, {32.0f, 144.0f, 32.0f}, {118, 164, 210, 255});
                     glassMb.addBox({lx + 42.0f, baseY + 86.0f, lz + 36.0f}, {34.0f, 172.0f, 34.0f}, {110, 154, 204, 255});
@@ -1258,6 +1605,619 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
         landmarkMetalMesh_ = metalMb.upload(vk, 28.0f);
         landmarkGiwaMesh_  = giwaMb.upload(vk, 26.0f);
         landmarkGlowMesh_  = glowMb.upload(vk, 24.0f);
+    }
+}
+
+namespace {
+
+inline void pushQuadV3(std::vector<Vertex3D>& dst,
+                       const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d,
+                       const Vec3& n,
+                       float ua, float va, float ub, float vb, float uc, float vc, float ud, float vd,
+                       const ColorRGBA& col) {
+    const float cr = static_cast<float>(col.r) / 255.0f;
+    const float cg = static_cast<float>(col.g) / 255.0f;
+    const float cb = static_cast<float>(col.b) / 255.0f;
+    const float ca = static_cast<float>(col.a) / 255.0f;
+    auto mk = [&](const Vec3& p, float u, float v) -> Vertex3D {
+        Vertex3D vv{};
+        vv.px = p.x; vv.py = p.y; vv.pz = p.z;
+        vv.nx = n.x; vv.ny = n.y; vv.nz = n.z;
+        vv.u = u;    vv.v = v;
+        vv.r = cr;   vv.g = cg;   vv.b = cb;   vv.a = ca;
+        return vv;
+    };
+    const Vertex3D va3 = mk(a, ua, va);
+    const Vertex3D vb3 = mk(b, ub, vb);
+    const Vertex3D vc3 = mk(c, uc, vc);
+    const Vertex3D vd3 = mk(d, ud, vd);
+    dst.push_back(va3); dst.push_back(vb3); dst.push_back(vc3);
+    dst.push_back(va3); dst.push_back(vc3); dst.push_back(vd3);
+}
+
+inline void pushBoxPiers(std::vector<Vertex3D>& dst, const Vec3& center, const Vec3& sz, const ColorRGBA& col) {
+    const float hx = sz.x * 0.5f, hy = sz.y * 0.5f, hz = sz.z * 0.5f;
+    const Vec3 p000{center.x - hx, center.y - hy, center.z - hz};
+    const Vec3 p100{center.x + hx, center.y - hy, center.z - hz};
+    const Vec3 p110{center.x + hx, center.y + hy, center.z - hz};
+    const Vec3 p010{center.x - hx, center.y + hy, center.z - hz};
+    const Vec3 p001{center.x - hx, center.y - hy, center.z + hz};
+    const Vec3 p101{center.x + hx, center.y - hy, center.z + hz};
+    const Vec3 p111{center.x + hx, center.y + hy, center.z + hz};
+    const Vec3 p011{center.x - hx, center.y + hy, center.z + hz};
+    pushQuadV3(dst, p001, p101, p111, p011, { 0,  0,  1}, 0,0, 1,0, 1,1, 0,1, col);
+    pushQuadV3(dst, p100, p000, p010, p110, { 0,  0, -1}, 0,0, 1,0, 1,1, 0,1, col);
+    pushQuadV3(dst, p101, p100, p110, p111, { 1,  0,  0}, 0,0, 1,0, 1,1, 0,1, col);
+    pushQuadV3(dst, p000, p001, p011, p010, {-1,  0,  0}, 0,0, 1,0, 1,1, 0,1, col);
+    pushQuadV3(dst, p011, p111, p110, p010, { 0,  1,  0}, 0,0, 1,0, 1,1, 0,1, col);
+}
+
+inline float cross2DXZ(const Vec2& a, const Vec2& b, const Vec2& c) {
+    return (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
+}
+
+inline bool pointInTri2DCCW(const Vec2& p, const Vec2& a, const Vec2& b, const Vec2& c) {
+    return cross2DXZ(a, b, p) >= -1e-4f &&
+           cross2DXZ(b, c, p) >= -1e-4f &&
+           cross2DXZ(c, a, p) >= -1e-4f;
+}
+
+void earClipRoofXZ(const std::vector<Vec2>& poly, float roofY, const ColorRGBA& col,
+                   std::vector<Vertex3D>& dst) {
+    const int n = static_cast<int>(poly.size());
+    if (n < 3) return;
+    const float cr = static_cast<float>(col.r) / 255.0f;
+    const float cg = static_cast<float>(col.g) / 255.0f;
+    const float cb = static_cast<float>(col.b) / 255.0f;
+    auto emitTri = [&](const Vec2& a, const Vec2& b, const Vec2& c) {
+        const Vec2 pts[3] = {a, b, c};
+        for (int k = 0; k < 3; ++k) {
+            Vertex3D v{};
+            v.px = pts[k].x; v.py = roofY; v.pz = pts[k].z;
+            v.nx = 0.0f; v.ny = 1.0f; v.nz = 0.0f;
+            v.u = 0.0f; v.v = 0.0f;
+            v.r = cr; v.g = cg; v.b = cb; v.a = 1.0f;
+            dst.push_back(v);
+        }
+    };
+
+    if (n == 3) {
+        emitTri(poly[0], poly[1], poly[2]);
+        return;
+    }
+
+    std::vector<int> idx(static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i) idx[static_cast<std::size_t>(i)] = i;
+
+    int guard = n * n + 8;
+    while (idx.size() > 3 && guard-- > 0) {
+        bool clipped = false;
+        const std::size_t m = idx.size();
+        for (std::size_t i = 0; i < m; ++i) {
+            const int iPrev = idx[(i + m - 1) % m];
+            const int iCurr = idx[i];
+            const int iNext = idx[(i + 1) % m];
+            const Vec2& a = poly[static_cast<std::size_t>(iPrev)];
+            const Vec2& b = poly[static_cast<std::size_t>(iCurr)];
+            const Vec2& c = poly[static_cast<std::size_t>(iNext)];
+            if (cross2DXZ(a, b, c) <= 1e-4f) continue;
+
+            bool containsOther = false;
+            for (std::size_t j = 0; j < m; ++j) {
+                const int ij = idx[j];
+                if (ij == iPrev || ij == iCurr || ij == iNext) continue;
+                if (pointInTri2DCCW(poly[static_cast<std::size_t>(ij)], a, b, c)) {
+                    containsOther = true;
+                    break;
+                }
+            }
+            if (!containsOther) {
+                emitTri(a, b, c);
+                idx.erase(idx.begin() + static_cast<std::ptrdiff_t>(i));
+                clipped = true;
+                break;
+            }
+        }
+        if (!clipped) break;
+    }
+
+    if (idx.size() == 3) {
+        emitTri(poly[static_cast<std::size_t>(idx[0])],
+                poly[static_cast<std::size_t>(idx[1])],
+                poly[static_cast<std::size_t>(idx[2])]);
+    } else if (idx.size() > 3) {
+        // Safe centroid fan fallback for any self-touching OSM geometry
+        Vec2 ctr{0.0f, 0.0f};
+        for (int ii : idx) ctr += poly[static_cast<std::size_t>(ii)];
+        ctr = ctr / static_cast<float>(idx.size());
+        for (std::size_t i = 0; i < idx.size(); ++i) {
+            emitTri(ctr, poly[static_cast<std::size_t>(idx[i])],
+                    poly[static_cast<std::size_t>(idx[(i + 1) % idx.size()])]);
+        }
+    }
+}
+
+} // namespace
+
+void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
+                                         int cx, int cz, RealChunkGpu& out) {
+    out.cx = cx;
+    out.cz = cz;
+    const RealSeoulData& real = city.realData();
+    const OcMapHeader& hdr = real.header();
+    if (cx < 0 || cz < 0 || cx >= static_cast<int>(hdr.chunksX) || cz >= static_cast<int>(hdr.chunksZ)) {
+        return;
+    }
+
+    const OcChunkHdr& ch = real.chunks()[static_cast<std::size_t>(cz) * hdr.chunksX + static_cast<std::size_t>(cx)];
+    const auto& roads = real.roads();
+    const auto& rVerts = real.roadVerts();
+    const auto& flatRoads = real.flatChunkRoads();
+    const auto& bldgs = real.buildings();
+    const auto& flatBldgs = real.flatChunkBldgs();
+
+    std::vector<Vertex3D> groundV, roadsV, sidewalksV, piersV;
+    std::vector<Vertex3D> aptV, glassV, graniteV, brickV, stuccoV, hanokV, roofV;
+    groundV.reserve(16 * 16 * 6);
+    roadsV.reserve(3072);
+    sidewalksV.reserve(2560);
+    piersV.reserve(512);
+    aptV.reserve(2048);
+    glassV.reserve(1536);
+    graniteV.reserve(2048);
+    brickV.reserve(2048);
+    stuccoV.reserve(2048);
+    roofV.reserve(2048);
+
+    // ------------------------------------------------------------------------
+    // 0. HIGH-RESOLUTION 16m URBAN GROUND SUBBASE FOR THIS CHUNK (ZERO terrain-above-road poke-through!)
+    // ------------------------------------------------------------------------
+    {
+        constexpr int kGn = 16; // 256m / 16 = 16m precision everywhere inside active 5x5 chunk window!
+        const float gx0 = hdr.minX + static_cast<float>(cx) * hdr.chunkSize;
+        const float gz0 = hdr.minZ + static_cast<float>(cz) * hdr.chunkSize;
+        const float step = hdr.chunkSize / static_cast<float>(kGn);
+        struct LocalGNode { Vec3 pos; Vec3 norm; float rawH; bool inWater; };
+        LocalGNode lg[(kGn + 1) * (kGn + 1)];
+        for (int iz = 0; iz <= kGn; ++iz) {
+            const float wz = gz0 + static_cast<float>(iz) * step;
+            for (int ix = 0; ix <= kGn; ++ix) {
+                const float wx = gx0 + static_cast<float>(ix) * step;
+                const Vec2 wp{wx, wz};
+                const float h = real.sampleDem(wp);
+                const bool wtr = real.isInWater(wp);
+                const float y = wtr ? (h - 2.2f) : (h - 0.14f);
+                const float hL = real.sampleDem({wx - 12.0f, wz});
+                const float hR = real.sampleDem({wx + 12.0f, wz});
+                const float hD = real.sampleDem({wx, wz - 12.0f});
+                const float hU = real.sampleDem({wx, wz + 12.0f});
+                lg[iz * (kGn + 1) + ix] = {{wx, y, wz}, Vec3{hL - hR, 24.0f, hD - hU}.normalized(), h, wtr};
+            }
+        }
+        const ColorRGBA kGroundCol{162, 164, 168, 255};
+        auto pushGVert = [&](const LocalGNode& n) {
+            Vertex3D v{};
+            v.px = n.pos.x; v.py = n.pos.y; v.pz = n.pos.z;
+            v.nx = n.norm.x; v.ny = n.norm.y; v.nz = n.norm.z;
+            v.u = 0.0f; v.v = 0.0f;
+            v.r = static_cast<float>(kGroundCol.r) / 255.0f;
+            v.g = static_cast<float>(kGroundCol.g) / 255.0f;
+            v.b = static_cast<float>(kGroundCol.b) / 255.0f;
+            v.a = 1.0f;
+            groundV.push_back(v);
+        };
+        for (int iz = 0; iz < kGn; ++iz) {
+            for (int ix = 0; ix < kGn; ++ix) {
+                const LocalGNode& n00 = lg[iz * (kGn + 1) + ix];
+                const LocalGNode& n10 = lg[iz * (kGn + 1) + (ix + 1)];
+                const LocalGNode& n11 = lg[(iz + 1) * (kGn + 1) + (ix + 1)];
+                const LocalGNode& n01 = lg[(iz + 1) * (kGn + 1) + ix];
+                if (n00.inWater && n10.inWater && n11.inWater && n01.inWater) continue;
+                const float avgH = 0.25f * (n00.rawH + n10.rawH + n11.rawH + n01.rawH);
+                if (avgH >= 64.0f) continue; // Keep forested Seoul mountains green!
+                pushGVert(n00); pushGVert(n01); pushGVert(n11);
+                pushGVert(n00); pushGVert(n11); pushGVert(n10);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // 1. REAL CURVED OPENSTREETMAP SEOUL ROADS, SIDEWALKS & BRIDGE PIERS!
+    // ------------------------------------------------------------------------
+    const ColorRGBA kAsphTint{196, 200, 206, 255};
+    const ColorRGBA kSwTint{196, 198, 202, 255};
+    const ColorRGBA kPierCol{168, 172, 178, 255};
+
+    for (std::uint32_t k = 0; k < ch.roadLen; ++k) {
+        const OsmRoadRec& r = roads[flatRoads[ch.roadStart + k]];
+        if (r.vertCount < 2) continue;
+
+        const bool isBridge = (r.flags & 2u) != 0u;
+        const float hw = std::max(2.6f, r.halfWidth);
+        // Subtle road-class micro-elevation prevents intersection z-fighting (major avenues win!)
+        const float classLift = 0.035f + static_cast<float>(std::max(0, 6 - static_cast<int>(r.roadClass))) * 0.008f;
+
+        auto evalRoadY = [&](const Vec2& p) -> float {
+            float y = real.sampleDem(p) + classLift;
+            if (isBridge) {
+                y = std::max(y, city.bridgeDeckElevationAt(p) + 0.02f);
+            }
+            return y;
+        };
+
+        // Precompute smooth mitered perpendicular offsets at each polyline vertex
+        std::vector<Vec2> miters(r.vertCount);
+        for (std::uint16_t i = 0; i < r.vertCount; ++i) {
+            Vec2 dir{1.0f, 0.0f};
+            if (i == 0) {
+                dir = (rVerts[r.firstVert + 1] - rVerts[r.firstVert]).normalized();
+            } else if (i + 1 == r.vertCount) {
+                dir = (rVerts[r.firstVert + i] - rVerts[r.firstVert + i - 1]).normalized();
+            } else {
+                const Vec2 dPrev = (rVerts[r.firstVert + i] - rVerts[r.firstVert + i - 1]).normalized();
+                const Vec2 dNext = (rVerts[r.firstVert + i + 1] - rVerts[r.firstVert + i]).normalized();
+                Vec2 avg = dPrev + dNext;
+                if (avg.lengthSq() < 1e-4f) avg = dNext;
+                dir = avg.normalized();
+                const Vec2 nSeg{-dNext.z, dNext.x};
+                const Vec2 nMit{-dir.z, dir.x};
+                const float denom = std::max(0.68f, std::abs(nMit.dot(nSeg)));
+                miters[i] = nMit * std::min(1.42f, 1.0f / denom);
+                continue;
+            }
+            miters[i] = Vec2{-dir.z, dir.x};
+        }
+
+        const bool isOneway = (r.flags & 1u) != 0u;
+        float distM = 0.0f;
+        float nextPierDist = 18.0f;
+        for (std::uint16_t i = 0; i + 1 < r.vertCount; ++i) {
+            const Vec2 edgeA = rVerts[r.firstVert + i];
+            const Vec2 edgeB = rVerts[r.firstVert + i + 1];
+            const Vec2 edgeVec = edgeB - edgeA;
+            const float edgeLen = edgeVec.length();
+            if (edgeLen < 0.25f) continue;
+
+            const Vec2 segDir = edgeVec / edgeLen;
+            const Vec2 segPerp{-segDir.z, segDir.x};
+            // Subdivide long straight/curved road spans every <= 10m so roads hug SRTM terrain smoothly!
+            const int subSteps = std::max(1, static_cast<int>(std::ceil(edgeLen / 10.0f)));
+            const float subLen = edgeLen / static_cast<float>(subSteps);
+
+            for (int sub = 0; sub < subSteps; ++sub) {
+                const float t0 = static_cast<float>(sub) / static_cast<float>(subSteps);
+                const float t1 = static_cast<float>(sub + 1) / static_cast<float>(subSteps);
+                const Vec2 p0 = edgeA + edgeVec * t0;
+                const Vec2 p1 = edgeA + edgeVec * t1;
+                const float dist0 = distM;
+                distM += subLen;
+
+                // Emit each <=10m sub-segment in EXACTLY ONE chunk (by midpoint) -> zero duplicates, zero gaps!
+                const Vec2 mid = (p0 + p1) * 0.5f;
+                const int mcx = std::clamp(static_cast<int>(std::floor((mid.x - hdr.minX) / hdr.chunkSize)),
+                                           0, static_cast<int>(hdr.chunksX) - 1);
+                const int mcz = std::clamp(static_cast<int>(std::floor((mid.z - hdr.minZ) / hdr.chunkSize)),
+                                           0, static_cast<int>(hdr.chunksZ) - 1);
+                if (mcx != cx || mcz != cz) continue;
+
+                const float y0 = evalRoadY(p0);
+                const float y1 = evalRoadY(p1);
+                const Vec2 n0 = (sub == 0) ? miters[i] : segPerp;
+                const Vec2 n1 = (sub + 1 == subSteps) ? miters[i + 1] : segPerp;
+
+                const Vec3 aL{p0.x - n0.x * hw, y0, p0.z - n0.z * hw};
+                const Vec3 aR{p0.x + n0.x * hw, y0, p0.z + n0.z * hw};
+                const Vec3 bR{p1.x + n1.x * hw, y1, p1.z + n1.z * hw};
+                const Vec3 bL{p1.x - n1.x * hw, y1, p1.z - n1.z * hw};
+
+                float uL = -1.0f, uR = 1.0f;
+                float v0 = 10.0f + dist0, v1 = 10.0f + distM;
+                if (r.roadClass >= 5) {
+                    // Narrow residential alleys: authentic clean asphalt without multi-lane highway markings
+                    uL = 0.14f; uR = 0.36f; v0 = 20.0f; v1 = 20.0f;
+                } else if (r.roadClass == 4) {
+                    // 2-lane tertiary street: yellow centerline only (or clean lane dash if one-way)
+                    uL = isOneway ? 0.12f : -0.42f;
+                    uR = isOneway ? 0.88f :  0.42f;
+                } else if (isOneway) {
+                    // One-way multi-lane boulevard / highway / bridge carriageway: crisp white dashed lanes, NO bogus center yellow!
+                    uL = 0.08f; uR = 0.96f;
+                }
+                if (isBridge) {
+                    // Strictly stay inside [16..88] mod 95 so crosswalks NEVER appear mid-span on Han River bridges!
+                    v0 = 16.0f + std::fmod(dist0, 56.0f);
+                    v1 = v0 + std::min(subLen, 16.0f);
+                }
+                pushQuadV3(roadsV, aL, aR, bR, bL, {0, 1, 0},
+                           uL, v0, uR, v0, uR, v1, uL, v1, kAsphTint);
+
+                // Flanking raised Korean granite-curb + tactile-paving sidewalks ONLY along outer block edges
+                // (Skip whenever any endpoint/midpoint lies inside an intersecting road or twin-carriageway median!)
+                if (!isBridge && r.roadClass <= 4) {
+                    const float swW = (r.roadClass <= 2) ? 3.0f : 2.2f;
+                    const float curbH = 0.08f;
+                    const float swV0 = 10.0f + dist0;
+                    const float swV1 = 10.0f + distM;
+                    const Vec2 nMid = (n0 + n1).normalized();
+                    for (float side : {-1.0f, 1.0f}) {
+                        const Vec2 s0 = n0 * side;
+                        const Vec2 s1 = n1 * side;
+                        const Vec2 sM = nMid * side;
+                        const float probeOff = hw + swW * 0.52f;
+                        const Vec2 swP0 = p0 + s0 * probeOff;
+                        const Vec2 swPM = mid + sM * probeOff;
+                        const Vec2 swP1 = p1 + s1 * probeOff;
+                        if (real.isInWater(swPM) ||
+                            real.isOnRoad(swP0, 0.9f) ||
+                            real.isOnRoad(swPM, 0.9f) ||
+                            real.isOnRoad(swP1, 0.9f)) {
+                            continue;
+                        }
+                        const Vec3 c0Bot{p0.x + s0.x * hw, y0 - 0.02f, p0.z + s0.z * hw};
+                        const Vec3 c1Bot{p1.x + s1.x * hw, y1 - 0.02f, p1.z + s1.z * hw};
+                        const Vec3 c0Top{p0.x + s0.x * (hw + 0.08f), y0 + curbH, p0.z + s0.z * (hw + 0.08f)};
+                        const Vec3 c1Top{p1.x + s1.x * (hw + 0.08f), y1 + curbH, p1.z + s1.z * (hw + 0.08f)};
+                        const Vec3 o0Top{p0.x + s0.x * (hw + swW), y0 + curbH, p0.z + s0.z * (hw + swW)};
+                        const Vec3 o1Top{p1.x + s1.x * (hw + swW), y1 + curbH, p1.z + s1.z * (hw + swW)};
+                        const Vec3 curbN{-s0.x, 0.25f, -s0.z};
+                        pushQuadV3(sidewalksV, c0Bot, c1Bot, c1Top, c0Top, curbN.normalized(),
+                                   0.04f, swV0, 0.04f, swV1, 0.08f, swV1, 0.08f, swV0, kSwTint);
+                        pushQuadV3(sidewalksV, c0Top, c1Top, o1Top, o0Top, {0, 1, 0},
+                                   0.0f, swV0, 0.0f, swV1, 1.0f, swV1, 1.0f, swV0, kSwTint);
+                    }
+                }
+
+                // Bridge concrete deck underside fascia + sleek guardrails + vertical riverbed piers!
+                if (isBridge) {
+                    const float thick = 1.15f;
+                    const float railH = 0.65f;
+                    for (float side : {-1.0f, 1.0f}) {
+                        const Vec2 s0 = n0 * side;
+                        const Vec2 s1 = n1 * side;
+                        const Vec3 top0{p0.x + s0.x * (hw + 0.18f), y0 + railH, p0.z + s0.z * (hw + 0.18f)};
+                        const Vec3 top1{p1.x + s1.x * (hw + 0.18f), y1 + railH, p1.z + s1.z * (hw + 0.18f)};
+                        const Vec3 bot0{p0.x + s0.x * (hw + 0.18f), y0 - thick, p0.z + s0.z * (hw + 0.18f)};
+                        const Vec3 bot1{p1.x + s1.x * (hw + 0.18f), y1 - thick, p1.z + s1.z * (hw + 0.18f)};
+                        pushQuadV3(piersV, bot0, bot1, top1, top0, Vec3{s0.x, 0.0f, s0.z}.normalized(),
+                                   0, 0, 1, 0, 1, 1, 0, 1, kPierCol);
+                    }
+                    if (distM >= nextPierDist) {
+                        nextPierDist = distM + 36.0f;
+                        const float yMid = 0.5f * (y0 + y1);
+                        const float demMid = real.sampleDem(mid);
+                        if (yMid - demMid > 1.6f) {
+                            const float pTop = yMid - thick;
+                            const float pBot = demMid - 2.6f;
+                            const float pH = std::max(1.2f, pTop - pBot);
+                            const Vec2 nMid = (n0 + n1).normalized();
+                            for (float side : {-0.55f, 0.55f}) {
+                                const Vec3 pc{mid.x + nMid.x * (hw * side), 0.5f * (pTop + pBot), mid.z + nMid.z * (hw * side)};
+                                pushBoxPiers(piersV, pc, {2.4f, pH, 2.4f}, {148, 152, 158, 255});
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // 2. REAL EXTRUDED 3D OPENSTREETMAP BUILDING POLYGONS (107,600 Seoul Buildings!)
+    // ------------------------------------------------------------------------
+    static constexpr ColorRGBA kAptPal[4]     = {{222, 218, 210, 255}, {210, 214, 218, 255}, {214, 206, 194, 255}, {202, 206, 212, 255}};
+    static constexpr ColorRGBA kGlassPal[4]   = {{148, 186, 218, 255}, {132, 174, 210, 255}, {162, 192, 214, 255}, {122, 158, 192, 255}};
+    static constexpr ColorRGBA kGranitePal[4] = {{194, 192, 186, 255}, {182, 178, 170, 255}, {204, 202, 198, 255}, {168, 170, 174, 255}};
+    static constexpr ColorRGBA kBrickPal[4]   = {{186, 128, 102, 255}, {174, 118,  94, 255}, {198, 166, 138, 255}, {154, 114,  96, 255}};
+    static constexpr ColorRGBA kStuccoPal[4]  = {{218, 212, 200, 255}, {206, 202, 196, 255}, {212, 198, 184, 255}, {196, 198, 202, 255}};
+
+    // Cache landmark exclusion circles once per chunk build so bespoke hero landmarks never double-render
+    struct ExclZone { Vec2 pos; float rSq; };
+    std::vector<ExclZone> excl;
+    excl.reserve(city.landmarks().size() + 1);
+    for (const auto& lm : city.landmarks()) {
+        if (lm.kind == SeoulLandmarkKind::GangnamStationPlaza) continue;
+        float rad = 68.0f;
+        switch (lm.kind) {
+            case SeoulLandmarkKind::LotteWorldTower:     rad = 128.0f; break;
+            case SeoulLandmarkKind::GyeongbokgungPalace: rad = 165.0f; break;
+            case SeoulLandmarkKind::JamsilStadium:       rad = 118.0f; break;
+            case SeoulLandmarkKind::NationalAssembly:
+            case SeoulLandmarkKind::CoexTradeTower:
+            case SeoulLandmarkKind::DongdaemunDDP:
+            case SeoulLandmarkKind::SeoulCityHall:       rad =  92.0f; break;
+            default:                                     rad =  64.0f; break;
+        }
+        excl.push_back({lm.pos, rad * rad});
+        if (lm.kind == SeoulLandmarkKind::GyeongbokgungPalace) {
+            excl.push_back({{lm.pos.x, lm.pos.z + 142.0f}, 78.0f * 78.0f}); // Gwanghwamun Gate
+        }
+    }
+
+    std::vector<Vec2> polyPts;
+    polyPts.reserve(24);
+
+    for (std::uint32_t k = 0; k < ch.bldgLen; ++k) {
+        const OsmBldgRec& b = bldgs[flatBldgs[ch.bldgStart + k]];
+        if (b.vertCount < 3) continue;
+
+        // Emit each building in EXACTLY ONE chunk (by centroid) -> zero duplicate faces!
+        const int bcx = std::clamp(static_cast<int>(std::floor((b.cx - hdr.minX) / hdr.chunkSize)),
+                                   0, static_cast<int>(hdr.chunksX) - 1);
+        const int bcz = std::clamp(static_cast<int>(std::floor((b.cz - hdr.minZ) / hdr.chunkSize)),
+                                   0, static_cast<int>(hdr.chunksZ) - 1);
+        if (bcx != cx || bcz != cz) continue;
+
+        bool skipHero = false;
+        const Vec2 bCenter{b.cx, b.cz};
+        for (const auto& ez : excl) {
+            if ((bCenter - ez.pos).lengthSq() < ez.rSq) {
+                skipHero = true;
+                break;
+            }
+        }
+        if (skipHero) continue;
+
+        polyPts.clear();
+        for (std::uint16_t vi = 0; vi < b.vertCount; ++vi) {
+            polyPts.push_back(real.bldgWorldVert(b, vi));
+        }
+
+        // Verify CCW orientation in (x, z) so outward wall normals always point outward!
+        float signed2 = 0.0f;
+        for (std::size_t i = 0; i < polyPts.size(); ++i) {
+            const Vec2& p0 = polyPts[i];
+            const Vec2& p1 = polyPts[(i + 1) % polyPts.size()];
+            signed2 += p0.x * p1.z - p1.x * p0.z;
+        }
+        if (signed2 < 0.0f) {
+            std::reverse(polyPts.begin(), polyPts.end());
+        }
+
+        std::vector<Vertex3D>* wallDst = &graniteV;
+        std::vector<Vertex3D>* roofDst = &roofV;
+        ColorRGBA tint = kGranitePal[b.colorIdx & 3u];
+        switch (b.style) {
+            case 0: wallDst = &aptV;     tint = kAptPal[b.colorIdx & 3u];     break;
+            case 1: wallDst = &glassV;   tint = kGlassPal[b.colorIdx & 3u];   break;
+            case 2: wallDst = &graniteV; tint = kGranitePal[b.colorIdx & 3u]; break;
+            case 3: wallDst = &brickV;   tint = kBrickPal[b.colorIdx & 3u];   roofDst = &brickV; break; // Korean green urethane roof!
+            case 4: wallDst = &stuccoV;  tint = kStuccoPal[b.colorIdx & 3u];  break;
+            case 5: wallDst = &graniteV; tint = {216, 208, 194, 255};         roofDst = &hanokV; break; // Traditional Hanok giwa roof!
+            default: wallDst = &graniteV; tint = kGranitePal[b.colorIdx & 3u]; break;
+        }
+
+        // Deep foundation (-3.5m) guarantees zero floating buildings on hilly Seoul slopes!
+        const float yBot = b.baseY - 3.5f;
+        const float yTop = b.baseY + b.height;
+        float accumU = 0.0f;
+        for (std::size_t i = 0; i < polyPts.size(); ++i) {
+            const Vec2& pA = polyPts[i];
+            const Vec2& pB = polyPts[(i + 1) % polyPts.size()];
+            const float dx = pB.x - pA.x;
+            const float dz = pB.z - pA.z;
+            const float edgeLen = std::sqrt(dx * dx + dz * dz);
+            if (edgeLen < 0.15f) continue;
+
+            // Outward normal for CCW polygon in (x, z)
+            const Vec3 outN{dz / edgeLen, 0.0f, -dx / edgeLen};
+            const float u0 = accumU;
+            const float u1 = accumU + edgeLen;
+            accumU = u1;
+
+            // v = height above ground floor b.baseY so 1F storefronts (v < 3.9m) align accurately!
+            const float vBot = -3.5f;
+            const float vTop = b.height;
+            pushQuadV3(*wallDst,
+                       {pA.x, yBot, pA.z}, {pB.x, yBot, pB.z},
+                       {pB.x, yTop, pB.z}, {pA.x, yTop, pA.z},
+                       outN, u0, vBot, u1, vBot, u1, vTop, u0, vTop, tint);
+        }
+
+        // Exact ear-clipped polygon roof cap (handles L-shaped, U-shaped & courtyard Seoul buildings!)
+        earClipRoofXZ(polyPts, yTop, tint, *roofDst);
+    }
+
+    if (!groundV.empty())    out.groundMesh      = vk.createMesh(groundV);
+    if (!roadsV.empty())     out.roadsMesh       = vk.createMesh(roadsV);
+    if (!sidewalksV.empty()) out.sidewalksMesh   = vk.createMesh(sidewalksV);
+    if (!piersV.empty())     out.bridgePiersMesh = vk.createMesh(piersV);
+    if (!aptV.empty())       out.bldgAptMesh     = vk.createMesh(aptV);
+    if (!glassV.empty())     out.bldgGlassMesh   = vk.createMesh(glassV);
+    if (!graniteV.empty())   out.bldgGraniteMesh = vk.createMesh(graniteV);
+    if (!brickV.empty())     out.bldgBrickMesh   = vk.createMesh(brickV);
+    if (!stuccoV.empty())    out.bldgStuccoMesh  = vk.createMesh(stuccoV);
+    if (!hanokV.empty())     out.bldgHanokMesh   = vk.createMesh(hanokV);
+    if (!roofV.empty())      out.bldgRoofMesh    = vk.createMesh(roofV);
+}
+
+void Renderer3D::prepareRealSeoulChunks(VulkanContext& vk, const CityMap& city, const Vec2& focus) {
+    if (!city.hasRealSeoulMap()) return;
+    const RealSeoulData& real = city.realData();
+    const OcMapHeader& hdr = real.header();
+    const int centerCx = std::clamp(static_cast<int>(std::floor((focus.x - hdr.minX) / hdr.chunkSize)),
+                                    0, static_cast<int>(hdr.chunksX) - 1);
+    const int centerCz = std::clamp(static_cast<int>(std::floor((focus.z - hdr.minZ) / hdr.chunkSize)),
+                                    0, static_cast<int>(hdr.chunksZ) - 1);
+
+    constexpr int kRadius = 2; // 5x5 chunks = 1.28 km x 1.28 km full-detail Real-OSM Seoul window!
+    for (int dz = -kRadius; dz <= kRadius; ++dz) {
+        const int cz = centerCz + dz;
+        if (cz < 0 || cz >= static_cast<int>(hdr.chunksZ)) continue;
+        for (int dx = -kRadius; dx <= kRadius; ++dx) {
+            const int cx = centerCx + dx;
+            if (cx < 0 || cx >= static_cast<int>(hdr.chunksX)) continue;
+            const std::int64_t key = (static_cast<std::int64_t>(cz) << 16) | static_cast<std::int64_t>(cx);
+            auto it = realChunks_.find(key);
+            if (it == realChunks_.end()) {
+                RealChunkGpu ch{};
+                ch.lastUsedFrame = frameCounter_;
+                buildRealSeoulChunkMesh(vk, city, cx, cz, ch);
+                realChunks_.emplace(key, std::move(ch));
+            } else {
+                it->second.lastUsedFrame = frameCounter_;
+            }
+        }
+    }
+
+    // LRU evict oldest inactive chunks safely before render passes start (capped at 48 resident GPU chunks!)
+    constexpr std::size_t kMaxResidentChunks = 48;
+    if (realChunks_.size() > kMaxResidentChunks) {
+        vk.waitIdle();
+        while (realChunks_.size() > kMaxResidentChunks) {
+            auto oldestIt = realChunks_.begin();
+            for (auto it = realChunks_.begin(); it != realChunks_.end(); ++it) {
+                if (it->second.lastUsedFrame < oldestIt->second.lastUsedFrame) {
+                    oldestIt = it;
+                }
+            }
+            if (oldestIt->second.lastUsedFrame == frameCounter_) break;
+            destroyRealChunkGpu(vk, oldestIt->second);
+            realChunks_.erase(oldestIt);
+        }
+    }
+}
+
+void Renderer3D::updateAndDrawRealSeoulChunks(VulkanContext& vk, const CityMap& city,
+                                              const Vec2& focus, bool shadowPass) {
+    if (!city.hasRealSeoulMap()) return;
+    const RealSeoulData& real = city.realData();
+    const OcMapHeader& hdr = real.header();
+    const int centerCx = std::clamp(static_cast<int>(std::floor((focus.x - hdr.minX) / hdr.chunkSize)),
+                                    0, static_cast<int>(hdr.chunksX) - 1);
+    const int centerCz = std::clamp(static_cast<int>(std::floor((focus.z - hdr.minZ) / hdr.chunkSize)),
+                                    0, static_cast<int>(hdr.chunksZ) - 1);
+
+    const int radius = shadowPass ? 1 : 2;
+    const ColorRGBA kWhite{255, 255, 255, 255};
+    const Mat4 id = Mat4::identity();
+
+    for (int dz = -radius; dz <= radius; ++dz) {
+        const int cz = centerCz + dz;
+        if (cz < 0 || cz >= static_cast<int>(hdr.chunksZ)) continue;
+        for (int dx = -radius; dx <= radius; ++dx) {
+            const int cx = centerCx + dx;
+            if (cx < 0 || cx >= static_cast<int>(hdr.chunksX)) continue;
+            const std::int64_t key = (static_cast<std::int64_t>(cz) << 16) | static_cast<std::int64_t>(cx);
+            auto it = realChunks_.find(key);
+            if (it == realChunks_.end()) continue;
+            const RealChunkGpu& ch = it->second;
+
+            if (!shadowPass) {
+                drawMesh(vk, ch.groundMesh,      id, kWhite, 0.86f, 0.00f, 0.0f, MatId::SidewalkPavers, false);
+                drawMesh(vk, ch.roadsMesh,       id, kWhite, 0.56f, 0.00f, 0.0f, MatId::RoadAsphalt,    false);
+                drawMesh(vk, ch.sidewalksMesh,   id, kWhite, 0.78f, 0.00f, 0.0f, MatId::SidewalkPavers, false);
+            }
+            drawMesh(vk, ch.bridgePiersMesh, id, kWhite, 0.80f, 0.04f, 0.0f, MatId::BridgeConcrete,       shadowPass);
+            drawMesh(vk, ch.bldgAptMesh,     id, kWhite, 0.78f, 0.03f, 0.0f, MatId::KoreanAptFacade,      shadowPass);
+            drawMesh(vk, ch.bldgGlassMesh,   id, kWhite, 0.10f, 0.42f, 0.0f, MatId::GlassSkyscraper,      shadowPass);
+            drawMesh(vk, ch.bldgGraniteMesh, id, kWhite, 0.54f, 0.12f, 0.0f, MatId::ModernConcrete,       shadowPass);
+            drawMesh(vk, ch.bldgBrickMesh,   id, kWhite, 0.80f, 0.04f, 0.0f, MatId::KoreanApartmentBrick, shadowPass);
+            drawMesh(vk, ch.bldgStuccoMesh,  id, kWhite, 0.82f, 0.02f, 0.0f, MatId::StuccoCommercial,     shadowPass);
+            drawMesh(vk, ch.bldgHanokMesh,   id, kWhite, 0.56f, 0.08f, 0.0f, MatId::HanokGiwaRoof,        shadowPass);
+            if (!shadowPass) {
+                drawMesh(vk, ch.bldgRoofMesh, id, kWhite, 0.82f, 0.03f, 0.0f, MatId::RooftopConcrete, false);
+            }
+        }
     }
 }
 
@@ -1393,7 +2353,7 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     // 1. Player Firearm Muzzle Flash Point Light
     if (pl.muzzleFlashTimer > 0.001f && pl.drivingVehicleId < 0) {
         const Vec2 pf = forwardFromHeading(pl.facingYaw);
-        const float gy = city.surfaceHeightAt(pl.pos) + pl.posY;
+        const float gy = std::max(city.surfaceHeightAt(pl.pos), pl.posY);
         const float flashK = clampf(pl.muzzleFlashTimer / 0.055f, 0.25f, 1.0f);
         pushLocalLight({pl.pos.x + pf.x * 0.75f, gy + 1.38f, pl.pos.z + pf.z * 0.75f},
                        13.5f, {22.0f * flashK, 13.5f * flashK, 5.0f * flashK}, false);
@@ -1424,7 +2384,7 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     for (int i = 0; i < std::min<int>(4, static_cast<int>(sirenCands.size())); ++i) {
         const auto& v = vehs[static_cast<std::size_t>(sirenCands[static_cast<std::size_t>(i)].idx)];
         const auto& spec = getVehicleSpec(v.kind);
-        const float gy = city.surfaceHeightAt(v.pos) + v.posY;
+        const float gy = std::max(city.surfaceHeightAt(v.pos), v.posY);
         const bool redPhase = std::sin(v.sirenPhase * 14.0f) > 0.0f;
         const float boost = lerpf(0.75f, 1.35f, nightF);
         const Vec3 sCol = redPhase
@@ -1440,24 +2400,24 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
             if (nLights + 2 > SceneUBO::kMaxLocalLights) break;
             const auto& v = vehs[static_cast<std::size_t>(headCands[static_cast<std::size_t>(i)].idx)];
             const auto& spec = getVehicleSpec(v.kind);
-            const float gy = city.surfaceHeightAt(v.pos) + v.posY;
+            const float gy = std::max(city.surfaceHeightAt(v.pos), v.posY);
             const Vec2 vf = forwardFromHeading(v.heading);
             const Vec2 vr = rightFromHeading(v.heading);
             const ColorRGBA hl = getVehicleHeadlightColorRGBA(v.headlightColorIdx, nightF > 0.35f);
             const Vec3 hlLin{
-                std::pow(static_cast<float>(hl.r) / 255.0f, 2.2f) * 18.5f * headIntensity,
-                std::pow(static_cast<float>(hl.g) / 255.0f, 2.2f) * 18.5f * headIntensity,
-                std::pow(static_cast<float>(hl.b) / 255.0f, 2.2f) * 18.5f * headIntensity
+                std::pow(static_cast<float>(hl.r) / 255.0f, 2.2f) * 11.2f * headIntensity,
+                std::pow(static_cast<float>(hl.g) / 255.0f, 2.2f) * 10.9f * headIntensity,
+                std::pow(static_cast<float>(hl.b) / 255.0f, 2.2f) * 10.2f * headIntensity
             };
-            const Vec3 spotDir = Vec3{vf.x, -0.15f, vf.z}.normalized();
-            const float lampY = gy + ((v.kind == VehicleKind::SeoulBus || v.kind == VehicleKind::FireTruck) ? 1.05f : 0.82f);
+            const Vec3 spotDir = Vec3{vf.x, -0.11f, vf.z}.normalized();
+            const float lampY = gy + ((v.kind == VehicleKind::SeoulBus || v.kind == VehicleKind::FireTruck) ? 1.05f : 0.78f);
             for (float side : {-1.0f, 1.0f}) {
                 const Vec3 lPos{
-                    v.pos.x + vf.x * (spec.halfLength + 0.12f) + vr.x * (side * spec.halfWidth * 0.62f),
+                    v.pos.x + vf.x * (spec.halfLength + 0.14f) + vr.x * (side * spec.halfWidth * 0.62f),
                     lampY,
-                    v.pos.z + vf.z * (spec.halfLength + 0.12f) + vr.z * (side * spec.halfWidth * 0.62f)
+                    v.pos.z + vf.z * (spec.halfLength + 0.14f) + vr.z * (side * spec.halfWidth * 0.62f)
                 };
-                pushLocalLight(lPos, 46.0f, hlLin, true, spotDir, 0.72f);
+                pushLocalLight(lPos, 52.0f, hlLin, true, spotDir, 0.65f);
             }
         }
     }
@@ -1576,6 +2536,35 @@ void Renderer3D::drawSignQuad(VulkanContext& vk, const Vec3& center, const Vec3&
 void Renderer3D::drawSeoulTerrainAndRoads(VulkanContext& vk, const GameWorld& world,
                                           const Vec2& focus, bool shadowPass) {
     const CityMap& city = world.city();
+
+    if (city.hasRealSeoulMap()) {
+        if (!shadowPass) {
+            const ColorRGBA kWhite{255, 255, 255, 255};
+            const Mat4 id = Mat4::identity();
+            // 1. Real SRTM 30m DEM Urban Floor (smooth fine granite plaza stone), Surrounding Mountains & Granite Cliffs!
+            drawMesh(vk, realTerrainMesh_,     id, {168, 170, 174, 255}, 0.86f, 0.00f, 0.0f, MatId::SidewalkPavers, false);
+            drawMesh(vk, mountainForestMesh_,  id, kWhite, 0.90f, 0.00f, 0.0f, MatId::FoliageGrass,   false);
+            drawMesh(vk, mountainGraniteMesh_, id, kWhite, 0.85f, 0.02f, 0.0f, MatId::GraniteRock,    false);
+            // 2. Real OpenStreetMap Han River (with Yeouido/Bamseom/Nodeul islands), Seokchon Lake & Tributaries!
+            drawMesh(vk, realWaterMesh_,       id, kWhite, 0.06f, 0.06f, 0.0f, MatId::HanRiverWater,  false);
+            // 3. Real OpenStreetMap Parks (17,931 textured organic grass tris!)
+            drawMesh(vk, realParksMesh_,       id, kWhite, 0.88f, 0.00f, 0.0f, MatId::FoliageGrass,   false);
+
+            // 4. Distant Real Seoul Skyline LOD (beyond the active 5x5 high-detail OSM chunks!)
+            for (const auto& ds : distantSkyline_) {
+                const float dSq = (ds.pos - focus).lengthSq();
+                if (dSq < 600.0f * 600.0f || dSq > 6800.0f * 6800.0f) continue;
+                drawBox(vk, {ds.pos.x, ds.baseY + ds.height * 0.5f, ds.pos.z},
+                        {ds.size.x, ds.height, ds.size.z}, 0.0f, ds.col,
+                        ds.isGlass ? 0.22f : 0.78f, ds.isGlass ? 0.35f : 0.04f, 0.0f,
+                        ds.isGlass ? MatId::GlassSkyscraper : MatId::KoreanAptFacade, false);
+            }
+        }
+        // 5. High-Detail 5x5 Active OpenStreetMap 3D Chunks (Curved Roads, Sidewalks, Bridge Piers & Real Extruded Buildings!)
+        updateAndDrawRealSeoulChunks(vk, city, focus, shadowPass);
+        return;
+    }
+
     const float pitch = CityMap::kBlockPitch;
 
     if (!shadowPass) {
@@ -1686,7 +2675,7 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
     const CityMap& city = world.city();
     const bool nightMode = world.isNight();
 
-    // 1. Always-visible 12 Real Seoul Macro Landmarks!
+    // 1. Always-visible 11 Iconic Real Seoul Macro Landmarks!
     drawMesh(vk, landmarkGlassMesh_, Mat4::identity(), {255, 255, 255, 255},
              0.10f, 0.32f, 0.0f, MatId::GlassSkyscraper, shadowPass);
     drawMesh(vk, landmarkStoneMesh_, Mat4::identity(), {255, 255, 255, 255},
@@ -1698,6 +2687,10 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
     if (!shadowPass) {
         drawMesh(vk, landmarkGlowMesh_, Mat4::identity(), {255, 255, 255, 255},
                  0.20f, 0.10f, nightMode ? 1.45f : 0.42f, MatId::EmissiveGlow, false);
+    }
+
+    if (city.hasRealSeoulMap()) {
+        return; // Real OSM 3D buildings & parks are rendered via updateAndDrawRealSeoulChunks + realParksMesh_!
     }
 
     // 2. Local Park Lawns
@@ -1955,25 +2948,26 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
             drawBox(vk, {t.pos.x, y0 + 0.24f, t.pos.z}, {1.45f, 0.16f, 1.45f}, 0.0f,
                     {68, 54, 42, 255}, 0.94f, 0.0f, 0.0f, MatId::Standard, false);
         }
-        // Tapered bark trunk with subtle natural yaw variation per tree
+        // Multi-branch flared bark trunk with natural yaw variation per tree
         const float treeYaw = std::fmod(std::abs(t.pos.x * 0.17f + t.pos.z * 0.31f), kTwoPi);
         Mat4 trunkM = Mat4::translation(t.pos.x, y0, t.pos.z) *
-                      Mat4::scale(0.36f, t.trunkHeight, 0.36f);
-        drawMesh(vk, cylMesh_, trunkM, {88, 66, 48, 255}, 0.90f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
+                      Mat4::rotationAxis({0, 1, 0}, treeYaw) *
+                      Mat4::scale(0.88f, t.trunkHeight, 0.88f);
+        drawMesh(vk, treeTrunkMesh_, trunkM, {104, 78, 56, 255}, 0.90f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
 
         if (t.species == TreeSpecies::KoreanPine) {
-            Mat4 cm = Mat4::translation(t.pos.x, y0 + t.trunkHeight * 0.65f, t.pos.z) *
+            Mat4 cm = Mat4::translation(t.pos.x, y0 + t.trunkHeight * 0.68f, t.pos.z) *
                       Mat4::rotationAxis({0, 1, 0}, treeYaw) *
-                      Mat4::scale(t.crownRadius * 1.42f, t.crownRadius * 2.15f, t.crownRadius * 1.42f);
-            drawMesh(vk, pineMesh_, cm, {40, 82, 48, 255}, 0.88f, 0.0f, 0.0f, MatId::FoliageGrass, shadowPass);
+                      Mat4::scale(t.crownRadius * 1.38f, t.crownRadius * 1.85f, t.crownRadius * 1.38f);
+            drawMesh(vk, pineMesh_, cm, {48, 92, 54, 255}, 0.86f, 0.0f, 0.0f, MatId::FoliageCanopy, shadowPass);
         } else {
             const ColorRGBA crownCol = (t.species == TreeSpecies::CherryBlossom)
                 ? ColorRGBA{244, 192, 210, 255}
-                : ColorRGBA{78, 122, 48, 255};
-            Mat4 cm = Mat4::translation(t.pos.x, y0 + t.trunkHeight + t.crownRadius * 0.16f, t.pos.z) *
+                : ColorRGBA{92, 134, 58, 255};
+            Mat4 cm = Mat4::translation(t.pos.x, y0 + t.trunkHeight + t.crownRadius * 0.12f, t.pos.z) *
                       Mat4::rotationAxis({0, 1, 0}, treeYaw) *
-                      Mat4::scale(t.crownRadius * 1.15f, t.crownRadius * 1.05f, t.crownRadius * 1.15f);
-            drawMesh(vk, foliageMesh_, cm, crownCol, 0.86f, 0.0f, 0.0f, MatId::FoliageGrass, shadowPass);
+                      Mat4::scale(t.crownRadius * 1.18f, t.crownRadius * 1.02f, t.crownRadius * 1.18f);
+            drawMesh(vk, foliageMesh_, cm, crownCol, 0.84f, 0.0f, 0.0f, MatId::FoliageCanopy, shadowPass);
         }
     }
 
@@ -2235,7 +3229,7 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
     else if (v.stanceStyle == 2) stanceOffsetY = -0.075f;
     else if (v.stanceStyle == 3) stanceOffsetY = +0.085f;
 
-    const float baseH = groundY + v.posY + stanceOffsetY;
+    const float baseH = std::max(groundY, v.posY) + stanceOffsetY;
     const Mat4 rootPos = Mat4::translation(v.pos.x, baseH, v.pos.z) *
                          Mat4::rotationAxis({0, 1, 0}, -v.heading);
 
@@ -2249,6 +3243,21 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
 
     if (alphaPass) {
         if (cockpitHoodOnly) return;
+        // Soft two-tier ground contact ambient-occlusion shadow directly beneath the chassis (grounds every car on asphalt!)
+        const float hoverH = std::max(0.0f, v.posY - groundY);
+        if (hoverH < 0.85f) {
+            const float aoFade = clampf(1.0f - hoverH / 0.85f, 0.0f, 1.0f);
+            const Mat4 shBase = Mat4::translation(v.pos.x, groundY + 0.085f, v.pos.z) *
+                                Mat4::rotationAxis({0, 1, 0}, -v.heading);
+            drawMesh(vk, cubeMesh_, shBase * Mat4::scale(spec.halfLength * 1.94f, 0.012f, spec.halfWidth * 1.90f),
+                     {6, 8, 12, static_cast<std::uint8_t>(118.0f * aoFade)}, 0.95f, 0.0f, 0.0f,
+                     MatId::Standard, false, WorldPipelineKind::Alpha);
+            drawMesh(vk, cubeMesh_, shBase * Mat4::translation(0.0f, 0.006f, 0.0f) *
+                                    Mat4::scale(spec.halfLength * 1.62f, 0.012f, spec.halfWidth * 1.56f),
+                     {4, 6, 10, static_cast<std::uint8_t>(98.0f * aoFade)}, 0.95f, 0.0f, 0.0f,
+                     MatId::Standard, false, WorldPipelineKind::Alpha);
+        }
+
         // Flush curved smoked automotive glass (matId=8 -> mirror-like Seoul reflections + dark 3D cabin & driver visible inside!)
         drawMesh(vk, cm.glass, bodyMat, {255, 255, 255, 255}, 0.03f, 0.15f, 0.0f,
                  MatId::CarGlass, false, WorldPipelineKind::Alpha);
@@ -2307,6 +3316,9 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
             if (v.kind == VehicleKind::SeoulBus) {
                 eye.x -= 0.14f;
             }
+            // Clamp seated driver head strictly beneath low-slung supercar/hypercar rooflines (zero roof clipping!)
+            const float maxSafeEyeY = std::max(0.76f, 0.22f + spec.chassisHeight - 0.21f);
+            eye.y = std::min(eye.y, maxSafeEyeY);
             ColorRGBA drvTop{54, 64, 82, 255};
             ColorRGBA drvSkin{234, 194, 162, 255};
             ColorRGBA drvHair{28, 24, 22, 255};
@@ -2334,15 +3346,15 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
             }
 
             // Seated driver torso slightly reclined into bucket seat + neck + head + hair/cap
-            const Vec3 torsoPos{eye.x - 0.14f, eye.y - 0.56f, eye.z};
+            const Vec3 torsoPos{eye.x - 0.14f, eye.y - 0.54f, eye.z};
             const Mat4 drvRoot = bodyMat * Mat4::translation(torsoPos.x, torsoPos.y, torsoPos.z) *
-                                 Mat4::rotationAxis({0, 0, 1}, 0.14f);
-            drawMesh(vk, torsoMesh_, drvRoot * Mat4::scale(0.28f, 0.48f, 0.40f),
+                                 Mat4::rotationAxis({0, 0, 1}, 0.16f);
+            drawMesh(vk, torsoMesh_, drvRoot * Mat4::scale(0.27f, 0.46f, 0.38f),
                      drvTop, 0.74f, 0.04f, 0.0f, MatId::FabricCloth, false);
-            const Vec3 headPos{eye.x - 0.05f, eye.y - 0.03f, eye.z};
-            drawMesh(vk, sphereMesh_, bodyMat * Mat4::translation(headPos.x, headPos.y, headPos.z) * Mat4::scale(0.21f, 0.24f, 0.19f),
+            const Vec3 headPos{eye.x - 0.05f, eye.y - 0.04f, eye.z};
+            drawMesh(vk, sphereMesh_, bodyMat * Mat4::translation(headPos.x, headPos.y, headPos.z) * Mat4::scale(0.195f, 0.22f, 0.18f),
                      drvSkin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, false);
-            drawMesh(vk, sphereMesh_, bodyMat * Mat4::translation(headPos.x - 0.02f, headPos.y + 0.05f, headPos.z) * Mat4::scale(0.22f, 0.16f, 0.205f),
+            drawMesh(vk, sphereMesh_, bodyMat * Mat4::translation(headPos.x - 0.02f, headPos.y + 0.045f, headPos.z) * Mat4::scale(0.205f, 0.145f, 0.19f),
                      drvHair, 0.68f, 0.04f, 0.0f, MatId::Standard, false);
             if (policeCap) {
                 drawMesh(vk, cubeMesh_, bodyMat * Mat4::translation(headPos.x + 0.09f, headPos.y + 0.03f, headPos.z) * Mat4::scale(0.10f, 0.02f, 0.15f),
@@ -2913,34 +3925,36 @@ void Renderer3D::drawCharacter(VulkanContext& vk, const Vec2& pos, float groundY
     const ColorRGBA shoeCol{28, 30, 36, 255};
     const ColorRGBA beltCol{32, 30, 28, 255};
 
-    // 1. Articulated Two-Segment Legs (Thigh + Shin + Knee Bend + Contoured Shoe!)
+    // 1. Articulated Two-Segment Legs (Thigh + Shin + Knee Bend + Sculpted Sneaker & Midsole!)
     for (float s : {-1.0f, 1.0f}) {
         const float hipAng = s * stride;
         const float kneeAng = alive ? std::max(0.0f, -s * std::cos(animPhase) * 0.36f) : 0.0f;
-        const Mat4 hipM = root * Mat4::translation(0.0f, 0.86f, s * 0.115f) *
+        const Mat4 hipM = root * Mat4::translation(0.0f, 0.85f, s * 0.105f) *
                           Mat4::rotationAxis({0, 0, 1}, hipAng);
-        drawMesh(vk, capsuleLimbMesh_, hipM * Mat4::scale(0.165f, 0.41f, 0.165f),
+        drawMesh(vk, capsuleLimbMesh_, hipM * Mat4::scale(0.155f, 0.41f, 0.155f),
                  bottom, 0.78f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
         const Mat4 kneeM = hipM * Mat4::translation(0.0f, -0.41f, 0.0f) *
                            Mat4::rotationAxis({0, 0, 1}, -kneeAng);
-        drawMesh(vk, capsuleLimbMesh_, kneeM * Mat4::scale(0.135f, 0.38f, 0.135f),
+        drawMesh(vk, capsuleLimbMesh_, kneeM * Mat4::scale(0.128f, 0.38f, 0.128f),
                  bottom, 0.78f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
-        drawMesh(vk, sphereMesh_, kneeM * Mat4::translation(0.05f, -0.41f, 0.0f) * Mat4::scale(0.26f, 0.10f, 0.13f),
+        drawMesh(vk, cubeMesh_, kneeM * Mat4::translation(0.045f, -0.418f, 0.0f) * Mat4::scale(0.245f, 0.032f, 0.112f),
+                 {218, 222, 228, 255}, 0.72f, 0.02f, 0.0f, MatId::Standard, shadowPass);
+        drawMesh(vk, sphereMesh_, kneeM * Mat4::translation(0.042f, -0.392f, 0.0f) * Mat4::scale(0.24f, 0.088f, 0.118f),
                  shoeCol, 0.56f, 0.06f, 0.0f, MatId::Standard, shadowPass);
     }
 
-    // 2. Sculpted Pelvis, Belt & Anatomical Tapered Torso (with punch/aim twist)
+    // 2. Clean Tucked Pelvis, Slim Flush Waistband & Anatomical Draped Jacket Torso (ZERO pelvis bulge!)
     const Mat4 upperRoot = (std::abs(torsoPunchTwist) > 0.001f)
         ? (root * Mat4::rotationAxis({0, 1, 0}, torsoPunchTwist))
         : root;
 
-    drawMesh(vk, sphereMesh_, root * Mat4::translation(0.0f, 0.86f, 0.0f) * Mat4::scale(0.24f, 0.18f, 0.36f),
+    drawMesh(vk, sphereMesh_, root * Mat4::translation(0.0f, 0.82f, 0.0f) * Mat4::scale(0.175f, 0.135f, 0.295f),
              bottom, 0.78f, 0.02f, 0.0f, MatId::FabricCloth, shadowPass);
     if (!shadowPass) {
-        drawMesh(vk, cylMesh_, root * Mat4::translation(0.0f, 0.88f, 0.0f) * Mat4::scale(0.245f, 0.055f, 0.365f),
+        drawMesh(vk, cylMesh_, root * Mat4::translation(0.0f, 0.84f, 0.0f) * Mat4::scale(0.185f, 0.036f, 0.310f),
                  beltCol, 0.42f, 0.25f, 0.0f, MatId::Standard, false);
     }
-    drawMesh(vk, torsoMesh_, upperRoot * Mat4::translation(0.0f, 0.90f, 0.0f) * Mat4::scale(0.30f, 0.58f, 0.45f),
+    drawMesh(vk, torsoMesh_, upperRoot * Mat4::translation(0.0f, 0.84f, 0.0f) * Mat4::scale(0.305f, 0.635f, 0.445f),
              top, 0.74f, 0.04f, 0.0f, MatId::FabricCloth, shadowPass);
     if (!shadowPass) {
         drawMesh(vk, sphereMesh_, upperRoot * Mat4::translation(0.09f, 1.38f, 0.0f) * Mat4::scale(0.11f, 0.14f, 0.14f),
@@ -2959,41 +3973,57 @@ void Renderer3D::drawCharacter(VulkanContext& vk, const Vec2& pos, float groundY
                  bgCol, 0.65f, 0.12f, (customChar->backGearStyle == 3) ? 0.5f : 0.0f, MatId::FabricCloth, false);
     }
 
-    // 3. Neck, Sculpted Head, Hair & Flush Conformal Eyewear!
-    drawMesh(vk, cylMesh_, upperRoot * Mat4::translation(0.0f, 1.43f, 0.0f) * Mat4::scale(0.11f, 0.13f, 0.11f),
+    // 3. Neck, Sculpted Head, Layered Hair, Ears & Refined Facial Details (zero cartoon egg-head look!)
+    drawMesh(vk, cylMesh_, upperRoot * Mat4::translation(0.0f, 1.43f, 0.0f) * Mat4::scale(0.105f, 0.135f, 0.105f),
              skin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, shadowPass);
 
     const float headLook = npcPtr ? npcPtr->headLookYaw : 0.0f;
     const Mat4 headM = upperRoot * Mat4::translation(0.0f, 1.63f, 0.0f) * Mat4::rotationAxis({0, 1, 0}, -headLook);
-    drawMesh(vk, sphereMesh_, headM * Mat4::scale(0.22f, 0.26f, 0.20f),
+    drawMesh(vk, sphereMesh_, headM * Mat4::scale(0.205f, 0.245f, 0.188f),
              skin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, shadowPass);
 
     if (!shadowPass) {
+        // Subtle anatomical jaw/chin + ears + nose bridge
+        drawMesh(vk, sphereMesh_, headM * Mat4::translation(0.015f, -0.048f, 0.0f) * Mat4::scale(0.155f, 0.135f, 0.135f),
+                 skin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, false);
+        drawMesh(vk, sphereMesh_, headM * Mat4::translation(0.102f, -0.008f, 0.0f) * Mat4::scale(0.026f, 0.036f, 0.024f),
+                 skin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, false);
+        for (float es : {-1.0f, 1.0f}) {
+            drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.005f, -0.004f, es * 0.094f) * Mat4::scale(0.032f, 0.052f, 0.024f),
+                     skin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, false);
+        }
+
         const ColorRGBA hairCol = customChar
             ? getPlayerHairColor(outfit, customChar->hairColorIdx)
-            : (isPolice ? ColorRGBA{24, 42, 86, 255} : ColorRGBA{28, 24, 22, 255});
+            : (isPolice ? ColorRGBA{24, 42, 86, 255} : ColorRGBA{26, 22, 20, 255});
         if (isPolice || isSwat) {
-            drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.01f, 0.06f, 0.0f) * Mat4::scale(0.24f, 0.16f, 0.22f),
+            drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.01f, 0.058f, 0.0f) * Mat4::scale(0.232f, 0.155f, 0.214f),
                      isSwat ? ColorRGBA{28, 32, 38, 255} : ColorRGBA{22, 42, 92, 255}, 0.45f, 0.15f, 0.0f, MatId::Standard, false);
-            drawMesh(vk, cubeMesh_, headM * Mat4::translation(0.10f, 0.03f, 0.0f) * Mat4::scale(0.11f, 0.022f, 0.16f),
+            drawMesh(vk, cubeMesh_, headM * Mat4::translation(0.098f, 0.032f, 0.0f) * Mat4::scale(0.105f, 0.020f, 0.152f),
                      {20, 22, 26, 255}, 0.35f, 0.15f, 0.0f, MatId::Standard, false);
         } else {
-            drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.02f, 0.055f, 0.0f) * Mat4::scale(0.23f, 0.18f, 0.215f),
-                     hairCol, 0.72f, 0.04f, 0.0f, MatId::Standard, false);
-            drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.055f, -0.01f, 0.0f) * Mat4::scale(0.17f, 0.16f, 0.19f),
-                     hairCol, 0.72f, 0.04f, 0.0f, MatId::Standard, false);
+            // Layered natural modern Korean hairstyle (crown volume + tapered nape + subtle fringe)
+            drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.014f, 0.058f, 0.0f) * Mat4::scale(0.222f, 0.172f, 0.208f),
+                     hairCol, 0.76f, 0.03f, 0.0f, MatId::Standard, false);
+            drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.054f, -0.005f, 0.0f) * Mat4::scale(0.165f, 0.168f, 0.186f),
+                     hairCol, 0.76f, 0.03f, 0.0f, MatId::Standard, false);
+            drawMesh(vk, sphereMesh_, headM * Mat4::translation(0.048f, 0.068f, 0.012f) * Mat4::scale(0.135f, 0.088f, 0.175f),
+                     hairCol, 0.76f, 0.03f, 0.0f, MatId::Standard, false);
         }
         if ((customChar && customChar->glassesStyle > 0) || (npcPtr && npcPtr->glassesStyle > 0)) {
             for (float es : {-1.0f, 1.0f}) {
-                drawMesh(vk, sphereMesh_, headM * Mat4::translation(0.098f, 0.014f, es * 0.042f) * Mat4::scale(0.025f, 0.038f, 0.058f),
+                drawMesh(vk, sphereMesh_, headM * Mat4::translation(0.094f, 0.012f, es * 0.038f) * Mat4::scale(0.024f, 0.034f, 0.052f),
                          {14, 16, 22, 255}, 0.06f, 0.45f, 0.0f, MatId::CarGlass, false);
             }
-            drawMesh(vk, cubeMesh_, headM * Mat4::translation(0.104f, 0.018f, 0.0f) * Mat4::scale(0.012f, 0.012f, 0.042f),
+            drawMesh(vk, cubeMesh_, headM * Mat4::translation(0.099f, 0.015f, 0.0f) * Mat4::scale(0.012f, 0.010f, 0.038f),
                      {24, 26, 30, 255}, 0.30f, 0.75f, 0.0f, MatId::Standard, false);
         } else {
             for (float es : {-1.0f, 1.0f}) {
-                drawMesh(vk, sphereMesh_, headM * Mat4::translation(0.098f, 0.014f, es * 0.038f) * Mat4::scale(0.016f, 0.018f, 0.022f),
-                         {22, 20, 20, 255}, 0.25f, 0.0f, 0.0f, MatId::Standard, false);
+                // Natural subtle dark eyebrows + recessed eyes (never oversized cartoon dot eyes!)
+                drawMesh(vk, cubeMesh_, headM * Mat4::translation(0.091f, 0.028f, es * 0.035f) * Mat4::scale(0.012f, 0.008f, 0.030f),
+                         hairCol, 0.75f, 0.0f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, sphereMesh_, headM * Mat4::translation(0.092f, 0.012f, es * 0.035f) * Mat4::scale(0.012f, 0.012f, 0.018f),
+                         {32, 28, 26, 255}, 0.32f, 0.0f, 0.0f, MatId::Standard, false);
             }
         }
     }
@@ -3315,7 +4345,7 @@ void Renderer3D::drawAlphaAndEffects(VulkanContext& vk, const GameWorld& world,
     }
     {
         const auto& pl = world.player();
-        const float gy = city.surfaceHeightAt(pl.pos) + pl.posY;
+        const float gy = std::max(city.surfaceHeightAt(pl.pos), pl.posY);
         const bool isThirdPerson = (camera.position - Vec3{pl.pos.x, gy + 1.56f, pl.pos.z}).lengthSq() > 0.70f;
         if (isThirdPerson && pl.drivingVehicleId < 0 && !pl.wasted && pl.currentWeapon != WeaponId::Fists) {
             const auto& slot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
@@ -3563,9 +4593,12 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
                                          const CameraState& camera,
                                          bool firstPerson, float adsBlend, bool lookBack) {
     if (!initialized_) return;
+    ++frameCounter_;
     hasPlayerLaserOrigin_ = false;
 
     const Vec2 focus = world.player().pos;
+    prepareRealSeoulChunks(vk, world.city(), focus);
+
     const Vec3 lightDir = computeSunDirection(world);
     const bool shadowsOn = (quality_ != GraphicsQuality::Performance);
 
@@ -3602,7 +4635,7 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
         // Draw Player with live 3D weapon carry / shoulder-aim / recoil / reload / equip / punch animations!
         const auto& pl = world.player();
         if (pl.drivingVehicleId < 0 && (!firstPerson || shadowPass)) {
-            const float gy = world.city().surfaceHeightAt(pl.pos) + pl.posY;
+            const float gy = std::max(world.city().surfaceHeightAt(pl.pos), pl.posY);
             const ColorRGBA top = getPlayerTopColor(pl.currentOutfit, pl.characterCustom.customTopColorIdx);
             const ColorRGBA bot = getPlayerBottomColor(pl.currentOutfit, pl.characterCustom.customBottomColorIdx);
             const ColorRGBA skin = getPlayerSkinColor(pl.characterCustom.skinToneIdx);

@@ -298,6 +298,25 @@ std::vector<std::uint8_t> PlatformApp::loadAssetOrSystemFont() const {
     return {};
 }
 
+std::vector<std::uint8_t> PlatformApp::loadAssetBytes(const char* relPath) const {
+    if (!relPath || !relPath[0]) return {};
+    if (impl_ && impl_->app && impl_->app->activity && impl_->app->activity->assetManager) {
+        AAsset* asset = AAssetManager_open(impl_->app->activity->assetManager,
+                                           relPath, AASSET_MODE_BUFFER);
+        if (asset) {
+            const off_t len = AAsset_getLength(asset);
+            if (len > 0) {
+                std::vector<std::uint8_t> data(static_cast<std::size_t>(len));
+                AAsset_read(asset, data.data(), static_cast<size_t>(len));
+                AAsset_close(asset);
+                return data;
+            }
+            AAsset_close(asset);
+        }
+    }
+    return {};
+}
+
 #else // Desktop (Linux / Windows via GLFW 3.4)
 
 namespace {
@@ -492,6 +511,23 @@ std::vector<std::uint8_t> PlatformApp::loadAssetOrSystemFont() const {
     };
     for (const char* p : kDesktopFonts) {
         auto b = readFileBytes(p);
+        if (!b.empty()) return b;
+    }
+    return {};
+}
+
+std::vector<std::uint8_t> PlatformApp::loadAssetBytes(const char* relPath) const {
+    if (!relPath || !relPath[0]) return {};
+    const std::string rp(relPath);
+    const std::string cands[5] = {
+        std::string("assets/") + rp,
+        std::string("../assets/") + rp,
+        std::string("../../assets/") + rp,
+        std::string("android/assets/") + rp,
+        rp
+    };
+    for (const auto& c : cands) {
+        auto b = readFileBytes(c.c_str());
         if (!b.empty()) return b;
     }
     return {};

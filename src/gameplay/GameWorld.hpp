@@ -12,6 +12,9 @@ class GameWorld {
 public:
     explicit GameWorld(std::uint64_t seed = 20261107ULL);
 
+    bool loadRealSeoulMap(const std::uint8_t* bytes, std::size_t size);
+    bool loadRealSeoulMapFromFile(const std::string& path);
+
     void reset();
     void update(float dt, const PlayerInput& input);
 
@@ -110,6 +113,7 @@ public:
         v.kind = kind;
         const auto& sp = getVehicleSpec(kind);
         v.pos = pos;
+        v.posY = city_.surfaceHeightAt(pos);
         v.heading = heading;
         v.paintColor = paint;
         v.health = sp.maxHealth;

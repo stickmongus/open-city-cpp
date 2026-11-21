@@ -1,5 +1,6 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include <stb_truetype.h>
+#include <stb_image.h>
 
 #include "ui/Vulkan2D.hpp"
 #include "ui/AndroidKoreanGlyphs.hpp"
@@ -121,6 +122,22 @@ bool Vulkan2D::init(VulkanContext& vk, const std::vector<std::uint8_t>& fontByte
     return fontLoaded_;
 }
 
+bool Vulkan2D::initMapTexture(VulkanContext& vk, const std::vector<std::uint8_t>& mapPngBytes) {
+    mapTexLoaded_ = false;
+    if (mapPngBytes.empty()) return false;
+    int w = 0, h = 0, ch = 0;
+    stbi_uc* pixels = stbi_load_from_memory(mapPngBytes.data(),
+                                            static_cast<int>(mapPngBytes.size()),
+                                            &w, &h, &ch, 4);
+    if (!pixels || w <= 0 || h <= 0) {
+        if (pixels) stbi_image_free(pixels);
+        return false;
+    }
+    mapTexLoaded_ = vk.uploadUiMapRGBA8(pixels, static_cast<std::uint32_t>(w), static_cast<std::uint32_t>(h));
+    stbi_image_free(pixels);
+    return mapTexLoaded_;
+}
+
 void Vulkan2D::beginBatch() {
     verts_.clear();
 }
@@ -152,6 +169,16 @@ void Vulkan2D::pushTri(float x0, float y0, float u0, float v0,
     verts_.push_back({x0, y0, u0, v0, r, g, b, a});
     verts_.push_back({x1, y1, u1, v1, r, g, b, a});
     verts_.push_back({x2, y2, u2, v2, r, g, b, a});
+}
+
+void Vulkan2D::drawMapImage(float x, float y, float w, float h,
+                            float u0, float v0, float u1, float v1, ColorRGBA tint) {
+    if (!mapTexLoaded_ || w <= 0.0f || h <= 0.0f || tint.a == 0) return;
+    // ui2d.frag samples full-color mapTex (binding=1) whenever fragUv.x >= 1.5 at (fragUv.x - 2.0, fragUv.y)!
+    const float mu0 = 2.0f + clampf(u0, 0.0f, 1.0f);
+    const float mu1 = 2.0f + clampf(u1, 0.0f, 1.0f);
+    pushTri(x, y, mu0, v0,  x + w, y, mu1, v0,  x + w, y + h, mu1, v1, tint);
+    pushTri(x, y, mu0, v0,  x + w, y + h, mu1, v1,  x, y + h, mu0, v1, tint);
 }
 
 void Vulkan2D::drawRect(float x, float y, float w, float h, ColorRGBA col) {
