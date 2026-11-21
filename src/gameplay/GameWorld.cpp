@@ -438,8 +438,8 @@ void GameWorld::reset() {
     player_.onGround = true;
 
     spawnInitialWorld();
-    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL GIS v3.2 (VULKAN)" : "WELCOME TO SEOUL (VULKAN)",
-               city_.hasRealSeoulMap() ? "실제 서울 OSM 지도 v3.2에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
+    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL GIS v3.3 (VULKAN)" : "WELCOME TO SEOUL (VULKAN)",
+               city_.hasRealSeoulMap() ? "실제 서울 OSM 지도 v3.3에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
                "[M] Full Seoul Map  |  [K] Custom Studio  |  [U] Rain  |  [V] 1st/3rd Person",
                "미니맵 터치/[M] 서울 전체 지도 · [K] 커스텀 · [U] 날씨 · [V] 1·3인칭",
                {118, 192, 232, 255}, 5.2f);
@@ -4447,15 +4447,50 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
         }
     }
 
-    const float carLookDist = v.driverPanicked ? 6.8f : 13.5f;
+    const auto& vSpec = getVehicleSpec(v.kind);
+    const float vSpd = v.speed();
+    const float stopGap = v.driverPanicked ? 4.2f : (5.8f + vSpd * 0.52f);
     for (const auto& other : vehicles_) {
         if (other.id == v.id) continue;
+        const auto& oSpec = getVehicleSpec(other.kind);
         const Vec2 delta = other.pos - v.pos;
+        const float maxR = stopGap + vSpec.halfLength + oSpec.halfLength + 6.0f;
+        if (delta.lengthSq() > maxR * maxR) continue;
+
+        const Vec2 oFwd = forwardFromHeading(other.heading);
+        const Vec2 oRight = rightFromHeading(other.heading);
+        const float oProjFwd  = std::abs(oFwd.dot(fwd))   * oSpec.halfLength + std::abs(oRight.dot(fwd))   * oSpec.halfWidth;
+        const float oProjSide = std::abs(oFwd.dot(right)) * oSpec.halfLength + std::abs(oRight.dot(right)) * oSpec.halfWidth;
+
         const float ahead = delta.dot(fwd);
         const float side = std::abs(delta.dot(right));
-        if (ahead > 1.5f && ahead < carLookDist && side < 2.4f) {
+        const float nearEdgeAhead = ahead - oProjFwd - vSpec.halfLength;
+        const float lateralBound = vSpec.halfWidth + oProjSide + 0.55f;
+
+        if (nearEdgeAhead > -0.45f && nearEdgeAhead < stopGap && side < lateralBound) {
+            // Deadlock tie-breaker when two crossing vehicles stop nose-to-side inside an intersection
+            const bool crossing = (std::abs(fwd.dot(oFwd)) < 0.45f);
+            if (crossing && vSpd < 1.1f && other.speed() < 1.1f && v.id < other.id) {
+                continue;
+            }
             obstacleAhead = true;
             break;
+        }
+
+        // Predictive cross-traffic yield: brake smoothly before entering a crossing bus/car's path!
+        if (!v.driverPanicked && std::abs(fwd.dot(oFwd)) < 0.45f && other.speed() > 1.4f) {
+            const Vec2 futureOther = other.pos + other.velocity * 0.85f;
+            const Vec2 fDelta = futureOther - v.pos;
+            const float fAhead = fDelta.dot(fwd) - oProjFwd - vSpec.halfLength;
+            const float fSide = std::abs(fDelta.dot(right));
+            if (fAhead > 0.4f && fAhead < stopGap + 3.5f && fSide < lateralBound + 0.6f) {
+                // Only yield if the other vehicle is already closer to the crossing point than we are
+                const float otherAheadUs = (v.pos - other.pos).dot(oFwd);
+                if (ahead > otherAheadUs + 1.0f || v.id > other.id) {
+                    obstacleAhead = true;
+                    break;
+                }
+            }
         }
     }
 
@@ -5479,7 +5514,39 @@ void GameWorld::updateNpcs(float dt) {
             if (city_.hasRealSeoulMap() && npc.osmRoadIdx < city_.realData().roads().size()) {
                 const auto& rd = city_.realData();
                 const OsmRoadRec& r = rd.roads()[npc.osmRoadIdx];
-                if (r.vertCount >= 2) {
+                const bool wasOnRoad = rd.isOnRoad(npc.pos, 0.30f);
+                if (wasOnRoad) {
+                    // Gently recover any pedestrian who stepped or got pushed onto crossing asphalt back to the nearest clear sidewalk!
+                    Vec2 bestCurb = npc.pos;
+                    bool foundCurb = false;
+                    float bestDistSq = 1e9f;
+                    for (int ai = 0; ai < 12; ++ai) {
+                        const float ang = static_cast<float>(ai) * (kTwoPi / 12.0f);
+                        const Vec2 dir{std::cos(ang), std::sin(ang)};
+                        for (float probeD : {3.5f, 7.0f, 11.5f, 16.5f}) {
+                            const Vec2 cand = npc.pos + dir * probeD;
+                            Vec2 chk = cand;
+                            if (!rd.isOnRoad(cand, 0.70f) && !rd.isInWater(cand) &&
+                                !rd.resolveCircleBuildings(chk, 0.55f)) {
+                                const float dSq = probeD * probeD;
+                                if (dSq < bestDistSq) {
+                                    bestDistSq = dSq;
+                                    bestCurb = cand;
+                                    foundCurb = true;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    if (foundCurb) {
+                        const Vec2 dir = (bestCurb - npc.pos).normalized();
+                        npc.facingYaw = moveTowardsAngle(npc.facingYaw, std::atan2(dir.z, dir.x), dt * 11.0f);
+                        npc.velocity = dir * 3.4f;
+                        npc.pos += npc.velocity * dt;
+                    } else {
+                        npc.velocity = {0.0f, 0.0f};
+                    }
+                } else if (r.vertCount >= 2) {
                     npc.osmVertIdx = std::min<std::uint32_t>(npc.osmVertIdx, r.vertCount - 1);
                     const std::uint32_t prevVi = (npc.osmDir > 0)
                                                      ? ((npc.osmVertIdx > 0) ? (npc.osmVertIdx - 1) : 0)
@@ -5487,42 +5554,57 @@ void GameWorld::updateNpcs(float dt) {
                     const Vec2 a = rd.roadVerts()[r.firstVert + prevVi];
                     const Vec2 b = rd.roadVerts()[r.firstVert + npc.osmVertIdx];
                     const Vec2 seg = b - a;
-                    const Vec2 tang = (seg.lengthSq() > 0.01f) ? seg.normalized() : forwardFromHeading(npc.facingYaw);
+                    const float segLen = seg.length();
+                    const Vec2 tang = (segLen > 0.1f) ? (seg / segLen) : forwardFromHeading(npc.facingYaw);
                     const Vec2 rightN{-tang.z, tang.x};
                     const float hw = std::max(2.6f, r.halfWidth);
-                    Vec2 targetSidewalk = b + rightN * (npc.osmSideSign * (hw + 2.10f));
-                    if (rd.isOnRoad(targetSidewalk, 0.75f)) {
-                        const Vec2 altSidewalk = b - rightN * (npc.osmSideSign * (hw + 2.10f));
-                        if (!rd.isOnRoad(altSidewalk, 0.75f)) {
-                            npc.osmSideSign = -npc.osmSideSign;
-                            targetSidewalk = altSidewalk;
+
+                    // Back intersection endpoints off along the block so pedestrians stay cleanly on the sidewalk corner!
+                    const bool atEndpoint = (npc.osmVertIdx == 0 || npc.osmVertIdx + 1 == r.vertCount);
+                    const float backOff = atEndpoint ? std::min(14.5f, segLen * 0.35f) : 0.0f;
+                    const Vec2 cornerPt = b - tang * backOff;
+                    Vec2 targetSidewalk = cornerPt + rightN * (npc.osmSideSign * (hw + 2.15f));
+                    if (rd.isOnRoad(targetSidewalk, 0.65f)) {
+                        // Try stepping slightly further outward onto the wider boulevard sidewalk, else turn back cleanly
+                        const Vec2 outerCand = cornerPt + rightN * (npc.osmSideSign * (hw + 4.4f));
+                        if (!rd.isOnRoad(outerCand, 0.65f)) {
+                            targetSidewalk = outerCand;
+                        } else {
+                            npc.osmDir = -npc.osmDir;
+                            npc.osmVertIdx = prevVi;
+                            targetSidewalk = a + rightN * (npc.osmSideSign * (hw + 2.15f));
                         }
                     }
+
                     const Vec2 toTgt = targetSidewalk - npc.pos;
-                    if (toTgt.lengthSq() < 2.2f * 2.2f) {
+                    if (toTgt.lengthSq() < 2.4f * 2.4f) {
                         const int nextIdx = static_cast<int>(npc.osmVertIdx) + npc.osmDir;
                         if (nextIdx >= 0 && nextIdx < static_cast<int>(r.vertCount)) {
                             npc.osmVertIdx = static_cast<std::uint32_t>(nextIdx);
                         } else {
-                            std::uint32_t connR = 0, connV = 0;
-                            int connD = 1;
-                            if (rd.findConnectingRoadAt(b, npc.osmRoadIdx, connR, connV, connD)) {
-                                npc.osmRoadIdx = connR;
-                                npc.osmVertIdx = connV;
-                                npc.osmDir = connD;
-                            } else {
-                                npc.osmDir = -npc.osmDir;
-                                npc.osmVertIdx = static_cast<std::uint32_t>(
-                                    std::clamp(static_cast<int>(npc.osmVertIdx) + npc.osmDir, 0, static_cast<int>(r.vertCount) - 1));
-                            }
+                            // Reverse smoothly along the same clean sidewalk block instead of cutting across 8-lane asphalt
+                            npc.osmDir = -npc.osmDir;
+                            npc.osmVertIdx = static_cast<std::uint32_t>(
+                                std::clamp(static_cast<int>(npc.osmVertIdx) + npc.osmDir, 0, static_cast<int>(r.vertCount) - 1));
                         }
                     } else {
                         const Vec2 dir = toTgt.normalized();
-                        npc.facingYaw = moveTowardsAngle(npc.facingYaw, std::atan2(dir.z, dir.x), dt * 8.0f);
-                        npc.velocity = dir * npc.walkSpeed;
+                        const Vec2 nextPos = npc.pos + dir * (npc.walkSpeed * dt);
+                        // Hard curb boundary: NEVER step off a clear sidewalk into crossing road asphalt!
+                        if (rd.isOnRoad(nextPos, 0.40f)) {
+                            npc.osmDir = -npc.osmDir;
+                            npc.osmVertIdx = prevVi;
+                            npc.velocity = dir * (-npc.walkSpeed * 0.6f);
+                        } else {
+                            npc.facingYaw = moveTowardsAngle(npc.facingYaw, std::atan2(dir.z, dir.x), dt * 8.0f);
+                            npc.velocity = dir * npc.walkSpeed;
+                        }
+                    }
+                    const Vec2 stepped = npc.pos + npc.velocity * dt;
+                    if (!rd.isOnRoad(stepped, 0.35f)) {
+                        npc.pos = stepped;
                     }
                 }
-                npc.pos += npc.velocity * dt;
                 city_.resolveCircleWorld(npc.pos, 0.42f);
             } else if (npc.role == NpcRole::Police && city_.isOnRoad(npc.pos, -0.35f) && !city_.isInIntersection(npc.pos)) {
                 const int minU = CityMap::kMinRoadIndexX * 2 + 1;

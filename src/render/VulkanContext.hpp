@@ -144,6 +144,7 @@ public:
 
     // Pass 3: Post-process (linear HDR Bloom + ACES + sRGB) + 2D UI overlay
     void beginSwapchainPostAndUiPass(const PostPush& postPush);
+    void setUiLogicalSize(float logicalW, float logicalH);
     void setUiScissor(int x, int y, int w, int h);
     void resetUiScissor();
     void drawUiVertices(const Vertex2D* verts, std::uint32_t vertCount);

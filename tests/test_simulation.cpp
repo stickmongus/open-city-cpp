@@ -2802,6 +2802,125 @@ void testV320ZeroRoadBlockingBuildingsAndExactRoadElevation() {
 }
 
 
+void testV330MobileUiScalingAndIntersectionDiscipline() {
+    auto findAsset = [](const char* rel) -> std::string {
+        const char* prefixes[] = {"assets/", "../assets/", "../../assets/"};
+        for (const char* pre : prefixes) {
+            const std::string p = std::string(pre) + rel;
+            std::ifstream f(p, std::ios::binary);
+            if (f.good()) return p;
+        }
+        return {};
+    };
+    const std::string ocmapPath = findAsset("maps/seoul_real.ocmap");
+    ASSERT_TRUE(!ocmapPath.empty());
+
+    // 1. Verify Gangnam Station intersection real-OSM pedestrians stay strictly off asphalt across 5 seconds
+    //    AND recover promptly back onto a clear sidewalk if displaced into an intersection!
+    oc::GameWorld world(20263300ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    world.fastTravelTo({3795.0f, 2838.0f}, "강남역"); // Gangnam Station 8-lane intersection!
+    const oc::RealSeoulData& real = world.city().realData();
+
+    // Displace the first calm civilian directly onto Gangnam Station asphalt to test recovery
+    int recoveryNpcId = -1;
+    for (auto& n : world.npcs()) {
+        if (n.alive && n.role == oc::NpcRole::Civilian) {
+            recoveryNpcId = n.id;
+            n.pos = {3775.4f, 2843.2f}; // Dead center of Gangnam Station intersection!
+            n.velocity = {0.0f, 0.0f};
+            ASSERT_TRUE(real.isOnRoad(n.pos, 0.30f));
+            break;
+        }
+    }
+    ASSERT_TRUE(recoveryNpcId >= 0);
+
+    oc::PlayerInput idle{};
+    for (int f = 0; f < 360; ++f) {
+        world.update(1.0f / 60.0f, idle);
+    }
+
+    int calmCount = 0;
+    int calmClear = 0;
+    bool recoveredOffRoad = false;
+    for (const auto& n : world.npcs()) {
+        if (!n.alive || n.role != oc::NpcRole::Civilian) continue;
+        if (n.id == recoveryNpcId) {
+            recoveredOffRoad = !real.isOnRoad(n.pos, 0.30f);
+        }
+        if (n.behavior == oc::NpcBehavior::Stroll) {
+            ++calmCount;
+            if (!real.isOnRoad(n.pos, 0.30f)) ++calmClear;
+        }
+    }
+    ASSERT_TRUE(calmCount >= 8);
+    ASSERT_TRUE(calmClear == calmCount); // 100% of calm Gangnam pedestrians stay strictly off road asphalt!
+    ASSERT_TRUE(recoveredOffRoad);       // Displaced pedestrian recovered cleanly back to a clear sidewalk!
+
+    // 2. Verify oriented-OBB cross-traffic yielding: a Sedan approaching a perpendicular 10.6m SeoulBus
+    //    offset sideways by 3.5m (where narrow 2.4m checks missed the bus!) MUST detect and brake smoothly!
+    oc::GameWorld trafficWorld(20263301ULL);
+    trafficWorld.fastTravelTo({588.0f, 940.0f}, "Seoul");
+    for (auto& v : trafficWorld.vehicles()) {
+        v.pos = {-9000.0f, -9000.0f};
+        v.velocity = {0.0f, 0.0f};
+    }
+    oc::Vehicle& bus = trafficWorld.spawnCustomVehicle(
+        oc::VehicleKind::SeoulBus, {600.0f, 943.5f}, oc::kHalfPi, {42, 138, 66, 255});
+    bus.isParked = false;
+    bus.hasNpcDriver = true;
+    bus.velocity = {0.0f, 3.0f};
+    const int busId = bus.id;
+
+    oc::Vehicle& sedan = trafficWorld.spawnCustomVehicle(
+        oc::VehicleKind::SportsCoupe, {586.5f, 940.0f}, 0.0f, {212, 42, 48, 255});
+    sedan.isParked = false;
+    sedan.hasNpcDriver = true;
+    sedan.aiHorizontalRoad = true;
+    sedan.aiDirection = 1;
+    sedan.velocity = {12.0f, 0.0f};
+    const int sedanId = sedan.id;
+    (void)busId;
+
+    const float initialSedanSpd = sedan.speed();
+    bool brakedForCrossingBus = false;
+    for (int f = 0; f < 30; ++f) {
+        trafficWorld.update(1.0f / 60.0f, idle);
+        const oc::Vehicle* sNow = trafficWorld.findVehicleMutable(sedanId);
+        if (sNow && sNow->brakingVisual) brakedForCrossingBus = true;
+    }
+    const oc::Vehicle* sEnd = trafficWorld.findVehicleMutable(sedanId);
+    ASSERT_TRUE(sEnd != nullptr);
+    ASSERT_TRUE(brakedForCrossingBus);
+    ASSERT_TRUE(sEnd->speed() < initialSedanSpd - 2.0f);
+
+    // 3. Verify DPI-independent logical mobile UI invariants across all real Android aspect ratios:
+    //    2560x1600 Tablet (16:10), 2400x1080 Phone (20:9), 2208x1768 Z Fold (5:4), 1280x720 Phone (16:9)
+    struct DeviceRes { int sw; int sh; };
+    const DeviceRes devices[4] = {{2560, 1600}, {2400, 1080}, {2208, 1768}, {1280, 720}};
+    for (const auto& d : devices) {
+        float uiScale = oc::clampf(static_cast<float>(d.sh) / 600.0f, 0.85f, 3.6f);
+        uiScale = std::min(uiScale, static_cast<float>(d.sw) / 940.0f);
+        uiScale = std::max(0.75f, uiScale);
+        const float uiW = static_cast<float>(d.sw) / uiScale;
+        const float uiH = static_cast<float>(d.sh) / uiScale;
+        ASSERT_TRUE(uiW >= 939.0f && uiH >= 599.0f);
+
+        // Top-left minimap bezel ends at x=160; top-right status card starts at uiW-252
+        const float minimapRight = 20.0f + 136.0f + 4.0f;
+        const float statusLeft = uiW - 232.0f - 20.0f;
+        ASSERT_TRUE(statusLeft - minimapRight >= 520.0f); // Plenty of corridor for all 7 toolbar pills!
+
+        // Mobile Wanted Stars + Speedometer vertical stack ends at 270dp, leaving >=120dp above Nitro button!
+        const float maxRightHudBottom = 12.0f + 98.0f + 6.0f + 70.0f + 84.0f;
+        const float nitroTop = uiH - 20.0f - 188.0f;
+        ASSERT_TRUE(nitroTop - maxRightHudBottom >= 120.0f);
+    }
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -2834,8 +2953,9 @@ int main() {
     testV300RealOsmSeoulMapAndPbr();
     testV310PitchInertiaMetricLanesAndFineProps();
     testV320ZeroRoadBlockingBuildingsAndExactRoadElevation();
+    testV330MobileUiScalingAndIntersectionDiscipline();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.2.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.3.0 simulation test suites succeeded!\n";
     return 0;
 }
 

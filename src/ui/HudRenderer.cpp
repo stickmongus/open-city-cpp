@@ -42,6 +42,11 @@ void HudRenderer::setFullMapOpen(bool open, const Vec2& focusWorld) {
         mapSelectedWorld_ = focusWorld;
         mapHasSelection_ = false;
         mapDragging_ = false;
+        mapTouchTracking_ = false;
+        mapTouchId_ = -1;
+        mapTouchDragged_ = false;
+        mapPinchActive_ = false;
+        mapPinchLastDist_ = 0.0f;
     }
 }
 
@@ -77,14 +82,13 @@ void HudRenderer::updateTimers(float dt) {
 }
 
 RectF HudRenderer::minimapRect(int screenW, int screenH) const {
-    const float s = clampf(static_cast<float>(screenH) / 860.0f, 0.72f, 1.35f);
     if (mobileUi_) {
-        const float size = 152.0f * s;
-        return {16.0f * s, 14.0f * s, size, size};
+        // DPI-normalized logical dp space (~940..1333 x 600+ dp): crisp 136x136 top-left radar
+        return {20.0f, 12.0f, 136.0f, 136.0f};
     }
-    const float size = 204.0f * s;
+    const float size = 204.0f;
     (void)screenW;
-    return {20.0f * s, static_cast<float>(screenH) - size - 22.0f * s, size, size};
+    return {20.0f, static_cast<float>(screenH) - size - 22.0f, size, size};
 }
 
 // Helper: compute layout rects for Full-Screen Interactive Seoul Map
@@ -105,22 +109,22 @@ FullMapLayout computeFullMapLayout(int screenW, int screenH) {
     FullMapLayout l{};
     const float w = static_cast<float>(screenW);
     const float h = static_cast<float>(screenH);
-    const float pad = std::max(14.0f, h * 0.028f);
+    const float pad = std::max(12.0f, h * 0.024f);
     l.panel = {pad, pad, w - pad * 2.0f, h - pad * 2.0f};
     const float headerH = 48.0f;
-    const float sideW = std::clamp(w * 0.23f, 235.0f, 320.0f);
+    const float sideW = std::clamp(w * 0.245f, 224.0f, 308.0f);
     l.canvas = {l.panel.x + 12.0f, l.panel.y + headerH + 8.0f,
                 l.panel.w - sideW - 32.0f, l.panel.h - headerH - 22.0f};
     l.sidebar = {l.canvas.x + l.canvas.w + 10.0f, l.canvas.y, sideW, l.canvas.h};
 
-    l.btnClose    = {l.panel.x + l.panel.w - 110.0f, l.panel.y + 8.0f, 96.0f, 32.0f};
-    l.btnZoomIn   = {l.canvas.x + 12.0f, l.canvas.y + 12.0f, 36.0f, 34.0f};
-    l.btnZoomOut  = {l.canvas.x + 54.0f, l.canvas.y + 12.0f, 36.0f, 34.0f};
-    l.btnRecenter = {l.canvas.x + 96.0f, l.canvas.y + 12.0f, 96.0f, 34.0f};
+    l.btnClose    = {l.panel.x + l.panel.w - 110.0f, l.panel.y + 8.0f, 96.0f, 34.0f};
+    l.btnZoomIn   = {l.canvas.x + 12.0f, l.canvas.y + 12.0f, 40.0f, 36.0f};
+    l.btnZoomOut  = {l.canvas.x + 58.0f, l.canvas.y + 12.0f, 40.0f, 36.0f};
+    l.btnRecenter = {l.canvas.x + 104.0f, l.canvas.y + 12.0f, 96.0f, 36.0f};
 
-    const float actY = l.sidebar.y + l.sidebar.h - 92.0f;
-    l.btnSetGps     = {l.sidebar.x + 10.0f, actY,        l.sidebar.w - 20.0f, 36.0f};
-    l.btnFastTravel = {l.sidebar.x + 10.0f, actY + 44.0f, l.sidebar.w - 20.0f, 38.0f};
+    const float actY = l.sidebar.y + l.sidebar.h - 94.0f;
+    l.btnSetGps     = {l.sidebar.x + 10.0f, actY,         l.sidebar.w - 20.0f, 38.0f};
+    l.btnFastTravel = {l.sidebar.x + 10.0f, actY + 46.0f, l.sidebar.w - 20.0f, 40.0f};
     return l;
 }
 
@@ -184,27 +188,94 @@ void HudRenderer::updateFullMapInput(const PlatformInput& input, int screenW, in
         mapZoom_ = clampf(mapZoom_ * (input.scrollDeltaY > 0.0f ? 1.22f : (1.0f / 1.22f)), 0.9f, 14.0f);
     }
 
-    // Mouse drag panning when holding right button
-    if (input.mouseRightDown && l.canvas.contains(input.mouseX, input.mouseY)) {
-        if (!mapDragging_) {
-            mapDragging_ = true;
-            mapDragLast_ = {input.mouseX, input.mouseY};
-        } else {
-            const float scale = std::min(l.canvas.w / (maxX - minX), l.canvas.h / (maxZ - minZ)) * mapZoom_;
-            mapCenterWorld_.x -= (input.mouseX - mapDragLast_.x) / std::max(1e-5f, scale);
-            mapCenterWorld_.z -= (input.mouseY - mapDragLast_.z) / std::max(1e-5f, scale);
-            mapDragLast_ = {input.mouseX, input.mouseY};
+    // Mobile multi-touch: 2-finger pinch-to-zoom + 1-finger drag pan + clean tap-to-select!
+    int activeTouchCount = 0;
+    Vec2 activePts[2]{};
+    int activeIds[2]{-1, -1};
+    for (int i = 0; i < input.touchCount && activeTouchCount < 2; ++i) {
+        const auto& tp = input.touches[static_cast<std::size_t>(i)];
+        if (tp.active) {
+            activePts[activeTouchCount] = {tp.x, tp.y};
+            activeIds[activeTouchCount] = tp.id;
+            ++activeTouchCount;
+        }
+    }
+    if (activeTouchCount == 0 && mobileUi_ && input.mouseLeftDown) {
+        activePts[0] = {input.mouseX, input.mouseY};
+        activeIds[0] = 999;
+        activeTouchCount = 1;
+    }
+
+    if (activeTouchCount >= 2) {
+        const float dist = (activePts[0] - activePts[1]).length();
+        if (mapPinchActive_ && mapPinchLastDist_ > 12.0f && dist > 12.0f) {
+            mapZoom_ = clampf(mapZoom_ * (dist / mapPinchLastDist_), 0.9f, 14.0f);
+        }
+        mapPinchActive_ = true;
+        mapPinchLastDist_ = dist;
+        mapTouchTracking_ = false;
+        mapTouchDragged_ = true;
+    } else if (activeTouchCount == 1) {
+        mapPinchActive_ = false;
+        const Vec2 pt = activePts[0];
+        const int pid = activeIds[0];
+        const bool isCanvasControl = l.btnZoomIn.contains(pt.x, pt.z) ||
+                                     l.btnZoomOut.contains(pt.x, pt.z) ||
+                                     l.btnRecenter.contains(pt.x, pt.z);
+        if (!mapTouchTracking_ || mapTouchId_ != pid) {
+            mapTouchTracking_ = true;
+            mapTouchId_ = pid;
+            mapTouchStart_ = pt;
+            mapTouchLast_ = pt;
+            mapTouchDragged_ = false;
+            // Immediate tactile response on buttons & sidebar rows; canvas waits for drag vs tap
+            if (!l.canvas.contains(pt.x, pt.z) || isCanvasControl) {
+                handleModalTap(world, screenW, screenH, pt, out);
+                mapTouchDragged_ = true; // Prevent duplicate tap on release
+            }
+        } else if (l.canvas.contains(mapTouchStart_.x, mapTouchStart_.z) && !isCanvasControl) {
+            const float moved = (pt - mapTouchStart_).length();
+            if (moved > 8.0f) mapTouchDragged_ = true;
+            if (mapTouchDragged_) {
+                const float scale = std::min(l.canvas.w / (maxX - minX), l.canvas.h / (maxZ - minZ)) * mapZoom_;
+                mapCenterWorld_.x -= (pt.x - mapTouchLast_.x) / std::max(1e-5f, scale);
+                mapCenterWorld_.z -= (pt.z - mapTouchLast_.z) / std::max(1e-5f, scale);
+            }
+            mapTouchLast_ = pt;
         }
     } else {
-        mapDragging_ = false;
+        if (mapTouchTracking_ && !mapTouchDragged_) {
+            handleModalTap(world, screenW, screenH, mapTouchLast_, out);
+        }
+        mapTouchTracking_ = false;
+        mapTouchId_ = -1;
+        mapTouchDragged_ = false;
+        mapPinchActive_ = false;
+    }
+
+    // Desktop right-mouse drag panning & left-click selection
+    if (!mobileUi_) {
+        if (input.mouseRightDown && l.canvas.contains(input.mouseX, input.mouseY)) {
+            if (!mapDragging_) {
+                mapDragging_ = true;
+                mapDragLast_ = {input.mouseX, input.mouseY};
+            } else {
+                const float scale = std::min(l.canvas.w / (maxX - minX), l.canvas.h / (maxZ - minZ)) * mapZoom_;
+                mapCenterWorld_.x -= (input.mouseX - mapDragLast_.x) / std::max(1e-5f, scale);
+                mapCenterWorld_.z -= (input.mouseY - mapDragLast_.z) / std::max(1e-5f, scale);
+                mapDragLast_ = {input.mouseX, input.mouseY};
+            }
+        } else {
+            mapDragging_ = false;
+        }
+        if (input.mouseLeftPressed) {
+            handleModalTap(world, screenW, screenH, {input.mouseX, input.mouseY}, out);
+        }
     }
 
     mapCenterWorld_.x = clampf(mapCenterWorld_.x, minX, maxX);
     mapCenterWorld_.z = clampf(mapCenterWorld_.z, minZ, maxZ);
 
-    if (input.mouseLeftPressed) {
-        handleModalTap(world, screenW, screenH, {input.mouseX, input.mouseY}, out);
-    }
     if (input.isPressed(KeyCode::Enter) && mapHasSelection_) {
         out.fastTravel = true;
         out.mapTargetWorld = mapSelectedWorld_;
@@ -297,7 +368,7 @@ bool HudRenderer::handleModalTap(const GameWorld& world, int screenW, int screen
     const float w = static_cast<float>(screenW);
     const float h = static_cast<float>(screenH);
     const float mw = std::min(580.0f, w * 0.84f);
-    const float mh = std::min(520.0f, h * 0.82f);
+    const float mh = std::min(520.0f, h * 0.86f);
     const RectF box{(w - mw) * 0.5f, (h - mh) * 0.5f, mw, mh};
     if (!box.contains(tapPos.x, tapPos.z)) {
         shopMenuOpen_ = false;
@@ -497,17 +568,22 @@ void HudRenderer::drawRadarMinimap(Vulkan2D& ui, VulkanContext& vk, const GameWo
 
     ui.popScissor(vk);
 
-    // District badge + clickable "[M] 전체지도" hint pill!
+    // District badge + clickable map hint pill (touch-friendly text on mobile!)
     const DistrictType dist = city.districtAtWorld(pPos);
     const std::string distLabel = pickText(CityMap::districtNameEn(dist), CityMap::districtNameKo(dist));
-    ui.drawRoundedRect(r.x, r.y + r.h - 24.0f, r.w, 24.0f, 4.0f, {10, 14, 22, 205});
-    ui.drawText(distLabel, r.x + 6.0f, r.y + r.h - 21.0f, 13.5f, {235, 242, 252, 255});
+    const float barH = mobileUi_ ? 22.0f : 24.0f;
+    const float distFont = mobileUi_ ? 12.0f : 13.5f;
+    ui.drawRoundedRect(r.x, r.y + r.h - barH, r.w, barH, 4.0f, {10, 14, 22, 212});
+    ui.drawText(distLabel, r.x + 6.0f, r.y + r.h - barH + 3.5f, distFont, {235, 242, 252, 255});
 
-    const std::string mapHint = pickText("[M] MAP", "[M] 전체지도");
-    const float hw = ui.measureTextWidth(mapHint, 12.0f) + 12.0f;
-    ui.drawRoundedRect(r.x + r.w - hw - 4.0f, r.y + 4.0f, hw, 20.0f, 5.0f, {12, 22, 36, 215});
+    const std::string mapHint = mobileUi_
+        ? pickText("MAP", "전체지도")
+        : pickText("[M] MAP", "[M] 전체지도");
+    const float hintFont = mobileUi_ ? 11.5f : 12.0f;
+    const float hw = ui.measureTextWidth(mapHint, hintFont) + 12.0f;
+    ui.drawRoundedRect(r.x + r.w - hw - 4.0f, r.y + 4.0f, hw, 20.0f, 5.0f, {12, 22, 36, 218});
     ui.drawRoundedRectOutline(r.x + r.w - hw - 4.0f, r.y + 4.0f, hw, 20.0f, 5.0f, 1.0f, accent);
-    ui.drawText(mapHint, r.x + r.w - hw + 2.0f, r.y + 7.0f, 12.0f, accent);
+    ui.drawText(mapHint, r.x + r.w - hw + 2.0f, r.y + 7.0f, hintFont, accent);
     (void)cameraYaw;
 }
 
@@ -522,20 +598,29 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
     ui.drawRoundedRect(l.panel.x, l.panel.y, l.panel.w, l.panel.h, 14.0f, {12, 18, 28, 248});
     ui.drawRoundedRectOutline(l.panel.x, l.panel.y, l.panel.w, l.panel.h, 14.0f, 2.0f, accent);
 
-    // Header title bar
-    const std::string title = city.hasRealSeoulMap()
-        ? pickText(
-            "SEOUL REAL-WORLD GIS MAP (OpenStreetMap + SRTM 30m DEM) — Click map for GPS or Fast-Travel",
-            "서울특별시 실제 지도 (OpenStreetMap + SRTM 30m 고도) — 지도를 클릭해 목적지 설정 또는 빠른 이동")
-        : pickText(
-            "SEOUL METROPOLIS FULL MAP (30km x 25km) — Click map to set GPS or Fast-Travel",
-            "서울특별시 전체 지도 (실제 크기 30km × 25km) — 지도를 클릭해 목적지 설정 또는 빠른 이동");
-    ui.drawText(title, l.panel.x + 18.0f, l.panel.y + 13.0f, 19.0f, {242, 248, 255, 255});
+    // Header title bar (concise on mobile so it never crowds the Close button)
+    std::string title;
+    if (mobileUi_) {
+        title = city.hasRealSeoulMap()
+            ? pickText("SEOUL REAL GIS MAP — Drag: Pan · Tap: GPS / Fast-Travel",
+                       "서울 실제 지도 (OSM + 고도) — 드래그: 이동 · 탭: 목적지 설정")
+            : pickText("SEOUL FULL MAP — Drag: Pan · Tap: GPS / Fast-Travel",
+                       "서울 전체 지도 — 드래그: 이동 · 탭: 목적지 설정");
+    } else {
+        title = city.hasRealSeoulMap()
+            ? pickText(
+                "SEOUL REAL-WORLD GIS MAP (OpenStreetMap + SRTM 30m DEM) — Click map for GPS or Fast-Travel",
+                "서울특별시 실제 지도 (OpenStreetMap + SRTM 30m 고도) — 지도를 클릭해 목적지 설정 또는 빠른 이동")
+            : pickText(
+                "SEOUL METROPOLIS FULL MAP (30km x 25km) — Click map to set GPS or Fast-Travel",
+                "서울특별시 전체 지도 (실제 크기 30km × 25km) — 지도를 클릭해 목적지 설정 또는 빠른 이동");
+    }
+    ui.drawText(title, l.panel.x + 18.0f, l.panel.y + 13.0f, mobileUi_ ? 16.5f : 19.0f, {242, 248, 255, 255});
 
     // Close button
     ui.drawRoundedRect(l.btnClose.x, l.btnClose.y, l.btnClose.w, l.btnClose.h, 8.0f, {182, 42, 52, 235});
-    ui.drawTextCentered(pickText("CLOSE [M]", "닫기 [M]"),
-                        l.btnClose.x + l.btnClose.w * 0.5f, l.btnClose.y + 7.0f, 14.5f, {255, 255, 255, 255});
+    ui.drawTextCentered(mobileUi_ ? pickText("CLOSE", "닫기") : pickText("CLOSE [M]", "닫기 [M]"),
+                        l.btnClose.x + l.btnClose.w * 0.5f, l.btnClose.y + 8.0f, 14.5f, {255, 255, 255, 255});
 
     // --- MAP CANVAS (clipped cleanly!) ---
     ui.drawRoundedRect(l.canvas.x, l.canvas.y, l.canvas.w, l.canvas.h, 10.0f, {18, 24, 34, 255});
@@ -758,7 +843,7 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
 
         float dx = 0.0f, dy = -25.0f;
         switch (lm.kind) {
-            case SeoulLandmarkKind::NationalAssembly:    dx = -44.0f; dy = -24.0f; break;
+            case SeoulLandmarkKind::NationalAssembly:    dx =   8.0f; dy = -25.0f; break;
             case SeoulLandmarkKind::Parc1RedTower:       dx =  -4.0f; dy =  12.0f; break;
             case SeoulLandmarkKind::Building63:          dx =  34.0f; dy =  14.0f; break;
             case SeoulLandmarkKind::SeoulCityHall:       dx = -46.0f; dy = -21.0f; break;
@@ -766,16 +851,18 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
             case SeoulLandmarkKind::DongdaemunDDP:       dx =  32.0f; dy = -23.0f; break;
             case SeoulLandmarkKind::NSeoulTower:         dx =  44.0f; dy = -12.0f; break;
             case SeoulLandmarkKind::JamsilStadium:       dx = -34.0f; dy = -25.0f; break;
-            case SeoulLandmarkKind::LotteWorldTower:     dx = -54.0f; dy =  14.0f; break;
-            case SeoulLandmarkKind::CoexTradeTower:      dx =  16.0f; dy =  12.0f; break;
+            case SeoulLandmarkKind::LotteWorldTower:     dx = -16.0f; dy = -26.0f; break;
+            case SeoulLandmarkKind::CoexTradeTower:      dx = -10.0f; dy =  14.0f; break;
             case SeoulLandmarkKind::GangnamStationPlaza: dx = -34.0f; dy =  12.0f; break;
             case SeoulLandmarkKind::GyeongbokgungPalace: dx =   0.0f; dy = -26.0f; break;
         }
         const std::string lbl = pickText(lm.nameEn.c_str(), lm.nameKo.c_str());
         const float lw = ui.measureTextWidth(lbl, 12.0f) + 8.0f;
-        const float lx = sp.x + dx;
+        const float minLx = l.canvas.x + lw * 0.5f + 6.0f;
+        const float maxLx = l.canvas.x + l.canvas.w - lw * 0.5f - 6.0f;
+        const float lx = (minLx < maxLx) ? clampf(sp.x + dx, minLx, maxLx) : (sp.x + dx);
         const float ly = sp.z + dy;
-        if (std::abs(dx) > 10.0f) {
+        if (std::abs(lx - sp.x) > 10.0f) {
             ui.drawLine(sp.x, sp.z, lx, ly + 8.0f, 1.1f, {255, 206, 62, 135});
         }
         ui.drawRoundedRect(lx - lw * 0.5f, ly, lw, 16.5f, 4.0f, {10, 16, 26, 224});
@@ -842,7 +929,9 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
                       ? pickText("Real OSM Seoul + SRTM 30m", "서울 실제 지도 (OSM + SRTM 30m)")
                       : pickText("30km x 25km Real-Scale Seoul", "서울 실측 30km × 25km"),
                   mapZoom_,
-                  pickText("Drag RMB/WASD: Pan", "우클릭 드래그/WASD: 이동"));
+                  mobileUi_
+                      ? pickText("Drag: Pan · Pinch/+/-: Zoom", "드래그: 이동 · 핀치/+/-: 확대")
+                      : pickText("Drag RMB/WASD: Pan", "우클릭 드래그/WASD: 이동"));
     ui.drawRoundedRect(l.canvas.x + 12.0f, l.canvas.y + l.canvas.h - 32.0f,
                        ui.measureTextWidth(zBuf, 13.0f) + 20.0f, 24.0f, 6.0f, {10, 16, 26, 215});
     ui.drawText(zBuf, l.canvas.x + 22.0f, l.canvas.y + l.canvas.h - 28.0f, 13.0f, {212, 224, 242, 255});
@@ -850,8 +939,10 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
     // --- RIGHT SIDEBAR: SEOUL LANDMARKS & FAST-TRAVEL ---
     ui.drawRoundedRect(l.sidebar.x, l.sidebar.y, l.sidebar.w, l.sidebar.h, 10.0f, {16, 22, 34, 245});
     ui.drawRoundedRectOutline(l.sidebar.x, l.sidebar.y, l.sidebar.w, l.sidebar.h, 10.0f, 1.5f, {58, 76, 104, 210});
-    ui.drawText(pickText("SEOUL LANDMARKS", "서울 주요 랜드마크 (클릭 선택)"),
-                l.sidebar.x + 12.0f, l.sidebar.y + 10.0f, 14.5f, accent);
+    ui.drawText(mobileUi_
+                    ? pickText("SEOUL LANDMARKS (TAP)", "서울 주요 랜드마크 (탭 선택)")
+                    : pickText("SEOUL LANDMARKS", "서울 주요 랜드마크 (클릭 선택)"),
+                l.sidebar.x + 12.0f, l.sidebar.y + 10.0f, 14.0f, accent);
 
     const float listTop = l.sidebar.y + 38.0f;
     const float listBottom = l.btnSetGps.y - 10.0f;
@@ -875,44 +966,52 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
     // Set GPS Waypoint + Fast-Travel Buttons!
     ui.drawRoundedRect(l.btnSetGps.x, l.btnSetGps.y, l.btnSetGps.w, l.btnSetGps.h, 8.0f, {32, 86, 132, 240});
     ui.drawTextCentered(pickText("SET GPS WAYPOINT", "GPS 목적지 설정"),
-                        l.btnSetGps.x + l.btnSetGps.w * 0.5f, l.btnSetGps.y + 9.0f, 15.0f, {245, 250, 255, 255});
+                        l.btnSetGps.x + l.btnSetGps.w * 0.5f, l.btnSetGps.y + 10.0f, 15.0f, {245, 250, 255, 255});
 
     ui.drawRoundedRect(l.btnFastTravel.x, l.btnFastTravel.y, l.btnFastTravel.w, l.btnFastTravel.h, 8.0f, {34, 148, 92, 245});
     const std::string ftLbl = mapHasSelection_
         ? (std::string(pickText("FAST TRAVEL: ", "빠른 이동: ")) + mapSelectedNameKo_)
-        : std::string(pickText("FAST TRAVEL [ENTER]", "선택 지점으로 빠른 이동"));
-    ui.drawTextCentered(ftLbl, l.btnFastTravel.x + l.btnFastTravel.w * 0.5f, l.btnFastTravel.y + 10.0f,
+        : (mobileUi_ ? std::string(pickText("FAST TRAVEL", "선택 지점으로 빠른 이동"))
+                     : std::string(pickText("FAST TRAVEL [ENTER]", "선택 지점으로 빠른 이동")));
+    ui.drawTextCentered(ftLbl, l.btnFastTravel.x + l.btnFastTravel.w * 0.5f, l.btnFastTravel.y + 11.0f,
                         14.5f, {255, 255, 255, 255});
 }
 
 void HudRenderer::drawTopRightStatus(Vulkan2D& ui, const GameWorld& world, int screenW, bool firstPerson) {
     const auto& pl = world.player();
     const ColorRGBA accent = getHudThemeColorRGBA(pl.hudCustom.hudThemeIdx);
-    const float panelW = 294.0f;
-    const float x = static_cast<float>(screenW) - panelW - 18.0f;
-    const float y = 16.0f;
+    const float panelW = mobileUi_ ? 232.0f : 294.0f;
+    const float panelH = mobileUi_ ? 98.0f : 120.0f;
+    const float x = static_cast<float>(screenW) - panelW - (mobileUi_ ? 20.0f : 18.0f);
+    const float y = mobileUi_ ? 12.0f : 16.0f;
 
-    ui.drawRoundedRect(x, y, panelW, 120.0f, 11.0f, {10, 14, 22, 212});
-    ui.drawRoundedRectOutline(x, y, panelW, 120.0f, 11.0f, 1.5f, accent);
+    ui.drawRoundedRect(x, y, panelW, panelH, 11.0f, {10, 14, 22, 212});
+    ui.drawRoundedRectOutline(x, y, panelW, panelH, 11.0f, 1.5f, accent);
 
     // Cash & Clock & Weather
-    ui.drawText(fmtCash(pl.cash), x + 12.0f, y + 8.0f, 22.5f, {92, 238, 136, 255});
+    ui.drawText(fmtCash(pl.cash), x + 12.0f, y + (mobileUi_ ? 7.0f : 8.0f),
+                mobileUi_ ? 20.0f : 22.5f, {92, 238, 136, 255});
     const std::string clk = fmtClock(world.timeOfDayHours()) + "  " +
         pickText(world.weatherNameEn(), world.weatherNameKo());
-    const float cw = ui.measureTextWidth(clk, 14.0f);
-    ui.drawText(clk, x + panelW - cw - 12.0f, y + 12.0f, 14.0f, {214, 226, 244, 245});
+    const float clkFont = mobileUi_ ? 13.0f : 14.0f;
+    const float cw = ui.measureTextWidth(clk, clkFont);
+    ui.drawText(clk, x + panelW - cw - 12.0f, y + (mobileUi_ ? 11.0f : 12.0f), clkFont, {214, 226, 244, 245});
 
-    // HP Bar
+    // HP Bar & Armor Bar
     const float barW = panelW - 24.0f;
     const float hpF = clampf(pl.health / std::max(1.0f, pl.maxHealth), 0.0f, 1.0f);
-    ui.drawRoundedRect(x + 12.0f, y + 40.0f, barW, 13.0f, 5.0f, {34, 38, 48, 230});
-    ui.drawRoundedRect(x + 12.0f, y + 40.0f, barW * hpF, 13.0f, 5.0f, {62, 206, 108, 255});
-    // Armor Bar
-    const float armF = clampf(pl.armor / std::max(1.0f, pl.maxArmor), 0.0f, 1.0f);
-    ui.drawRoundedRect(x + 12.0f, y + 58.0f, barW, 10.0f, 4.0f, {34, 38, 48, 230});
-    ui.drawRoundedRect(x + 12.0f, y + 58.0f, barW * armF, 10.0f, 4.0f, {68, 172, 248, 255});
+    const float hpY = y + (mobileUi_ ? 36.0f : 40.0f);
+    const float hpH = mobileUi_ ? 11.0f : 13.0f;
+    ui.drawRoundedRect(x + 12.0f, hpY, barW, hpH, 5.0f, {34, 38, 48, 230});
+    ui.drawRoundedRect(x + 12.0f, hpY, barW * hpF, hpH, 5.0f, {62, 206, 108, 255});
 
-    // Current Weapon & Ammo + Camera tag
+    const float armF = clampf(pl.armor / std::max(1.0f, pl.maxArmor), 0.0f, 1.0f);
+    const float armY = y + (mobileUi_ ? 52.0f : 58.0f);
+    const float armH = mobileUi_ ? 8.5f : 10.0f;
+    ui.drawRoundedRect(x + 12.0f, armY, barW, armH, 4.0f, {34, 38, 48, 230});
+    ui.drawRoundedRect(x + 12.0f, armY, barW * armF, armH, 4.0f, {68, 172, 248, 255});
+
+    // Current Weapon & Ammo (+ Desktop Vulkan/Camera tag; mobile keeps card sleek & clean!)
     const auto& ws = getWeaponSpec(pl.currentWeapon);
     const auto& slot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
     char wBuf[96];
@@ -921,15 +1020,17 @@ void HudRenderer::drawTopRightStatus(Vulkan2D& ui, const GameWorld& world, int s
     } else {
         std::snprintf(wBuf, sizeof(wBuf), "%s  %d / %d", pickText(ws.nameEn, ws.nameKo), slot.magAmmo, slot.reserveAmmo);
     }
-    ui.drawText(wBuf, x + 12.0f, y + 75.0f, 15.5f, {244, 248, 255, 255});
+    ui.drawText(wBuf, x + 12.0f, y + (mobileUi_ ? 69.0f : 75.0f), mobileUi_ ? 14.5f : 15.5f, {244, 248, 255, 255});
 
-    const std::string tag = std::string("Vulkan 1.0  |  ") +
-                            (firstPerson ? pickText("1ST PERSON", "1인칭") : pickText("3RD PERSON", "3인칭"));
-    ui.drawText(tag, x + 12.0f, y + 97.0f, 13.0f, {158, 188, 224, 230});
+    if (!mobileUi_) {
+        const std::string tag = std::string("Vulkan 1.0  |  ") +
+                                (firstPerson ? pickText("1ST PERSON", "1인칭") : pickText("3RD PERSON", "3인칭"));
+        ui.drawText(tag, x + 12.0f, y + 97.0f, 13.0f, {158, 188, 224, 230});
+    }
 
     // --- REALISTIC ESCAPABLE SEOUL POLICE WANTED & EVASION HUD ---
     if (pl.wantedLevel > 0) {
-        const float wy = y + 126.0f;
+        const float wy = y + panelH + 6.0f;
         const bool flash = std::sin(world.elapsedTime() * 9.0f) > 0.0f;
         const ColorRGBA badgeBg = pl.policeLineOfSight
             ? (flash ? ColorRGBA{128, 22, 32, 228} : ColorRGBA{22, 48, 128, 228})
@@ -941,20 +1042,24 @@ void HudRenderer::drawTopRightStatus(Vulkan2D& ui, const GameWorld& world, int s
         // 5 Stars
         std::string stars;
         for (int i = 0; i < 5; ++i) stars += (i < pl.wantedLevel) ? "★ " : "☆ ";
-        ui.drawText(stars, x + 12.0f, wy + 6.0f, 20.0f, {255, 212, 62, 255});
+        ui.drawText(stars, x + 12.0f, wy + 6.0f, mobileUi_ ? 18.5f : 20.0f, {255, 212, 62, 255});
 
         if (pl.policeLineOfSight) {
-            ui.drawText(pickText("CHASE: IN SIGHT! Break LOS behind buildings",
-                                 "경찰 추격 중 — 시야 노출! 건물 뒤로 숨으세요"),
-                        x + 12.0f, wy + 34.0f, 13.0f, {255, 214, 214, 255});
+            ui.drawText(mobileUi_
+                            ? pickText("IN SIGHT! Hide behind buildings", "경찰 추격! 건물 뒤로 숨으세요")
+                            : pickText("CHASE: IN SIGHT! Break LOS behind buildings",
+                                       "경찰 추격 중 — 시야 노출! 건물 뒤로 숨으세요"),
+                        x + 12.0f, wy + 34.0f, mobileUi_ ? 12.0f : 13.0f, {255, 214, 214, 255});
         } else {
             const float evadeTarget = 11.5f + static_cast<float>(pl.wantedLevel) * 4.5f;
             const float pct = clampf(pl.wantedEvadeTimer / std::max(1.0f, evadeTarget), 0.0f, 1.0f);
             char eBuf[96];
             std::snprintf(eBuf, sizeof(eBuf), "%s %d%%",
-                          pickText("HIDING — ESCAPING POLICE", "경찰 수색 중 (시야 이탈) — 도주"),
+                          mobileUi_
+                              ? pickText("ESCAPING POLICE", "경찰 수색 중 — 도주")
+                              : pickText("HIDING — ESCAPING POLICE", "경찰 수색 중 (시야 이탈) — 도주"),
                           static_cast<int>(pct * 100.0f));
-            ui.drawText(eBuf, x + 12.0f, wy + 31.0f, 13.0f, {122, 236, 255, 255});
+            ui.drawText(eBuf, x + 12.0f, wy + 31.0f, mobileUi_ ? 12.0f : 13.0f, {122, 236, 255, 255});
             ui.drawRoundedRect(x + 12.0f, wy + 50.0f, barW, 8.0f, 4.0f, {26, 36, 52, 230});
             ui.drawRoundedRect(x + 12.0f, wy + 50.0f, barW * pct, 8.0f, 4.0f, {72, 228, 255, 255});
         }
@@ -967,44 +1072,56 @@ void HudRenderer::drawSpeedometerAndDrift(Vulkan2D& ui, const GameWorld& world, 
 
     const auto& spec = getVehicleSpec(car->kind);
     const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
-    const float w = 232.0f, h = 104.0f;
-    const float x = static_cast<float>(screenW) - w - (mobileUi_ ? 16.0f : 22.0f);
-    const float y = mobileUi_ ? 142.0f : (static_cast<float>(screenH) - h - 22.0f);
+    const float w = 232.0f;
+    const float h = mobileUi_ ? 84.0f : 104.0f;
+    const float x = static_cast<float>(screenW) - w - (mobileUi_ ? 20.0f : 22.0f);
+    // Mobile speedometer dynamically stacks below status card (+ Wanted card when wanted) — ZERO overlap!
+    const float mobileStackY = 12.0f + 98.0f + 6.0f + ((world.player().wantedLevel > 0) ? 70.0f : 0.0f);
+    const float y = mobileUi_ ? mobileStackY : (static_cast<float>(screenH) - h - 22.0f);
 
-    ui.drawRoundedRect(x, y, w, h, 12.0f, {10, 14, 22, 212});
-    ui.drawRoundedRectOutline(x, y, w, h, 12.0f, 1.5f, accent);
+    ui.drawRoundedRect(x, y, w, h, 11.0f, {10, 14, 22, 212});
+    ui.drawRoundedRectOutline(x, y, w, h, 11.0f, 1.5f, accent);
 
     const float spdMs = car->speed();
     const bool useMph = world.player().hudCustom.useMph;
     const int dispSpd = static_cast<int>(spdMs * (useMph ? 2.23694f : 3.6f));
     char sBuf[32];
     std::snprintf(sBuf, sizeof(sBuf), "%3d", dispSpd);
-    ui.drawText(sBuf, x + 14.0f, y + 10.0f, 36.0f, {248, 252, 255, 255});
-    ui.drawText(useMph ? "MPH" : "KM/H", x + 98.0f, y + 26.0f, 14.0f, accent);
+    ui.drawText(sBuf, x + 12.0f, y + (mobileUi_ ? 6.0f : 10.0f), mobileUi_ ? 31.0f : 36.0f, {248, 252, 255, 255});
+    ui.drawText(useMph ? "MPH" : "KM/H", x + (mobileUi_ ? 86.0f : 98.0f),
+                y + (mobileUi_ ? 20.0f : 26.0f), mobileUi_ ? 12.5f : 14.0f, accent);
 
     // Live Gear Indicator (R / 1..6)
     char gBuf[16];
     if (car->currentGear == 0) std::snprintf(gBuf, sizeof(gBuf), "R");
     else std::snprintf(gBuf, sizeof(gBuf), "G%d", car->currentGear);
-    ui.drawRoundedRect(x + w - 48.0f, y + 12.0f, 36.0f, 30.0f, 6.0f, {24, 34, 52, 235});
-    ui.drawTextCentered(gBuf, x + w - 30.0f, y + 17.0f, 17.0f, {255, 214, 72, 255});
+    const float gearH = mobileUi_ ? 26.0f : 30.0f;
+    ui.drawRoundedRect(x + w - 46.0f, y + (mobileUi_ ? 9.0f : 12.0f), 34.0f, gearH, 6.0f, {24, 34, 52, 235});
+    ui.drawTextCentered(gBuf, x + w - 29.0f, y + (mobileUi_ ? 13.0f : 17.0f), mobileUi_ ? 15.5f : 17.0f, {255, 214, 72, 255});
 
     // RPM Bar + Nitro Bar
     const float rpmFrac = clampf((car->engineRpm - 880.0f) / 7200.0f, 0.0f, 1.0f);
     const ColorRGBA rpmCol = (rpmFrac > 0.84f) ? ColorRGBA{248, 62, 62, 255} : accent;
-    ui.drawRoundedRect(x + 14.0f, y + 54.0f, w - 28.0f, 10.0f, 4.0f, {30, 36, 48, 230});
-    ui.drawRoundedRect(x + 14.0f, y + 54.0f, (w - 28.0f) * rpmFrac, 10.0f, 4.0f, rpmCol);
+    const float rpmY = y + (mobileUi_ ? 44.0f : 54.0f);
+    const float rpmH = mobileUi_ ? 8.0f : 10.0f;
+    ui.drawRoundedRect(x + 12.0f, rpmY, w - 24.0f, rpmH, 4.0f, {30, 36, 48, 230});
+    ui.drawRoundedRect(x + 12.0f, rpmY, (w - 24.0f) * rpmFrac, rpmH, 4.0f, rpmCol);
 
-    ui.drawRoundedRect(x + 14.0f, y + 69.0f, w - 28.0f, 7.0f, 3.0f, {30, 36, 48, 230});
-    ui.drawRoundedRect(x + 14.0f, y + 69.0f, (w - 28.0f) * clampf(car->nitroCharge, 0.0f, 1.0f),
-                       7.0f, 3.0f, {72, 206, 255, 255});
+    const float nosY = y + (mobileUi_ ? 55.0f : 69.0f);
+    const float nosH = mobileUi_ ? 5.5f : 7.0f;
+    ui.drawRoundedRect(x + 12.0f, nosY, w - 24.0f, nosH, 3.0f, {30, 36, 48, 230});
+    ui.drawRoundedRect(x + 12.0f, nosY, (w - 24.0f) * clampf(car->nitroCharge, 0.0f, 1.0f),
+                       nosH, 3.0f, {72, 206, 255, 255});
 
-    ui.drawText(pickText(spec.nameEn, spec.nameKo), x + 14.0f, y + 82.0f, 13.0f, {196, 212, 232, 235});
+    ui.drawText(pickText(spec.nameEn, spec.nameKo), x + 12.0f, y + (mobileUi_ ? 64.0f : 82.0f),
+                mobileUi_ ? 12.0f : 13.0f, {196, 212, 232, 235});
 
     if (world.player().activeDriftScore > 25.0f) {
         char dBuf[48];
         std::snprintf(dBuf, sizeof(dBuf), "DRIFT +%d", static_cast<int>(world.player().activeDriftScore));
-        ui.drawTextCentered(dBuf, x + w * 0.5f, y - 28.0f, 19.0f, {255, 208, 62, 255});
+        const float driftX = mobileUi_ ? (static_cast<float>(screenW) * 0.5f) : (x + w * 0.5f);
+        const float driftY = mobileUi_ ? 92.0f : (y - 28.0f);
+        ui.drawTextCentered(dBuf, driftX, driftY, 19.0f, {255, 208, 62, 255});
     }
 }
 
@@ -1036,34 +1153,39 @@ void HudRenderer::drawCrosshair(Vulkan2D& ui, const GameWorld& world, int screen
 
 void HudRenderer::drawContextPromptsAndMission(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH) {
     const float cx = static_cast<float>(screenW) * 0.5f;
+    // Clear the mobile top quick toolbar (y=12..46) cleanly!
+    const float pillY = mobileUi_ ? 54.0f : 16.0f;
     if (world.mission().kind != ActiveMissionKind::None) {
         const std::string obj = pickText(world.mission().objectiveEn.c_str(), world.mission().objectiveKo.c_str());
-        const float ow = ui.measureTextWidth(obj, 15.5f) + 28.0f;
-        ui.drawRoundedRect(cx - ow * 0.5f, 16.0f, ow, 32.0f, 8.0f, {14, 22, 36, 215});
-        ui.drawTextCentered(obj, cx, 23.0f, 15.5f, {255, 218, 86, 255});
+        const float ow = ui.measureTextWidth(obj, 15.0f) + 28.0f;
+        ui.drawRoundedRect(cx - ow * 0.5f, pillY, ow, 30.0f, 8.0f, {14, 22, 36, 215});
+        ui.drawTextCentered(obj, cx, pillY + 7.0f, 15.0f, {255, 218, 86, 255});
     } else if (world.player().hasWaypoint) {
         const float distKm = (world.player().waypointPos - world.player().pos).length() / 1000.0f;
         char wBuf[96];
         std::snprintf(wBuf, sizeof(wBuf), "GPS: %s (%.2f km)",
                       world.player().waypointLabelKo.empty() ? "목적지" : world.player().waypointLabelKo.c_str(),
                       distKm);
-        const float ww = ui.measureTextWidth(wBuf, 14.5f) + 26.0f;
-        ui.drawRoundedRect(cx - ww * 0.5f, 16.0f, ww, 30.0f, 8.0f, {12, 24, 40, 215});
-        ui.drawTextCentered(wBuf, cx, 22.0f, 14.5f, {86, 228, 255, 255});
+        const float ww = ui.measureTextWidth(wBuf, 14.0f) + 26.0f;
+        ui.drawRoundedRect(cx - ww * 0.5f, pillY, ww, 28.0f, 8.0f, {12, 24, 40, 215});
+        ui.drawTextCentered(wBuf, cx, pillY + 6.0f, 14.0f, {86, 228, 255, 255});
     }
 
     if (const PointOfInterest* poi = world.nearbyPoi()) {
-        const std::string msg = std::string("[E] ") + pickText(poi->nameEn.c_str(), poi->nameKo.c_str());
-        const float mw = ui.measureTextWidth(msg, 15.5f) + 28.0f;
-        ui.drawRoundedRect(cx - mw * 0.5f, static_cast<float>(screenH) - 108.0f, mw, 32.0f, 8.0f, {14, 20, 32, 220});
-        ui.drawTextCentered(msg, cx, static_cast<float>(screenH) - 101.0f, 15.5f, poi->markerColor);
+        const std::string msg = mobileUi_
+            ? (std::string(pickText("TAP SHOP: ", "상점 버튼: ")) + pickText(poi->nameEn.c_str(), poi->nameKo.c_str()))
+            : (std::string("[E] ") + pickText(poi->nameEn.c_str(), poi->nameKo.c_str()));
+        const float mw = ui.measureTextWidth(msg, 15.0f) + 28.0f;
+        const float py = static_cast<float>(screenH) - (mobileUi_ ? 58.0f : 108.0f);
+        ui.drawRoundedRect(cx - mw * 0.5f, py, mw, 32.0f, 8.0f, {14, 20, 32, 220});
+        ui.drawTextCentered(msg, cx, py + 7.0f, 15.0f, poi->markerColor);
     }
 }
 
 void HudRenderer::drawShopModal(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH) {
     const float w = static_cast<float>(screenW), h = static_cast<float>(screenH);
     const float mw = std::min(580.0f, w * 0.84f);
-    const float mh = std::min(520.0f, h * 0.82f);
+    const float mh = std::min(520.0f, h * 0.86f);
     const RectF box{(w - mw) * 0.5f, (h - mh) * 0.5f, mw, mh};
     const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
 
@@ -1092,13 +1214,15 @@ void HudRenderer::drawShopModal(Vulkan2D& ui, const GameWorld& world, int screen
 void HudRenderer::drawSmartphoneModal(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH) {
     const float w = static_cast<float>(screenW), h = static_cast<float>(screenH);
     const float mw = std::min(580.0f, w * 0.84f);
-    const float mh = std::min(520.0f, h * 0.82f);
+    const float mh = std::min(520.0f, h * 0.86f);
     const RectF box{(w - mw) * 0.5f, (h - mh) * 0.5f, mw, mh};
     const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
 
     ui.drawRoundedRect(box.x, box.y, box.w, box.h, 12.0f, {12, 18, 28, 244});
     ui.drawRoundedRectOutline(box.x, box.y, box.w, box.h, 12.0f, 2.0f, accent);
-    ui.drawText(pickText("SEOUL SMARTPHONE [P]", "서울 스마트폰 [P]"), box.x + 18.0f, box.y + 14.0f, 20.0f, accent);
+    ui.drawText(mobileUi_ ? pickText("SEOUL SMARTPHONE", "서울 스마트폰")
+                          : pickText("SEOUL SMARTPHONE [P]", "서울 스마트폰 [P]"),
+                box.x + 18.0f, box.y + 14.0f, 20.0f, accent);
     ui.drawRoundedRect(box.x + box.w - 86.0f, box.y + 10.0f, 74.0f, 30.0f, 6.0f, {178, 44, 52, 235});
     ui.drawTextCentered(pickText("CLOSE", "닫기"), box.x + box.w - 49.0f, box.y + 16.0f, 14.0f, {255, 255, 255, 255});
 
@@ -1150,13 +1274,15 @@ void HudRenderer::drawSmartphoneModal(Vulkan2D& ui, const GameWorld& world, int 
 void HudRenderer::drawCustomStudioModal(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH) {
     const float w = static_cast<float>(screenW), h = static_cast<float>(screenH);
     const float mw = std::min(580.0f, w * 0.84f);
-    const float mh = std::min(520.0f, h * 0.82f);
+    const float mh = std::min(520.0f, h * 0.86f);
     const RectF box{(w - mw) * 0.5f, (h - mh) * 0.5f, mw, mh};
     const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
 
     ui.drawRoundedRect(box.x, box.y, box.w, box.h, 12.0f, {12, 18, 28, 244});
     ui.drawRoundedRectOutline(box.x, box.y, box.w, box.h, 12.0f, 2.0f, accent);
-    ui.drawText(pickText("CUSTOM STUDIO [K]", "커스텀 스튜디오 [K]"), box.x + 18.0f, box.y + 14.0f, 20.0f, accent);
+    ui.drawText(mobileUi_ ? pickText("CUSTOM STUDIO", "커스텀 스튜디오")
+                          : pickText("CUSTOM STUDIO [K]", "커스텀 스튜디오 [K]"),
+                box.x + 18.0f, box.y + 14.0f, 20.0f, accent);
     ui.drawRoundedRect(box.x + box.w - 86.0f, box.y + 10.0f, 74.0f, 30.0f, 6.0f, {178, 44, 52, 235});
     ui.drawTextCentered(pickText("CLOSE", "닫기"), box.x + box.w - 49.0f, box.y + 16.0f, 14.0f, {255, 255, 255, 255});
 
@@ -1186,20 +1312,22 @@ void HudRenderer::drawCustomStudioModal(Vulkan2D& ui, const GameWorld& world, in
 
 void HudRenderer::drawBannerToast(Vulkan2D& ui, const GameWorld& world, int screenW, int /*screenH*/) {
     const float cx = static_cast<float>(screenW) * 0.5f;
+    const float bannerY = mobileUi_ ? 90.0f : 64.0f;
+    const float toastY  = mobileUi_ ? 156.0f : 130.0f;
     if (world.banner().timer > 0.01f) {
         const std::string t = pickText(world.banner().titleEn.c_str(), world.banner().titleKo.c_str());
         const std::string s = pickText(world.banner().subEn.c_str(), world.banner().subKo.c_str());
         const float bw = std::max(ui.measureTextWidth(t, 20.0f), ui.measureTextWidth(s, 14.0f)) + 44.0f;
-        ui.drawRoundedRect(cx - bw * 0.5f, 64.0f, bw, 58.0f, 10.0f, {10, 16, 26, 222});
-        ui.drawRoundedRectOutline(cx - bw * 0.5f, 64.0f, bw, 58.0f, 10.0f, 1.5f, world.banner().accent);
-        ui.drawTextCentered(t, cx, 71.0f, 20.0f, world.banner().accent);
-        ui.drawTextCentered(s, cx, 98.0f, 14.0f, {236, 242, 252, 255});
+        ui.drawRoundedRect(cx - bw * 0.5f, bannerY, bw, 58.0f, 10.0f, {10, 16, 26, 222});
+        ui.drawRoundedRectOutline(cx - bw * 0.5f, bannerY, bw, 58.0f, 10.0f, 1.5f, world.banner().accent);
+        ui.drawTextCentered(t, cx, bannerY + 7.0f, 20.0f, world.banner().accent);
+        ui.drawTextCentered(s, cx, bannerY + 34.0f, 14.0f, {236, 242, 252, 255});
     }
     if (gfxToastTimer_ > 0.01f) {
         const std::string msg = pickText(gfxToastEn_.c_str(), gfxToastKo_.c_str());
         const float tw = ui.measureTextWidth(msg, 14.5f) + 28.0f;
-        ui.drawRoundedRect(cx - tw * 0.5f, 130.0f, tw, 30.0f, 8.0f, {12, 20, 32, 218});
-        ui.drawTextCentered(msg, cx, 136.0f, 14.5f, {118, 228, 255, 255});
+        ui.drawRoundedRect(cx - tw * 0.5f, toastY, tw, 30.0f, 8.0f, {12, 20, 32, 218});
+        ui.drawTextCentered(msg, cx, toastY + 6.0f, 14.5f, {118, 228, 255, 255});
     }
 }
 
@@ -1209,7 +1337,7 @@ void HudRenderer::drawHelpOverlay(Vulkan2D& ui, const GameWorld& world, int scre
     const float w = 316.0f, h = 172.0f;
     ui.drawRoundedRect(18.0f, 16.0f, w, h, 10.0f, {10, 14, 22, 198});
     ui.drawRoundedRectOutline(18.0f, 16.0f, w, h, 10.0f, 1.2f, accent);
-    ui.drawText(pickText("OPEN CITY SEOUL v3.2 (VULKAN)", "오픈 시티 서울 v3.2 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
+    ui.drawText(pickText("OPEN CITY SEOUL v3.3 (VULKAN)", "오픈 시티 서울 v3.3 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
     const char* lines[7] = {
         "WASD: 이동/운전 | Space: 점프/핸드브레이크",
         "Shift: 달리기/니트로 | F/E: 차량 탑승/상점",

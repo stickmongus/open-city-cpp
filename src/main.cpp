@@ -46,6 +46,9 @@ struct CliOptions {
     bool forceAim = false;
     bool forceSiren = false;
     bool forceLaser = false;
+    int windowW = 1440;
+    int windowH = 864;
+    int wantedLevel = 0;
 };
 
 #if !defined(__ANDROID__)
@@ -81,6 +84,12 @@ CliOptions parseArgs(int argc, char** argv) {
         else if (a == "--aim") o.forceAim = true;
         else if (a == "--siren") o.forceSiren = true;
         else if (a == "--laser") o.forceLaser = true;
+        else if (a == "--size" && i + 2 < argc) {
+            o.windowW = std::clamp(std::atoi(argv[++i]), 640, 3840);
+            o.windowH = std::clamp(std::atoi(argv[++i]), 400, 2160);
+        } else if (a == "--wanted" && i + 1 < argc) {
+            o.wantedLevel = std::clamp(std::atoi(argv[++i]), 0, 5);
+        }
     }
     return o;
 }
@@ -150,6 +159,11 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
             car.sirenPhase = 0.08f;
         }
         world.enterVehicle(car.id);
+    }
+    if (cli.wantedLevel > 0) {
+        world.player().wantedLevel = cli.wantedLevel;
+        world.player().policeLineOfSight = true;
+        world.player().policeLastKnownPos = world.player().pos;
     }
 
     // Optional automotive showcase lineup / single-vehicle hero close-up for crisp visual verification
@@ -276,6 +290,28 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         const int sw = vk.width();
         const int sh = vk.height();
 
+        // DPI-independent logical UI canvas (makes Android HiDPI tablets/foldables/phones crisp & thumb-ergonomic!)
+        float uiScale = 1.0f;
+        if (useMobileUi) {
+            uiScale = clampf(static_cast<float>(sh) / 600.0f, 0.85f, 3.6f);
+            uiScale = std::min(uiScale, static_cast<float>(sw) / 940.0f);
+            uiScale = std::max(0.75f, uiScale);
+        } else {
+            uiScale = clampf(static_cast<float>(sh) / 864.0f, 1.0f, 2.5f);
+        }
+        const float invUiScale = 1.0f / uiScale;
+        const int uiW = std::max(1, static_cast<int>(std::lround(static_cast<float>(sw) * invUiScale)));
+        const int uiH = std::max(1, static_cast<int>(std::lround(static_cast<float>(sh) * invUiScale)));
+        PlatformInput uiPi = pi;
+        uiPi.mouseX *= invUiScale;
+        uiPi.mouseY *= invUiScale;
+        uiPi.mouseDeltaX *= invUiScale;
+        uiPi.mouseDeltaY *= invUiScale;
+        for (int ti = 0; ti < uiPi.touchCount; ++ti) {
+            uiPi.touches[static_cast<std::size_t>(ti)].x *= invUiScale;
+            uiPi.touches[static_cast<std::size_t>(ti)].y *= invUiScale;
+        }
+
         hud.updateTimers(dt);
 
         // Toggle Full-Screen Seoul Map via [M] key or clicking Minimap!
@@ -329,14 +365,14 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         }
 
         // Click minimap with desktop mouse (when unlocked) to open Full-Screen Seoul Map!
-        const RectF mmRect = hud.minimapRect(sw, sh);
+        const RectF mmRect = hud.minimapRect(uiW, uiH);
         if (!useMobileUi && !hud.isAnyModalOpen() && !app.isCursorLocked() &&
-            pi.mouseLeftPressed && mmRect.contains(pi.mouseX, pi.mouseY)) {
+            uiPi.mouseLeftPressed && mmRect.contains(uiPi.mouseX, uiPi.mouseY)) {
             hud.setFullMapOpen(true, world.player().pos);
         }
 
-        // Update TouchControls (Android & desktop --mobile-ui preview)
-        TouchControlResult tr = touch.update(pi, world, sw, sh, mmRect, hud.isAnyModalOpen(),
+        // Update TouchControls (Android & desktop --mobile-ui preview) in logical dp space
+        TouchControlResult tr = touch.update(uiPi, world, uiW, uiH, mmRect, hud.isAnyModalOpen(),
                                              cli.mobileUi, dt);
         if (tr.toggleMapPressed) hud.toggleFullMap(world.player().pos);
         if (tr.toggleViewPressed) firstPerson = !firstPerson;
@@ -356,12 +392,11 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         // Process Modal / Full-Screen Seoul Map Interactions
         ModalTapAction modalAct{};
         if (hud.isFullMapOpen()) {
-            hud.updateFullMapInput(pi, sw, sh, world, dt, modalAct);
-        }
-        if (tr.modalTapValid) {
-            hud.handleModalTap(world, sw, sh, tr.modalTapPos, modalAct);
-        } else if (!useMobileUi && hud.isAnyModalOpen() && !hud.isFullMapOpen() && pi.mouseLeftPressed) {
-            hud.handleModalTap(world, sw, sh, {pi.mouseX, pi.mouseY}, modalAct);
+            hud.updateFullMapInput(uiPi, uiW, uiH, world, dt, modalAct);
+        } else if (tr.modalTapValid) {
+            hud.handleModalTap(world, uiW, uiH, tr.modalTapPos, modalAct);
+        } else if (!useMobileUi && hud.isAnyModalOpen() && uiPi.mouseLeftPressed) {
+            hud.handleModalTap(world, uiW, uiH, {uiPi.mouseX, uiPi.mouseY}, modalAct);
         }
         if (modalAct.setWaypoint) {
             world.setWaypoint(modalAct.mapTargetWorld, modalAct.mapTargetLabelKo);
@@ -377,13 +412,13 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         bool lookBack = tr.lookBackHeld;
 
         if (!hud.isAnyModalOpen()) {
-            // Smooth camera look (mouse or touch drag)
+            // Smooth camera look (mouse or DPI-normalized touch drag)
             if (app.isCursorLocked() && !useMobileUi) {
                 camYaw += pi.mouseDeltaX * 0.0026f;
                 camPitch = std::clamp(camPitch - pi.mouseDeltaY * 0.0022f, -0.78f, 0.72f);
             } else if (useMobileUi) {
-                camYaw += tr.lookDeltaX * 0.0046f;
-                camPitch = std::clamp(camPitch - tr.lookDeltaY * 0.0038f, -0.75f, 0.70f);
+                camYaw += tr.lookDeltaX * 0.0056f;
+                camPitch = std::clamp(camPitch - tr.lookDeltaY * 0.0046f, -0.75f, 0.70f);
             }
 
             const float rawFwd = (pi.isDown(KeyCode::W) || pi.isDown(KeyCode::Up) ? 1.0f : 0.0f) -
@@ -557,10 +592,11 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         // Pass 1 (Shadows) + Pass 2 (HDR+MSAA 3D Seoul) + Begin Pass 3 (Post-Process Bloom+ACES)
         renderer.renderSceneAndBeginPost(vk, world, cam, firstPerson, adsBlend, lookBack);
 
-        // Pass 3 continued: Crisp 2D Vulkan HUD + Interactive Full-Screen Seoul Map + Mobile Touch UI!
+        // Pass 3 continued: DPI-Scaled 2D Vulkan HUD + Interactive Full-Screen Seoul Map + Mobile Touch UI!
+        vk.setUiLogicalSize(static_cast<float>(uiW), static_cast<float>(uiH));
         ui2d.beginBatch();
-        hud.renderHud(ui2d, vk, world, sw, sh, camYaw, app.isCursorLocked(), firstPerson, adsBlend);
-        touch.render(ui2d, world, sw, sh, hud.isAnyModalOpen(), firstPerson, hud.isUsingKorean());
+        hud.renderHud(ui2d, vk, world, uiW, uiH, camYaw, app.isCursorLocked(), firstPerson, adsBlend);
+        touch.render(ui2d, world, uiW, uiH, hud.isAnyModalOpen(), firstPerson, hud.isUsingKorean());
         ui2d.flush(vk);
 
         vk.endSwapchainPostAndUiPass();
@@ -599,7 +635,7 @@ extern "C" void android_main(struct android_app* state) {
 int main(int argc, char** argv) {
     const oc::CliOptions cli = oc::parseArgs(argc, argv);
     oc::PlatformApp app;
-    if (!app.initDesktop(1440, 864, "Open City Seoul v3.2 — Real GIS Seoul (Native Vulkan)")) {
+    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v3.3 — Real GIS Seoul (Native Vulkan)")) {
         return 1;
     }
     const int rc = oc::runApplication(app, cli);

@@ -147,6 +147,8 @@ struct VulkanContext::Impl {
     std::uint32_t currentImageIndex = 0;
     bool frameActive = false;
     bool uiPipelineBound = false;
+    float uiLogicalW = 0.0f;
+    float uiLogicalH = 0.0f;
     std::uint32_t dynamic3dVertOffset = 0;
     std::uint32_t ui2dVertOffset = 0;
     WorldPipelineKind activeWorldPipeline = WorldPipelineKind::Opaque;
@@ -2049,12 +2051,33 @@ void VulkanContext::beginSwapchainPostAndUiPass(const PostPush& postPush) {
     impl_->uiPipelineBound = false;
 }
 
+void VulkanContext::setUiLogicalSize(float logicalW, float logicalH) {
+    if (!impl_) return;
+    const float w = (logicalW > 1.0f) ? logicalW : static_cast<float>(impl_->swapchainExtent.width);
+    const float h = (logicalH > 1.0f) ? logicalH : static_cast<float>(impl_->swapchainExtent.height);
+    if (std::abs(impl_->uiLogicalW - w) > 0.01f || std::abs(impl_->uiLogicalH - h) > 0.01f) {
+        impl_->uiLogicalW = w;
+        impl_->uiLogicalH = h;
+        impl_->uiPipelineBound = false;
+    }
+}
+
 void VulkanContext::setUiScissor(int x, int y, int w, int h) {
     if (!impl_->frameActive) return;
-    const int sx = std::clamp(x, 0, static_cast<int>(impl_->swapchainExtent.width));
-    const int sy = std::clamp(y, 0, static_cast<int>(impl_->swapchainExtent.height));
-    const int ex = std::clamp(x + w, sx, static_cast<int>(impl_->swapchainExtent.width));
-    const int ey = std::clamp(y + h, sy, static_cast<int>(impl_->swapchainExtent.height));
+    const float physW = static_cast<float>(impl_->swapchainExtent.width);
+    const float physH = static_cast<float>(impl_->swapchainExtent.height);
+    const float logW = (impl_->uiLogicalW > 1.0f) ? impl_->uiLogicalW : physW;
+    const float logH = (impl_->uiLogicalH > 1.0f) ? impl_->uiLogicalH : physH;
+    const float scaleX = physW / std::max(1.0f, logW);
+    const float scaleY = physH / std::max(1.0f, logH);
+    const int px0 = static_cast<int>(std::floor(static_cast<float>(x) * scaleX));
+    const int py0 = static_cast<int>(std::floor(static_cast<float>(y) * scaleY));
+    const int px1 = static_cast<int>(std::ceil(static_cast<float>(x + w) * scaleX));
+    const int py1 = static_cast<int>(std::ceil(static_cast<float>(y + h) * scaleY));
+    const int sx = std::clamp(px0, 0, static_cast<int>(impl_->swapchainExtent.width));
+    const int sy = std::clamp(py0, 0, static_cast<int>(impl_->swapchainExtent.height));
+    const int ex = std::clamp(px1, sx, static_cast<int>(impl_->swapchainExtent.width));
+    const int ey = std::clamp(py1, sy, static_cast<int>(impl_->swapchainExtent.height));
     VkRect2D sc{{sx, sy}, {static_cast<std::uint32_t>(ex - sx), static_cast<std::uint32_t>(ey - sy)}};
     vkCmdSetScissor(impl_->cmdBuffers[impl_->frameIdx], 0, 1, &sc);
 }
@@ -2075,9 +2098,11 @@ void VulkanContext::drawUiVertices(const Vertex2D* verts, std::uint32_t vertCoun
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, impl_->ui2dPipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, impl_->uiPipelineLayout,
                                 0, 1, &impl_->uiDescSet, 0, nullptr);
+        const float logW = (impl_->uiLogicalW > 1.0f) ? impl_->uiLogicalW : static_cast<float>(impl_->swapchainExtent.width);
+        const float logH = (impl_->uiLogicalH > 1.0f) ? impl_->uiLogicalH : static_cast<float>(impl_->swapchainExtent.height);
         UiPush push{};
-        push.screenScale[0] = 2.0f / std::max(1.0f, static_cast<float>(impl_->swapchainExtent.width));
-        push.screenScale[1] = 2.0f / std::max(1.0f, static_cast<float>(impl_->swapchainExtent.height));
+        push.screenScale[0] = 2.0f / std::max(1.0f, logW);
+        push.screenScale[1] = 2.0f / std::max(1.0f, logH);
         vkCmdPushConstants(cmd, impl_->uiPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
                            0, sizeof(UiPush), &push);
         VkDeviceSize off = 0;

@@ -54,6 +54,39 @@ public:
     void render(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH,
                 bool modalOpen, bool firstPerson, bool useKorean) const;
 
+    struct Layout {
+        float s = 1.0f;
+        Vec2 stickCenter{0.0f, 0.0f};
+        float stickOuterR = 74.0f;
+        float stickKnobR = 28.0f;
+
+        RectF steerLeftRect{};
+        RectF steerRightRect{};
+
+        Vec2 fireCenter{0.0f, 0.0f};   float fireR = 45.0f;
+        Vec2 aimCenter{0.0f, 0.0f};    float aimR = 31.0f;
+        Vec2 jumpCenter{0.0f, 0.0f};   float jumpR = 31.0f;
+        Vec2 reloadCenter{0.0f, 0.0f}; float reloadR = 27.0f;
+        Vec2 interactCenter{0.0f, 0.0f}; float interactR = 31.0f;
+        Vec2 shopCenter{0.0f, 0.0f};   float shopR = 31.0f;
+
+        RectF wepPrevRect{};
+        RectF wepNextRect{};
+
+        RectF gasRect{};
+        RectF brakeRect{};
+        RectF nitroRect{};
+        RectF driftRect{};
+        Vec2 exitCarCenter{0.0f, 0.0f}; float exitCarR = 30.0f;
+        Vec2 hornCenter{0.0f, 0.0f};    float hornR = 27.0f;
+        Vec2 lookBackCenter{0.0f, 0.0f}; float lookBackR = 27.0f;
+
+        // Top quick buttons: Map, View, Phone, Custom, Weather, Time, Quality
+        std::array<RectF, 7> topButtons{};
+    };
+
+    static Layout computeLayout(int screenW, int screenH);
+
 private:
     enum class PointerRole : int {
         None = 0,
@@ -79,38 +112,6 @@ private:
         Vec2 prevPos{0.0f, 0.0f};
     };
 
-    struct Layout {
-        float s = 1.0f;
-        Vec2 stickCenter{0.0f, 0.0f};
-        float stickOuterR = 82.0f;
-        float stickKnobR = 32.0f;
-
-        RectF steerLeftRect{};
-        RectF steerRightRect{};
-
-        Vec2 fireCenter{0.0f, 0.0f};   float fireR = 46.0f;
-        Vec2 aimCenter{0.0f, 0.0f};    float aimR = 33.0f;
-        Vec2 jumpCenter{0.0f, 0.0f};   float jumpR = 32.0f;
-        Vec2 reloadCenter{0.0f, 0.0f}; float reloadR = 27.0f;
-        Vec2 interactCenter{0.0f, 0.0f}; float interactR = 33.0f;
-        Vec2 shopCenter{0.0f, 0.0f};   float shopR = 33.0f;
-
-        RectF wepPrevRect{};
-        RectF wepNextRect{};
-
-        RectF gasRect{};
-        RectF brakeRect{};
-        RectF nitroRect{};
-        RectF driftRect{};
-        Vec2 exitCarCenter{0.0f, 0.0f}; float exitCarR = 32.0f;
-        Vec2 hornCenter{0.0f, 0.0f};    float hornR = 28.0f;
-        Vec2 lookBackCenter{0.0f, 0.0f}; float lookBackR = 28.0f;
-
-        // Top quick buttons: Map, View, Phone, Custom, Weather, Time, Quality
-        std::array<RectF, 7> topButtons{};
-    };
-
-    static Layout computeLayout(int screenW, int screenH);
     static bool hitCircle(Vec2 p, Vec2 c, float r);
     TrackedPointer* findPointer(int id);
     TrackedPointer* allocatePointer(int id, Vec2 pos);

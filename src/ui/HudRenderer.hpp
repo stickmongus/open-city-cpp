@@ -114,6 +114,13 @@ private:
     std::string mapSelectedNameKo_ = "반포·강남";
     bool mapDragging_ = false;
     Vec2 mapDragLast_{0.0f, 0.0f};
+    bool mapTouchTracking_ = false;
+    int mapTouchId_ = -1;
+    Vec2 mapTouchStart_{0.0f, 0.0f};
+    Vec2 mapTouchLast_{0.0f, 0.0f};
+    bool mapTouchDragged_ = false;
+    bool mapPinchActive_ = false;
+    float mapPinchLastDist_ = 0.0f;
 
     bool shopMenuOpen_ = false;
     bool phoneOpen_ = false;

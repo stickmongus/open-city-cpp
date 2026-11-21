@@ -51,7 +51,7 @@ bool Vulkan2D::init(VulkanContext& vk, const std::vector<std::uint8_t>& fontByte
     stbtt_fontinfo info{};
     if (!stbtt_InitFont(&info, fontBytes.data(), fontOffset)) return false;
 
-    basePixelHeight_ = 36.0f;
+    basePixelHeight_ = 44.0f;
     const float scale = stbtt_ScaleForPixelHeight(&info, basePixelHeight_);
     int ascent = 0, descent = 0, lineGap = 0;
     stbtt_GetFontVMetrics(&info, &ascent, &descent, &lineGap);
