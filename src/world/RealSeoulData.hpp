@@ -117,7 +117,11 @@ public:
     float raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const;
 
     // Exact nearest real OSM road & bridge / water queries
+    static constexpr float roadClassLift(std::uint8_t roadClass) {
+        return 0.035f + static_cast<float>(roadClass < 6u ? (6u - roadClass) : 0u) * 0.008f;
+    }
     NearestOsmRoad findNearestRoad(const Vec2& p, float maxSearchDist = 48.0f) const;
+    float roadSurfaceLiftAt(const Vec2& p) const;
     bool isOnRoad(const Vec2& p, float extraMargin = 0.0f) const;
     bool isOnBridge(const Vec2& p, float extraMargin = 0.0f) const;
     bool isInWater(const Vec2& p) const;

@@ -220,6 +220,58 @@ bool RealSeoulData::loadFromBytes(const std::uint8_t* data, std::size_t size) {
     for (auto& b : buildings_) {
         b.baseY = sampleDem({b.cx, b.cz});
     }
+
+    // Cull OSM underground shopping malls / subway concourses (layer=-1) & overpass roofs
+    // whose building footprint polygons illegally sit directly across drivable major Seoul roads
+    // (e.g., Gangnam Station Underground Mall blocking Teheran-ro x Gangnam-daero!).
+    {
+        auto pointInBldgPoly = [&](const OsmBldgRec& b, const Vec2& pt) -> bool {
+            if (b.vertCount < 3) return false;
+            if (std::abs(pt.x - b.cx) > b.halfX + 0.5f || std::abs(pt.z - b.cz) > b.halfZ + 0.5f) return false;
+            bool inside = false;
+            const std::uint16_t n = b.vertCount;
+            for (std::uint16_t i = 0; i < n; ++i) {
+                const Vec2 a = bldgWorldVert(b, i);
+                const Vec2 c = bldgWorldVert(b, static_cast<std::uint16_t>((i + 1) % n));
+                if (((a.z > pt.z) != (c.z > pt.z)) &&
+                    (pt.x < (c.x - a.x) * (pt.z - a.z) / ((c.z - a.z) + 1e-7f) + a.x)) {
+                    inside = !inside;
+                }
+            }
+            return inside;
+        };
+
+        for (const OsmRoadRec& r : roads_) {
+            if (r.roadClass > 4 || (r.flags & 4u) != 0u || r.vertCount < 2) continue; // Skip tunnels & narrow back alleys
+            for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
+                const Vec2 a = roadVerts_[r.firstVert + s];
+                const Vec2 b = roadVerts_[r.firstVert + s + 1];
+                const Vec2 e = b - a;
+                const float segLen = e.length();
+                const int steps = std::max(1, static_cast<int>(std::ceil(segLen / 6.0f)));
+                for (int k = 0; k <= steps; ++k) {
+                    const float t = static_cast<float>(k) / static_cast<float>(steps);
+                    const Vec2 pt = a + e * t;
+                    if (!isInCoreBounds(pt)) continue;
+                    const int cx = std::clamp(static_cast<int>(std::floor((pt.x - hdr_.minX) / hdr_.chunkSize)),
+                                              0, static_cast<int>(hdr_.chunksX) - 1);
+                    const int cz = std::clamp(static_cast<int>(std::floor((pt.z - hdr_.minZ) / hdr_.chunkSize)),
+                                              0, static_cast<int>(hdr_.chunksZ) - 1);
+                    const OcChunkHdr& ch = chunks_[static_cast<std::size_t>(cz) * hdr_.chunksX + static_cast<std::size_t>(cx)];
+                    for (std::uint32_t j = 0; j < ch.bldgLen; ++j) {
+                        OsmBldgRec& bldg = buildings_[flatChunkBldgs_[ch.bldgStart + j]];
+                        if (bldg.vertCount < 3) continue;
+                        if (pointInBldgPoly(bldg, pt)) {
+                            bldg.vertCount = 0;
+                            bldg.height = 0.0f;
+                            bldg.halfX = 0.0f;
+                            bldg.halfZ = 0.0f;
+                        }
+                    }
+                }
+            }
+        }
+    }
     return true;
 }
 
@@ -556,6 +608,43 @@ NearestOsmRoad RealSeoulData::findNearestRoad(const Vec2& p, float maxSearchDist
         }
     }
     return res;
+}
+
+float RealSeoulData::roadSurfaceLiftAt(const Vec2& p) const {
+    if (!loaded_ || !isInCoreBounds(p)) return 0.0f;
+    const float searchR = 18.5f;
+    const int cx0 = std::clamp(static_cast<int>(std::floor((p.x - searchR - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
+    const int cx1 = std::clamp(static_cast<int>(std::floor((p.x + searchR - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
+    const int cz0 = std::clamp(static_cast<int>(std::floor((p.z - searchR - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
+    const int cz1 = std::clamp(static_cast<int>(std::floor((p.z + searchR - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
+    float bestLift = 0.0f;
+    for (int cz = cz0; cz <= cz1; ++cz) {
+        const std::size_t row = static_cast<std::size_t>(cz) * hdr_.chunksX;
+        for (int cx = cx0; cx <= cx1; ++cx) {
+            const OcChunkHdr& ch = chunks_[row + static_cast<std::size_t>(cx)];
+            for (std::uint32_t k = 0; k < ch.roadLen; ++k) {
+                const OsmRoadRec& r = roads_[flatChunkRoads_[ch.roadStart + k]];
+                const float lift = roadClassLift(r.roadClass);
+                if (lift <= bestLift) continue;
+                const float hw = std::max(2.6f, r.halfWidth) + 0.25f;
+                if (p.x < r.minX - hw || p.x > r.maxX + hw ||
+                    p.z < r.minZ - hw || p.z > r.maxZ + hw) {
+                    continue;
+                }
+                const float hw2 = hw * hw;
+                for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
+                    const Vec2 a = roadVerts_[r.firstVert + s];
+                    const Vec2 b = roadVerts_[r.firstVert + s + 1];
+                    const Vec2 q = closestPointOnSeg(p, a, b);
+                    if ((p - q).lengthSq() <= hw2) {
+                        bestLift = lift;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    return bestLift;
 }
 
 bool RealSeoulData::isOnRoad(const Vec2& p, float extraMargin) const {

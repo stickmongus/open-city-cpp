@@ -2749,6 +2749,59 @@ void testV310PitchInertiaMetricLanesAndFineProps() {
 }
 
 
+void testV320ZeroRoadBlockingBuildingsAndExactRoadElevation() {
+    auto findAsset = [](const char* rel) -> std::string {
+        const char* prefixes[] = {"assets/", "../assets/", "../../assets/"};
+        for (const char* pre : prefixes) {
+            const std::string p = std::string(pre) + rel;
+            std::ifstream f(p, std::ios::binary);
+            if (f.good()) return p;
+        }
+        return {};
+    };
+    const std::string ocmapPath = findAsset("maps/seoul_real.ocmap");
+    ASSERT_TRUE(!ocmapPath.empty());
+
+    oc::GameWorld world(20263200ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    const oc::CityMap& city = world.city();
+    const oc::RealSeoulData& real = city.realData();
+
+    // 1. Gangnam Station intersection (3775.4, 2843.2) where OSM underground mall bldg#2952
+    //    previously blocked Teheran-ro MUST be 100% clear of building collision!
+    oc::Vec2 gangnamStn{3775.4f, 2843.2f};
+    ASSERT_TRUE(!real.resolveCircleBuildings(gangnamStn, 1.2f));
+
+    // 2. Verify ZERO drivable major Seoul roads (roadClass <= 3, non-tunnel) have their centerlines
+    //    blocked by ANY active OSM building polygon across the entire 30km x 25km Seoul map!
+    const auto& roads = real.roads();
+    const auto& rVerts = real.roadVerts();
+    for (const auto& r : roads) {
+        if (r.roadClass > 3 || (r.flags & 4u) != 0u || r.vertCount < 2) continue;
+        for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
+            const oc::Vec2 mid = (rVerts[r.firstVert + s] + rVerts[r.firstVert + s + 1]) * 0.5f;
+            if (!real.isInCoreBounds(mid)) continue;
+            oc::Vec2 probe = mid;
+            // Checking small radius 0.1m ensures road centerline never sits inside any active building!
+            ASSERT_TRUE(!real.resolveCircleBuildings(probe, 0.1f));
+        }
+    }
+
+    // 3. Verify exact millimeter road surface elevation parity (CityMap::surfaceHeightAt == sampleDem + roadSurfaceLiftAt)
+    const oc::Vec2 spawnRoad = world.player().pos;
+    const float lift = real.roadSurfaceLiftAt(spawnRoad);
+    ASSERT_TRUE(lift >= 0.055f && lift <= 0.090f);
+    const float expectedY = real.sampleDem(spawnRoad) + lift;
+    ASSERT_TRUE(std::abs(city.surfaceHeightAt(spawnRoad) - expectedY) < 1e-4f);
+
+    // Verify off-road point inside a park / away from roads returns 0.0 lift
+    const oc::Vec2 namsanPeak{283.0f, -3078.0f};
+    ASSERT_TRUE(real.roadSurfaceLiftAt(namsanPeak) == 0.0f);
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -2780,8 +2833,9 @@ int main() {
     testV230SeoulBusMagDropAndSignPolish();
     testV300RealOsmSeoulMapAndPbr();
     testV310PitchInertiaMetricLanesAndFineProps();
+    testV320ZeroRoadBlockingBuildingsAndExactRoadElevation();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.1.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.2.0 simulation test suites succeeded!\n";
     return 0;
 }
 

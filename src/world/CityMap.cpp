@@ -320,8 +320,11 @@ float CityMap::bridgeDeckElevationAt(const Vec2& p, float* outSlopeZ) const {
 float CityMap::surfaceHeightAt(const Vec2& p) const {
     if (realData_.isLoaded()) {
         const float demY = realData_.sampleDem(p);
-        if (realData_.isInCoreBounds(p) && realData_.isOnBridge(p, 1.5f)) {
-            return std::max(demY, bridgeDeckElevationAt(p));
+        if (realData_.isInCoreBounds(p)) {
+            if (realData_.isOnBridge(p, 1.5f)) {
+                return std::max(demY + 0.08f, bridgeDeckElevationAt(p) + 0.02f);
+            }
+            return demY + realData_.roadSurfaceLiftAt(p);
         }
         return demY;
     }

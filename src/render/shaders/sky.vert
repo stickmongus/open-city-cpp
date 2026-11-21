@@ -27,6 +27,6 @@ layout(location = 0) out vec3 fragDir;
 
 void main() {
     fragDir = inPos;
-    vec4 clipPos = ubo.viewProj * pc.model * vec4(inPos, 1.0);
-    gl_Position = clipPos;
+    vec4 worldPos = pc.model * vec4(inPos, 1.0);
+    gl_Position = ubo.viewProj * vec4(worldPos.xyz - ubo.viewPosAndHour.xyz, 1.0);
 }

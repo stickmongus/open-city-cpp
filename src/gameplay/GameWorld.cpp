@@ -438,8 +438,8 @@ void GameWorld::reset() {
     player_.onGround = true;
 
     spawnInitialWorld();
-    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL GIS v3.1 (VULKAN)" : "WELCOME TO SEOUL (VULKAN)",
-               city_.hasRealSeoulMap() ? "실제 서울 OSM 지도 v3.1에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
+    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL GIS v3.2 (VULKAN)" : "WELCOME TO SEOUL (VULKAN)",
+               city_.hasRealSeoulMap() ? "실제 서울 OSM 지도 v3.2에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
                "[M] Full Seoul Map  |  [K] Custom Studio  |  [U] Rain  |  [V] 1st/3rd Person",
                "미니맵 터치/[M] 서울 전체 지도 · [K] 커스텀 · [U] 날씨 · [V] 1·3인칭",
                {118, 192, 232, 255}, 5.2f);
@@ -4107,11 +4107,11 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
                 return bh;
             }
         }
-        const float th = city_.terrainElevationAt(p);
-        if (outSlope && th > 0.01f) {
+        const float sh = city_.surfaceHeightAt(p);
+        if (outSlope && sh > 0.01f) {
             *outSlope = std::atan(city_.terrainSlopeAlong(p, fwdBefore));
         }
-        return th + (city_.isOnRoad(p, 0.1f) ? 0.0f : 0.08f);
+        return sh + (city_.isOnRoad(p, 0.1f) ? 0.0f : 0.08f);
     };
 
     float rampSlopePitch = 0.0f;

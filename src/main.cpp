@@ -599,7 +599,7 @@ extern "C" void android_main(struct android_app* state) {
 int main(int argc, char** argv) {
     const oc::CliOptions cli = oc::parseArgs(argc, argv);
     oc::PlatformApp app;
-    if (!app.initDesktop(1440, 864, "Open City Seoul v3.0 — Real GIS Seoul (Native Vulkan)")) {
+    if (!app.initDesktop(1440, 864, "Open City Seoul v3.2 — Real GIS Seoul (Native Vulkan)")) {
         return 1;
     }
     const int rc = oc::runApplication(app, cli);

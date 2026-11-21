@@ -1833,8 +1833,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
 
         const bool isBridge = (r.flags & 2u) != 0u;
         const float hw = std::max(2.6f, r.halfWidth);
-        // Subtle road-class micro-elevation prevents intersection z-fighting (major avenues win!)
-        const float classLift = 0.035f + static_cast<float>(std::max(0, 6 - static_cast<int>(r.roadClass))) * 0.008f;
+        // Exact road-class micro-elevation matching RealSeoulData::roadSurfaceLiftAt() to the millimeter!
+        const float classLift = RealSeoulData::roadClassLift(r.roadClass);
 
         auto evalRoadY = [&](const Vec2& p) -> float {
             float y = real.sampleDem(p) + classLift;
@@ -1899,15 +1899,20 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                                            0, static_cast<int>(hdr.chunksZ) - 1);
                 if (mcx != cx || mcz != cz) continue;
 
-                const float y0 = evalRoadY(p0);
-                const float y1 = evalRoadY(p1);
                 const Vec2 n0 = (sub == 0) ? miters[i] : segPerp;
                 const Vec2 n1 = (sub + 1 == subSteps) ? miters[i + 1] : segPerp;
 
-                const Vec3 aL{p0.x - n0.x * hw, y0, p0.z - n0.z * hw};
-                const Vec3 aR{p0.x + n0.x * hw, y0, p0.z + n0.z * hw};
-                const Vec3 bR{p1.x + n1.x * hw, y1, p1.z + n1.z * hw};
-                const Vec3 bL{p1.x - n1.x * hw, y1, p1.z - n1.z * hw};
+                // Evaluate DEM height independently at all 4 road corners so wide boulevards hug cross-slopes seamlessly!
+                const Vec2 p0L{p0.x - n0.x * hw, p0.z - n0.z * hw};
+                const Vec2 p0R{p0.x + n0.x * hw, p0.z + n0.z * hw};
+                const Vec2 p1R{p1.x + n1.x * hw, p1.z + n1.z * hw};
+                const Vec2 p1L{p1.x - n1.x * hw, p1.z - n1.z * hw};
+                const Vec3 aL{p0L.x, evalRoadY(p0L), p0L.z};
+                const Vec3 aR{p0R.x, evalRoadY(p0R), p0R.z};
+                const Vec3 bR{p1R.x, evalRoadY(p1R), p1R.z};
+                const Vec3 bL{p1L.x, evalRoadY(p1L), p1L.z};
+                const float y0 = 0.5f * (aL.y + aR.y);
+                const float y1 = 0.5f * (bL.y + bR.y);
 
                 const float uL = -hw;
                 const float uR =  hw;
@@ -1962,12 +1967,20 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                             real.isOnRoad(swP1, 0.9f)) {
                             continue;
                         }
-                        const Vec3 c0Bot{p0.x + s0.x * hw, y0 - 0.02f, p0.z + s0.z * hw};
-                        const Vec3 c1Bot{p1.x + s1.x * hw, y1 - 0.02f, p1.z + s1.z * hw};
-                        const Vec3 c0Top{p0.x + s0.x * (hw + 0.08f), y0 + curbH, p0.z + s0.z * (hw + 0.08f)};
-                        const Vec3 c1Top{p1.x + s1.x * (hw + 0.08f), y1 + curbH, p1.z + s1.z * (hw + 0.08f)};
-                        const Vec3 o0Top{p0.x + s0.x * (hw + swW), y0 + curbH, p0.z + s0.z * (hw + swW)};
-                        const Vec3 o1Top{p1.x + s1.x * (hw + swW), y1 + curbH, p1.z + s1.z * (hw + swW)};
+                        const Vec2 c0P{p0.x + s0.x * hw, p0.z + s0.z * hw};
+                        const Vec2 c1P{p1.x + s1.x * hw, p1.z + s1.z * hw};
+                        const Vec2 o0P{p0.x + s0.x * (hw + swW), p0.z + s0.z * (hw + swW)};
+                        const Vec2 o1P{p1.x + s1.x * (hw + swW), p1.z + s1.z * (hw + swW)};
+                        const float yc0 = evalRoadY(c0P);
+                        const float yc1 = evalRoadY(c1P);
+                        const float yo0 = evalRoadY(o0P);
+                        const float yo1 = evalRoadY(o1P);
+                        const Vec3 c0Bot{c0P.x, yc0 - 0.02f, c0P.z};
+                        const Vec3 c1Bot{c1P.x, yc1 - 0.02f, c1P.z};
+                        const Vec3 c0Top{p0.x + s0.x * (hw + 0.08f), yc0 + curbH, p0.z + s0.z * (hw + 0.08f)};
+                        const Vec3 c1Top{p1.x + s1.x * (hw + 0.08f), yc1 + curbH, p1.z + s1.z * (hw + 0.08f)};
+                        const Vec3 o0Top{o0P.x, yo0 + curbH, o0P.z};
+                        const Vec3 o1Top{o1P.x, yo1 + curbH, o1P.z};
                         const Vec3 curbN{-s0.x, 0.25f, -s0.z};
                         pushQuadV3(sidewalksV, c0Bot, c1Bot, c1Top, c0Top, curbN.normalized(),
                                    0.04f, swV0, 0.04f, swV1, 0.08f, swV1, 0.08f, swV0, kSwTint);
@@ -2269,9 +2282,12 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
                                    const Mat4& lightVP, bool shadowsActive) const {
     SceneUBO ubo{};
     const float aspect = static_cast<float>(std::max(1, width)) / static_cast<float>(std::max(1, height));
-    const Mat4 view = Mat4::lookAt(camera.position, camera.target, camera.up);
+    // Camera-relative view matrix (origin = 0,0,0) paired with worldPos - viewPos in world.vert/sky.vert
+    // eliminates float32 depth cancellation Z-fighting across the entire 30km x 25km Seoul map!
+    const Vec3 relTarget = camera.target - camera.position;
+    const Mat4 viewRel = Mat4::lookAt({0.0f, 0.0f, 0.0f}, relTarget, camera.up);
     const Mat4 proj = Mat4::perspectiveVulkan(camera.fovyDeg * (kPi / 180.0f), aspect, camera.nearZ, camera.farZ);
-    ubo.viewProj = proj * view;
+    ubo.viewProj = proj * viewRel;
     ubo.lightVP = lightVP;
 
     const float h = world.timeOfDayHours();
@@ -3150,7 +3166,6 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
             case StreetPropKind::RoadGantry: {
                 // Iconic Korean Dark-Green Overhead Highway Directional Sign Gantry matched to exact road width!
                 const ColorRGBA kSteel{168, 174, 182, 255};
-                const ColorRGBA kKrBorderWhite{242, 246, 248, 255};
                 const float spanHalf = (p.variant >= 60u) ? (static_cast<float>(p.variant) * 0.1f) : 9.55f;
                 const float spanFull = spanHalf * 2.0f + 0.5f;
                 for (float sx : {-spanHalf, spanHalf}) {
@@ -3160,9 +3175,9 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                     drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx, 0.42f, 0.0f) * Mat4::scale(0.74f, 0.84f, 0.74f),
                              {156, 160, 166, 255}, 0.80f, 0.04f, 0.0f, MatId::BridgeConcrete, false);
                 }
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 6.48f, 0.0f) * Mat4::scale(spanFull, 0.28f, 0.28f),
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 6.48f, 0.0f) * Mat4::scale(spanFull, 0.24f, 0.16f),
                          kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 5.74f, 0.0f) * Mat4::scale(spanFull - 0.2f, 0.22f, 0.22f),
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 5.74f, 0.0f) * Mat4::scale(spanFull - 0.2f, 0.20f, 0.14f),
                          kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
 
                 const bool isOuterRing = (std::abs(p.pos.x) > 14000.0f || std::abs(p.pos.z) > 11500.0f);
@@ -3190,13 +3205,14 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 const float panelOff = std::min(3.8f, spanHalf * 0.44f);
                 const float panelXs[2] = {-panelOff, panelOff};
                 const int panelSlots[2] = {slotL, slotR};
+                const ColorRGBA kGantryHousing{62, 68, 76, 255};
                 for (int k = 0; k < 2; ++k) {
                     const float px = panelXs[k];
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, 6.15f, 0.0f) * Mat4::scale(panelW, 2.20f, 0.34f),
-                             kKrBorderWhite, 0.34f, 0.18f, 0.0f, MatId::Standard, shadowPass);
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, 6.15f, 0.0f) * Mat4::scale(panelW, 2.16f, 0.18f),
+                             kGantryHousing, 0.38f, 0.65f, 0.0f, MatId::Standard, shadowPass);
                     if (!shadowPass) {
-                        drawLocalSign({px, 6.15f,  0.205f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, panelW - 0.12f, 2.08f, panelSlots[k], gEm);
-                        drawLocalSign({px, 6.15f, -0.205f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, panelW - 0.12f, 2.08f, panelSlots[k], gEm);
+                        drawLocalSign({px, 6.15f,  0.135f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, panelW - 0.06f, 2.08f, panelSlots[k], gEm);
+                        drawLocalSign({px, 6.15f, -0.135f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, panelW - 0.06f, 2.08f, panelSlots[k], gEm);
                     }
                 }
                 break;
@@ -3235,9 +3251,16 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 };
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.12f, 0.56f) * Mat4::scale(4.65f, 0.14f, 1.15f),
                          kAwnCols[signSlot & 3], 0.62f, 0.18f, 0.0f, MatId::Standard, shadowPass);
-                // Side-protruding Korean vertical blade sign (돌출 간판!)
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.42f, 4.35f, 0.44f) * Mat4::scale(0.18f, 1.48f, 0.62f),
-                         {242, 246, 250, 255}, 0.26f, 0.10f, nightMode ? 0.72f : 0.08f,
+                // Tasteful dark-framed Korean projecting vertical blade sign (돌출 간판) matching shop brand color!
+                static constexpr ColorRGBA kBladeCols[6] = {
+                    {48, 92, 168, 255}, {36, 128, 86, 255}, {176, 68, 48, 255},
+                    {192, 124, 38, 255}, {76, 56, 138, 255}, {38, 118, 136, 255}
+                };
+                const ColorRGBA bladeCol = kBladeCols[(signSlot - 8) % 6];
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.38f, 4.18f, 0.38f) * Mat4::scale(0.14f, 1.24f, 0.50f),
+                         {40, 44, 52, 255}, 0.38f, 0.66f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.38f, 4.18f, 0.40f) * Mat4::scale(0.17f, 1.10f, 0.40f),
+                         bladeCol, 0.30f, 0.12f, nightMode ? 0.68f : 0.08f,
                          nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
                 break;
             }
@@ -3496,8 +3519,12 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
             if (v.kind == VehicleKind::SeoulBus) {
                 eye.x -= 0.14f;
             }
-            // Clamp seated driver head strictly beneath low-slung supercar/hypercar rooflines (zero roof clipping!)
-            const float maxSafeEyeY = std::max(0.76f, 0.22f + spec.chassisHeight - 0.21f);
+            // Clamp seated driver head strictly beneath low-slung supercar/hypercar/musclecar rooflines (zero roof clipping!)
+            float maxSafeEyeY = std::max(0.74f, spec.chassisHeight - 0.24f);
+            if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype ||
+                v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::MuscleCar) {
+                maxSafeEyeY = std::min(maxSafeEyeY, 0.94f);
+            }
             eye.y = std::min(eye.y, maxSafeEyeY);
             ColorRGBA drvTop{54, 64, 82, 255};
             ColorRGBA drvSkin{234, 194, 162, 255};

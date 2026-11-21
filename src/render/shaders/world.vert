@@ -38,5 +38,6 @@ void main() {
     fragUv = inUv;
     fragColor = inColor * pc.tint;
     fragPosLightSpace = ubo.lightVP * worldPos;
-    gl_Position = ubo.viewProj * worldPos;
+    // Camera-relative clip transform eliminates float32 depth Z-fighting across the 30km x 25km Seoul map!
+    gl_Position = ubo.viewProj * vec4(worldPos.xyz - ubo.viewPosAndHour.xyz, 1.0);
 }
