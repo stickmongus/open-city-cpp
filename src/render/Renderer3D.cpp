@@ -1824,7 +1824,6 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     // ------------------------------------------------------------------------
     // 1. REAL CURVED OPENSTREETMAP SEOUL ROADS, SIDEWALKS & BRIDGE PIERS!
     // ------------------------------------------------------------------------
-    const ColorRGBA kAsphTint{196, 200, 206, 255};
     const ColorRGBA kSwTint{196, 198, 202, 255};
     const ColorRGBA kPierCol{168, 172, 178, 255};
 
@@ -1910,26 +1909,36 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 const Vec3 bR{p1.x + n1.x * hw, y1, p1.z + n1.z * hw};
                 const Vec3 bL{p1.x - n1.x * hw, y1, p1.z - n1.z * hw};
 
-                float uL = -1.0f, uR = 1.0f;
-                float v0 = 10.0f + dist0, v1 = 10.0f + distM;
-                if (r.roadClass >= 5) {
-                    // Narrow residential alleys: authentic clean asphalt without multi-lane highway markings
-                    uL = 0.14f; uR = 0.36f; v0 = 20.0f; v1 = 20.0f;
-                } else if (r.roadClass == 4) {
-                    // 2-lane tertiary street: yellow centerline only (or clean lane dash if one-way)
-                    uL = isOneway ? 0.12f : -0.42f;
-                    uR = isOneway ? 0.88f :  0.42f;
-                } else if (isOneway) {
-                    // One-way multi-lane boulevard / highway / bridge carriageway: crisp white dashed lanes, NO bogus center yellow!
-                    uL = 0.08f; uR = 0.96f;
+                const float uL = -hw;
+                const float uR =  hw;
+                const float v0 = 10.0f + dist0;
+                const float v1 = 10.0f + distM;
+                int totalLanes = 0;
+                std::uint8_t styleByte = 0u; // 0 = unmarked alley
+                if (r.roadClass <= 4 && hw >= 3.2f) {
+                    if (isOneway) {
+                        totalLanes = std::clamp(static_cast<int>(std::lround((hw * 2.0f - 0.68f) / 3.25f)), 1, 8);
+                        if (isBridge) {
+                            styleByte = 192u; // Bridge one-way: white edge lines, NO crosswalks
+                        } else if (r.roadClass <= 2 && totalLanes >= 4) {
+                            styleByte = 240u; // Major Seoul boulevard with iconic blue bus-only lane!
+                        } else {
+                            styleByte = 128u; // Standard one-way multi-lane street
+                        }
+                    } else {
+                        const int lanesPerDir = std::clamp(static_cast<int>(std::lround((hw - 0.56f) / 3.25f)), 1, 4);
+                        totalLanes = lanesPerDir * 2;
+                        styleByte = 64u; // Two-way Korean street with double yellow centerline
+                    }
                 }
-                if (isBridge) {
-                    // Strictly stay inside [16..88] mod 95 so crosswalks NEVER appear mid-span on Han River bridges!
-                    v0 = 16.0f + std::fmod(dist0, 56.0f);
-                    v1 = v0 + std::min(subLen, 16.0f);
-                }
+                const ColorRGBA roadMeta{
+                    static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(hw * 10.0f)), 24, 255)),
+                    static_cast<std::uint8_t>(std::clamp(totalLanes * 16, 0, 255)),
+                    styleByte,
+                    255u
+                };
                 pushQuadV3(roadsV, aL, aR, bR, bL, {0, 1, 0},
-                           uL, v0, uR, v0, uR, v1, uL, v1, kAsphTint);
+                           uL, v0, uR, v0, uR, v1, uL, v1, roadMeta);
 
                 // Flanking raised Korean granite-curb + tactile-paving sidewalks ONLY along outer block edges
                 // (Skip whenever any endpoint/midpoint lies inside an intersecting road or twin-carriageway median!)
@@ -2115,6 +2124,26 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
 
         // Exact ear-clipped polygon roof cap (handles L-shaped, U-shaped & courtyard Seoul buildings!)
         earClipRoofXZ(polyPts, yTop, tint, *roofDst);
+
+        // Baked Architectural Rooftop Superstructures (elevator penthouse, HVAC chillers & comms masts -> 0 extra draw calls!)
+        if (b.style != 5 && b.height >= 12.0f && b.halfX >= 5.5f && b.halfZ >= 5.5f) {
+            const float phW = std::min(b.halfX * 0.72f, 9.5f);
+            const float phD = std::min(b.halfZ * 0.72f, 9.5f);
+            const float phH = (b.height >= 42.0f) ? 4.4f : 2.8f;
+            const ColorRGBA phCol = (b.style == 1) ? ColorRGBA{124, 134, 146, 255} : ColorRGBA{176, 174, 170, 255};
+            pushBoxPiers(piersV, {b.cx, yTop + phH * 0.5f, b.cz}, {phW, phH, phD}, phCol);
+            // Dual rooftop HVAC cooling units
+            if (b.halfX >= 8.5f && b.halfZ >= 8.5f) {
+                const float ox = std::min(b.halfX * 0.44f, 6.2f);
+                pushBoxPiers(piersV, {b.cx + ox, yTop + 1.15f, b.cz - phD * 0.35f}, {2.6f, 2.3f, 2.2f}, {148, 152, 158, 255});
+                pushBoxPiers(piersV, {b.cx - ox, yTop + 0.95f, b.cz + phD * 0.35f}, {2.2f, 1.9f, 2.0f}, {136, 142, 148, 255});
+            }
+            // Sleek rooftop telecom / broadcast mast on Seoul skyscrapers (>= 40m)!
+            if (b.height >= 40.0f && ((k & 1u) == 0u)) {
+                const float mastH = (b.height >= 80.0f) ? 14.0f : 8.5f;
+                pushBoxPiers(piersV, {b.cx, yTop + phH + mastH * 0.5f, b.cz}, {0.42f, mastH, 0.42f}, {188, 194, 202, 255});
+            }
+        }
     }
 
     if (!groundV.empty())    out.groundMesh      = vk.createMesh(groundV);
@@ -2998,28 +3027,42 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
 
         switch (p.kind) {
             case StreetPropKind::StreetLight: {
-                // Tapered steel Seoul streetlamp post + outward luminaire arm extending OVER the roadway (+X local)!
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.18f, 7.2f, 0.18f),
+                // Detailed Seoul LED streetlamp: cast pedestal base, tapered charcoal pole, curved luminaire arm & optional boulevard banner!
+                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.32f, 0.72f, 0.32f),
+                         {56, 62, 70, 255}, 0.42f, 0.68f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.17f, 7.25f, 0.17f),
+                         {76, 82, 92, 255}, 0.36f, 0.74f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(1.10f, 7.16f, 0.0f) * Mat4::scale(2.35f, 0.12f, 0.18f),
                          {82, 88, 98, 255}, 0.36f, 0.74f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(1.05f, 7.12f, 0.0f) * Mat4::scale(2.25f, 0.13f, 0.20f),
-                         {86, 92, 102, 255}, 0.36f, 0.74f, 0.0f, MatId::Standard, shadowPass);
                 if (!shadowPass) {
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(1.92f, 7.00f, 0.0f) * Mat4::scale(0.62f, 0.12f, 0.28f),
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.02f, 7.04f, 0.0f) * Mat4::scale(0.68f, 0.12f, 0.30f),
                              {255, 240, 206, 255}, 0.15f, 0.0f, nightMode ? 2.6f : 0.2f, MatId::EmissiveGlow, false);
+                    // Signature Seoul boulevard vertical festival/district street banner hanging off major avenue poles!
+                    if (p.variant == 2u && distSq < 145.0f * 145.0f) {
+                        const ColorRGBA kBanners[3] = {{34, 96, 178, 255}, {28, 134, 118, 255}, {182, 68, 72, 255}};
+                        const ColorRGBA bc = kBanners[static_cast<unsigned>(std::abs(static_cast<int>(p.pos.x))) % 3u];
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.42f, 4.95f, 0.0f) * Mat4::scale(0.76f, 0.05f, 0.05f),
+                                 {168, 174, 182, 255}, 0.35f, 0.75f, 0.0f, MatId::Standard, false);
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.42f, 3.65f, 0.0f) * Mat4::scale(0.76f, 0.05f, 0.05f),
+                                 {168, 174, 182, 255}, 0.35f, 0.75f, 0.0f, MatId::Standard, false);
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.44f, 4.30f, 0.0f) * Mat4::scale(0.66f, 1.24f, 0.03f),
+                                 bc, 0.78f, 0.0f, 0.0f, MatId::FabricCloth, false);
+                    }
                 }
                 break;
             }
             case StreetPropKind::TrafficLight: {
                 // Authentic Korean horizontal 4-aspect cantilevered traffic signal extending OVER the intersection (+X local)!
+                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.36f, 0.55f, 0.36f),
+                         {48, 52, 58, 255}, 0.42f, 0.68f, 0.0f, MatId::Standard, shadowPass);
                 drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.24f, 6.2f, 0.24f),
                          {52, 56, 64, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, shadowPass);
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.6f, 5.95f, 0.0f) * Mat4::scale(5.3f, 0.18f, 0.18f),
                          {56, 60, 68, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, shadowPass);
-                // Horizontal black Korean 4-lamp signal housing
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(3.5f, 5.65f, 0.0f) * Mat4::scale(1.85f, 0.48f, 0.34f),
+                // Horizontal black Korean 4-lamp signal housing + white border visor
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(3.5f, 5.65f, 0.0f) * Mat4::scale(1.92f, 0.52f, 0.36f),
                          {24, 26, 30, 255}, 0.42f, 0.25f, 0.0f, MatId::Standard, shadowPass);
                 if (!shadowPass) {
-                    // Alternating live Red / Yellow / Green Korean traffic lamps!
                     const bool isGreen = (sigPhase < 9);
                     const bool isAmber = (sigPhase >= 9 && sigPhase < 11);
                     const bool isRed   = (sigPhase >= 11);
@@ -3032,9 +3075,12 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                     drawMesh(vk, sphereMesh_, baseM * Mat4::translation(4.05f, 5.65f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.38f),
                              isGreen ? ColorRGBA{42, 242, 118, 255} : ColorRGBA{18, 52, 32, 255},
                              0.15f, 0.0f, isGreen ? 2.6f : 0.0f, isGreen ? MatId::EmissiveGlow : MatId::Standard, false);
-                    // Pedestrian crossing signal box at 3.1m height on vertical pole
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.15f, 0.24f) * Mat4::scale(0.32f, 0.68f, 0.24f),
+                    // Pedestrian crossing signal box + glowing Walk/Don't Walk indicator at 3.1m height!
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.15f, 0.24f) * Mat4::scale(0.34f, 0.72f, 0.24f),
                              {26, 28, 32, 255}, 0.42f, 0.20f, 0.0f, MatId::Standard, false);
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, isRed ? 2.98f : 3.32f, 0.37f) * Mat4::scale(0.20f, 0.20f, 0.04f),
+                             isRed ? ColorRGBA{46, 242, 124, 255} : ColorRGBA{255, 58, 48, 255},
+                             0.15f, 0.0f, 2.0f, MatId::EmissiveGlow, false);
                 }
                 break;
             }
@@ -3042,7 +3088,6 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 // Seoul Bus Shelter: Glass back wall (-Z) on building side, Open boarding side (+Z) facing ROAD + glowing BIS totem!
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 2.62f, 0) * Mat4::scale(4.6f, 0.18f, 1.65f),
                          {42, 48, 58, 255}, 0.34f, 0.68f, 0.0f, MatId::Standard, shadowPass);
-                // Signature Seoul Blue Bus Route Header Strip facing the road (+Z)!
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 2.76f, 0.72f) * Mat4::scale(4.5f, 0.26f, 0.14f),
                          {28, 108, 222, 255}, 0.25f, 0.15f, nightMode ? 1.1f : 0.15f,
                          nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
@@ -3054,7 +3099,6 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 }
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.52f, -0.25f) * Mat4::scale(3.0f, 0.12f, 0.45f),
                          {136, 96, 60, 255}, 0.75f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
-                // Seoul BIS (Bus Information System) digital LED arrival totem with live Hangul screen!
                 if (!shadowPass) {
                     drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.65f, 1.35f, 0.15f) * Mat4::scale(0.64f, 2.70f, 0.24f),
                              {38, 44, 54, 255}, 0.34f, 0.65f, 0.0f, MatId::Standard, false);
@@ -3069,7 +3113,6 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 // Authentic Seoul Metro Glass-Canopy Subway Entrance + Hangul Station Signboards + Line Pole Sign!
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.55f, 0.0f) * Mat4::scale(5.4f, 0.20f, 2.6f),
                          {52, 58, 68, 255}, 0.30f, 0.74f, 0.0f, MatId::Standard, shadowPass);
-                // Ordered to match atlas slots 20..23: Line 2 Green, Line 9 Gold, Line 3 Orange, Line 1 Navy!
                 static constexpr ColorRGBA kMetroLines[4] = {
                     { 42, 168,  78, 255}, // 20: Line 2 Green (2호선 강남역)
                     {192, 162,  66, 255}, // 21: Line 9 Gold (9호선 고속터미널)
@@ -3086,14 +3129,12 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                     drawLocalSign({0.0f, 2.86f,  1.38f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.72f, metroSlot, mEm);
                     drawLocalSign({0.0f, 2.86f, -1.38f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.72f, metroSlot, mEm);
                 }
-                // Glass side balustrades + dark stairwell opening
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.25f, -1.20f) * Mat4::scale(5.2f, 2.4f, 0.10f),
                          {78, 128, 162, 255}, 0.12f, 0.28f, 0.0f, MatId::GlassSkyscraper, shadowPass);
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.25f,  1.20f) * Mat4::scale(5.2f, 2.4f, 0.10f),
                          {78, 128, 162, 255}, 0.12f, 0.28f, 0.0f, MatId::GlassSkyscraper, shadowPass);
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-1.0f, 0.35f, 0.0f) * Mat4::scale(3.0f, 0.65f, 2.1f),
                          {32, 36, 42, 255}, 0.80f, 0.0f, 0.0f, MatId::Standard, false);
-                // Tall iconic Seoul Metro circular colored line-number pole sign at entrance mouth!
                 drawMesh(vk, cylMesh_, baseM * Mat4::translation(3.15f, 0.0f, 0.0f) * Mat4::scale(0.14f, 4.4f, 0.14f),
                          {64, 70, 80, 255}, 0.34f, 0.72f, 0.0f, MatId::Standard, shadowPass);
                 if (!shadowPass) {
@@ -3107,24 +3148,27 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 break;
             }
             case StreetPropKind::RoadGantry: {
-                // Iconic Korean Dark-Green Overhead Highway Directional Sign Gantry with REAL HANGUL DESTINATIONS!
+                // Iconic Korean Dark-Green Overhead Highway Directional Sign Gantry matched to exact road width!
                 const ColorRGBA kSteel{168, 174, 182, 255};
                 const ColorRGBA kKrBorderWhite{242, 246, 248, 255};
-                for (float sx : {-9.55f, 9.55f}) {
-                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(sx, 0.0f, 0.0f) * Mat4::scale(0.38f, 6.7f, 0.38f),
+                const float spanHalf = (p.variant >= 60u) ? (static_cast<float>(p.variant) * 0.1f) : 9.55f;
+                const float spanFull = spanHalf * 2.0f + 0.5f;
+                for (float sx : {-spanHalf, spanHalf}) {
+                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(sx, 0.0f, 0.0f) * Mat4::scale(0.40f, 6.75f, 0.40f),
                              kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
+                    // Concrete pillar safety pedestal
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx, 0.42f, 0.0f) * Mat4::scale(0.74f, 0.84f, 0.74f),
+                             {156, 160, 166, 255}, 0.80f, 0.04f, 0.0f, MatId::BridgeConcrete, false);
                 }
-                // Horizontal twin steel gantry truss beams spanning 19.6m cleanly over 6 lanes
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 6.45f, 0.0f) * Mat4::scale(19.6f, 0.30f, 0.30f),
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 6.48f, 0.0f) * Mat4::scale(spanFull, 0.28f, 0.28f),
                          kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 5.75f, 0.0f) * Mat4::scale(19.4f, 0.22f, 0.22f),
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 5.74f, 0.0f) * Mat4::scale(spanFull - 0.2f, 0.22f, 0.22f),
                          kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
 
-                // Pick geographically authentic Seoul destinations for Left & Right overhead boards!
                 const bool isOuterRing = (std::abs(p.pos.x) > 14000.0f || std::abs(p.pos.z) > 11500.0f);
                 int slotL = 0, slotR = 1;
                 if (isOuterRing) {
-                    slotL = 4; // ↑ 서울 외곽순환 IC
+                    slotL = 4;
                     slotR = (p.pos.x > 0.0f) ? 6 : 7;
                 } else {
                     switch (city.districtAtWorld(p.pos)) {
@@ -3141,51 +3185,182 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                         default:                               slotL = 0; slotR = 2; break;
                     }
                 }
-                const float gEm = nightMode ? 0.36f : 0.05f;
-                const float panelXs[2] = {-4.2f, 4.2f};
+                const float gEm = nightMode ? 0.38f : 0.06f;
+                const float panelW = std::min(6.2f, spanHalf * 0.78f);
+                const float panelOff = std::min(3.8f, spanHalf * 0.44f);
+                const float panelXs[2] = {-panelOff, panelOff};
                 const int panelSlots[2] = {slotL, slotR};
                 for (int k = 0; k < 2; ++k) {
                     const float px = panelXs[k];
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, 6.15f, 0.0f) * Mat4::scale(6.4f, 2.25f, 0.36f),
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, 6.15f, 0.0f) * Mat4::scale(panelW, 2.20f, 0.34f),
                              kKrBorderWhite, 0.34f, 0.18f, 0.0f, MatId::Standard, shadowPass);
                     if (!shadowPass) {
-                        // Crisp Hangul directional sign faces cleanly proud of the 0.36m sign backing on BOTH sides!
-                        drawLocalSign({px, 6.15f,  0.215f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, 6.28f, 2.14f, panelSlots[k], gEm);
-                        drawLocalSign({px, 6.15f, -0.215f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, 6.28f, 2.14f, panelSlots[k], gEm);
+                        drawLocalSign({px, 6.15f,  0.205f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, panelW - 0.12f, 2.08f, panelSlots[k], gEm);
+                        drawLocalSign({px, 6.15f, -0.205f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, panelW - 0.12f, 2.08f, panelSlots[k], gEm);
                     }
                 }
                 break;
             }
             case StreetPropKind::PedGuardrail: {
-                // Sleek Korean dark-graphite pedestrian safety guardrail along boulevard sidewalks!
-                const ColorRGBA kRailCol{68, 74, 84, 255};
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.88f, 0.0f) * Mat4::scale(16.0f, 0.08f, 0.08f),
-                         kRailCol, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.50f, 0.0f) * Mat4::scale(16.0f, 0.05f, 0.05f),
-                         kRailCol, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
-                for (float gx = -7.5f; gx <= 7.6f; gx += 2.5f) {
-                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(gx, 0.0f, 0.0f) * Mat4::scale(0.08f, 0.92f, 0.08f),
-                             kRailCol, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
+                // Sleek 7.5m modular Korean dark-graphite pedestrian safety guardrail hugging curved boulevard curbs!
+                const ColorRGBA kRailCol{64, 70, 80, 255};
+                const ColorRGBA kReflect{238, 242, 246, 255};
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.88f, 0.0f) * Mat4::scale(7.5f, 0.075f, 0.075f),
+                         kRailCol, 0.34f, 0.74f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.50f, 0.0f) * Mat4::scale(7.5f, 0.050f, 0.050f),
+                         kRailCol, 0.34f, 0.74f, 0.0f, MatId::Standard, false);
+                for (float gx = -3.6f; gx <= 3.7f; gx += 2.4f) {
+                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(gx, 0.0f, 0.0f) * Mat4::scale(0.085f, 0.92f, 0.085f),
+                             kRailCol, 0.34f, 0.74f, 0.0f, MatId::Standard, false);
+                    if (!shadowPass) {
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(gx, 0.78f, 0.0f) * Mat4::scale(0.10f, 0.06f, 0.10f),
+                                 kReflect, 0.20f, 0.10f, nightMode ? 0.45f : 0.0f, MatId::Standard, false);
+                    }
+                }
+                break;
+            }
+            case StreetPropKind::ShopSign: {
+                // Illuminated 3D Korean 1F-2F Commercial Fascia Signboard + Projecting Architectural Storefront Canopy!
+                const int signSlot = std::clamp(static_cast<int>(p.variant), 8, 19);
+                const float sEm = nightMode ? 0.65f : 0.10f;
+                // Sleek brushed dark-aluminum sign housing mounted at 3.85m (above 1F glass storefront)
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.85f, 0.14f) * Mat4::scale(4.45f, 1.02f, 0.26f),
+                         {38, 42, 48, 255}, 0.36f, 0.68f, 0.0f, MatId::Standard, shadowPass);
+                if (!shadowPass && distSq < 155.0f * 155.0f) {
+                    drawLocalSign({0.0f, 3.85f, 0.295f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, 4.30f, 0.90f, signSlot, sEm);
+                }
+                // Architectural projecting 1F entrance canopy / awning directly beneath the signboard
+                static constexpr ColorRGBA kAwnCols[4] = {
+                    {38, 66, 98, 255}, {44, 86, 68, 255}, {126, 86, 54, 255}, {52, 56, 66, 255}
+                };
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.12f, 0.56f) * Mat4::scale(4.65f, 0.14f, 1.15f),
+                         kAwnCols[signSlot & 3], 0.62f, 0.18f, 0.0f, MatId::Standard, shadowPass);
+                // Side-protruding Korean vertical blade sign (돌출 간판!)
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.42f, 4.35f, 0.44f) * Mat4::scale(0.18f, 1.48f, 0.62f),
+                         {242, 246, 250, 255}, 0.26f, 0.10f, nightMode ? 0.72f : 0.08f,
+                         nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
+                break;
+            }
+            case StreetPropKind::UtilityBox: {
+                // Authentic KEPCO / Seoul traffic-signal steel control cabinet on raised concrete plinth!
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.16f, 0.0f) * Mat4::scale(1.18f, 0.32f, 0.76f),
+                         {152, 156, 162, 255}, 0.84f, 0.02f, 0.0f, MatId::BridgeConcrete, shadowPass);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.96f, 0.0f) * Mat4::scale(1.06f, 1.32f, 0.66f),
+                         {122, 134, 128, 255}, 0.48f, 0.45f, 0.0f, MatId::Standard, shadowPass);
+                if (!shadowPass) {
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.42f, 0.34f) * Mat4::scale(0.84f, 0.12f, 0.03f),
+                             {228, 178, 42, 255}, 0.35f, 0.10f, 0.0f, MatId::Standard, false);
+                }
+                break;
+            }
+            case StreetPropKind::StreetKiosk: {
+                // Authentic Seoul boulevard street kiosk (가로판매대): dark steel booth, counter shelf & glowing display window!
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.15f, 0.0f) * Mat4::scale(2.85f, 2.30f, 1.75f),
+                         {48, 54, 64, 255}, 0.44f, 0.56f, 0.0f, MatId::Standard, shadowPass);
+                // Sloped awning roof overhang
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.42f, 0.22f) * Mat4::scale(3.15f, 0.22f, 2.25f),
+                         {34, 42, 54, 255}, 0.38f, 0.62f, 0.0f, MatId::Standard, shadowPass);
+                // Warm lit display window + serving counter ledge facing road (+Z)
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.42f, 0.89f) * Mat4::scale(2.25f, 0.96f, 0.06f),
+                         {248, 224, 176, 255}, 0.18f, 0.10f, nightMode ? 1.15f : 0.12f,
+                         nightMode ? MatId::EmissiveGlow : MatId::GlassSkyscraper, false);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.90f, 0.98f) * Mat4::scale(2.40f, 0.10f, 0.32f),
+                         {172, 176, 184, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
+                break;
+            }
+            case StreetPropKind::DdareungiRack: {
+                // Iconic Seoul Public Bike-Share Station (따릉이 거치대): emerald/white docking bar + 4 parked Seoul bicycles!
+                const ColorRGBA kSeoulGreen{42, 176, 108, 255};
+                const ColorRGBA kBikeWhite{238, 242, 246, 255};
+                const ColorRGBA kTireDark{28, 30, 34, 255};
+                // Ground docking base rail + emerald kiosk post
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.07f, -0.45f) * Mat4::scale(3.8f, 0.14f, 0.24f),
+                         {192, 198, 204, 255}, 0.42f, 0.65f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-2.05f, 0.92f, -0.35f) * Mat4::scale(0.32f, 1.84f, 0.22f),
+                         kSeoulGreen, 0.32f, 0.25f, nightMode ? 0.25f : 0.0f, MatId::Standard, shadowPass);
+                // 4 parked 따릉이 bikes aligned neatly in the rack!
+                for (int bi = 0; bi < 4; ++bi) {
+                    const float bx = -1.35f + static_cast<float>(bi) * 0.90f;
+                    // Front & rear wheels
+                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(bx, 0.34f, -0.36f) * Mat4::rotationAxis({0, 0, 1}, kHalfPi) * Mat4::scale(0.32f, 0.07f, 0.32f),
+                             kTireDark, 0.85f, 0.0f, 0.0f, MatId::Standard, false);
+                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(bx, 0.34f,  0.54f) * Mat4::rotationAxis({0, 0, 1}, kHalfPi) * Mat4::scale(0.32f, 0.07f, 0.32f),
+                             kTireDark, 0.85f, 0.0f, 0.0f, MatId::Standard, false);
+                    // White-and-green step-through frame + seat + handlebar + front green basket!
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(bx, 0.64f, 0.08f) * Mat4::scale(0.08f, 0.10f, 0.92f),
+                             kBikeWhite, 0.30f, 0.45f, 0.0f, MatId::Standard, false);
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(bx, 0.94f, -0.26f) * Mat4::scale(0.46f, 0.06f, 0.06f),
+                             {52, 56, 62, 255}, 0.40f, 0.70f, 0.0f, MatId::Standard, false);
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(bx, 0.84f, -0.44f) * Mat4::scale(0.30f, 0.24f, 0.24f),
+                             kSeoulGreen, 0.45f, 0.10f, 0.0f, MatId::Standard, false);
+                }
+                break;
+            }
+            case StreetPropKind::CafeTable: {
+                // Korean street-side cafe table + canvas sun umbrella + 2 bistro chairs!
+                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.08f, 2.35f, 0.08f),
+                         {64, 68, 76, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, cylMesh_, baseM * Mat4::translation(0.0f, 0.74f, 0.0f) * Mat4::scale(0.95f, 0.07f, 0.95f),
+                         {166, 122, 78, 255}, 0.62f, 0.05f, 0.0f, MatId::WoodBark, shadowPass);
+                const ColorRGBA umbCol = ((p.variant & 1u) == 0u) ? ColorRGBA{228, 222, 206, 255} : ColorRGBA{46, 98, 74, 255};
+                drawMesh(vk, coneMesh_, baseM * Mat4::translation(0.0f, 2.15f, 0.0f) * Mat4::scale(2.25f, 0.48f, 2.25f),
+                         umbCol, 0.76f, 0.0f, 0.0f, MatId::FabricCloth, shadowPass);
+                for (float sx : {-0.78f, 0.78f}) {
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx, 0.44f, 0.0f) * Mat4::scale(0.42f, 0.08f, 0.42f),
+                             {72, 76, 84, 255}, 0.46f, 0.55f, 0.0f, MatId::Standard, false);
+                }
+                break;
+            }
+            case StreetPropKind::MedianBarrier: {
+                // Korean central boulevard median curb + dark anti-glare steel divider fence & amber reflectors!
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.16f, 0.0f) * Mat4::scale(8.6f, 0.32f, 0.62f),
+                         {164, 168, 174, 255}, 0.80f, 0.04f, 0.0f, MatId::BridgeConcrete, false);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.78f, 0.0f) * Mat4::scale(8.5f, 0.09f, 0.10f),
+                         {64, 70, 80, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
+                for (float mx = -3.6f; mx <= 3.7f; mx += 1.8f) {
+                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(mx, 0.30f, 0.0f) * Mat4::scale(0.09f, 0.54f, 0.09f),
+                             {68, 74, 84, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
+                    if (!shadowPass) {
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(mx, 0.86f, 0.0f) * Mat4::scale(0.10f, 0.08f, 0.12f),
+                                 {246, 176, 36, 255}, 0.22f, 0.08f, nightMode ? 0.65f : 0.0f, MatId::Standard, false);
+                    }
                 }
                 break;
             }
             case StreetPropKind::Bench:
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.48f, 0) * Mat4::scale(1.85f, 0.12f, 0.55f),
+                // Slatted Korean wooden park/street bench with cast-iron legs & armrests
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.46f, 0) * Mat4::scale(1.90f, 0.11f, 0.56f),
                          {142, 96, 58, 255}, 0.78f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.82f, -0.24f) * Mat4::scale(1.85f, 0.42f, 0.09f),
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.80f, -0.24f) * Mat4::scale(1.90f, 0.42f, 0.09f),
                          {142, 96, 58, 255}, 0.78f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
+                for (float bx : {-0.78f, 0.78f}) {
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(bx, 0.24f, 0.0f) * Mat4::scale(0.10f, 0.48f, 0.52f),
+                             {46, 50, 58, 255}, 0.40f, 0.72f, 0.0f, MatId::Standard, false);
+                }
                 break;
             case StreetPropKind::Hydrant:
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.32f, 0.85f, 0.32f),
-                         {216, 44, 44, 255}, 0.42f, 0.35f, 0.0f, MatId::Standard, shadowPass);
+                // Detailed Korean red double-nozzle fire hydrant + dome cap + protective yellow post ring!
+                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.32f, 0.82f, 0.32f),
+                         {216, 44, 44, 255}, 0.40f, 0.38f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, sphereMesh_, baseM * Mat4::translation(0.0f, 0.84f, 0.0f) * Mat4::scale(0.34f, 0.22f, 0.34f),
+                         {224, 52, 48, 255}, 0.38f, 0.42f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.56f, 0.0f) * Mat4::scale(0.50f, 0.14f, 0.14f),
+                         {212, 178, 64, 255}, 0.32f, 0.78f, 0.0f, MatId::Standard, false);
                 break;
             case StreetPropKind::TrafficCone:
                 drawMesh(vk, coneMesh_, baseM * Mat4::scale(0.45f, 0.75f, 0.45f),
                          {242, 106, 26, 255}, 0.55f, 0.0f, 0.0f, MatId::Standard, shadowPass);
                 break;
             case StreetPropKind::TrashBin:
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.48f, 0.96f, 0.48f),
-                         {64, 72, 82, 255}, 0.50f, 0.50f, 0.0f, MatId::Standard, shadowPass);
+                // Authentic Seoul dual recycling (blue lid) + general waste (charcoal lid) street bin pair!
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.28f, 0.48f, 0.0f) * Mat4::scale(0.46f, 0.94f, 0.46f),
+                         {64, 72, 82, 255}, 0.48f, 0.52f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.28f, 0.98f, 0.0f) * Mat4::scale(0.48f, 0.10f, 0.48f),
+                         {38, 118, 212, 255}, 0.36f, 0.25f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation( 0.28f, 0.48f, 0.0f) * Mat4::scale(0.46f, 0.94f, 0.46f),
+                         {74, 80, 88, 255}, 0.48f, 0.52f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation( 0.28f, 0.98f, 0.0f) * Mat4::scale(0.48f, 0.10f, 0.48f),
+                         {218, 134, 42, 255}, 0.36f, 0.25f, 0.0f, MatId::Standard, false);
                 break;
             case StreetPropKind::FuelPump:
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.92f, 0) * Mat4::scale(0.85f, 1.84f, 0.58f),
@@ -3200,8 +3375,13 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                          {52, 148, 228, 255}, 0.72f, 0.0f, 0.0f, MatId::FabricCloth, shadowPass);
                 break;
             case StreetPropKind::Bollard:
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.22f, 0.85f, 0.22f),
-                         {88, 94, 102, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, shadowPass);
+                // Brushed stainless Korean pedestrian safety bollard with reflective night band
+                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.20f, 0.84f, 0.20f),
+                         {128, 134, 142, 255}, 0.28f, 0.78f, 0.0f, MatId::Standard, shadowPass);
+                if (!shadowPass) {
+                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(0.0f, 0.64f, 0.0f) * Mat4::scale(0.215f, 0.09f, 0.215f),
+                             {246, 206, 48, 255}, 0.20f, 0.10f, nightMode ? 0.55f : 0.0f, MatId::Standard, false);
+                }
                 break;
             case StreetPropKind::Billboard:
                 drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.45f, 6.2f, 0.45f),

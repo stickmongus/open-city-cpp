@@ -2608,6 +2608,147 @@ void testV300RealOsmSeoulMapAndPbr() {
 }
 
 
+void testV310PitchInertiaMetricLanesAndFineProps() {
+    // 1. Direct Rust/C++ physics test: forward acceleration -> NOSE UP (+body_pitch, rear squat wheel_comp[2/3] > front [0/1]);
+    //    forward braking -> NOSE DIVE (-body_pitch, front dive wheel_comp[0/1] > rear [2/3]);
+    //    cornering roll stays physically outward!
+    RsVehicleSpecParams sp{};
+    sp.mass = 1520.0f;
+    sp.max_forward_speed = 44.0f;
+    sp.max_reverse_speed = 12.0f;
+    sp.acceleration = 16.5f;
+    sp.braking = 26.0f;
+    sp.turn_rate = 2.5f;
+    sp.normal_grip = 7.4f;
+    sp.drift_grip = 2.7f;
+    sp.half_length = 2.25f;
+    sp.half_width = 0.96f;
+    sp.chassis_height = 1.32f;
+
+    RsVehiclePhysicsState st{};
+    st.current_gear = 1;
+    st.engine_rpm = 1200.0f;
+
+    RsVehicleControlInput accelIn{};
+    accelIn.throttle = 1.0f;
+    accelIn.upgrade_mult = 1.0f;
+    accelIn.nitro_recharge_rate = 0.08f;
+    for (int i = 0; i < 30; ++i) {
+        oc_rs_step_vehicle_dynamics(1.0f / 60.0f, &st, &sp, &accelIn);
+    }
+    // Acceleration MUST squat rear & lift nose (+body_pitch > 0, rear struts compressed more than front)
+    ASSERT_TRUE(st.body_pitch > 0.025f);
+    ASSERT_TRUE(st.wheel_comp[2] > st.wheel_comp[0] + 0.015f);
+    ASSERT_TRUE(st.wheel_comp[3] > st.wheel_comp[1] + 0.015f);
+
+    // Build cruising speed then slam forward brakes -> nose MUST dive down (-body_pitch < 0, front struts compressed more than rear)
+    st.vel_x = 28.0f;
+    st.body_pitch = 0.0f;
+    st.pitch_vel = 0.0f;
+    RsVehicleControlInput brakeIn{};
+    brakeIn.throttle = -1.0f;
+    brakeIn.upgrade_mult = 1.0f;
+    brakeIn.nitro_recharge_rate = 0.08f;
+    for (int i = 0; i < 28; ++i) {
+        oc_rs_step_vehicle_dynamics(1.0f / 60.0f, &st, &sp, &brakeIn);
+    }
+    ASSERT_TRUE(st.body_pitch < -0.025f);
+    ASSERT_TRUE(st.wheel_comp[0] > st.wheel_comp[2] + 0.015f);
+    ASSERT_TRUE(st.wheel_comp[1] > st.wheel_comp[3] + 0.015f);
+
+    // Cornering left (steer = -1.0) at speed MUST roll chassis outward right (+body_roll > 0)
+    st.vel_x = 20.0f;
+    st.vel_z = 0.0f;
+    st.heading = 0.0f;
+    st.body_roll = 0.0f;
+    st.roll_vel = 0.0f;
+    st.steer_visual = 0.0f;
+    RsVehicleControlInput turnLeftIn{};
+    turnLeftIn.throttle = 0.35f;
+    turnLeftIn.steer = -1.0f;
+    turnLeftIn.upgrade_mult = 1.0f;
+    turnLeftIn.nitro_recharge_rate = 0.08f;
+    for (int i = 0; i < 25; ++i) {
+        oc_rs_step_vehicle_dynamics(1.0f / 60.0f, &st, &sp, &turnLeftIn);
+    }
+    ASSERT_TRUE(st.body_roll > 0.015f);
+
+    // 2. Real OSM Seoul Gangnam Teheran-ro: verify ZERO street trees on asphalt (edge-accurate isOnRoad)
+    //    AND verify dense fine-grained Korean urban street structures are streamed cleanly!
+    auto findAsset = [](const char* rel) -> std::string {
+        const char* prefixes[] = {"assets/", "../assets/", "../../assets/"};
+        for (const char* pre : prefixes) {
+            const std::string p = std::string(pre) + rel;
+            std::ifstream f(p, std::ios::binary);
+            if (f.good()) return p;
+        }
+        return {};
+    };
+    const std::string ocmapPath = findAsset("maps/seoul_real.ocmap");
+    ASSERT_TRUE(!ocmapPath.empty());
+    oc::GameWorld world(20263100ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+
+    const oc::CityMap& city = world.city();
+    const oc::RealSeoulData& real = city.realData();
+
+    // Every single streamed street tree MUST stay strictly clear of real road asphalt!
+    for (const auto& t : city.trees()) {
+        ASSERT_TRUE(!real.isOnRoad(t.pos, 1.50f));
+    }
+
+    int countStreetLight = 0;
+    int countTrafficLight = 0;
+    int countGantry = 0;
+    int countGuardrail = 0;
+    int countShopSign = 0;
+    int countUtilityBox = 0;
+    int countFineFurniture = 0; // Kiosk, DdareungiRack, CafeTable, Bench, Hydrant, TrashBin, Bollard, MedianBarrier
+    for (const auto& p : city.streetProps()) {
+        switch (p.kind) {
+            case oc::StreetPropKind::StreetLight: ++countStreetLight; break;
+            case oc::StreetPropKind::TrafficLight: ++countTrafficLight; break;
+            case oc::StreetPropKind::RoadGantry: ++countGantry; break;
+            case oc::StreetPropKind::PedGuardrail: ++countGuardrail; break;
+            case oc::StreetPropKind::ShopSign: ++countShopSign; break;
+            case oc::StreetPropKind::UtilityBox: ++countUtilityBox; break;
+            case oc::StreetPropKind::StreetKiosk:
+            case oc::StreetPropKind::DdareungiRack:
+            case oc::StreetPropKind::CafeTable:
+            case oc::StreetPropKind::Bench:
+            case oc::StreetPropKind::Hydrant:
+            case oc::StreetPropKind::TrashBin:
+            case oc::StreetPropKind::Bollard:
+            case oc::StreetPropKind::MedianBarrier:
+                ++countFineFurniture;
+                break;
+            default: break;
+        }
+    }
+    ASSERT_TRUE(countStreetLight >= 20);
+    ASSERT_TRUE(countTrafficLight >= 4);
+    ASSERT_TRUE(countGantry >= 1);
+    ASSERT_TRUE(countGuardrail >= 8);
+    ASSERT_TRUE(countShopSign >= 12);
+    ASSERT_TRUE(countUtilityBox >= 3);
+    ASSERT_TRUE(countFineFurniture >= 30);
+
+    // 3. Verify civilians spawn clear of real Teheran-ro asphalt!
+    int civChecked = 0;
+    int civOffRoad = 0;
+    for (const auto& n : world.npcs()) {
+        if (n.alive && n.role == oc::NpcRole::Civilian) {
+            ++civChecked;
+            if (!real.isOnRoad(n.pos, 0.35f)) ++civOffRoad;
+        }
+    }
+    ASSERT_TRUE(civChecked >= 8);
+    ASSERT_TRUE(civOffRoad * 10 >= civChecked * 8); // >=80% strictly on clear sidewalks
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -2638,8 +2779,9 @@ int main() {
     testV220WeaponAnimationsEdgesAndSeoulProps();
     testV230SeoulBusMagDropAndSignPolish();
     testV300RealOsmSeoulMapAndPbr();
+    testV310PitchInertiaMetricLanesAndFineProps();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.0.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.1.0 simulation test suites succeeded!\n";
     return 0;
 }
 

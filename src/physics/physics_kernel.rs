@@ -507,7 +507,7 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
             st.wheel_comp[1] = impact_comp;
             st.wheel_comp[2] = impact_comp;
             st.wheel_comp[3] = impact_comp;
-            st.pitch_vel += clampf(st.landed_impact_speed * 0.065, 0.10, 0.58);
+            st.pitch_vel -= clampf(st.landed_impact_speed * 0.065, 0.10, 0.58);
         }
     }
 
@@ -521,13 +521,19 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
     let road_ripple = sinf(st.pos_x * 0.72 + st.pos_z * 0.58) * 0.007 * clampf(abs_fwd / 26.0, 0.0, 1.0);
     let lat_g = clampf(forward_spd * applied_yaw_rate, -24.0, 24.0);
 
+    // Renderer bodyPitch convention: +bodyPitch (+Z rotation) = NOSE UP / REAR SQUAT, -bodyPitch = NOSE DIVE!
+    let brake_pitch = if st.braking_visual != 0 {
+        if prev_fwd_spd >= 0.0 { -0.044 } else { 0.036 }
+    } else {
+        0.0
+    };
     let target_pitch = if st.airborne != 0 {
-        clampf(-st.vel_y * 0.022, -0.22, 0.22)
+        clampf(st.vel_y * 0.022, -0.22, 0.22)
     } else {
         inp.ramp_slope_pitch
             + curb_pitch
             + clampf(
-                -long_accel * 0.0028 - throttle * 0.026 - st.wheel_slip * 0.018 + (if st.braking_visual != 0 { 0.044 } else { 0.0 }),
+                long_accel * 0.0028 + throttle * 0.024 + st.wheel_slip * 0.018 + brake_pitch,
                 -0.11,
                 0.11,
             )
@@ -548,6 +554,7 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
     st.body_roll = clampf(st.body_roll + st.roll_vel * dt, -0.24, 0.24);
 
     // Individual 4-wheel strut deflection (FL=0, FR=1, RL=2, RR=3) combining pitch, roll, curb bump & road texture
+    // Nose up (+body_pitch) extends front struts (-p_def) and compresses rear struts (+p_def)!
     if st.airborne != 0 {
         for i in 0..4 {
             st.wheel_comp[i] = lerpf(st.wheel_comp[i], -0.058, dt * 8.0);
@@ -556,10 +563,10 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
         let p_def = st.body_pitch * 0.68;
         let r_def = st.body_roll * 0.68;
         let targets = [
-            clampf( p_def - r_def + dh0 * 0.65 + road_ripple, -0.075, 0.13), // FL
-            clampf( p_def + r_def + dh1 * 0.65 - road_ripple, -0.075, 0.13), // FR
-            clampf(-p_def - r_def + dh2 * 0.65 - road_ripple, -0.075, 0.13), // RL
-            clampf(-p_def + r_def + dh3 * 0.65 + road_ripple, -0.075, 0.13), // RR
+            clampf(-p_def - r_def + dh0 * 0.65 + road_ripple, -0.075, 0.13), // FL
+            clampf(-p_def + r_def + dh1 * 0.65 - road_ripple, -0.075, 0.13), // FR
+            clampf( p_def - r_def + dh2 * 0.65 - road_ripple, -0.075, 0.13), // RL
+            clampf( p_def + r_def + dh3 * 0.65 + road_ripple, -0.075, 0.13), // RR
         ];
         for i in 0..4 {
             st.wheel_comp[i] = lerpf(st.wheel_comp[i], targets[i], dt * 15.0);

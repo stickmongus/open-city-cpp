@@ -112,7 +112,13 @@ enum class StreetPropKind {
     TrafficLight,    // 서울 교차로 4구 신호등 캔틸레버
     SubwayEntrance,  // 서울 지하철 유리 캐노피 출입구 + 노선 폴사인
     RoadGantry,      // 한국형 녹색 도로 이정표 갠트리 (반포대로·강남대로·테헤란로 등)
-    PedGuardrail     // 서울 대로변 보행자 방호울타리
+    PedGuardrail,    // 서울 대로변 보행자 방호울타리
+    ShopSign,        // 1~2층 한국 상가 돌출/전면 한글 간판 + 어닝 캐노피
+    UtilityBox,      // 한전 배전함 / 교통신호 제어기 캐비닛
+    StreetKiosk,     // 서울 대로변 가로판매대 / 구두수선대 부스
+    DdareungiRack,   // 서울시 공공자전거 따릉이 대여소 거치대
+    CafeTable,       // 보도변 카페 야외 파라솔 & 테이블
+    MedianBarrier    // 서울 대로 중앙분리대 콘크리트 연석 & 방현 펜스
 };
 
 struct StreetProp {
@@ -129,6 +135,7 @@ struct StreetProp {
     float roll = 0.0f;
     float angVelPitch = 0.0f;
     float angVelRoll = 0.0f;
+    std::uint8_t variant = 0; // Sign slot / width / color variant
 };
 
 enum class PoiKind {

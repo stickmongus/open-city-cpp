@@ -559,8 +559,35 @@ NearestOsmRoad RealSeoulData::findNearestRoad(const Vec2& p, float maxSearchDist
 }
 
 bool RealSeoulData::isOnRoad(const Vec2& p, float extraMargin) const {
-    const NearestOsmRoad nr = findNearestRoad(p, 24.0f);
-    return nr.found && nr.dist <= (nr.halfWidth + extraMargin);
+    if (!loaded_ || !isInCoreBounds(p)) return false;
+    const float searchR = std::max(18.0f, 18.0f + extraMargin);
+    const int cx0 = std::clamp(static_cast<int>(std::floor((p.x - searchR - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
+    const int cx1 = std::clamp(static_cast<int>(std::floor((p.x + searchR - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
+    const int cz0 = std::clamp(static_cast<int>(std::floor((p.z - searchR - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
+    const int cz1 = std::clamp(static_cast<int>(std::floor((p.z + searchR - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
+    for (int cz = cz0; cz <= cz1; ++cz) {
+        const std::size_t row = static_cast<std::size_t>(cz) * hdr_.chunksX;
+        for (int cx = cx0; cx <= cx1; ++cx) {
+            const OcChunkHdr& ch = chunks_[row + static_cast<std::size_t>(cx)];
+            for (std::uint32_t k = 0; k < ch.roadLen; ++k) {
+                const OsmRoadRec& r = roads_[flatChunkRoads_[ch.roadStart + k]];
+                const float hw = std::max(2.6f, r.halfWidth) + extraMargin;
+                if (hw <= 0.0f) continue;
+                if (p.x < r.minX - hw || p.x > r.maxX + hw ||
+                    p.z < r.minZ - hw || p.z > r.maxZ + hw) {
+                    continue;
+                }
+                const float hw2 = hw * hw;
+                for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
+                    const Vec2 a = roadVerts_[r.firstVert + s];
+                    const Vec2 b = roadVerts_[r.firstVert + s + 1];
+                    const Vec2 q = closestPointOnSeg(p, a, b);
+                    if ((p - q).lengthSq() <= hw2) return true;
+                }
+            }
+        }
+    }
+    return false;
 }
 
 bool RealSeoulData::isOnBridge(const Vec2& p, float extraMargin) const {

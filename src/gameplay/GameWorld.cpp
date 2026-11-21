@@ -438,8 +438,8 @@ void GameWorld::reset() {
     player_.onGround = true;
 
     spawnInitialWorld();
-    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL GIS v3.0 (VULKAN)" : "WELCOME TO SEOUL (VULKAN)",
-               city_.hasRealSeoulMap() ? "실제 서울 OSM 지도 v3.0에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
+    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL GIS v3.1 (VULKAN)" : "WELCOME TO SEOUL (VULKAN)",
+               city_.hasRealSeoulMap() ? "실제 서울 OSM 지도 v3.1에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
                "[M] Full Seoul Map  |  [K] Custom Studio  |  [U] Rain  |  [V] 1st/3rd Person",
                "미니맵 터치/[M] 서울 전체 지도 · [K] 커스텀 · [U] 날씨 · [V] 1·3인칭",
                {118, 192, 232, 255}, 5.2f);
@@ -468,13 +468,14 @@ void GameWorld::spawnParkedShowroomCars() {
     };
 
     if (city_.hasRealSeoulMap()) {
-        // Park curated starter & showroom cars cleanly along the real Teheran-ro / Gangnam boulevard curb!
+        // Park curated starter & showroom cars cleanly centered inside the outer 3.25m curb lane on Teheran-ro!
         const NearestOsmRoad nr = city_.realData().findNearestRoad(player_.pos, 60.0f);
         if (nr.found) {
             const float yaw = std::atan2(nr.tangent.z, nr.tangent.x);
             const Vec2 fwd = nr.tangent;
             const Vec2 rightN{-fwd.z, fwd.x};
-            const float curbLat = std::max(2.0f, nr.halfWidth - 1.55f);
+            const float hw = std::max(2.6f, nr.halfWidth);
+            const float curbLat = std::max(1.8f, hw - 1.90f);
             struct CurbSlot { VehicleKind kind; float along; float side; ColorRGBA paint; int rims; bool police; };
             const CurbSlot kSlots[] = {
                 {VehicleKind::SportsCoupe,      12.0f,  1.0f, {168,  24,  34, 255}, 1, false},
@@ -1122,11 +1123,25 @@ void GameWorld::maintainTrafficPopulation() {
             const Vec2 b = city_.realData().roadVerts()[r.firstVert + seg + 1];
             const Vec2 e = b - a;
             if (e.lengthSq() < 4.0f) continue;
-            osmD = ((r.flags & 1u) != 0u) ? 1 : (rng_.chance(0.5f) ? 1 : -1);
+            const bool isOneway = (r.flags & 1u) != 0u;
+            osmD = isOneway ? 1 : (rng_.chance(0.5f) ? 1 : -1);
             const Vec2 tang = (osmD > 0 ? e : (e * -1.0f)).normalized();
             const Vec2 rightN{-tang.z, tang.x};
             heading = std::atan2(tang.z, tang.x);
-            const float laneOff = clampf(r.halfWidth * 0.46f, 1.5f, 4.1f);
+            const float hw = std::max(2.6f, r.halfWidth);
+            const float usableH = std::max(1.8f, hw - 0.34f);
+            float laneOff = 0.0f;
+            if (isOneway) {
+                const int nLanes = std::clamp(static_cast<int>(std::lround((hw * 2.0f - 0.68f) / 3.25f)), 1, 8);
+                const float laneW = (2.0f * usableH) / static_cast<float>(nLanes);
+                const int laneIdx = rng_.rangeInt(0, nLanes - 1);
+                laneOff = -usableH + (static_cast<float>(laneIdx) + 0.5f) * laneW;
+            } else {
+                const int nDir = std::clamp(static_cast<int>(std::lround((hw - 0.56f) / 3.25f)), 1, 4);
+                const float laneW = (usableH - 0.22f) / static_cast<float>(nDir);
+                const int laneIdx = rng_.rangeInt(0, nDir - 1);
+                laneOff = 0.22f + (static_cast<float>(laneIdx) + 0.5f) * laneW;
+            }
             spawnPos = a + e * rng_.range(0.15f, 0.85f) + rightN * laneOff;
             osmVi = (osmD > 0) ? (seg + 1) : seg;
             if (city_.realData().isInWater(spawnPos) && (r.flags & 2u) == 0u) continue;
@@ -1252,7 +1267,7 @@ void GameWorld::maintainCivilianPopulation() {
     const int maxV =  140 * 2 - 2;
     const int centerNodeU = std::clamp(city_.nearestSidewalkNodeIndex(center.x), minU, maxU);
     const int centerNodeV = std::clamp(city_.nearestSidewalkNodeIndex(center.z), minV, maxV);
-    while (civCount < kTargetCivilians && attempts < 110) {
+    while (civCount < kTargetCivilians && attempts < 280) {
         ++attempts;
         int fromU = 0, fromV = 0, toU = 0, toV = 0;
         float edgeYaw = 0.0f;
@@ -1269,17 +1284,37 @@ void GameWorld::maintainCivilianPopulation() {
             const Vec2 a = city_.realData().roadVerts()[r.firstVert + seg];
             const Vec2 b = city_.realData().roadVerts()[r.firstVert + seg + 1];
             const Vec2 e = b - a;
-            if (e.lengthSq() < 4.0f) continue;
+            const float segLen = e.length();
+            if (segLen < 2.0f) continue;
+            // Sample around the closest point to `center` so long 700m boulevards spawn nearby civilians reliably!
+            const float tNear = clampf((center - a).dot(e) / (segLen * segLen), 0.0f, 1.0f);
+            const float tSpan = std::min(0.45f, 150.0f / std::max(segLen, 1.0f));
+            const float tMin = std::max(0.05f, tNear - tSpan);
+            const float tMax = std::min(0.95f, tNear + tSpan);
+            const float tPick = (tMax > tMin) ? rng_.range(tMin, tMax) : tNear;
+
             osmD = rng_.chance(0.5f) ? 1 : -1;
-            osmSide = rng_.chance(0.5f) ? 1.0f : -1.0f;
-            const Vec2 tang = (osmD > 0 ? e : (e * -1.0f)).normalized();
+            const float firstSide = rng_.chance(0.5f) ? 1.0f : -1.0f;
+            const Vec2 tang = (osmD > 0 ? e : (e * -1.0f)) / segLen;
             const Vec2 rightN{-tang.z, tang.x};
             edgeYaw = std::atan2(tang.z, tang.x);
-            p = a + e * rng_.range(0.15f, 0.85f) + rightN * (osmSide * (r.halfWidth + 1.95f));
+            const float hw = std::max(2.6f, r.halfWidth);
             osmVi = (osmD > 0) ? (seg + 1) : seg;
-            if (city_.realData().isInWater(p)) continue;
-            Vec2 chk = p;
-            if (city_.realData().resolveCircleBuildings(chk, 0.60f)) continue;
+
+            bool foundClearSide = false;
+            for (float trySide : {firstSide, -firstSide}) {
+                const Vec2 cand = a + e * tPick + rightN * (trySide * (hw + 2.05f));
+                Vec2 chk = cand;
+                if (!city_.realData().isInWater(cand) &&
+                    !city_.realData().isOnRoad(cand, 0.85f) &&
+                    !city_.realData().resolveCircleBuildings(chk, 0.65f)) {
+                    p = cand;
+                    osmSide = trySide;
+                    foundClearSide = true;
+                    break;
+                }
+            }
+            if (!foundClearSide) continue;
         } else {
             const bool horiz = rng_.chance(0.5f);
             const int uNear = std::clamp(centerNodeU + rng_.rangeInt(-5, 5), minU, maxU);
@@ -4296,7 +4331,21 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
             const Vec2 seg = b - a;
             const Vec2 tang = (seg.lengthSq() > 0.01f) ? seg.normalized() : forwardFromHeading(v.heading);
             const Vec2 rightN{-tang.z, tang.x};
-            const float laneOff = clampf(r.halfWidth * 0.46f, 1.5f, 4.1f);
+            const float hw = std::max(2.6f, r.halfWidth);
+            const float usableH = std::max(1.8f, hw - 0.34f);
+            float laneOff = 0.0f;
+            if ((r.flags & 1u) != 0u) {
+                const int nLanes = std::clamp(static_cast<int>(std::lround((hw * 2.0f - 0.68f) / 3.25f)), 1, 8);
+                const float laneW = (2.0f * usableH) / static_cast<float>(nLanes);
+                // Buses naturally prefer the outer right Seoul Bus-Only lane!
+                const int laneIdx = (v.kind == VehicleKind::SeoulBus) ? (nLanes - 1) : (v.id % nLanes);
+                laneOff = -usableH + (static_cast<float>(laneIdx) + 0.5f) * laneW;
+            } else {
+                const int nDir = std::clamp(static_cast<int>(std::lround((hw - 0.56f) / 3.25f)), 1, 4);
+                const float laneW = (usableH - 0.22f) / static_cast<float>(nDir);
+                const int laneIdx = (v.kind == VehicleKind::SeoulBus) ? (nDir - 1) : (v.id % nDir);
+                laneOff = 0.22f + (static_cast<float>(laneIdx) + 0.5f) * laneW;
+            }
             targetPoint = b + rightN * laneOff;
 
             if ((v.pos - targetPoint).lengthSq() < 7.5f * 7.5f) {
@@ -4648,9 +4697,9 @@ void GameWorld::resolveVehicleCollisions(float dt) {
                 const float wallSideAlign = -n.dot(right);
                 v.velocity += n * (intoWall * 1.32f);
                 v.velocity *= 0.82f;
-                // Glancing corner impact induces realistic yaw spin
+                // Glancing corner impact induces realistic yaw spin; head-on deceleration dives the nose down (-pitchVel)
                 v.angularVelocity = clampf(v.angularVelocity + wallFwdAlign * wallSideAlign * intoWall * 0.085f, -3.5f, 3.5f);
-                v.pitchVel += clampf(wallFwdAlign * intoWall * 0.03f, -0.45f, 0.45f);
+                v.pitchVel -= clampf(wallFwdAlign * intoWall * 0.03f, -0.45f, 0.45f);
 
                 if (intoWall > 6.0f) {
                     const float deform = clampf((intoWall - 5.5f) * 0.032f, 0.0f, 0.55f);
@@ -4739,16 +4788,16 @@ void GameWorld::resolveVehicleCollisions(float dt) {
                     a.isParked = false;
                     b.isParked = false;
 
-                    // Excite realistic chassis suspension pitch/roll recoil on collisions
+                    // Excite realistic chassis suspension pitch/roll recoil on collisions (+pitch = nose up, -pitch = nose dive)
                     if (impactSpeed > 2.5f) {
                         const float shock = clampf(impactSpeed * 0.025f, 0.04f, 0.48f);
                         const Vec2 fwdA = forwardFromHeading(a.heading);
                         const Vec2 rgtA = rightFromHeading(a.heading);
-                        a.pitchVel = clampf(a.pitchVel - n.dot(fwdA) * shock, -1.6f, 1.6f);
+                        a.pitchVel = clampf(a.pitchVel + n.dot(fwdA) * shock, -1.6f, 1.6f);
                         a.rollVel  = clampf(a.rollVel  - n.dot(rgtA) * shock, -1.6f, 1.6f);
                         const Vec2 fwdB = forwardFromHeading(b.heading);
                         const Vec2 rgtB = rightFromHeading(b.heading);
-                        b.pitchVel = clampf(b.pitchVel + n.dot(fwdB) * shock, -1.6f, 1.6f);
+                        b.pitchVel = clampf(b.pitchVel - n.dot(fwdB) * shock, -1.6f, 1.6f);
                         b.rollVel  = clampf(b.rollVel  + n.dot(rgtB) * shock, -1.6f, 1.6f);
                     }
 
@@ -5440,7 +5489,15 @@ void GameWorld::updateNpcs(float dt) {
                     const Vec2 seg = b - a;
                     const Vec2 tang = (seg.lengthSq() > 0.01f) ? seg.normalized() : forwardFromHeading(npc.facingYaw);
                     const Vec2 rightN{-tang.z, tang.x};
-                    const Vec2 targetSidewalk = b + rightN * (npc.osmSideSign * (r.halfWidth + 1.95f));
+                    const float hw = std::max(2.6f, r.halfWidth);
+                    Vec2 targetSidewalk = b + rightN * (npc.osmSideSign * (hw + 2.10f));
+                    if (rd.isOnRoad(targetSidewalk, 0.75f)) {
+                        const Vec2 altSidewalk = b - rightN * (npc.osmSideSign * (hw + 2.10f));
+                        if (!rd.isOnRoad(altSidewalk, 0.75f)) {
+                            npc.osmSideSign = -npc.osmSideSign;
+                            targetSidewalk = altSidewalk;
+                        }
+                    }
                     const Vec2 toTgt = targetSidewalk - npc.pos;
                     if (toTgt.lengthSq() < 2.2f * 2.2f) {
                         const int nextIdx = static_cast<int>(npc.osmVertIdx) + npc.osmDir;
@@ -5665,7 +5722,16 @@ void GameWorld::updatePickupsAndProps(float dt) {
     for (auto& prop : city_.streetProps()) {
         if (prop.kind == StreetPropKind::BusShelter ||
             prop.kind == StreetPropKind::Billboard ||
-            prop.kind == StreetPropKind::FuelPump) {
+            prop.kind == StreetPropKind::FuelPump ||
+            prop.kind == StreetPropKind::SubwayEntrance ||
+            prop.kind == StreetPropKind::RoadGantry ||
+            prop.kind == StreetPropKind::TrafficLight ||
+            prop.kind == StreetPropKind::PedGuardrail ||
+            prop.kind == StreetPropKind::ShopSign ||
+            prop.kind == StreetPropKind::UtilityBox ||
+            prop.kind == StreetPropKind::StreetKiosk ||
+            prop.kind == StreetPropKind::DdareungiRack ||
+            prop.kind == StreetPropKind::MedianBarrier) {
             continue;
         }
         if (prop.broken) {

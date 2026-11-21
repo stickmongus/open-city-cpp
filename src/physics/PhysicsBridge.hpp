@@ -356,7 +356,7 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
             st->air_time = 0.0f;
             const float comp = clampf(st->landed_impact_speed * 0.017f, 0.04f, 0.14f);
             for (int i = 0; i < 4; ++i) st->wheel_comp[i] = comp;
-            st->pitch_vel += clampf(st->landed_impact_speed * 0.065f, 0.10f, 0.58f);
+            st->pitch_vel -= clampf(st->landed_impact_speed * 0.065f, 0.10f, 0.58f);
         }
     }
 
@@ -369,10 +369,12 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
     const float roadRipple = std::sin(st->pos_x * 0.72f + st->pos_z * 0.58f) * 0.007f * clampf(absFwd / 26.0f, 0.0f, 1.0f);
     const float latG = clampf(forwardSpd * appliedYawRate, -24.0f, 24.0f);
 
+    // +body_pitch (+Z rotation) = NOSE UP / REAR SQUAT on accel; -body_pitch = NOSE DIVE on braking!
+    const float brakePitch = (st->braking_visual != 0) ? ((prevFwdSpd >= 0.0f) ? -0.044f : 0.036f) : 0.0f;
     const float targetPitch = (st->airborne != 0)
-        ? clampf(-st->vel_y * 0.022f, -0.22f, 0.22f)
+        ? clampf(st->vel_y * 0.022f, -0.22f, 0.22f)
         : (inp->ramp_slope_pitch + curbPitch +
-           clampf(-longAccel * 0.0028f - throttle * 0.026f - st->wheel_slip * 0.018f + (st->braking_visual ? 0.044f : 0.0f), -0.11f, 0.11f));
+           clampf(longAccel * 0.0028f + throttle * 0.024f + st->wheel_slip * 0.018f + brakePitch, -0.11f, 0.11f));
     const float targetRoll = (st->airborne != 0)
         ? clampf(steer * 0.08f, -0.16f, 0.16f)
         : clampf(-latG * 0.0046f - lateralSpd * 0.012f + curbRoll, -0.14f, 0.14f);
@@ -387,10 +389,10 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
     } else {
         const float pDef = st->body_pitch * 0.68f, rDef = st->body_roll * 0.68f;
         const float targets[4] = {
-            clampf( pDef - rDef + dh0 * 0.65f + roadRipple, -0.075f, 0.13f),
-            clampf( pDef + rDef + dh1 * 0.65f - roadRipple, -0.075f, 0.13f),
-            clampf(-pDef - rDef + dh2 * 0.65f - roadRipple, -0.075f, 0.13f),
-            clampf(-pDef + rDef + dh3 * 0.65f + roadRipple, -0.075f, 0.13f)
+            clampf(-pDef - rDef + dh0 * 0.65f + roadRipple, -0.075f, 0.13f),
+            clampf(-pDef + rDef + dh1 * 0.65f - roadRipple, -0.075f, 0.13f),
+            clampf( pDef - rDef + dh2 * 0.65f - roadRipple, -0.075f, 0.13f),
+            clampf( pDef + rDef + dh3 * 0.65f + roadRipple, -0.075f, 0.13f)
         };
         for (int i = 0; i < 4; ++i) st->wheel_comp[i] = lerpf(st->wheel_comp[i], targets[i], dt * 15.0f);
     }
