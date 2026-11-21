@@ -1,9 +1,9 @@
-# Open City Seoul — Native Vulkan (`open-city-cpp`) v3.3.0
+# Open City Seoul — Native Vulkan (`open-city-cpp`) v3.4.0
 
-실제 AAA 오픈월드처럼 **모던 C++20 + Native Vulkan 1.0+ 렌더링 엔진 (volk · SPIR-V 1.0 · 카메라 상대 고정밀 뎁스 · DPI 독립 반응형 모바일 HUD · 16-bit HDR + 4× MSAA + 2048px Soft PCF 그림자 + 2048×2048 8× 이방성 밉맵 PBR 텍스처/노멀맵 + 실시간 동적 20광원 PBR) + 실제 OpenStreetMap 서울 GIS & SRTM 30m 고도 지형 + Rust (`#![no_std]` 네이티브 물리 커널 v2000) + Python 3 (OSM/SRTM GIS · PBR 아틀라스 · SPIR-V 셰이더 빌더)** 아키텍처로 구축된 **크로스플랫폼(Android · Windows · Linux) 실제 지도 기반 서울 3D 오픈월드 대도시 샌드박스 게임**입니다.
+실제 AAA 오픈월드처럼 **모던 C++20 + Native Vulkan 1.0+ 렌더링 엔진 (volk · SPIR-V 1.0 · 카메라 상대 고정밀 뎁스 · DPI 독립 반응형 모바일 HUD · 16-bit HDR + 4× MSAA + 2048px Soft PCF 그림자 + 2048×2048 8× 이방성 밉맵 PBR 텍스처/노멀맵 + 실시간 동적 20광원 PBR) + 실제 OpenStreetMap 서울 GIS & SRTM 30m 고도 지형 + 한국 고속도로/일반도로 완전 분리 인프라 + Rust (`#![no_std]` 네이티브 물리 커널 v2000) + Python 3 (OSM/SRTM GIS · PBR 아틀라스 · SPIR-V 셰이더 빌더)** 아키텍처로 구축된 **크로스플랫폼(Android · Windows · Linux) 실제 지도 기반 서울 3D 오픈월드 대도시 샌드박스 게임**입니다.
 
-- **실제 서울 지도 1:1 반영 (`assets/maps/seoul_real.ocmap` · `seoul_map_2d.png`)**: 실제 OpenStreetMap 서울 전역 도로 **25,295개** · 실제 건물 폴리곤 **107,600채** *(지하상가/지하철 대합실 도로 침범 자동 필터링)* · 한강/지천/석촌호수 수계 삼각형 **3,581개** · 실제 공원 삼각형 **17,931개** · 지하철역/버스정류장 POI **5,632개**와 AWS Terrarium **SRTM 30m 실측 고도(DEM)** 를 실시간 청크 스트리밍으로 구현했습니다.
-- **Native Vulkan 1.0+ (Zero OpenGL / Zero raylib)**: Android(`arm64-v8a` + `armeabi-v7a`), Windows x64, Linux x64 모두 100% 네이티브 Vulkan 파이프라인(`10`개 사전 컴파일 SPIR-V 1.0 셰이더 + `2048×2048` PBR 알베도/노멀·러프니스 아틀라스 + `2048×1312` 실제 서울 지도 텍스처 + `1024×1024` 3D 한글 간판 아틀라스)으로 구동됩니다.
+- **실제 서울 지도 1:1 반영 (`assets/maps/seoul_real.ocmap` · `seoul_map_2d.png`)**: 실제 OpenStreetMap 서울 전역 도로 **25,295개** *(경부고속도로·올림픽대로·강변북로·내부순환로·동부간선도로 878개 고속도로 구간 완전 구분)* · 실제 건물 폴리곤 **107,600채** *(지하상가/지하철 대합실 도로 침범 자동 필터링)* · 한강/지천/석촌호수 수계 삼각형 **3,581개** · 실제 공원 삼각형 **17,931개** · 지하철역/버스정류장 POI **5,632개**와 AWS Terrarium **SRTM 30m 실측 고도(DEM)** 를 실시간 청크 스트리밍으로 구현했습니다.
+- **Native Vulkan 1.0+ (Zero OpenGL / Zero raylib)**: Android(`arm64-v8a` + `armeabi-v7a`), Windows x64, Linux x64 모두 100% 네이티브 Vulkan 파이프라인(`10`개 사전 컴파일 SPIR-V 1.0 셰이더 + `2048×2048` PBR 알베도/노멀·러프니스 아틀라스 + `2048×1312` 실제 서울 지도 텍스처 + `1024×1024` 3D 한글 간판·고속도로/시내 갠트리 아틀라스)으로 구동됩니다.
 - **Android (`.apk`)**: 정식 RSA-4096 v1/v2/v3 서명 + 16KB ELF 페이지 정렬된 유니버설 Vulkan APK(`arm64-v8a` + `armeabi-v7a`) 하나로 Android 7.0+ Vulkan 지원 스마트폰·폴더블·태블릿에서 DPI 반응형 모바일 UI & 10-포인트 멀티터치로 즉시 실행됩니다.
 - **Windows (`.exe`)**: 별도 런타임 없이 압축 해제 후 `open_city.exe` 실행 파일 하나로 Windows 10/11(Vulkan 지원 GPU)에서 즉시 실행됩니다.
 
@@ -11,13 +11,13 @@
 
 ## 바로 플레이하기 (Android `.apk` / Windows `.exe` 다운로드)
 
-컴파일러 설치 없이 바로 플레이하려면 GitHub **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 페이지에서 최신 버전(**`v3.3.0`**)을 내려받으세요:
+컴파일러 설치 없이 바로 플레이하려면 GitHub **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 페이지에서 최신 버전(**`v3.4.0`**)을 내려받으세요:
 
 ### Android 스마트폰 / 태블릿 (Android 7.0+ / Native Vulkan 1.0+)
-1. **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 에서 **`OpenCity-Android-v3.3.0.apk`** 를 다운로드합니다.
+1. **[Releases](https://github.com/stickmongus/open-city-cpp/releases)** 에서 **`OpenCity-Android-v3.4.0.apk`** 를 다운로드합니다.
 2. 다운로드한 `.apk` 파일을 탭해 설치합니다 *(최초 1회 "출처를 알 수 없는 앱 설치" 허용 필요 — 기존 v3.x / v2.x / v1.x 버전 위에도 동일 서명으로 그대로 덮어쓰기 업데이트 가능!)*.
 3. **Open City** 앱 아이콘을 눌러 가로 모드 전체화면으로 바로 플레이하세요!
-   * **패키지명**: `com.stickmongus.opencity` (`v3.3.0`, `versionCode 330`)
+   * **패키지명**: `com.stickmongus.opencity` (`v3.4.0`, `versionCode 340`)
    * **그래픽 API**: Native Vulkan 1.0+ (`libopen_city.so`, OpenGL/GLES 완전 제거, arm64 16KB 페이지 정렬)
    * **서명 인증서 SHA-256 지문**: `6C:9B:7E:D9:1E:60:AA:E2:E9:B3:2F:70:D6:D9:F1:A1:EB:A4:86:05:6D:35:8E:00:C9:75:EF:28:3C:41:A9:5E`
 
@@ -27,18 +27,18 @@
 
 ---
 
-## 주요 혁신 (v3.3.0 모바일 UI 전면 최적화 · 교차로 보행자·버스 교통 AI 개선)
+## 주요 혁신 (v3.4.0 한국 고속도로 vs 시내 일반도로 전면 구분 · 2D 지도/HUD 개편)
 
-1. **DPI·해상도 독립 반응형 모바일 UI 엔진 (`VulkanContext` · `Vulkan2D` · `TouchControls` · `HudRenderer`)**
-   * `2560×1600` 태블릿·`2208×1768` 폴더블·`2400×1080` 스마트폰 등 모든 화면비에서 **논리 `~940..1333 × 600dp` 자동 스케일링 + 44px 레티나 한글 아틀라스**를 적용해 미니맵·상태창·속도계·7버튼 툴바·터치 패드가 선명하고 엄지손가락에 딱 맞게 배치됩니다.
-   * **UI 겹침 0%**: 상단 툴바를 미니맵과 상태창 사이 중앙 회랑에 자동 배치하고, 수배 별표 카드와 모바일 속도계를 동적 세로 스택으로 분리했으며, 전체 지도 **1손가락 드래그 이동 & 2손가락 핀치 줌**, PC 단축키 텍스트 제거, 니트로 실시간 게이지·차량/상점 근접 하이라이트를 적용했습니다.
-2. **교차로 보행자 인도 엄수 & 대형 버스·차량 교차 양보 AI (`GameWorld.cpp`)**
-   * 8차선 강남역 사거리 등 실제 OSM 교차로 끝단에서 보행자가 도로 한복판으로 걸어 들어가지 않도록 코너 백오프·엄격한 인도 경계 가드·신속한 인도 복귀 AI를 구현했습니다.
-   * 10.6m 서울 시내버스 등 대형 차량의 회전된 외곽(OBB)과 교차 진행 경로를 예측해 부드럽게 제동·양보하도록 개선했습니다.
-3. **도로 침범 지하상가 0% 제거 · 코너별 DEM 밀착 도로 고도 · 카메라 상대 고정밀 Vulkan 뎁스 (`v3.2.0` 기반)**
-   * 강남역 지하쇼핑센터 등 서울 전역 도로 침범 폴리곤 30건을 자동 필터링하고, 코너별 DEM 샘플링 + `roadSurfaceLiftAt`으로 경사로 바퀴/발 빠짐을 0mm로 제거했으며, 카메라 상대 `viewProj`로 외곽 뎁스 겹침을 근본 해결했습니다.
-4. **차량 가감속 피치 관성 · 한국 표준 `3.25m` 미터법 차선 + 서울 버스전용차로 · 16종 고밀도 서울 도시 구조물 (`v3.1.0` 기반)**
-   * 급가속 리어 스쿼트 / 급제동 노즈 다이브, 실제 `3.25m` 차로·파란 버스전용차로·96m 횡단보도 연동 신호등, 3D 한글 상가 간판·따릉이·가판대·야외 카페·보행자 안전펜스·한강 대교 가로등·옥상 구조물, **30개 자동화 테스트(Release + ASan/UBSan) 100% 통과**.
+1. **한국 고속도로 전용 3D 노면·방호벽·방음벽·초록 갠트리 표지판 (`world.frag` · `Renderer3D.cpp` · `CityMap.cpp`)**
+   * 경부고속도로·올림픽대로·강변북로·내부순환로·동부간선도로 등 실제 OSM 고속화도로 **878개 구간(`roadClass <= 1`)**에 **어두운 저소음 SMA 아스팔트 · 넓은 갓길 · 외측 백색 실선 & 내측 황색 실선 · 8m/12m(20m 주기) 고속도로 장거리 점선 · 12m 간격 야광 표지병(Cat's-eye)** 셰이더를 적용하고 횡단보도·정지선·보도를 완전 제거했습니다.
+   * 고속도로 전용 **뉴저지 콘크리트 방호벽 + 스틸 W-빔 가드레일 · 중앙분리대 + 녹색 현광방지망 · 도심 구간 고속도로 방음벽 · 10.2m 은색 코브라 가로등 · 초록색 트러스 갠트리 + 빨강/파랑 고속도로 노선 방패(`88`, `1`, `70`, `30`)** 를 배치하고 신호등·가판대·야외 카페·따릉이·가로수는 0개로 분리! 시내 간선대로(`roadClass == 2`)는 **파란색 시내 갠트리 + 횡단보도 + 신호등 + 파란 버스전용차로**로 명확히 구분됩니다.
+2. **고속도로 보행자 출입 금지 · 도로 등급별 AI 주행 속도 · 2D 지도/HUD 구분 (`GameWorld.cpp` · `HudRenderer.cpp` · `seoul_map_2d.png`)**
+   * 고속도로에서는 보행자 스폰을 0명으로 차단하고, AI 차량이 고속도로(`90km/h`) · 간선대로(`56km/h`) · 일반도로(`36km/h`) 속도 체계로 주행합니다.
+   * `2048×1312` 서울 2D 지도에서 고속도로를 **에메랄드 그린 + 진녹색 외곽선**으로 강조하고 전체 지도 **도로 범례(고속도로 · 간선대로 · 일반도로)** 및 미니맵 **실시간 도로 등급 배지(`경부고속도로` · `올림픽대로` · `강변북로` · `한강 대교` · `간선대로`)** 를 추가했습니다.
+3. **DPI·해상도 독립 반응형 모바일 UI · 교차로 보행자·버스 AI (`v3.3.0` 기반)**
+   * 태블릿·폴더블·스마트폰 논리 `~940..1333 × 600dp` 자동 스케일링 + 44px 레티나 한글 아틀라스 + UI 겹침 0% + 전체 지도 드래그/핀치 줌, 강남역 사거리 보행자 인도 엄수 & 10.6m 버스 OBB 교차 양보 AI.
+4. **도로 침범 지하상가 0% · 코너별 DEM 밀착 도로 고도 · 미터법 차선 · 31개 자동화 테스트 (`v3.0 ~ v3.2` 기반)**
+   * 도로 침범 지하상가 30건 자동 제거, 카메라 상대 고정밀 Vulkan 뎁스, 가감속 피치 관성, `3.25m` 차로·파란 버스전용차로·16종 서울 도시 구조물, **31개 자동화 테스트(Release + ASan/UBSan) 100% 통과**.
 
 ---
 
@@ -109,13 +109,13 @@ ctest --test-dir build --output-on-failure
 
 ```text
 open-city-cpp/
-├── CMakeLists.txt                       # Native Vulkan (Vulkan-Headers + volk + GLFW 3.4 + miniaudio + stb + Rust) v3.3.0
+├── CMakeLists.txt                       # Native Vulkan (Vulkan-Headers + volk + GLFW 3.4 + miniaudio + stb + Rust) v3.4.0
 ├── assets/
 │   ├── maps/seoul_real.ocmap            # 실제 OSM 서울 25,295 도로 · 107,600 건물 · 3,581 수계 · 17,931 공원 · SRTM 30m DEM
-│   ├── maps/seoul_map_2d.png            # 2048×1312 실제 서울 카토그래피 미니맵 & 전체 지도 텍스처
+│   ├── maps/seoul_map_2d.png            # 2048×1312 실제 서울 카토그래피 미니맵 & 전체 지도 텍스처 (고속도로 에메랄드 그린 강조)
 │   └── textures/pbr_{albedo,normal_rough}.png # 2048×2048 16타일 밉맵·8×이방성 PBR 알베도 & 탄젠트 노멀/러프니스 아틀라스
 ├── android/
-│   ├── AndroidManifest.xml              # Vulkan 1.0+ 하드웨어 기능 · 가로 전체화면 NativeActivity (v3.3.0 / 330)
+│   ├── AndroidManifest.xml              # Vulkan 1.0+ 하드웨어 기능 · 가로 전체화면 NativeActivity (v3.4.0 / 340)
 │   └── src/com/stickmongus/opencity/
 │       └── NativeLoader.java            # 몰입형 전체화면 + 디스플레이 컷아웃 + libopen_city.so 로더
 ├── tools/

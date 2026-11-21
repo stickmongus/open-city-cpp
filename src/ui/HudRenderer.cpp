@@ -517,7 +517,7 @@ void HudRenderer::drawRadarMinimap(Vulkan2D& ui, VulkanContext& vk, const GameWo
             for (std::size_t i = 1; i < art.points.size(); ++i) {
                 const Vec2 p0 = toMap(art.points[i - 1]);
                 const Vec2 p1 = toMap(art.points[i]);
-                ui.drawLine(p0.x, p0.z, p1.x, p1.z, 3.0f, {214, 162, 68, 225});
+                ui.drawLine(p0.x, p0.z, p1.x, p1.z, 3.2f, {46, 212, 134, 235});
             }
         }
 
@@ -568,7 +568,7 @@ void HudRenderer::drawRadarMinimap(Vulkan2D& ui, VulkanContext& vk, const GameWo
 
     ui.popScissor(vk);
 
-    // District badge + clickable map hint pill (touch-friendly text on mobile!)
+    // District badge + clickable map hint pill + live Road Class / Expressway Corridor Badge!
     const DistrictType dist = city.districtAtWorld(pPos);
     const std::string distLabel = pickText(CityMap::districtNameEn(dist), CityMap::districtNameKo(dist));
     const float barH = mobileUi_ ? 22.0f : 24.0f;
@@ -584,6 +584,53 @@ void HudRenderer::drawRadarMinimap(Vulkan2D& ui, VulkanContext& vk, const GameWo
     ui.drawRoundedRect(r.x + r.w - hw - 4.0f, r.y + 4.0f, hw, 20.0f, 5.0f, {12, 22, 36, 218});
     ui.drawRoundedRectOutline(r.x + r.w - hw - 4.0f, r.y + 4.0f, hw, 20.0f, 5.0f, 1.0f, accent);
     ui.drawText(mapHint, r.x + r.w - hw + 2.0f, r.y + 7.0f, hintFont, accent);
+
+    // Live Korean Road Type Pill at top-left of minimap (instantly distinguishes Expressway vs City Avenue!)
+    if (city.hasRealSeoulMap()) {
+        const NearestOsmRoad nr = city.realData().findNearestRoad(pPos, 28.0f);
+        if (nr.found && nr.dist <= nr.halfWidth + 3.5f) {
+            const char* rLblEn = "LOCAL";
+            const char* rLblKo = "일반도로";
+            ColorRGBA rCol{168, 184, 206, 245};
+            ColorRGBA rBg{16, 22, 34, 220};
+            if (nr.roadClass <= 1u) {
+                if (pPos.x > 2100.0f && pPos.x < 3300.0f && pPos.z > 600.0f) {
+                    rLblEn = mobileUi_ ? "GYEONGBU" : "GYEONGBU EXP";
+                    rLblKo = mobileUi_ ? "경부고속" : "경부고속도로";
+                } else if (pPos.z > 150.0f && pPos.z < 2050.0f) {
+                    rLblEn = mobileUi_ ? "OLYMPIC" : "OLYMPIC EXP";
+                    rLblKo = mobileUi_ ? "올림픽로" : "올림픽대로";
+                } else if (pPos.z > -1650.0f && pPos.z <= 150.0f) {
+                    rLblEn = mobileUi_ ? "GANGBYEON" : "GANGBYEON EXP";
+                    rLblKo = "강변북로";
+                } else {
+                    rLblEn = mobileUi_ ? "HIGHWAY" : "EXPRESSWAY";
+                    rLblKo = mobileUi_ ? "고속도로" : "고속화도로";
+                }
+                rCol = {82, 242, 162, 255};
+                rBg  = {12, 54, 38, 232};
+            } else if (nr.isBridge) {
+                rLblEn = "BRIDGE";
+                rLblKo = mobileUi_ ? "한강대교" : "한강 대교";
+                rCol = {255, 214, 88, 255};
+                rBg  = {48, 38, 14, 226};
+            } else if (nr.roadClass == 2u) {
+                rLblEn = "ARTERIAL";
+                rLblKo = "간선대로";
+                rCol = {112, 198, 255, 255};
+                rBg  = {14, 34, 62, 226};
+            }
+            const std::string roadTag = pickText(rLblEn, rLblKo);
+            const float rFont = mobileUi_ ? 10.5f : 11.5f;
+            const float rw = ui.measureTextWidth(roadTag, rFont) + 10.0f;
+            const float maxRw = r.w - hw - 10.0f;
+            if (rw <= maxRw) {
+                ui.drawRoundedRect(r.x + 4.0f, r.y + 4.0f, rw, 20.0f, 5.0f, rBg);
+                ui.drawRoundedRectOutline(r.x + 4.0f, r.y + 4.0f, rw, 20.0f, 5.0f, 1.0f, rCol);
+                ui.drawText(roadTag, r.x + 9.0f, r.y + 7.5f, rFont, rCol);
+            }
+        }
+    }
     (void)cameraYaw;
 }
 
@@ -791,8 +838,8 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
 
         // 4. Expressways & Named Boulevards
         for (const auto& art : city.arterials()) {
-            const ColorRGBA col = art.isExpressway ? ColorRGBA{218, 164, 68, 195} : ColorRGBA{128, 142, 166, 185};
-            const float lw = art.isExpressway ? 2.6f : 2.0f;
+            const ColorRGBA col = art.isExpressway ? ColorRGBA{46, 212, 134, 225} : ColorRGBA{232, 204, 112, 195};
+            const float lw = art.isExpressway ? 2.8f : 2.0f;
             for (std::size_t i = 1; i < art.points.size(); ++i) {
                 const Vec2 sA = toScr(art.points[i - 1]);
                 const Vec2 sB = toScr(art.points[i]);
@@ -921,6 +968,42 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
     ui.drawTextCentered("-", l.btnZoomOut.x + l.btnZoomOut.w * 0.5f, l.btnZoomOut.y + 5.0f, 22.0f, {242, 248, 255, 255});
     ui.drawRoundedRect(l.btnRecenter.x, l.btnRecenter.y, l.btnRecenter.w, l.btnRecenter.h, 7.0f, {24, 34, 52, 235});
     ui.drawTextCentered(pickText("MY POS", "내 위치"), l.btnRecenter.x + l.btnRecenter.w * 0.5f, l.btnRecenter.y + 8.0f, 14.0f, accent);
+
+    // Compact Korean Road Hierarchy Legend pill at top-right of map canvas (Expressway vs Arterial vs Local)
+    {
+        struct LegItem { const char* en; const char* ko; ColorRGBA col; ColorRGBA casing; };
+        const LegItem kLeg[3] = {
+            {"Expressway", "고속도로", {46, 212, 134, 255}, {14, 78, 52, 255}},
+            {"Arterial",   "간선대로", {232, 204, 112, 255}, {68, 58, 28, 255}},
+            {"Local",      "일반도로", {148, 160, 180, 255}, {44, 50, 62, 255}}
+        };
+        const float lf = mobileUi_ ? 11.5f : 12.5f;
+        const float sw = 16.0f;
+        const float itemGap = 12.0f;
+        float totalW = 14.0f;
+        float itemW[3]{};
+        for (int i = 0; i < 3; ++i) {
+            itemW[i] = sw + 5.0f + ui.measureTextWidth(pickText(kLeg[i].en, kLeg[i].ko), lf);
+            totalW += itemW[i] + (i < 2 ? itemGap : 0.0f);
+        }
+        totalW += 10.0f;
+        const float lx = l.canvas.x + l.canvas.w - totalW - 12.0f;
+        const float ly = l.canvas.y + 12.0f;
+        const float lh = 28.0f;
+        if (lx > l.btnRecenter.x + l.btnRecenter.w + 8.0f) {
+            ui.drawRoundedRect(lx, ly, totalW, lh, 7.0f, {10, 16, 26, 224});
+            ui.drawRoundedRectOutline(lx, ly, totalW, lh, 7.0f, 1.0f, {58, 78, 108, 210});
+            float cxCur = lx + 12.0f;
+            for (int i = 0; i < 3; ++i) {
+                const float midY = ly + lh * 0.5f;
+                ui.drawRoundedRect(cxCur, midY - 3.5f, sw, 7.0f, 3.0f, kLeg[i].casing);
+                ui.drawRoundedRect(cxCur + 1.0f, midY - 2.0f, sw - 2.0f, 4.0f, 2.0f, kLeg[i].col);
+                ui.drawText(pickText(kLeg[i].en, kLeg[i].ko), cxCur + sw + 5.0f, ly + (mobileUi_ ? 7.5f : 6.8f),
+                            lf, {226, 236, 250, 250});
+                cxCur += itemW[i] + itemGap;
+            }
+        }
+    }
 
     // Map scale bar & zoom readout at bottom-left of canvas
     char zBuf[160];
@@ -1337,7 +1420,7 @@ void HudRenderer::drawHelpOverlay(Vulkan2D& ui, const GameWorld& world, int scre
     const float w = 316.0f, h = 172.0f;
     ui.drawRoundedRect(18.0f, 16.0f, w, h, 10.0f, {10, 14, 22, 198});
     ui.drawRoundedRectOutline(18.0f, 16.0f, w, h, 10.0f, 1.2f, accent);
-    ui.drawText(pickText("OPEN CITY SEOUL v3.3 (VULKAN)", "오픈 시티 서울 v3.3 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
+    ui.drawText(pickText("OPEN CITY SEOUL v3.4 (VULKAN)", "오픈 시티 서울 v3.4 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
     const char* lines[7] = {
         "WASD: 이동/운전 | Space: 점프/핸드브레이크",
         "Shift: 달리기/니트로 | F/E: 차량 탑승/상점",

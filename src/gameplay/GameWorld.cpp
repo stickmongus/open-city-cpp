@@ -438,8 +438,8 @@ void GameWorld::reset() {
     player_.onGround = true;
 
     spawnInitialWorld();
-    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL GIS v3.3 (VULKAN)" : "WELCOME TO SEOUL (VULKAN)",
-               city_.hasRealSeoulMap() ? "실제 서울 OSM 지도 v3.3에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
+    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL GIS v3.4 (VULKAN)" : "WELCOME TO SEOUL (VULKAN)",
+               city_.hasRealSeoulMap() ? "실제 서울 OSM 지도 v3.4에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
                "[M] Full Seoul Map  |  [K] Custom Studio  |  [U] Rain  |  [V] 1st/3rd Person",
                "미니맵 터치/[M] 서울 전체 지도 · [K] 커스텀 · [U] 날씨 · [V] 1·3인칭",
                {118, 192, 232, 255}, 5.2f);
@@ -1254,7 +1254,8 @@ void GameWorld::maintainCivilianPopulation() {
         city_.realData().queryChunkRoads(center, 185.0f, rawRoads);
         for (std::uint32_t ri : rawRoads) {
             const OsmRoadRec& r = city_.realData().roads()[ri];
-            if (r.roadClass >= 1 && r.roadClass <= 5 && r.vertCount >= 2 && (r.flags & 6u) == 0u) {
+            // Strictly exclude motorways/expressways (roadClass <= 1) & bridges/tunnels from pedestrian spawning!
+            if (r.roadClass >= 2 && r.roadClass <= 5 && r.vertCount >= 2 && (r.flags & 6u) == 0u) {
                 osmPedRoads.push_back(ri);
             }
         }
@@ -4535,8 +4536,15 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
             pushAudio(AudioEventType::CarHorn, 0.55f);
         }
     } else {
-        const float cruiseSpeed = 15.5f;
-        throttle = (v.speed() < cruiseSpeed) ? 0.58f : 0.0f;
+        float cruiseSpeed = 15.5f;
+        if (useOsmNav && v.osmRoadIdx < city_.realData().roads().size()) {
+            const std::uint8_t rcls = city_.realData().roads()[v.osmRoadIdx].roadClass;
+            if (rcls <= 1u)      cruiseSpeed = 25.0f; // 90 km/h authentic Korean expressway cruise!
+            else if (rcls == 2u) cruiseSpeed = 15.5f; // 56 km/h major city boulevard
+            else if (rcls == 3u) cruiseSpeed = 13.0f; // 47 km/h secondary road
+            else                 cruiseSpeed = 10.0f; // 36 km/h local street
+        }
+        throttle = (v.speed() < cruiseSpeed) ? ((cruiseSpeed > 20.0f) ? 0.78f : 0.58f) : 0.0f;
     }
 
     stepVehiclePhysics(dt, v, throttle, steer, false, false);

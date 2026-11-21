@@ -242,15 +242,17 @@ void Renderer3D::buildSeoulSignAtlas(VulkanContext& vk, const std::vector<std::u
 
     // 32 Authentic Seoul 3D Signs packed into 4 cols x 8 rows (256x128 each -> 1024x1024 atlas)
     static constexpr SignDef kSigns[32] = {
-        // Row 0..1 (Slots 0..7): Iconic Korean Dark-Green Overhead Highway Directional Gantries
-        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 반포대교 · 남산",      "강변북로 · 이태원", 0},
-        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 강남역 · 테헤란로 →",  "삼성역 · 코엑스",   0},
-        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 광화문 · 시청",        "경복궁 · 세종대로", 0},
-        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 여의도 · 올림픽대로",  "마포대교 · 63빌딩", 0},
-        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 서울 외곽순환 IC",     "수도권 제1순환도로", 0},
-        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "← 홍대입구 · 신촌",      "마포 · 성산대교",   0},
-        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 잠실 · 롯데월드 →",    "송파 · 올림픽공원", 0},
-        {{ 14, 108,  72, 255}, {242, 246, 248, 255}, { 26,  98, 206, 255}, {250, 252, 254, 255}, "↑ 구로디지털 · 신도림",  "서부간선 · 관악",   0},
+        // Row 0 (Slots 0..3): Iconic Korean EXPRESSWAY Emerald-Green Gantries + Red/Blue Route Shields!
+        {{ 12, 106,  68, 255}, {244, 248, 250, 255}, { 22,  92, 198, 255}, {252, 254, 255, 255}, "↑ 올림픽대로 · 잠실 →",  "반포 · 여의도 · 김포공항", 0},
+        {{ 12, 106,  68, 255}, {244, 248, 250, 255}, { 22,  92, 198, 255}, {252, 254, 255, 255}, "↑ 경부고속도로 · 서초IC", "판교 · 수원 · 부산 방면",  0},
+        {{ 12, 106,  68, 255}, {244, 248, 250, 255}, { 22,  92, 198, 255}, {252, 254, 255, 255}, "↑ 강변북로 · 성수 · 구리", "한남 · 용산 · 일산 방면", 0},
+        {{ 12, 106,  68, 255}, {244, 248, 250, 255}, { 22,  92, 198, 255}, {252, 254, 255, 255}, "↑ 내부순환로 · 동부간선", "홍제 · 성산 · 강북 방면", 0},
+
+        // Row 1 (Slots 4..7): Authentic Korean CITY BOULEVARD Royal-Blue Directional Gantries (시내 일반도로 청색 표지판)!
+        {{ 18,  74, 148, 255}, {242, 246, 252, 255}, { 36, 132, 218, 255}, {252, 254, 255, 255}, "↑ 강남역 · 테헤란로 →",  "삼성역 · 코엑스 · 선릉",   8},
+        {{ 18,  74, 148, 255}, {242, 246, 252, 255}, { 36, 132, 218, 255}, {252, 254, 255, 255}, "↑ 광화문 · 시청 · 종로", "경복궁 · 세종대로 · 을지로", 8},
+        {{ 18,  74, 148, 255}, {242, 246, 252, 255}, { 36, 132, 218, 255}, {252, 254, 255, 255}, "↑ 반포대로 · 서초 · 여의도", "마포대교 · 63빌딩 · 홍대", 8},
+        {{ 18,  74, 148, 255}, {242, 246, 252, 255}, { 36, 132, 218, 255}, {252, 254, 255, 255}, "↑ 잠실대로 · 송파 · 구로", "롯데월드 · 올림픽공원",   8},
 
         // Row 2..4 (Slots 8..19): Authentic Korean 1F & 2F Commercial Street Shopfronts!
         {{ 68,  42, 138, 255}, {124, 214,  88, 255}, {124, 214,  88, 255}, {252, 254, 255, 255}, "편의점 24시",            "도시락 · 커피 · ATM", 1},
@@ -297,13 +299,22 @@ void Renderer3D::buildSeoulSignAtlas(VulkanContext& vk, const std::vector<std::u
         fillRect(x0, y0, kCellW, kCellH, sd.bg);
 
         if (sd.style == 0) {
-            // Korean Highway Gantry: crisp double white frame + blue highway route shield + bold white destinations!
+            // Korean Expressway Gantry (녹색 고속도로 표지판): double white frame + authentic Red/Blue Expressway route shield!
             drawBorder(x0 + 5, y0 + 5, kCellW - 10, kCellH - 10, 3, sd.border);
-            fillRect(x0 + 16, y0 + 74, 34, 26, sd.accent);
-            drawBorder(x0 + 16, y0 + 74, 34, 26, 2, sd.border);
-            drawCenteredText(x0 + 33, y0 + 87, 30, "46", 17.0f, sd.border, false);
-            drawCenteredText(x0 + kCellW / 2, y0 + 44, kCellW - 28, sd.line1, 32.0f, sd.textCol, true);
-            drawCenteredText(x0 + kCellW / 2 + 18, y0 + 87, kCellW - 76, sd.line2, 21.0f, {226, 238, 232, 255}, true);
+            // Iconic Korean Expressway shield: red upper cap + royal-blue lower badge + crisp white route number!
+            fillRect(x0 + 14, y0 + 70, 38, 10, {214, 38, 46, 255});
+            fillRect(x0 + 14, y0 + 80, 38, 24, sd.accent);
+            drawBorder(x0 + 14, y0 + 70, 38, 34, 2, sd.border);
+            const char* routeNum = (slot == 0) ? "88" : ((slot == 1) ? "1" : ((slot == 2) ? "70" : "30"));
+            drawCenteredText(x0 + 33, y0 + 91, 34, routeNum, 18.0f, sd.border, false);
+            drawCenteredText(x0 + kCellW / 2, y0 + 42, kCellW - 26, sd.line1, 30.0f, sd.textCol, true);
+            drawCenteredText(x0 + kCellW / 2 + 20, y0 + 88, kCellW - 78, sd.line2, 20.0f, {226, 242, 234, 255}, true);
+        } else if (sd.style == 8) {
+            // Korean City Boulevard Gantry (청색 시내 간선도로 표지판): crisp white frame + top accent divider + clear white text!
+            drawBorder(x0 + 5, y0 + 5, kCellW - 10, kCellH - 10, 3, sd.border);
+            fillRect(x0 + 18, y0 + 68, kCellW - 36, 3, {168, 204, 244, 255});
+            drawCenteredText(x0 + kCellW / 2, y0 + 42, kCellW - 26, sd.line1, 29.0f, sd.textCol, true);
+            drawCenteredText(x0 + kCellW / 2, y0 + 92, kCellW - 28, sd.line2, 20.0f, {220, 234, 250, 255}, true);
         } else if (sd.style == 1 || sd.style == 2) {
             // Korean Commercial Shopfront: clean architectural border, bottom accent strip, optional pharmacy/clinic cross!
             drawBorder(x0 + 4, y0 + 4, kCellW - 8, kCellH - 8, 3, sd.border);
@@ -1828,9 +1839,11 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     const ColorRGBA kPierCol{168, 172, 178, 255};
 
     for (std::uint32_t k = 0; k < ch.roadLen; ++k) {
-        const OsmRoadRec& r = roads[flatRoads[ch.roadStart + k]];
+        const std::uint32_t ri = flatRoads[ch.roadStart + k];
+        const OsmRoadRec& r = roads[ri];
         if (r.vertCount < 2) continue;
 
+        const bool isExpressway = (r.roadClass <= 1u);
         const bool isBridge = (r.flags & 2u) != 0u;
         const float hw = std::max(2.6f, r.halfWidth);
         // Exact road-class micro-elevation matching RealSeoulData::roadSurfaceLiftAt() to the millimeter!
@@ -1920,20 +1933,24 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 const float v1 = 10.0f + distM;
                 int totalLanes = 0;
                 std::uint8_t styleByte = 0u; // 0 = unmarked alley
-                if (r.roadClass <= 4 && hw >= 3.2f) {
+                if (isExpressway && hw >= 3.2f) {
+                    const float driveW = std::max(3.2f, hw * 2.0f - ((hw >= 7.0f) ? 1.73f : 0.87f));
+                    totalLanes = std::clamp(static_cast<int>(std::lround(driveW / 3.45f)), 1, 6);
+                    styleByte = 176u; // Authentic Korean Expressway: wide shoulders, solid white/yellow edges, 8m/12m dashes, ZERO crosswalks!
+                } else if (r.roadClass <= 4 && hw >= 3.2f) {
                     if (isOneway) {
                         totalLanes = std::clamp(static_cast<int>(std::lround((hw * 2.0f - 0.68f) / 3.25f)), 1, 8);
                         if (isBridge) {
-                            styleByte = 192u; // Bridge one-way: white edge lines, NO crosswalks
-                        } else if (r.roadClass <= 2 && totalLanes >= 4) {
-                            styleByte = 240u; // Major Seoul boulevard with iconic blue bus-only lane!
+                            styleByte = 204u; // Bridge one-way: white edge lines, NO crosswalks
+                        } else if (r.roadClass == 2 && totalLanes >= 4) {
+                            styleByte = 240u; // Major Seoul city boulevard with iconic blue bus-only lane!
                         } else {
-                            styleByte = 128u; // Standard one-way multi-lane street
+                            styleByte = 128u; // Standard city one-way multi-lane street
                         }
                     } else {
                         const int lanesPerDir = std::clamp(static_cast<int>(std::lround((hw - 0.56f) / 3.25f)), 1, 4);
                         totalLanes = lanesPerDir * 2;
-                        styleByte = 64u; // Two-way Korean street with double yellow centerline
+                        styleByte = 64u; // Two-way Korean city street with double yellow centerline
                     }
                 }
                 const ColorRGBA roadMeta{
@@ -1945,9 +1962,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 pushQuadV3(roadsV, aL, aR, bR, bL, {0, 1, 0},
                            uL, v0, uR, v0, uR, v1, uL, v1, roadMeta);
 
-                // Flanking raised Korean granite-curb + tactile-paving sidewalks ONLY along outer block edges
-                // (Skip whenever any endpoint/midpoint lies inside an intersecting road or twin-carriageway median!)
-                if (!isBridge && r.roadClass <= 4) {
+                // Flanking raised Korean granite-curb + tactile-paving sidewalks ONLY on City Streets (NEVER on Expressways or Bridges!)
+                if (!isExpressway && !isBridge && r.roadClass <= 4) {
                     const float swW = (r.roadClass <= 2) ? 3.0f : 2.2f;
                     const float curbH = 0.08f;
                     const float swV0 = 10.0f + dist0;
@@ -1989,10 +2005,114 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                     }
                 }
 
-                // Bridge concrete deck underside fascia + sleek guardrails + vertical riverbed piers!
+                // Continuous 3D Korean Highway Concrete New Jersey Barriers, Anti-Glare Medians & Urban Soundproof Walls!
+                if (isExpressway && !isBridge) {
+                    const Vec2 nMid = (n0 + n1).normalized();
+                    const Vec2 segDir = (p1 - p0).normalized();
+                    const ColorRGBA kJerseyCol{182, 186, 192, 255};
+                    const ColorRGBA kAntiGlareGreen{22, 118, 72, 255};
+                    const ColorRGBA kGuardSteel{196, 202, 212, 255};
+                    const ColorRGBA kSoundGlass{138, 168, 194, 255};
+                    const ColorRGBA kSoundFrame{54, 62, 74, 255};
+
+                    for (float side : {-1.0f, 1.0f}) {
+                        const Vec2 s0 = n0 * side;
+                        const Vec2 s1 = n1 * side;
+                        const Vec2 sM = nMid * side;
+
+                        // Distinguish tightly-spaced opposing expressway carriageway (central median!) from on/off-ramps!
+                        const NearestOsmRoad oppNr = real.findNearestRoad(mid + sM * (hw + 4.5f), 14.0f);
+                        const bool isOppParallelExp = oppNr.found && oppNr.roadIdx != ri &&
+                                                      oppNr.roadClass <= 1u &&
+                                                      oppNr.tangent.dot(segDir) < -0.78f;
+
+                        const Vec2 rampProbe0 = p0 + s0 * (hw + 0.85f);
+                        const Vec2 rampProbeM = mid + sM * (hw + 0.85f);
+                        const Vec2 rampProbe1 = p1 + s1 * (hw + 0.85f);
+                        const bool tightTouching = real.isOnRoad(rampProbe0, 0.25f) ||
+                                                   real.isOnRoad(rampProbeM, 0.25f) ||
+                                                   real.isOnRoad(rampProbe1, 0.25f);
+                        if (tightTouching) {
+                            // Keep same-direction merge/exit ramps open; on tight opposing expressway medians,
+                            // emit ONE shared concrete Jersey median + green anti-glare screen from the lower roadIdx!
+                            if (!isOppParallelExp || ri > oppNr.roadIdx) continue;
+                        }
+
+                        const bool isMedianSide = isOppParallelExp || real.isOnRoad(mid + sM * (hw + 5.2f), 2.0f);
+                        const float innerOff = hw + (tightTouching ? 0.02f : 0.14f);
+                        const float outerOff = hw + (tightTouching ? 0.44f : (isMedianSide ? 0.56f : 0.48f));
+                        const float wallH = isMedianSide ? 1.04f : 0.90f;
+
+                        const Vec2 i0P{p0.x + s0.x * innerOff, p0.z + s0.z * innerOff};
+                        const Vec2 i1P{p1.x + s1.x * innerOff, p1.z + s1.z * innerOff};
+                        const Vec2 o0P{p0.x + s0.x * outerOff, p0.z + s0.z * outerOff};
+                        const Vec2 o1P{p1.x + s1.x * outerOff, p1.z + s1.z * outerOff};
+                        const float yi0 = evalRoadY(i0P);
+                        const float yi1 = evalRoadY(i1P);
+
+                        const Vec3 i0B{i0P.x, yi0 - 0.05f, i0P.z};
+                        const Vec3 i1B{i1P.x, yi1 - 0.05f, i1P.z};
+                        const Vec3 i0T{i0P.x + s0.x * 0.10f, yi0 + wallH, i0P.z + s0.z * 0.10f};
+                        const Vec3 i1T{i1P.x + s1.x * 0.10f, yi1 + wallH, i1P.z + s1.z * 0.10f};
+                        const Vec3 o0B{o0P.x, yi0 - 0.05f, o0P.z};
+                        const Vec3 o1B{o1P.x, yi1 - 0.05f, o1P.z};
+                        const Vec3 o0T{o0P.x - s0.x * 0.10f, yi0 + wallH, o0P.z - s0.z * 0.10f};
+                        const Vec3 o1T{o1P.x - s1.x * 0.10f, yi1 + wallH, o1P.z - s1.z * 0.10f};
+
+                        const Vec3 inN = Vec3{-s0.x, 0.18f, -s0.z}.normalized();
+                        const Vec3 outN = Vec3{s0.x, 0.18f, s0.z}.normalized();
+                        // Concrete New Jersey barrier (road-facing face + top cap + outer face)
+                        pushQuadV3(piersV, i0B, i1B, i1T, i0T, inN, 0, 0, 1, 0, 1, 1, 0, 1, kJerseyCol);
+                        pushQuadV3(piersV, i0T, i1T, o1T, o0T, {0, 1, 0}, 0, 0, 1, 0, 1, 1, 0, 1, kJerseyCol);
+                        pushQuadV3(piersV, o1B, o0B, o0T, o1T, outN, 0, 0, 1, 0, 1, 1, 0, 1, kJerseyCol);
+
+                        if (isMedianSide) {
+                            // Korean Expressway Green Anti-Glare Top Screen (현광방지망) mounted on central median wall!
+                            const float midOff = 0.5f * (innerOff + outerOff);
+                            const Vec3 g0B{p0.x + s0.x * midOff, yi0 + wallH, p0.z + s0.z * midOff};
+                            const Vec3 g1B{p1.x + s1.x * midOff, yi1 + wallH, p1.z + s1.z * midOff};
+                            const Vec3 g0T{g0B.x, yi0 + wallH + 0.42f, g0B.z};
+                            const Vec3 g1T{g1B.x, yi1 + wallH + 0.42f, g1B.z};
+                            pushQuadV3(piersV, g0B, g1B, g1T, g0T, inN, 0, 0, 1, 0, 1, 1, 0, 1, kAntiGlareGreen);
+                            pushQuadV3(piersV, g1B, g0B, g0T, g1T, outN, 0, 0, 1, 0, 1, 1, 0, 1, kAntiGlareGreen);
+                        } else {
+                            // Crisp silver W-beam upper metallic guardrail strip along outer expressway barrier!
+                            const Vec3 r0B{i0P.x + s0.x * 0.08f, yi0 + wallH + 0.02f, i0P.z + s0.z * 0.08f};
+                            const Vec3 r1B{i1P.x + s1.x * 0.08f, yi1 + wallH + 0.02f, i1P.z + s1.z * 0.08f};
+                            const Vec3 r0T{r0B.x, yi0 + wallH + 0.24f, r0B.z};
+                            const Vec3 r1T{r1B.x, yi1 + wallH + 0.24f, r1B.z};
+                            pushQuadV3(piersV, r0B, r1B, r1T, r0T, inN, 0, 0, 1, 0, 1, 1, 0, 1, kGuardSteel);
+                            pushQuadV3(piersV, r1B, r0B, r0T, r1T, outN, 0, 0, 1, 0, 1, 1, 0, 1, kGuardSteel);
+
+                            // Urban Korean Expressway Soundproof Acoustic Walls (방음벽) away from Han River waterfront!
+                            // Probe across Han River park strips (26m / 68m / 125m) so Olympic-daero & Gangbyeonbuk-ro
+                            // keep unobstructed panoramic Han River views while lining inland Gyeongbu/apartment corridors!
+                            const bool facesWaterfront =
+                                real.isInWater(mid + sM * (hw + 26.0f)) ||
+                                real.isInWater(mid + sM * (hw + 68.0f)) ||
+                                real.isInWater(mid + sM * (hw + 125.0f));
+                            if (hw >= 6.8f && !facesWaterfront) {
+                                const float swOff = outerOff - 0.08f;
+                                const Vec3 s0B{p0.x + s0.x * swOff, yi0 + wallH + 0.24f, p0.z + s0.z * swOff};
+                                const Vec3 s1B{p1.x + s1.x * swOff, yi1 + wallH + 0.24f, p1.z + s1.z * swOff};
+                                const Vec3 s0T{s0B.x, yi0 + wallH + 2.35f, s0B.z};
+                                const Vec3 s1T{s1B.x, yi1 + wallH + 2.35f, s1B.z};
+                                pushQuadV3(piersV, s0B, s1B, s1T, s0T, inN, 0, 0, 1, 0, 1, 1, 0, 1, kSoundGlass);
+                                pushQuadV3(piersV, s1B, s0B, s0T, s1T, outN, 0, 0, 1, 0, 1, 1, 0, 1, kSoundGlass);
+                                // Dark metallic H-beam sound wall post & top cap rail!
+                                pushBoxPiers(piersV, {s0B.x, yi0 + wallH + 1.30f, s0B.z}, {0.16f, 2.25f, 0.16f}, kSoundFrame);
+                                const Vec3 cap0{s0T.x, s0T.y + 0.10f, s0T.z};
+                                const Vec3 cap1{s1T.x, s1T.y + 0.10f, s1T.z};
+                                pushQuadV3(piersV, s0T, s1T, cap1, cap0, inN, 0, 0, 1, 0, 1, 1, 0, 1, kSoundFrame);
+                            }
+                        }
+                    }
+                }
+
+                // Bridge concrete deck underside fascia + sleek guardrails (+ taller expressway viaduct parapets) + vertical piers!
                 if (isBridge) {
-                    const float thick = 1.15f;
-                    const float railH = 0.65f;
+                    const float thick = isExpressway ? 1.35f : 1.15f;
+                    const float railH = isExpressway ? 1.02f : 0.65f;
                     for (float side : {-1.0f, 1.0f}) {
                         const Vec2 s0 = n0 * side;
                         const Vec2 s1 = n1 * side;
@@ -2002,6 +2122,17 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                         const Vec3 bot1{p1.x + s1.x * (hw + 0.18f), y1 - thick, p1.z + s1.z * (hw + 0.18f)};
                         pushQuadV3(piersV, bot0, bot1, top1, top0, Vec3{s0.x, 0.0f, s0.z}.normalized(),
                                    0, 0, 1, 0, 1, 1, 0, 1, kPierCol);
+                        if (isExpressway) {
+                            // Inner road-facing concrete parapet + metallic upper viaduct rail!
+                            const Vec3 inBot0{p0.x + s0.x * (hw + 0.04f), y0, p0.z + s0.z * (hw + 0.04f)};
+                            const Vec3 inBot1{p1.x + s1.x * (hw + 0.04f), y1, p1.z + s1.z * (hw + 0.04f)};
+                            const Vec3 inTop0{inBot0.x, y0 + railH, inBot0.z};
+                            const Vec3 inTop1{inBot1.x, y1 + railH, inBot1.z};
+                            pushQuadV3(piersV, inBot0, inBot1, inTop1, inTop0, Vec3{-s0.x, 0.0f, -s0.z}.normalized(),
+                                       0, 0, 1, 0, 1, 1, 0, 1, {182, 186, 192, 255});
+                            pushQuadV3(piersV, inTop0, inTop1, top1, top0, {0, 1, 0},
+                                       0, 0, 1, 0, 1, 1, 0, 1, {182, 186, 192, 255});
+                        }
                     }
                     if (distM >= nextPierDist) {
                         nextPierDist = distM + 36.0f;
@@ -3043,7 +3174,22 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
 
         switch (p.kind) {
             case StreetPropKind::StreetLight: {
-                // Detailed Seoul LED streetlamp: cast pedestal base, tapered charcoal pole, curved luminaire arm & optional boulevard banner!
+                if (p.variant == 3u) {
+                    // Authentic Korean Expressway 10.2m Galvanized Silver Cobra-Head Highway Lamp Pole (NO street flags!)
+                    const ColorRGBA kGalv{184, 190, 198, 255};
+                    drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.38f, 0.90f, 0.38f),
+                             {152, 156, 162, 255}, 0.78f, 0.08f, 0.0f, MatId::BridgeConcrete, shadowPass);
+                    drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.20f, 10.15f, 0.20f),
+                             kGalv, 0.28f, 0.82f, 0.0f, MatId::Standard, shadowPass);
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(1.45f, 10.05f, 0.0f) * Mat4::scale(3.10f, 0.14f, 0.20f),
+                             kGalv, 0.28f, 0.82f, 0.0f, MatId::Standard, shadowPass);
+                    if (!shadowPass) {
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.75f, 9.90f, 0.0f) * Mat4::scale(0.86f, 0.14f, 0.36f),
+                                 {246, 248, 255, 255}, 0.14f, 0.0f, nightMode ? 3.0f : 0.22f, MatId::EmissiveGlow, false);
+                    }
+                    break;
+                }
+                // Detailed Seoul city LED streetlamp: cast pedestal base, tapered charcoal pole, curved luminaire arm & optional boulevard banner!
                 drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.32f, 0.72f, 0.32f),
                          {56, 62, 70, 255}, 0.42f, 0.68f, 0.0f, MatId::Standard, shadowPass);
                 drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.17f, 7.25f, 0.17f),
@@ -3164,55 +3310,84 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 break;
             }
             case StreetPropKind::RoadGantry: {
-                // Iconic Korean Dark-Green Overhead Highway Directional Sign Gantry matched to exact road width!
-                const ColorRGBA kSteel{168, 174, 182, 255};
-                const float spanHalf = (p.variant >= 60u) ? (static_cast<float>(p.variant) * 0.1f) : 9.55f;
+                // Distinguish Korean GREEN Expressway Truss Gantries (bit 7 = 0x80) from Korean BLUE City Boulevard Gantries!
+                const bool isExpresswayGantry = (p.variant & 0x80u) != 0u;
+                const std::uint8_t rawSpan = static_cast<std::uint8_t>(p.variant & 0x7Fu);
+                const float spanHalf = (rawSpan >= 60u) ? (static_cast<float>(rawSpan) * 0.1f) : 9.55f;
                 const float spanFull = spanHalf * 2.0f + 0.5f;
-                for (float sx : {-spanHalf, spanHalf}) {
-                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(sx, 0.0f, 0.0f) * Mat4::scale(0.40f, 6.75f, 0.40f),
-                             kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
-                    // Concrete pillar safety pedestal
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx, 0.42f, 0.0f) * Mat4::scale(0.74f, 0.84f, 0.74f),
-                             {156, 160, 166, 255}, 0.80f, 0.04f, 0.0f, MatId::BridgeConcrete, false);
-                }
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 6.48f, 0.0f) * Mat4::scale(spanFull, 0.24f, 0.16f),
-                         kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 5.74f, 0.0f) * Mat4::scale(spanFull - 0.2f, 0.20f, 0.14f),
-                         kSteel, 0.36f, 0.76f, 0.0f, MatId::Standard, shadowPass);
+                const ColorRGBA kSteel = isExpresswayGantry ? ColorRGBA{186, 192, 200, 255} : ColorRGBA{154, 162, 172, 255};
+                const float portalH = isExpresswayGantry ? 7.65f : 6.75f;
+                const float barTopY = isExpresswayGantry ? 7.36f : 6.48f;
+                const float barBotY = isExpresswayGantry ? 6.38f : 5.74f;
+                const float signCenterY = isExpresswayGantry ? 6.90f : 6.15f;
+                const float signH = isExpresswayGantry ? 2.48f : 2.16f;
 
-                const bool isOuterRing = (std::abs(p.pos.x) > 14000.0f || std::abs(p.pos.z) > 11500.0f);
-                int slotL = 0, slotR = 1;
-                if (isOuterRing) {
-                    slotL = 4;
-                    slotR = (p.pos.x > 0.0f) ? 6 : 7;
-                } else {
-                    switch (city.districtAtWorld(p.pos)) {
-                        case DistrictType::SeochoBanpo:        slotL = 0; slotR = 1; break;
-                        case DistrictType::GangnamTeheran:     slotL = 1; slotR = 6; break;
-                        case DistrictType::GwanghwamunPalace:
-                        case DistrictType::MyeongdongCityHall:
-                        case DistrictType::JongnoCheonggye:    slotL = 2; slotR = 0; break;
-                        case DistrictType::YeouidoFinance:     slotL = 3; slotR = 5; break;
-                        case DistrictType::HongdaeMapo:        slotL = 5; slotR = 2; break;
-                        case DistrictType::JamsilSongpa:
-                        case DistrictType::SeongsuKonkuk:      slotL = 6; slotR = 1; break;
-                        case DistrictType::GuroGwanak:         slotL = 7; slotR = 3; break;
-                        default:                               slotL = 0; slotR = 2; break;
+                for (float sx : {-spanHalf, spanHalf}) {
+                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(sx, 0.0f, 0.0f) *
+                             Mat4::scale(isExpresswayGantry ? 0.48f : 0.40f, portalH, isExpresswayGantry ? 0.48f : 0.40f),
+                             kSteel, 0.32f, 0.78f, 0.0f, MatId::Standard, shadowPass);
+                    // Concrete pillar safety pedestal (+ yellow highway impact collar on expressways!)
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx, 0.46f, 0.0f) * Mat4::scale(0.82f, 0.92f, 0.82f),
+                             {156, 160, 166, 255}, 0.80f, 0.04f, 0.0f, MatId::BridgeConcrete, false);
+                    if (isExpresswayGantry && !shadowPass) {
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx, 1.04f, 0.0f) * Mat4::scale(0.60f, 0.24f, 0.60f),
+                                 {246, 194, 34, 255}, 0.36f, 0.08f, 0.12f, MatId::Standard, false);
                     }
                 }
-                const float gEm = nightMode ? 0.38f : 0.06f;
-                const float panelW = std::min(6.2f, spanHalf * 0.78f);
-                const float panelOff = std::min(3.8f, spanHalf * 0.44f);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, barTopY, 0.0f) * Mat4::scale(spanFull, 0.26f, 0.18f),
+                         kSteel, 0.32f, 0.78f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, barBotY, 0.0f) * Mat4::scale(spanFull - 0.2f, 0.22f, 0.16f),
+                         kSteel, 0.32f, 0.78f, 0.0f, MatId::Standard, shadowPass);
+                if (isExpresswayGantry) {
+                    // Heavy steel highway truss vertical struts between upper & lower chords
+                    for (float tx = -spanHalf + 1.8f; tx < spanHalf - 1.2f; tx += 2.6f) {
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(tx, 0.5f * (barTopY + barBotY), 0.0f) *
+                                 Mat4::scale(0.12f, barTopY - barBotY, 0.12f),
+                                 kSteel, 0.34f, 0.76f, 0.0f, MatId::Standard, false);
+                    }
+                }
+
+                int slotL = 4, slotR = 5;
+                if (isExpresswayGantry) {
+                    // GREEN Korean Expressway signs (Slots 0..3) matched to real Seoul expressway corridors!
+                    if (p.pos.x > 2100.0f && p.pos.x < 3300.0f && p.pos.z > 600.0f) {
+                        slotL = 1; slotR = 0; // 경부고속도로 (1) + 올림픽대로 (88)
+                    } else if (p.pos.z > 150.0f) {
+                        slotL = 0; slotR = 1; // 올림픽대로 (88) + 경부고속도로 (1)
+                    } else if (p.pos.z > -1600.0f) {
+                        slotL = 2; slotR = 3; // 강변북로 (70) + 내부순환로 (30)
+                    } else {
+                        slotL = 3; slotR = 2; // 내부순환로 · 동부간선 (30) + 강변북로 (70)
+                    }
+                } else {
+                    // ROYAL-BLUE Korean City Boulevard signs (Slots 4..7) matched to Seoul districts!
+                    switch (city.districtAtWorld(p.pos)) {
+                        case DistrictType::GangnamTeheran:     slotL = 4; slotR = 7; break;
+                        case DistrictType::SeochoBanpo:        slotL = 6; slotR = 4; break;
+                        case DistrictType::GwanghwamunPalace:
+                        case DistrictType::MyeongdongCityHall:
+                        case DistrictType::JongnoCheonggye:    slotL = 5; slotR = 6; break;
+                        case DistrictType::YeouidoFinance:
+                        case DistrictType::HongdaeMapo:        slotL = 6; slotR = 5; break;
+                        case DistrictType::JamsilSongpa:
+                        case DistrictType::SeongsuKonkuk:
+                        case DistrictType::GuroGwanak:         slotL = 7; slotR = 4; break;
+                        default:                               slotL = 4; slotR = 5; break;
+                    }
+                }
+                const float gEm = nightMode ? 0.42f : 0.08f;
+                const float panelW = std::min(isExpresswayGantry ? 6.8f : 6.0f, spanHalf * 0.80f);
+                const float panelOff = std::min(isExpresswayGantry ? 4.1f : 3.7f, spanHalf * 0.45f);
                 const float panelXs[2] = {-panelOff, panelOff};
                 const int panelSlots[2] = {slotL, slotR};
-                const ColorRGBA kGantryHousing{62, 68, 76, 255};
+                const ColorRGBA kGantryHousing = isExpresswayGantry ? ColorRGBA{46, 56, 52, 255} : ColorRGBA{52, 60, 74, 255};
                 for (int k = 0; k < 2; ++k) {
                     const float px = panelXs[k];
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, 6.15f, 0.0f) * Mat4::scale(panelW, 2.16f, 0.18f),
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(px, signCenterY, 0.0f) * Mat4::scale(panelW, signH, 0.18f),
                              kGantryHousing, 0.38f, 0.65f, 0.0f, MatId::Standard, shadowPass);
                     if (!shadowPass) {
-                        drawLocalSign({px, 6.15f,  0.135f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, panelW - 0.06f, 2.08f, panelSlots[k], gEm);
-                        drawLocalSign({px, 6.15f, -0.135f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, panelW - 0.06f, 2.08f, panelSlots[k], gEm);
+                        drawLocalSign({px, signCenterY,  0.135f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, panelW - 0.06f, signH - 0.08f, panelSlots[k], gEm);
+                        drawLocalSign({px, signCenterY, -0.135f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, panelW - 0.06f, signH - 0.08f, panelSlots[k], gEm);
                     }
                 }
                 break;

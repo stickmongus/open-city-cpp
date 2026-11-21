@@ -2921,6 +2921,119 @@ void testV330MobileUiScalingAndIntersectionDiscipline() {
 }
 
 
+void testV340ExpresswayVsCityRoadDistinction() {
+    auto findAsset = [](const char* rel) -> std::string {
+        const char* prefixes[] = {"assets/", "../assets/", "../../assets/"};
+        for (const char* pre : prefixes) {
+            const std::string p = std::string(pre) + rel;
+            std::ifstream f(p, std::ios::binary);
+            if (f.good()) return p;
+        }
+        return {};
+    };
+    const std::string ocmapPath = findAsset("maps/seoul_real.ocmap");
+    ASSERT_TRUE(!ocmapPath.empty());
+
+    oc::GameWorld world(20263400ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    const oc::RealSeoulData& real = world.city().realData();
+
+    // 1. Verify Gyeongbu Expressway (경부고속도로, Road #18548 Banpo~Seocho stretch at (2680.9, 1225.1)) is roadClass <= 1
+    //    and streams ONLY authentic Korean highway infrastructure (tall silver cobra lights variant=3 +
+    //    GREEN expressway truss gantries with bit 7 set), with ZERO crosswalk traffic lights / kiosks /
+    //    cafes / Ddareungi / pedestrian guardrails and ZERO civilians spawned on expressway carriageways!
+    const oc::Vec2 gyeongbuPos{2680.9f, 1225.1f};
+    const oc::NearestOsmRoad gNr = real.findNearestRoad(gyeongbuPos, 35.0f);
+    ASSERT_TRUE(gNr.found && gNr.roadClass <= 1u);
+
+    world.fastTravelTo(gNr.closestPt, "경부고속도로");
+    oc::PlayerInput idle{};
+    for (int f = 0; f < 60; ++f) {
+        world.update(1.0f / 60.0f, idle);
+    }
+
+    int expCobraLights = 0;
+    int expGreenGantries = 0;
+    int expForbiddenProps = 0;
+    for (const auto& p : world.city().streetProps()) {
+        const oc::NearestOsmRoad pnr = real.findNearestRoad(p.pos, 18.0f);
+        if (!pnr.found || pnr.roadClass > 1u || pnr.dist > pnr.halfWidth + 1.2f) continue;
+        if (p.kind == oc::StreetPropKind::StreetLight && p.variant == 3u) {
+            ++expCobraLights;
+        } else if (p.kind == oc::StreetPropKind::RoadGantry && (p.variant & 0x80u) != 0u) {
+            ++expGreenGantries;
+        } else if (p.kind == oc::StreetPropKind::TrafficLight ||
+                   p.kind == oc::StreetPropKind::PedGuardrail ||
+                   p.kind == oc::StreetPropKind::StreetKiosk ||
+                   p.kind == oc::StreetPropKind::CafeTable ||
+                   p.kind == oc::StreetPropKind::DdareungiRack ||
+                   p.kind == oc::StreetPropKind::Bench ||
+                   p.kind == oc::StreetPropKind::Hydrant) {
+            ++expForbiddenProps;
+        }
+    }
+    ASSERT_TRUE(expCobraLights >= 4);
+    ASSERT_TRUE(expGreenGantries >= 1);
+    ASSERT_TRUE(expForbiddenProps == 0);
+
+    // ZERO calm civilians may spawn or stroll on expressway asphalt!
+    for (const auto& n : world.npcs()) {
+        if (!n.alive || n.role != oc::NpcRole::Civilian) continue;
+        const oc::NearestOsmRoad nnr = real.findNearestRoad(n.pos, 18.0f);
+        ASSERT_TRUE(!(nnr.found && nnr.roadClass <= 1u && nnr.dist <= nnr.halfWidth + 1.5f));
+    }
+
+    // 2. Verify Expressway Traffic AI Cruises at Korean Highway Speed (> 19.5 m/s, targeting 25 m/s = 90 km/h)
+    //    — noticeably faster than city local streets (~10 m/s)!
+    world.player().pos = gNr.closestPt + oc::Vec2{42.0f, 0.0f};
+    for (auto& v : world.vehicles()) {
+        v.pos = {-9000.0f, -9000.0f};
+        v.velocity = {0.0f, 0.0f};
+    }
+    const oc::OsmRoadRec& expRoad = real.roads()[gNr.roadIdx];
+    const oc::Vec2 expDir = gNr.tangent.normalized();
+    const float expYaw = std::atan2(expDir.z, expDir.x);
+    oc::Vehicle& hwCar = world.spawnCustomVehicle(
+        oc::VehicleKind::SportsCoupe, gNr.closestPt, expYaw, {225, 232, 240, 255});
+    hwCar.isParked = false;
+    hwCar.hasNpcDriver = true;
+    hwCar.osmRoadIdx = gNr.roadIdx;
+    hwCar.osmVertIdx = std::min<std::uint32_t>(gNr.segIdx + 1u, expRoad.vertCount - 1u);
+    hwCar.osmDir = 1;
+    hwCar.velocity = expDir * 12.0f;
+    const int hwCarId = hwCar.id;
+
+    float maxHwSpeed = 0.0f;
+    for (int f = 0; f < 180; ++f) {
+        world.update(1.0f / 60.0f, idle);
+        if (const oc::Vehicle* cv = world.findVehicle(hwCarId)) {
+            maxHwSpeed = std::max(maxHwSpeed, cv->speed());
+        }
+    }
+    ASSERT_TRUE(maxHwSpeed > 19.5f);
+
+    // 3. Contrast Check: City Boulevard Teheran-ro (테헤란로, roadClass == 2) MUST stream
+    //    ROYAL-BLUE City Gantries ((variant & 0x80u) == 0u), Traffic Lights, and Pedestrian Guardrails!
+    world.fastTravelTo({3960.0f, 2750.0f}, "테헤란로");
+    for (int f = 0; f < 15; ++f) {
+        world.update(1.0f / 60.0f, idle);
+    }
+    int cityBlueGantries = 0;
+    int cityTrafficLights = 0;
+    int cityGuardrails = 0;
+    for (const auto& p : world.city().streetProps()) {
+        if (p.kind == oc::StreetPropKind::RoadGantry && (p.variant & 0x80u) == 0u) ++cityBlueGantries;
+        if (p.kind == oc::StreetPropKind::TrafficLight) ++cityTrafficLights;
+        if (p.kind == oc::StreetPropKind::PedGuardrail) ++cityGuardrails;
+    }
+    ASSERT_TRUE(cityBlueGantries >= 1);
+    ASSERT_TRUE(cityTrafficLights >= 2);
+    ASSERT_TRUE(cityGuardrails >= 4);
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -2954,8 +3067,9 @@ int main() {
     testV310PitchInertiaMetricLanesAndFineProps();
     testV320ZeroRoadBlockingBuildingsAndExactRoadElevation();
     testV330MobileUiScalingAndIntersectionDiscipline();
+    testV340ExpresswayVsCityRoadDistinction();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.3.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.4.0 simulation test suites succeeded!\n";
     return 0;
 }
 

@@ -1549,10 +1549,20 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
         }
         return false;
     };
+    std::vector<Vec2> gantryPositions;
+    gantryPositions.reserve(32);
+    auto hasGantryNear = [&](const Vec2& p, float r) -> bool {
+        const float r2 = r * r;
+        for (const Vec2& gp : gantryPositions) {
+            if ((gp - p).lengthSq() < r2) return true;
+        }
+        return false;
+    };
 
     for (std::uint32_t ri : roadIds) {
         const OsmRoadRec& r = realData_.roads()[ri];
         if (r.roadClass > 4 || (r.flags & 4u) != 0u || r.vertCount < 2) continue; // Skip tunnels & tiny back alleys
+        const bool isExpressway = (r.roadClass <= 1u);
         const bool isBridge = (r.flags & 2u) != 0u;
         const bool isOneway = (r.flags & 1u) != 0u;
         const float hw = std::max(2.6f, r.halfWidth);
@@ -1599,6 +1609,47 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                 }
             };
 
+            // A0) KOREAN EXPRESSWAYS & URBAN MOTORWAYS (roadClass <= 1: 경부고속도로 · 올림픽대로 · 강변북로 · 내부순환로):
+            //     Authentic highway infrastructure ONLY — tall galvanized cobra lights (variant=3) & GREEN expressway
+            //     overhead truss gantries (variant |= 0x80). ZERO crosswalk traffic lights, kiosks, cafes, or sidewalk trees!
+            if (isExpressway) {
+                // Tall silver highway cobra-head lamp poles every 32m along outer barrier/median
+                advanceToWindow(nextLamp, 32.0f);
+                while (nextLamp < walkMax) {
+                    const float t = clampf((nextLamp - distAccum) / segLen, 0.0f, 1.0f);
+                    const Vec2 cPt = a + e * t;
+                    for (float side : {-1.0f, 1.0f}) {
+                        const Vec2 lp = cPt + rightN * (side * (hw + 0.42f));
+                        const Vec2 clearProbe = cPt + rightN * (side * (hw + 1.15f));
+                        if (!realData_.isOnRoad(clearProbe, 0.25f) && !hasPropNearby(lp, 6.0f)) {
+                            const Vec2 armDir = rightN * (-side);
+                            const float armYaw = std::atan2(armDir.z, armDir.x);
+                            streetProps_.push_back(StreetProp{lp, StreetPropKind::StreetLight, armYaw, false, {}, 0.0f, lp, 0,0,0,0,0,0, 3u});
+                        }
+                    }
+                    nextLamp += 32.0f;
+                }
+                // Heavy Korean GREEN Expressway Overhead Truss Gantries every 125m (even on elevated viaducts!)
+                if (hw >= 5.5f && gantryCount < 26) {
+                    advanceToWindow(nextGantry, 125.0f);
+                    while (nextGantry < walkMax && gantryCount < 26) {
+                        const float t = clampf((nextGantry - distAccum) / segLen, 0.0f, 1.0f);
+                        const Vec2 gp = a + e * t;
+                        if ((gp - focus).lengthSq() < 285.0f * 285.0f && !hasGantryNear(gp, 55.0f)) {
+                            const float gYaw = std::atan2(rightN.z, rightN.x);
+                            const std::uint8_t spanDm = static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround((hw + 0.6f) * 10.0f)), 60, 118));
+                            // Bit 7 (0x80) flags an authentic Korean GREEN Expressway Truss Gantry!
+                            streetProps_.push_back(StreetProp{gp, StreetPropKind::RoadGantry, gYaw, false, {}, 0.0f, gp, 0,0,0,0,0,0, static_cast<std::uint8_t>(spanDm | 0x80u)});
+                            gantryPositions.push_back(gp);
+                            ++gantryCount;
+                        }
+                        nextGantry += 125.0f;
+                    }
+                }
+                distAccum = segEndDist;
+                continue;
+            }
+
             // A) Han River Bridge Overhead Lamp Posts every 28m along outer bridge parapets!
             if (isBridge) {
                 advanceToWindow(nextLamp, 28.0f);
@@ -1621,18 +1672,19 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                 continue;
             }
 
-            // B) Overhead Korean Green Highway Directional Gantries on major boulevards (roadClass <= 2)!
-            if (r.roadClass <= 2 && hw >= 6.5f && gantryCount < 22) {
+            // B) Overhead Korean BLUE City Boulevard Directional Gantries on major city avenues (roadClass == 2)!
+            if (r.roadClass == 2u && hw >= 6.5f && gantryCount < 26) {
                 advanceToWindow(nextGantry, 155.0f);
-                while (nextGantry < walkMax && gantryCount < 22) {
+                while (nextGantry < walkMax && gantryCount < 26) {
                     const float t = clampf((nextGantry - distAccum) / segLen, 0.0f, 1.0f);
                     const Vec2 gp = a + e * t;
                     if (!realData_.isInWater(gp) && (gp - focus).lengthSq() < 260.0f * 260.0f &&
-                        !hasPropNearby(gp, 35.0f)) {
+                        !hasGantryNear(gp, 58.0f)) {
                         const float gYaw = std::atan2(rightN.z, rightN.x);
-                        // variant stores encoded road span half-width in decimeters (clamped 60..115 -> 6.0..11.5m!)
+                        // Low 7 bits store road span half-width in decimeters (60..115 -> 6.0..11.5m), bit 7 = 0 (BLUE City Sign!)
                         const std::uint8_t spanDm = static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround((hw + 0.6f) * 10.0f)), 60, 115));
                         streetProps_.push_back(StreetProp{gp, StreetPropKind::RoadGantry, gYaw, false, {}, 0.0f, gp, 0,0,0,0,0,0, spanDm});
+                        gantryPositions.push_back(gp);
                         ++gantryCount;
                     }
                     nextGantry += 155.0f;

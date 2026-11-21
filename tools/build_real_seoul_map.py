@@ -569,22 +569,23 @@ def render_seoul_2d_map(out_png: str, dem: np.ndarray, water_polys, park_polys, 
         col = (66, 78, 92) if height > 35.0 else (52, 60, 70)
         draw.polygon(pts, fill=col)
 
-    # 5. Real Seoul Road Network sorted from minor alleys -> major boulevards -> expressways!
+    # 5. Real Seoul Road Network sorted from minor alleys -> major boulevards -> emerald-green expressways!
     road_order = sorted(roads, key=lambda r: -r[1])
     for pts, rcls, lanes, flags, half_w, nslot in road_order:
         ppx = [to_px(x, z) for x, z in pts]
         if len(ppx) < 2:
             continue
-        if rcls <= 1:      # Motorway / Expressway (올림픽대로, 강변북로, 내부순환로)
-            draw.line(ppx, fill=(238, 162, 54), width=4)
-        elif rcls == 2:    # Primary Avenue (반포대로, 강남대로, 테헤란로, 세종대로, 여의대로)
-            draw.line(ppx, fill=(232, 204, 112), width=3)
-        elif rcls == 3:    # Secondary Boulevard
-            draw.line(ppx, fill=(166, 178, 194), width=2)
-        elif rcls == 4:    # Tertiary Street
-            draw.line(ppx, fill=(116, 126, 140), width=1)
-        else:              # Residential alleys
-            draw.line(ppx, fill=(76, 84, 96), width=1)
+        if rcls <= 1:      # Korean Expressway / Motorway (경부고속도로 · 올림픽대로 · 강변북로 · 내부순환로) — Vivid Emerald Green!
+            draw.line(ppx, fill=(14, 78, 52), width=7)
+            draw.line(ppx, fill=(46, 212, 134), width=4)
+        elif rcls == 2:    # Primary City Avenue (반포대로 · 강남대로 · 테헤란로 · 세종대로 · 여의대로) — Warm Gold!
+            draw.line(ppx, fill=(236, 198, 92), width=3)
+        elif rcls == 3:    # Secondary Boulevard — Cool Silver-Blue
+            draw.line(ppx, fill=(156, 174, 198), width=2)
+        elif rcls == 4:    # Tertiary Street — Slate
+            draw.line(ppx, fill=(104, 116, 132), width=1)
+        else:              # Residential alleys — Subtle Dark Slate
+            draw.line(ppx, fill=(66, 74, 86), width=1)
 
     os.makedirs(os.path.dirname(out_png), exist_ok=True)
     im.save(out_png, optimize=True)
