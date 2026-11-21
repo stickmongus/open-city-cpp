@@ -1493,22 +1493,38 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
         if (awayRoad.lengthSq() < 0.04f) awayRoad = {-nr.tangent.z, nr.tangent.x};
         else awayRoad = awayRoad.normalized();
 
-        // If POI coordinate sits on asphalt, step smoothly onto the outer sidewalk curb!
-        if (realData_.isOnRoad(pp, 1.35f)) {
-            const Vec2 candA = nr.closestPt + awayRoad * (roadHw + 2.25f);
-            const Vec2 candB = nr.closestPt - awayRoad * (roadHw + 2.25f);
-            Vec2 tA = candA, tB = candB;
-            if (!realData_.isOnRoad(candA, 1.15f) && !realData_.isInWater(candA) && !realData_.resolveCircleBuildings(tA, 1.15f)) {
+        // Enforce full 4-corner oriented footprint road-clearance so neither SubwayEntrance (5.5m x 2.7m)
+        // nor BusShelter (4.8m x 1.7m) ever overhangs a curb or perpendicular intersection corner!
+        const float halfLen   = (pr.kind == 0) ? 2.80f : 2.70f;
+        const float halfDepth = (pr.kind == 0) ? 1.40f : 0.95f;
+        auto footprintClear = [&](const Vec2& center, const Vec2& dirAway) -> bool {
+            if (realData_.isInWater(center)) return false;
+            if (realData_.isOnRoad(center, halfDepth + 0.50f)) return false;
+            const Vec2 along{-dirAway.z, dirAway.x};
+            for (float sx : {-1.0f, 1.0f}) {
+                for (float sz : {-1.0f, 1.0f}) {
+                    const Vec2 corner = center + along * (sx * halfLen) + dirAway * (sz * halfDepth);
+                    if (realData_.isOnRoad(corner, 0.35f)) return false;
+                }
+            }
+            Vec2 chk = center;
+            return !realData_.resolveCircleBuildings(chk, 1.15f);
+        };
+
+        if (!footprintClear(pp, awayRoad)) {
+            const float setback = roadHw + halfDepth + 1.45f;
+            const Vec2 candA = nr.closestPt + awayRoad * setback;
+            const Vec2 candB = nr.closestPt - awayRoad * setback;
+            if (footprintClear(candA, awayRoad)) {
                 pp = candA;
-            } else if (!realData_.isOnRoad(candB, 1.15f) && !realData_.isInWater(candB) && !realData_.resolveCircleBuildings(tB, 1.15f)) {
+            } else if (footprintClear(candB, awayRoad * -1.0f)) {
                 pp = candB;
                 awayRoad = awayRoad * -1.0f;
             } else {
                 continue;
             }
         }
-        Vec2 chkB = pp;
-        if (realData_.resolveCircleBuildings(chkB, 1.10f) || hasPropNearby(pp, 4.5f)) continue;
+        if (hasPropNearby(pp, 4.5f)) continue;
 
         // Align open front (+Z local -> (-sin yaw, cos yaw)) directly toward road centerline!
         const Vec2 toRoad = awayRoad * -1.0f;
@@ -1729,13 +1745,13 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                 }
             };
 
-            // C1) Synchronized 96m Crosswalk Traffic Signals on major boulevards (matches shader crosswalk zebra!)
+            // C1) Synchronized 145m mid-block Crosswalk Traffic Signals on long major boulevards
             if (r.roadClass <= 2) {
-                advanceToWindow(nextSignal, 96.0f);
+                advanceToWindow(nextSignal, 145.0f);
                 while (nextSignal < walkMax) {
                     const float t = clampf((nextSignal - distAccum) / segLen, 0.0f, 1.0f);
-                    tryPlaceSignalAt(a + e * t, 36.0f);
-                    nextSignal += 96.0f;
+                    tryPlaceSignalAt(a + e * t, 40.0f);
+                    nextSignal += 145.0f;
                 }
             }
             // C2) Road intersection endpoint signals (backed off past perpendicular crossing boulevard!)

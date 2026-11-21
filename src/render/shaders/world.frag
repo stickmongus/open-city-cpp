@@ -252,15 +252,25 @@ void main() {
         float blueMask   = 0.0;
 
         if (fragUv.y > 0.5) {
-            // REAL OPENSTREETMAP CURVED SEOUL ROAD RIBBON — TRUE KOREAN ROAD HIERARCHY & METRIC MARKINGS!
+            // REAL OPENSTREETMAP CURVED SEOUL ROAD RIBBON — TRUE KOREAN ROAD HIERARCHY & CLEAN INTERSECTIONS!
             // fragUv.x = signed lateral distance from road centerline in METERS [-hwM .. +hwM]
             // fragUv.y = longitudinal distance along road in METERS (> 10.0)
-            // srgbBase.r = hwM / 25.5, srgbBase.g = totalLanes * 16 / 255, srgbBase.b = styleByte / 255
-            // styleByte: 0=alley, 64=city 2-way, 128=city 1-way, 176=Korean Expressway, 204=Bridge, 240=City Bus-Lane Blvd
+            // srgbBase.r = hwM / 25.5
+            // srgbBase.g = ((totalLanes << 4) | roadFlags) / 255
+            //   roadFlags bit0(1)=suppressLeftEdge, bit1(2)=suppressRightEdge,
+            //             bit2(4)=isInterCrosswalk, bit3(8)=isCleanInterBox
+            // srgbBase.b = styleByte / 255 (0=alley, 64=city 2-way, 128=city 1-way, 176=Expressway, 204=Bridge, 240=Bus-Lane Blvd)
             float xM = fragUv.x;
             float sM = fragUv.y;
             float hwM = max(2.4, srgbBase.r * 25.5);
-            float totalLanes = floor(srgbBase.g * (255.0 / 16.0) + 0.5);
+            int gByte = int(floor(srgbBase.g * 255.0 + 0.5));
+            float totalLanes = float(gByte >> 4);
+            int roadFlags = gByte & 15;
+            bool suppressLeftEdge  = ((roadFlags & 1) != 0);
+            bool suppressRightEdge = ((roadFlags & 2) != 0);
+            bool isInterCrosswalk  = ((roadFlags & 4) != 0);
+            bool isCleanInterBox   = ((roadFlags & 8) != 0);
+
             float styleByte = floor(srgbBase.b * 255.0 + 0.5);
             float axM = abs(xM);
 
@@ -270,10 +280,19 @@ void main() {
             bool isBridge  = (styleByte >= 188.0 && styleByte < 216.0);
             bool hasBusLn  = (styleByte >= 220.0);
 
-            // Subtle asphalt gutter darkening near curb edge (0.65m strip)
-            albedo *= (1.0 - 0.18 * smoothstep(hwM - 0.70, hwM, axM));
+            // Subtle asphalt gutter darkening near non-suppressed curb edges (0.65m strip)
+            if (!isCleanInterBox) {
+                bool onLeft = (xM < 0.0);
+                if ((onLeft && !suppressLeftEdge) || (!onLeft && !suppressRightEdge)) {
+                    albedo *= (1.0 - 0.16 * smoothstep(hwM - 0.65, hwM, axM));
+                }
+            }
 
-            if (isHighway) {
+            if (isCleanInterBox) {
+                // CLEAN REAL-WORLD INTERSECTION BOX: pure dark Seoul asphalt with zero overlapping lane/edge lines!
+                albedo *= 0.94;
+                roughness = mix(roughness, 0.50, 0.22);
+            } else if (isHighway) {
                 // KOREAN EXPRESSWAY / URBAN MOTORWAY (경부고속도로 · 올림픽대로 · 강변북로 · 내부순환로):
                 // Smoother dark SMA highway asphalt, wide paved emergency shoulders (갓길),
                 // crisp SOLID WHITE right shoulder line + SOLID YELLOW left median line,
@@ -288,8 +307,8 @@ void main() {
                 float driveSpan  = max(2.6, driveRight - driveLeft);
                 float hwLaneW    = driveSpan / max(1.0, totalLanes);
 
-                // Subtle rumble-strip darkening inside outer emergency shoulder (갓길)
-                if (xM > driveRight + 0.12) {
+                // Subtle rumble-strip darkening inside outer emergency shoulder (갓길) when not merging
+                if (!suppressRightEdge && xM > driveRight + 0.12) {
                     float rumble = 0.5 + 0.5 * sin(sM * 14.0);
                     albedo *= mix(0.88, 0.96, rumble);
                 }
@@ -305,8 +324,13 @@ void main() {
                 }
 
                 // Crisp 0.18m SOLID WHITE right outer shoulder line & SOLID YELLOW left median shoulder line
-                whiteMask  = max(whiteMask,  aaBand(abs(xM - driveRight), 0.090) * 0.96);
-                yellowMask = max(yellowMask, aaBand(abs(xM - driveLeft),  0.090) * 0.96);
+                // (Automatically suppressed cleanly where highway on-ramps / off-ramps merge!)
+                if (!suppressRightEdge) {
+                    whiteMask = max(whiteMask, aaBand(abs(xM - driveRight), 0.090) * 0.96);
+                }
+                if (!suppressLeftEdge) {
+                    yellowMask = max(yellowMask, aaBand(abs(xM - driveLeft), 0.090) * 0.96);
+                }
 
                 // Authentic Korean Highway 8.0m white dash / 12.0m gap (20.0m cycle — distinct from 8m city streets!)
                 float hwDashOn = (fract(sM / 20.0) < 0.40) ? 1.0 : 0.0;
@@ -317,11 +341,11 @@ void main() {
                     whiteMask = max(whiteMask, aaBand(divDist, 0.082) * 0.94);
                 }
 
-                // Reflective Highway Cat's-Eye Road Studs (표지병) every 12m along BOTH shoulder lines!
+                // Reflective Highway Cat's-Eye Road Studs (표지병) every 12m along non-suppressed shoulders!
                 float studS = abs(fract(sM / 12.0) - 0.5) * 12.0;
                 if (studS < 0.16) {
-                    float studR = aaBand(abs(xM - (driveRight + 0.14)), 0.085);
-                    float studL = aaBand(abs(xM - (driveLeft  - 0.14)), 0.085);
+                    float studR = suppressRightEdge ? 0.0 : aaBand(abs(xM - (driveRight + 0.14)), 0.085);
+                    float studL = suppressLeftEdge  ? 0.0 : aaBand(abs(xM - (driveLeft  - 0.14)), 0.085);
                     float studMask = max(studR, studL) * smoothstep(0.16, 0.06, studS);
                     if (studMask > 0.05) {
                         vec3 studCol = (studL > studR) ? vec3(1.0, 0.68, 0.12) : vec3(0.92, 0.97, 1.0);
@@ -341,41 +365,44 @@ void main() {
                 albedo *= (1.0 - 0.12 * tireWear);
                 roughness = mix(roughness, 0.35, tireWear * 0.42);
 
-                // Crisp 0.15m curbside no-parking yellow line (or white shoulder line on Han River bridges)
-                float edgeBand = aaBand(abs(axM - (hwM - 0.28)), 0.075);
-                if (isBridge) {
-                    whiteMask = max(whiteMask, edgeBand * 0.88);
-                } else {
-                    yellowMask = max(yellowMask, edgeBand * 0.82);
+                // Crisp edge lines ONLY along non-overlapping edges (never slices across adjacent/merging lanes!)
+                if (!suppressLeftEdge && xM < 0.0) {
+                    float leftBand = aaBand(abs(xM - (-hwM + 0.26)), 0.072);
+                    if (isBridge) {
+                        whiteMask = max(whiteMask, leftBand * 0.88);
+                    } else if (isOneway) {
+                        // Inner median yellow line on divided one-way Seoul boulevards
+                        yellowMask = max(yellowMask, leftBand * 0.90);
+                    } else {
+                        // Outer curbside line on two-way city streets
+                        yellowMask = max(yellowMask, leftBand * 0.72);
+                    }
+                }
+                if (!suppressRightEdge && xM > 0.0) {
+                    float rightBand = aaBand(abs(xM - (hwM - 0.26)), 0.072);
+                    if (isBridge) {
+                        whiteMask = max(whiteMask, rightBand * 0.88);
+                    } else {
+                        yellowMask = max(yellowMask, rightBand * 0.76);
+                    }
                 }
 
-                // Korean city standard 3.0m white dash / 5.0m gap (8.0m cycle)
-                float dashOn = (fract(sM / 8.0) < 0.375) ? 1.0 : 0.0;
-
-                // Periodic Korean crosswalk (4.2m zebra, 0.45m bars @ 0.90m pitch) + 0.40m stop bar (non-bridges only!)
-                float cwMod = fract(sM / 96.0) * 96.0;
-                bool inCrosswalkZone = (!isBridge && totalLanes >= 2.0 && cwMod > 1.5 && cwMod < 9.2);
-                if (!isBridge && totalLanes >= 2.0) {
-                    if (cwMod > 3.6 && cwMod < 7.8 && axM < (hwM - 0.55)) {
+                // Authentic Real-Intersection Korean Zebra Crosswalk (4.2m bars @ 0.90m lateral pitch)!
+                if (isInterCrosswalk && !isBridge && totalLanes >= 2.0) {
+                    if (axM < (hwM - 0.55)) {
                         float barDist = abs(fract(xM / 0.90) - 0.5) * 0.90;
-                        whiteMask = max(whiteMask, aaBand(barDist, 0.215) * 0.90);
+                        whiteMask = max(whiteMask, aaBand(barDist, 0.215) * 0.92);
                     }
-                    // Crisp 0.40m Korean stop line 1.6m before crosswalk
-                    if (cwMod > 1.8 && cwMod < 2.22 && axM < (hwM - 0.45)) {
-                        if (isOneway || xM > 0.22) {
-                            whiteMask = max(whiteMask, 0.88);
-                        }
-                    }
-                }
+                } else {
+                    // Korean city standard 3.0m white dash / 5.0m gap (8.0m cycle)
+                    float dashOn = (fract(sM / 8.0) < 0.375) ? 1.0 : 0.0;
 
-                if (!inCrosswalkZone) {
                     if (!isOneway) {
                         // Two-way city street: crisp Korean double yellow centerline (2 x 0.12m @ +/-0.14m)
                         yellowMask = max(yellowMask, aaBand(abs(axM - 0.14), 0.062) * 0.95);
                         float lanesPerDir = max(1.0, floor(totalLanes * 0.5 + 0.5));
                         float dirLaneW = (usableHalf - 0.22) / lanesPerDir;
                         if (lanesPerDir > 1.5 && dashOn > 0.5) {
-                            // Exact metric lane dividers inside each travel direction
                             float localX = axM - 0.22;
                             if (localX > dirLaneW * 0.5 && localX < (usableHalf - 0.22) - dirLaneW * 0.4) {
                                 float divDist = abs(fract(localX / dirLaneW + 0.5) - 0.5) * dirLaneW;
@@ -386,11 +413,11 @@ void main() {
                         // One-way multi-lane city boulevard / bridge carriageway (exact 3.1-3.4m lanes!)
                         float relX = xM + usableHalf; // [0 .. 2*usableHalf] from left edge to right edge
                         if (totalLanes > 1.5 && relX > laneW * 0.45 && relX < (2.0 * usableHalf - laneW * 0.45)) {
-                            float laneIdxF = floor(relX / laneW + 0.5); // nearest interior divider index [1 .. totalLanes-1]
+                            float laneIdxF = floor(relX / laneW + 0.5);
                             float divDist = abs(relX - laneIdxF * laneW);
                             bool isBusDiv = hasBusLn && (abs(laneIdxF - (totalLanes - 1.0)) < 0.25);
                             if (isBusDiv) {
-                                // Iconic Seoul Blue Bus-Only Lane solid/dashed divider (파란색 버스전용차로!)
+                                // Iconic Seoul Blue Bus-Only Lane divider (파란색 버스전용차로!)
                                 blueMask = max(blueMask, aaBand(divDist, 0.080) * 0.95);
                             } else if (dashOn > 0.5) {
                                 whiteMask = max(whiteMask, aaBand(divDist, 0.072));
@@ -399,8 +426,8 @@ void main() {
                     }
                 }
             } else {
-                // Narrow residential Korean alley: subtle weathered edge curbing, zero bogus multi-lane dashes
-                whiteMask = max(whiteMask, aaBand(abs(axM - (hwM - 0.22)), 0.055) * 0.45);
+                // Narrow Korean residential back-alley / slip-lane: clean dark asphalt, ZERO stray bright edge lines!
+                albedo *= 0.96;
             }
         } else {
             // Legacy analytic 84m grid road fallback

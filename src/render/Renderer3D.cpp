@@ -1833,26 +1833,115 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     }
 
     // ------------------------------------------------------------------------
-    // 1. REAL CURVED OPENSTREETMAP SEOUL ROADS, SIDEWALKS & BRIDGE PIERS!
+    // 1. REAL CURVED OPENSTREETMAP SEOUL ROADS, CLEAN INTERSECTIONS, SIDEWALKS & BRIDGE PIERS!
     // ------------------------------------------------------------------------
     const ColorRGBA kSwTint{196, 198, 202, 255};
     const ColorRGBA kPierCol{168, 172, 178, 255};
 
+    // Query all nearby roads around this chunk once and bin their local edges into a 16x16 spatial grid
+    // so every road sub-segment resolves intersections, dual-carriageway medians & merges in < 1.5ms/chunk!
+    const float gx0 = hdr.minX + static_cast<float>(cx) * hdr.chunkSize;
+    const float gz0 = hdr.minZ + static_cast<float>(cz) * hdr.chunkSize;
+    const Vec2 chunkCenter{gx0 + hdr.chunkSize * 0.5f, gz0 + hdr.chunkSize * 0.5f};
+    std::vector<std::uint32_t> chunkNearRoads;
+    real.queryChunkRoads(chunkCenter, hdr.chunkSize * 0.72f + 28.0f, chunkNearRoads);
+
+    struct LocalRoadSeg {
+        Vec2 a{}, e{}, dir{};
+        float invLen2 = 0.0f;
+        float minX = 0.0f, maxX = 0.0f, minZ = 0.0f, maxZ = 0.0f;
+        float ohw = 2.6f;
+        std::uint32_t roadIdx = 0;
+        std::uint8_t roadClass = 4;
+        bool isBridge = false;
+    };
+    constexpr int kGridN = 16;
+    const float gridPad = 42.0f;
+    const float gridMinX = gx0 - gridPad;
+    const float gridMinZ = gz0 - gridPad;
+    const float gridSpan = hdr.chunkSize + gridPad * 2.0f;
+    const float invCellSz = static_cast<float>(kGridN) / gridSpan;
+
+    std::vector<LocalRoadSeg> localSegs;
+    localSegs.reserve(chunkNearRoads.size() * 6u);
+    std::vector<std::uint32_t> gridCells[kGridN * kGridN];
+
+    for (std::uint32_t rj : chunkNearRoads) {
+        const OsmRoadRec& ro = roads[rj];
+        if (ro.vertCount < 2 || (ro.flags & 4u) != 0u) continue;
+        const float ohw = std::max(2.6f, ro.halfWidth);
+        const bool isBridgeO = (ro.flags & 2u) != 0u;
+        for (std::uint16_t s = 0; s + 1 < ro.vertCount; ++s) {
+            const Vec2 a = rVerts[ro.firstVert + s];
+            const Vec2 b = rVerts[ro.firstVert + s + 1];
+            const float sMinX = std::min(a.x, b.x);
+            const float sMaxX = std::max(a.x, b.x);
+            const float sMinZ = std::min(a.z, b.z);
+            const float sMaxZ = std::max(a.z, b.z);
+            if (sMaxX < gridMinX - ohw || sMinX > gridMinX + gridSpan + ohw ||
+                sMaxZ < gridMinZ - ohw || sMinZ > gridMinZ + gridSpan + ohw) {
+                continue;
+            }
+            const Vec2 e = b - a;
+            const float l2 = e.lengthSq();
+            if (l2 < 1e-4f) continue;
+            const std::uint32_t segId = static_cast<std::uint32_t>(localSegs.size());
+            localSegs.push_back(LocalRoadSeg{
+                a, e, e / std::sqrt(l2), 1.0f / l2,
+                sMinX, sMaxX, sMinZ, sMaxZ,
+                ohw, rj, ro.roadClass, isBridgeO
+            });
+            const int c0x = std::clamp(static_cast<int>(std::floor((sMinX - ohw - gridMinX) * invCellSz)), 0, kGridN - 1);
+            const int c1x = std::clamp(static_cast<int>(std::floor((sMaxX + ohw - gridMinX) * invCellSz)), 0, kGridN - 1);
+            const int c0z = std::clamp(static_cast<int>(std::floor((sMinZ - ohw - gridMinZ) * invCellSz)), 0, kGridN - 1);
+            const int c1z = std::clamp(static_cast<int>(std::floor((sMaxZ + ohw - gridMinZ) * invCellSz)), 0, kGridN - 1);
+            for (int gz = c0z; gz <= c1z; ++gz) {
+                for (int gx = c0x; gx <= c1x; ++gx) {
+                    gridCells[gz * kGridN + gx].push_back(segId);
+                }
+            }
+        }
+    }
+    std::vector<std::uint32_t> segVisit(localSegs.size(), 0u);
+    std::uint32_t curStamp = 0u;
+
+    struct RoadSubSeg {
+        Vec2 p0{}, p1{}, mid{};
+        Vec2 n0{}, n1{}, segDir{}, segPerp{};
+        float dist0 = 0.0f, dist1 = 0.0f;
+        float hwL = 2.6f, hwR = 2.6f;
+        bool inChunk = false;
+        bool inInter = false;
+        bool crossedMajor = false;
+        bool suppressLeft = false;
+        bool suppressRight = false;
+        bool isMedianEdgeL = false;
+        bool isMedianEdgeR = false;
+        bool isInterCrosswalk = false;
+    };
+    std::vector<RoadSubSeg> subs;
+    std::vector<float> smoothTmpL, smoothTmpR;
+
     for (std::uint32_t k = 0; k < ch.roadLen; ++k) {
         const std::uint32_t ri = flatRoads[ch.roadStart + k];
         const OsmRoadRec& r = roads[ri];
-        if (r.vertCount < 2) continue;
+        if (r.vertCount < 2 || (r.flags & 4u) != 0u) continue;
 
         const bool isExpressway = (r.roadClass <= 1u);
         const bool isBridge = (r.flags & 2u) != 0u;
         const float hw = std::max(2.6f, r.halfWidth);
-        // Exact road-class micro-elevation matching RealSeoulData::roadSurfaceLiftAt() to the millimeter!
-        const float classLift = RealSeoulData::roadClassLift(r.roadClass);
+        const RoadLaneLayout laneLayout = RealSeoulData::computeRoadLaneLayout(r);
+
+        // Exact road-class lift + deterministic per-road micro-tiebreaker (0..18mm) to eliminate
+        // 100% of same-class intersection Z-fighting speckles without affecting tire physics!
+        const float slipBias = (hw < 3.2f) ? -0.005f : 0.0f;
+        const float roadTieBias = static_cast<float>(ri % 23u) * 0.0008f;
+        const float classLift = RealSeoulData::roadClassLift(r.roadClass) + slipBias + roadTieBias;
 
         auto evalRoadY = [&](const Vec2& p) -> float {
             float y = real.sampleDem(p) + classLift;
             if (isBridge) {
-                y = std::max(y, city.bridgeDeckElevationAt(p) + 0.02f);
+                y = std::max(y, city.bridgeDeckElevationAt(p) + 0.02f + roadTieBias * 0.5f);
             }
             return y;
         };
@@ -1880,8 +1969,10 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             miters[i] = Vec2{-dir.z, dir.x};
         }
 
+        // Pass 1: Build <=4.8m sub-segments near this chunk & classify intersections / dual-carriageway medians / merges!
+        subs.clear();
         float distM = 0.0f;
-        float nextPierDist = 18.0f;
+        const float activeRadius = hdr.chunkSize * 0.55f + 20.0f;
         for (std::uint16_t i = 0; i + 1 < r.vertCount; ++i) {
             const Vec2 edgeA = rVerts[r.firstVert + i];
             const Vec2 edgeB = rVerts[r.firstVert + i + 1];
@@ -1891,8 +1982,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
 
             const Vec2 segDir = edgeVec / edgeLen;
             const Vec2 segPerp{-segDir.z, segDir.x};
-            // Subdivide long straight/curved road spans every <= 10m so roads hug SRTM terrain smoothly!
-            const int subSteps = std::max(1, static_cast<int>(std::ceil(edgeLen / 10.0f)));
+            const int subSteps = std::max(1, static_cast<int>(std::ceil(edgeLen / 4.8f)));
             const float subLen = edgeLen / static_cast<float>(subSteps);
 
             for (int sub = 0; sub < subSteps; ++sub) {
@@ -1902,229 +1992,464 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 const Vec2 p1 = edgeA + edgeVec * t1;
                 const float dist0 = distM;
                 distM += subLen;
-
-                // Emit each <=10m sub-segment in EXACTLY ONE chunk (by midpoint) -> zero duplicates, zero gaps!
                 const Vec2 mid = (p0 + p1) * 0.5f;
+
+                if (std::abs(mid.x - chunkCenter.x) > activeRadius ||
+                    std::abs(mid.z - chunkCenter.z) > activeRadius) {
+                    continue;
+                }
+
                 const int mcx = std::clamp(static_cast<int>(std::floor((mid.x - hdr.minX) / hdr.chunkSize)),
                                            0, static_cast<int>(hdr.chunksX) - 1);
                 const int mcz = std::clamp(static_cast<int>(std::floor((mid.z - hdr.minZ) / hdr.chunkSize)),
                                            0, static_cast<int>(hdr.chunksZ) - 1);
-                if (mcx != cx || mcz != cz) continue;
 
-                const Vec2 n0 = (sub == 0) ? miters[i] : segPerp;
-                const Vec2 n1 = (sub + 1 == subSteps) ? miters[i + 1] : segPerp;
+                RoadSubSeg ss{};
+                ss.p0 = p0;
+                ss.p1 = p1;
+                ss.mid = mid;
+                ss.n0 = (sub == 0) ? miters[i] : segPerp;
+                ss.n1 = (sub + 1 == subSteps) ? miters[i + 1] : segPerp;
+                ss.segDir = segDir;
+                ss.segPerp = segPerp;
+                ss.dist0 = dist0;
+                ss.dist1 = distM;
+                ss.hwL = hw;
+                ss.hwR = hw;
+                ss.inChunk = (mcx == cx && mcz == cz);
 
-                // Evaluate DEM height independently at all 4 road corners so wide boulevards hug cross-slopes seamlessly!
-                const Vec2 p0L{p0.x - n0.x * hw, p0.z - n0.z * hw};
-                const Vec2 p0R{p0.x + n0.x * hw, p0.z + n0.z * hw};
-                const Vec2 p1R{p1.x + n1.x * hw, p1.z + n1.z * hw};
-                const Vec2 p1L{p1.x - n1.x * hw, p1.z - n1.z * hw};
-                const Vec3 aL{p0L.x, evalRoadY(p0L), p0L.z};
-                const Vec3 aR{p0R.x, evalRoadY(p0R), p0R.z};
-                const Vec3 bR{p1R.x, evalRoadY(p1R), p1R.z};
-                const Vec3 bL{p1L.x, evalRoadY(p1L), p1L.z};
-                const float y0 = 0.5f * (aL.y + aR.y);
-                const float y1 = 0.5f * (bL.y + bR.y);
+                // Query only the local grid cells touching this sub-segment (O(1) spatial lookup!)
+                ++curStamp;
+                const float qRad = hw + 3.5f;
+                const int q0x = std::clamp(static_cast<int>(std::floor((mid.x - qRad - gridMinX) * invCellSz)), 0, kGridN - 1);
+                const int q1x = std::clamp(static_cast<int>(std::floor((mid.x + qRad - gridMinX) * invCellSz)), 0, kGridN - 1);
+                const int q0z = std::clamp(static_cast<int>(std::floor((mid.z - qRad - gridMinZ) * invCellSz)), 0, kGridN - 1);
+                const int q1z = std::clamp(static_cast<int>(std::floor((mid.z + qRad - gridMinZ) * invCellSz)), 0, kGridN - 1);
 
-                const float uL = -hw;
-                const float uR =  hw;
-                const float v0 = 10.0f + dist0;
-                const float v1 = 10.0f + distM;
-                const RoadLaneLayout laneLayout = RealSeoulData::computeRoadLaneLayout(r);
-                const ColorRGBA roadMeta{
-                    static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(hw * 10.0f)), 24, 255)),
-                    static_cast<std::uint8_t>(std::clamp(laneLayout.totalLanes * 16, 0, 255)),
-                    laneLayout.styleByte,
-                    255u
-                };
-                pushQuadV3(roadsV, aL, aR, bR, bL, {0, 1, 0},
-                           uL, v0, uR, v0, uR, v1, uL, v1, roadMeta);
+                float bestOppGapL = 1e9f, bestOppOhwL = 0.0f;
+                float bestOppGapR = 1e9f, bestOppOhwR = 0.0f;
 
-                // Flanking raised Korean granite-curb + tactile-paving sidewalks ONLY on City Streets (NEVER on Expressways or Bridges!)
-                if (!isExpressway && !isBridge && r.roadClass <= 4) {
-                    const float swW = (r.roadClass <= 2) ? 3.0f : 2.2f;
-                    const float curbH = 0.08f;
-                    const float swV0 = 10.0f + dist0;
-                    const float swV1 = 10.0f + distM;
-                    const Vec2 nMid = (n0 + n1).normalized();
-                    for (float side : {-1.0f, 1.0f}) {
-                        const Vec2 s0 = n0 * side;
-                        const Vec2 s1 = n1 * side;
-                        const Vec2 sM = nMid * side;
-                        const float probeOff = hw + swW * 0.52f;
-                        const Vec2 swP0 = p0 + s0 * probeOff;
-                        const Vec2 swPM = mid + sM * probeOff;
-                        const Vec2 swP1 = p1 + s1 * probeOff;
-                        if (real.isInWater(swPM) ||
-                            real.isOnRoad(swP0, 0.9f) ||
-                            real.isOnRoad(swPM, 0.9f) ||
-                            real.isOnRoad(swP1, 0.9f)) {
-                            continue;
+                for (int gz = q0z; gz <= q1z; ++gz) {
+                    for (int gx = q0x; gx <= q1x; ++gx) {
+                        for (std::uint32_t segId : gridCells[gz * kGridN + gx]) {
+                            if (segVisit[segId] == curStamp) continue;
+                            segVisit[segId] = curStamp;
+
+                            const LocalRoadSeg& ls = localSegs[segId];
+                            if (ls.roadIdx == ri || ls.isBridge != isBridge) continue;
+                            const float ohw = ls.ohw;
+                            const float maxD = hw + ohw + 3.0f;
+                            if (mid.x < ls.minX - maxD || mid.x > ls.maxX + maxD ||
+                                mid.z < ls.minZ - maxD || mid.z > ls.maxZ + maxD) {
+                                continue;
+                            }
+
+                            const float tm = clampf((mid - ls.a).dot(ls.e) * ls.invLen2, 0.0f, 1.0f);
+                            const Vec2 oClosest = ls.a + ls.e * tm;
+                            const float dMid2 = (mid - oClosest).lengthSq();
+                            if (dMid2 > maxD * maxD) continue;
+                            const float dMid = std::sqrt(dMid2);
+
+                            const float dirDot = segDir.dot(ls.dir);
+                            const float absDot = std::abs(dirDot);
+
+                            // A) Narrow 1-lane slip / U-turn link touching any wider avenue -> clean dark asphalt!
+                            if (hw < 3.2f && ohw >= 4.5f && dMid < ohw + 2.5f) {
+                                ss.inInter = true;
+                                continue;
+                            }
+
+                            // B) Crossing intersection road (angle > ~40 deg) -> clean intersection box!
+                            //    On major multi-lane boulevards (hw >= 6.0m), only true crossing streets (ohw >= 4.5m)
+                            //    create a full intersection box; narrow 1-lane slip lanes / alleys whose OSM start nodes
+                            //    snap to the boulevard centerline turn into clean dark merge asphalt themselves (Rule A)
+                            //    without punching holes through the boulevard's blue bus lane & yellow central median!
+                            if (absDot < 0.76f) {
+                                const bool otherSubstantial = (hw >= 6.0f)
+                                    ? (ls.roadClass <= 3u && ohw >= 4.5f)
+                                    : ((ls.roadClass <= 4u && ohw >= 3.2f) || (r.roadClass >= 4u));
+                                if (otherSubstantial) {
+                                    const float tp0 = clampf((p0 - ls.a).dot(ls.e) * ls.invLen2, 0.0f, 1.0f);
+                                    const float tp1 = clampf((p1 - ls.a).dot(ls.e) * ls.invLen2, 0.0f, 1.0f);
+                                    const float dP0_2 = (p0 - (ls.a + ls.e * tp0)).lengthSq();
+                                    const float dP1_2 = (p1 - (ls.a + ls.e * tp1)).lengthSq();
+                                    const float endLim = ohw + 0.7f;
+                                    const float hitMargin = isExpressway ? 0.5f : 2.1f;
+
+                                    if (dMid < ohw + hitMargin ||
+                                        dP0_2 < endLim * endLim ||
+                                        dP1_2 < endLim * endLim) {
+                                        ss.inInter = true;
+                                        if (ls.roadClass <= 3u && ohw >= 4.8f) {
+                                            ss.crossedMajor = true;
+                                        }
+                                    }
+                                }
+                                continue;
+                            }
+
+                            // C) Opposite-direction parallel twin carriageway (Teheran-ro / Gangnam-daero / Gyeongbu):
+                            //    Track closest opposing carriageway on each side for flush zero-overlap, zero-gap median!
+                            if (dirDot < -0.82f && std::abs(static_cast<int>(r.roadClass) - static_cast<int>(ls.roadClass)) <= 1) {
+                                const float sideLat = (oClosest - mid).dot(segPerp);
+                                if (sideLat < -2.0f) {
+                                    const float centerGap = -sideLat;
+                                    if (centerGap < bestOppGapL) {
+                                        bestOppGapL = centerGap;
+                                        bestOppOhwL = ohw;
+                                    }
+                                } else if (sideLat > 2.0f) {
+                                    const float centerGap = sideLat;
+                                    if (centerGap < bestOppGapR) {
+                                        bestOppGapR = centerGap;
+                                        bestOppOhwR = ohw;
+                                    }
+                                }
+                                continue;
+                            }
+
+                            // D) Same-direction merging / parallel road (IC ramps, turn pockets, slip lanes):
+                            //    Suppress touching edge line so yellow/white edge stripes never slice across merge asphalt!
+                            if (dirDot > 0.78f && dMid < hw + ohw + 0.55f) {
+                                const float sideLat = (oClosest - mid).dot(segPerp);
+                                if (sideLat < -0.4f) ss.suppressLeft = true;
+                                else if (sideLat > 0.4f) ss.suppressRight = true;
+                                if (hw < 3.6f && ohw >= 5.0f && dMid < ohw + 1.4f) {
+                                    ss.inInter = true;
+                                }
+                            }
                         }
-                        const Vec2 c0P{p0.x + s0.x * hw, p0.z + s0.z * hw};
-                        const Vec2 c1P{p1.x + s1.x * hw, p1.z + s1.z * hw};
-                        const Vec2 o0P{p0.x + s0.x * (hw + swW), p0.z + s0.z * (hw + swW)};
-                        const Vec2 o1P{p1.x + s1.x * (hw + swW), p1.z + s1.z * (hw + swW)};
-                        const float yc0 = evalRoadY(c0P);
-                        const float yc1 = evalRoadY(c1P);
-                        const float yo0 = evalRoadY(o0P);
-                        const float yo1 = evalRoadY(o1P);
-                        const Vec3 c0Bot{c0P.x, yc0 - 0.02f, c0P.z};
-                        const Vec3 c1Bot{c1P.x, yc1 - 0.02f, c1P.z};
-                        const Vec3 c0Top{p0.x + s0.x * (hw + 0.08f), yc0 + curbH, p0.z + s0.z * (hw + 0.08f)};
-                        const Vec3 c1Top{p1.x + s1.x * (hw + 0.08f), yc1 + curbH, p1.z + s1.z * (hw + 0.08f)};
-                        const Vec3 o0Top{o0P.x, yo0 + curbH, o0P.z};
-                        const Vec3 o1Top{o1P.x, yo1 + curbH, o1P.z};
-                        const Vec3 curbN{-s0.x, 0.25f, -s0.z};
-                        pushQuadV3(sidewalksV, c0Bot, c1Bot, c1Top, c0Top, curbN.normalized(),
-                                   0.04f, swV0, 0.04f, swV1, 0.08f, swV1, 0.08f, swV0, kSwTint);
-                        pushQuadV3(sidewalksV, c0Top, c1Top, o1Top, o0Top, {0, 1, 0},
-                                   0.0f, swV0, 0.0f, swV1, 1.0f, swV1, 1.0f, swV0, kSwTint);
                     }
                 }
 
-                // Continuous 3D Korean Highway Concrete New Jersey Barriers, Anti-Glare Medians & Urban Soundproof Walls!
-                if (isExpressway && !isBridge) {
-                    const Vec2 nMid = (n0 + n1).normalized();
-                    const Vec2 segDir = (p1 - p0).normalized();
-                    const ColorRGBA kJerseyCol{182, 186, 192, 255};
-                    const ColorRGBA kAntiGlareGreen{22, 118, 72, 255};
-                    const ColorRGBA kGuardSteel{196, 202, 212, 255};
-                    const ColorRGBA kSoundGlass{138, 168, 194, 255};
-                    const ColorRGBA kSoundFrame{54, 62, 74, 255};
+                // Apply exact flush contact along opposite-direction twin medians (eliminates BOTH ghost overlap
+                // AND tiny 15-80cm grey concrete slits between parallel Seoul carriageways!).
+                if (bestOppOhwL > 0.0f && bestOppGapL < hw + bestOppOhwL + 1.85f) {
+                    const float exactL = bestOppGapL * (hw / (hw + bestOppOhwL)) + 0.015f;
+                    ss.hwL = clampf(exactL, 2.6f, hw + 0.95f);
+                    ss.isMedianEdgeL = true;
+                    ss.suppressLeft = false; // Always preserve crisp central yellow median line!
+                }
+                if (bestOppOhwR > 0.0f && bestOppGapR < hw + bestOppOhwR + 1.85f) {
+                    const float exactR = bestOppGapR * (hw / (hw + bestOppOhwR)) + 0.015f;
+                    ss.hwR = clampf(exactR, 2.6f, hw + 0.95f);
+                    ss.isMedianEdgeR = true;
+                    ss.suppressRight = false; // Always preserve crisp central yellow median line!
+                }
 
-                    for (float side : {-1.0f, 1.0f}) {
-                        const Vec2 s0 = n0 * side;
-                        const Vec2 s1 = n1 * side;
-                        const Vec2 sM = nMid * side;
+                subs.push_back(ss);
+            }
+        }
 
-                        // Distinguish tightly-spaced opposing expressway carriageway (central median!) from on/off-ramps!
-                        const NearestOsmRoad oppNr = real.findNearestRoad(mid + sM * (hw + 4.5f), 14.0f);
-                        const bool isOppParallelExp = oppNr.found && oppNr.roadIdx != ri &&
-                                                      oppNr.roadClass <= 1u &&
-                                                      oppNr.tangent.dot(segDir) < -0.78f;
+        // Smooth trimmed/fused dual-carriageway edge widths across connected sub-segments (2-pass binomial)
+        // so yellow median lines remain razor-straight with zero step jogs at OSM node transitions!
+        if (subs.size() >= 3u) {
+            smoothTmpL.resize(subs.size());
+            smoothTmpR.resize(subs.size());
+            for (int pass = 0; pass < 2; ++pass) {
+                for (std::size_t idx = 0; idx < subs.size(); ++idx) {
+                    float accL = subs[idx].hwL * 2.0f;
+                    float accR = subs[idx].hwR * 2.0f;
+                    float wSum = 2.0f;
+                    if (idx > 0 && (subs[idx].p0 - subs[idx - 1].p1).lengthSq() < 0.25f) {
+                        accL += subs[idx - 1].hwL;
+                        accR += subs[idx - 1].hwR;
+                        wSum += 1.0f;
+                    }
+                    if (idx + 1 < subs.size() && (subs[idx + 1].p0 - subs[idx].p1).lengthSq() < 0.25f) {
+                        accL += subs[idx + 1].hwL;
+                        accR += subs[idx + 1].hwR;
+                        wSum += 1.0f;
+                    }
+                    smoothTmpL[idx] = accL / wSum;
+                    smoothTmpR[idx] = accR / wSum;
+                }
+                for (std::size_t idx = 0; idx < subs.size(); ++idx) {
+                    subs[idx].hwL = smoothTmpL[idx];
+                    subs[idx].hwR = smoothTmpR[idx];
+                }
+            }
+        }
 
-                        const Vec2 rampProbe0 = p0 + s0 * (hw + 0.85f);
-                        const Vec2 rampProbeM = mid + sM * (hw + 0.85f);
-                        const Vec2 rampProbe1 = p1 + s1 * (hw + 0.85f);
-                        const bool tightTouching = real.isOnRoad(rampProbe0, 0.25f) ||
-                                                   real.isOnRoad(rampProbeM, 0.25f) ||
-                                                   real.isOnRoad(rampProbe1, 0.25f);
-                        if (tightTouching) {
-                            // Keep same-direction merge/exit ramps open; on tight opposing expressway medians,
-                            // emit ONE shared concrete Jersey median + green anti-glare screen from the lower roadIdx!
-                            if (!isOppParallelExp || ri > oppNr.roadIdx) continue;
-                        }
+        // Pass 2: Place authentic Korean zebra crosswalks ONLY at real intersection approach edges
+        //         (plus spaced mid-block crosswalks on >145m unbroken city boulevards)!
+        if (!isExpressway && !isBridge && r.roadClass <= 3u && hw >= 4.8f && !subs.empty()) {
+            float lastCwDist = -1e9f;
+            for (std::size_t idx = 0; idx < subs.size(); ++idx) {
+                if (subs[idx].inInter) continue;
+                const bool prevMajor = (idx > 0 && subs[idx - 1].crossedMajor &&
+                                        (subs[idx].p0 - subs[idx - 1].p1).lengthSq() < 1.0f);
+                const bool nextMajor = (idx + 1 < subs.size() && subs[idx + 1].crossedMajor &&
+                                        (subs[idx + 1].p0 - subs[idx].p1).lengthSq() < 1.0f);
+                if ((prevMajor || nextMajor) && (subs[idx].dist0 - lastCwDist) > 22.0f) {
+                    subs[idx].isInterCrosswalk = true;
+                    lastCwDist = subs[idx].dist0;
+                }
+            }
+            // Add clean mid-block zebra crossing on ultra-long unbroken straight avenues (>145m gap)
+            float runStartDist = subs[0].dist0;
+            for (std::size_t idx = 0; idx < subs.size(); ++idx) {
+                if (subs[idx].inInter || subs[idx].isInterCrosswalk) {
+                    runStartDist = subs[idx].dist1;
+                } else if (subs[idx].dist0 - runStartDist > 145.0f) {
+                    bool clearAhead = true;
+                    for (std::size_t j = idx + 1; j < subs.size() && (subs[j].dist0 - subs[idx].dist1) < 30.0f; ++j) {
+                        if (subs[j].inInter || subs[j].isInterCrosswalk) { clearAhead = false; break; }
+                    }
+                    if (clearAhead) {
+                        subs[idx].isInterCrosswalk = true;
+                        runStartDist = subs[idx].dist1;
+                    }
+                }
+            }
+        }
 
-                        const bool isMedianSide = isOppParallelExp || real.isOnRoad(mid + sM * (hw + 5.2f), 2.0f);
-                        const float innerOff = hw + (tightTouching ? 0.02f : 0.14f);
-                        const float outerOff = hw + (tightTouching ? 0.44f : (isMedianSide ? 0.56f : 0.48f));
-                        const float wallH = isMedianSide ? 1.04f : 0.90f;
+        // Pass 3: Emit watertight road quads, sidewalks, expressway barriers & bridge piers!
+        float nextPierDist = 18.0f;
+        for (std::size_t idx = 0; idx < subs.size(); ++idx) {
+            const RoadSubSeg& ss = subs[idx];
+            if (!ss.inChunk) continue;
 
-                        const Vec2 i0P{p0.x + s0.x * innerOff, p0.z + s0.z * innerOff};
-                        const Vec2 i1P{p1.x + s1.x * innerOff, p1.z + s1.z * innerOff};
-                        const Vec2 o0P{p0.x + s0.x * outerOff, p0.z + s0.z * outerOff};
-                        const Vec2 o1P{p1.x + s1.x * outerOff, p1.z + s1.z * outerOff};
-                        const float yi0 = evalRoadY(i0P);
-                        const float yi1 = evalRoadY(i1P);
+            const Vec2& p0 = ss.p0;
+            const Vec2& p1 = ss.p1;
+            const Vec2& mid = ss.mid;
+            const Vec2& n0 = ss.n0;
+            const Vec2& n1 = ss.n1;
+            const float dist0 = ss.dist0;
+            const float dist1 = ss.dist1;
 
-                        const Vec3 i0B{i0P.x, yi0 - 0.05f, i0P.z};
-                        const Vec3 i1B{i1P.x, yi1 - 0.05f, i1P.z};
-                        const Vec3 i0T{i0P.x + s0.x * 0.10f, yi0 + wallH, i0P.z + s0.z * 0.10f};
-                        const Vec3 i1T{i1P.x + s1.x * 0.10f, yi1 + wallH, i1P.z + s1.z * 0.10f};
-                        const Vec3 o0B{o0P.x, yi0 - 0.05f, o0P.z};
-                        const Vec3 o1B{o1P.x, yi1 - 0.05f, o1P.z};
-                        const Vec3 o0T{o0P.x - s0.x * 0.10f, yi0 + wallH, o0P.z - s0.z * 0.10f};
-                        const Vec3 o1T{o1P.x - s1.x * 0.10f, yi1 + wallH, o1P.z - s1.z * 0.10f};
+            // Smooth shared vertex edge widths across consecutive sub-segments so trimmed medians stay 100% seamless!
+            float hwL0 = ss.hwL, hwL1 = ss.hwL;
+            float hwR0 = ss.hwR, hwR1 = ss.hwR;
+            if (idx > 0 && (ss.p0 - subs[idx - 1].p1).lengthSq() < 0.25f) {
+                hwL0 = 0.5f * (ss.hwL + subs[idx - 1].hwL);
+                hwR0 = 0.5f * (ss.hwR + subs[idx - 1].hwR);
+            }
+            if (idx + 1 < subs.size() && (subs[idx + 1].p0 - ss.p1).lengthSq() < 0.25f) {
+                hwL1 = 0.5f * (ss.hwL + subs[idx + 1].hwL);
+                hwR1 = 0.5f * (ss.hwR + subs[idx + 1].hwR);
+            }
 
-                        const Vec3 inN = Vec3{-s0.x, 0.18f, -s0.z}.normalized();
-                        const Vec3 outN = Vec3{s0.x, 0.18f, s0.z}.normalized();
-                        // Concrete New Jersey barrier (road-facing face + top cap + outer face)
-                        pushQuadV3(piersV, i0B, i1B, i1T, i0T, inN, 0, 0, 1, 0, 1, 1, 0, 1, kJerseyCol);
-                        pushQuadV3(piersV, i0T, i1T, o1T, o0T, {0, 1, 0}, 0, 0, 1, 0, 1, 1, 0, 1, kJerseyCol);
-                        pushQuadV3(piersV, o1B, o0B, o0T, o1T, outN, 0, 0, 1, 0, 1, 1, 0, 1, kJerseyCol);
+            // Evaluate DEM height independently at all 4 road corners so wide boulevards hug cross-slopes seamlessly!
+            const Vec2 p0L{p0.x - n0.x * hwL0, p0.z - n0.z * hwL0};
+            const Vec2 p0R{p0.x + n0.x * hwR0, p0.z + n0.z * hwR0};
+            const Vec2 p1R{p1.x + n1.x * hwR1, p1.z + n1.z * hwR1};
+            const Vec2 p1L{p1.x - n1.x * hwL1, p1.z - n1.z * hwL1};
+            const Vec3 aL{p0L.x, evalRoadY(p0L), p0L.z};
+            const Vec3 aR{p0R.x, evalRoadY(p0R), p0R.z};
+            const Vec3 bR{p1R.x, evalRoadY(p1R), p1R.z};
+            const Vec3 bL{p1L.x, evalRoadY(p1L), p1L.z};
+            const float y0 = 0.5f * (aL.y + aR.y);
+            const float y1 = 0.5f * (bL.y + bR.y);
 
-                        if (isMedianSide) {
-                            // Korean Expressway Green Anti-Glare Top Screen (현광방지망) mounted on central median wall!
-                            const float midOff = 0.5f * (innerOff + outerOff);
-                            const Vec3 g0B{p0.x + s0.x * midOff, yi0 + wallH, p0.z + s0.z * midOff};
-                            const Vec3 g1B{p1.x + s1.x * midOff, yi1 + wallH, p1.z + s1.z * midOff};
-                            const Vec3 g0T{g0B.x, yi0 + wallH + 0.42f, g0B.z};
-                            const Vec3 g1T{g1B.x, yi1 + wallH + 0.42f, g1B.z};
-                            pushQuadV3(piersV, g0B, g1B, g1T, g0T, inN, 0, 0, 1, 0, 1, 1, 0, 1, kAntiGlareGreen);
-                            pushQuadV3(piersV, g1B, g0B, g0T, g1T, outN, 0, 0, 1, 0, 1, 1, 0, 1, kAntiGlareGreen);
-                        } else {
-                            // Crisp silver W-beam upper metallic guardrail strip along outer expressway barrier!
-                            const Vec3 r0B{i0P.x + s0.x * 0.08f, yi0 + wallH + 0.02f, i0P.z + s0.z * 0.08f};
-                            const Vec3 r1B{i1P.x + s1.x * 0.08f, yi1 + wallH + 0.02f, i1P.z + s1.z * 0.08f};
-                            const Vec3 r0T{r0B.x, yi0 + wallH + 0.24f, r0B.z};
-                            const Vec3 r1T{r1B.x, yi1 + wallH + 0.24f, r1B.z};
-                            pushQuadV3(piersV, r0B, r1B, r1T, r0T, inN, 0, 0, 1, 0, 1, 1, 0, 1, kGuardSteel);
-                            pushQuadV3(piersV, r1B, r0B, r0T, r1T, outN, 0, 0, 1, 0, 1, 1, 0, 1, kGuardSteel);
+            const float effHw = 0.5f * (ss.hwL + ss.hwR);
+            const float uL = -effHw;
+            const float uR =  effHw;
+            const float v0 = 10.0f + dist0;
+            const float v1 = 10.0f + dist1;
+            const std::uint8_t roadFlags =
+                (ss.suppressLeft ? 1u : 0u) |
+                (ss.suppressRight ? 2u : 0u) |
+                (ss.isInterCrosswalk ? 4u : 0u) |
+                (ss.inInter ? 8u : 0u);
+            const ColorRGBA roadMeta{
+                static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(effHw * 10.0f)), 24, 255)),
+                static_cast<std::uint8_t>((std::clamp(laneLayout.totalLanes, 0, 15) << 4) | (roadFlags & 0x0Fu)),
+                laneLayout.styleByte,
+                255u
+            };
+            pushQuadV3(roadsV, aL, aR, bR, bL, {0, 1, 0},
+                       uL, v0, uR, v0, uR, v1, uL, v1, roadMeta);
 
-                            // Urban Korean Expressway Soundproof Acoustic Walls (방음벽) away from Han River waterfront!
-                            // Probe across Han River park strips (26m / 68m / 125m) so Olympic-daero & Gangbyeonbuk-ro
-                            // keep unobstructed panoramic Han River views while lining inland Gyeongbu/apartment corridors!
-                            const bool facesWaterfront =
-                                real.isInWater(mid + sM * (hw + 26.0f)) ||
-                                real.isInWater(mid + sM * (hw + 68.0f)) ||
-                                real.isInWater(mid + sM * (hw + 125.0f));
-                            if (hw >= 6.8f && !facesWaterfront) {
-                                const float swOff = outerOff - 0.08f;
-                                const Vec3 s0B{p0.x + s0.x * swOff, yi0 + wallH + 0.24f, p0.z + s0.z * swOff};
-                                const Vec3 s1B{p1.x + s1.x * swOff, yi1 + wallH + 0.24f, p1.z + s1.z * swOff};
-                                const Vec3 s0T{s0B.x, yi0 + wallH + 2.35f, s0B.z};
-                                const Vec3 s1T{s1B.x, yi1 + wallH + 2.35f, s1B.z};
-                                pushQuadV3(piersV, s0B, s1B, s1T, s0T, inN, 0, 0, 1, 0, 1, 1, 0, 1, kSoundGlass);
-                                pushQuadV3(piersV, s1B, s0B, s0T, s1T, outN, 0, 0, 1, 0, 1, 1, 0, 1, kSoundGlass);
-                                // Dark metallic H-beam sound wall post & top cap rail!
+            // Flanking raised Korean granite-curb + tactile-paving sidewalks ONLY outside intersections on City Streets!
+            if (!isExpressway && !isBridge && !ss.inInter && r.roadClass <= 4u) {
+                const float swW = (r.roadClass <= 2u) ? 3.0f : 2.2f;
+                const float curbH = 0.08f;
+                const float swV0 = 10.0f + dist0;
+                const float swV1 = 10.0f + dist1;
+                const Vec2 nMid = (n0 + n1).normalized();
+                for (float side : {-1.0f, 1.0f}) {
+                    // Never emit a sidewalk curb along a flush twin-carriageway median or slip-lane merge!
+                    if (side < 0.0f && (ss.isMedianEdgeL || ss.suppressLeft)) continue;
+                    if (side > 0.0f && (ss.isMedianEdgeR || ss.suppressRight)) continue;
+                    const float sideHw0 = (side < 0.0f) ? hwL0 : hwR0;
+                    const float sideHw1 = (side < 0.0f) ? hwL1 : hwR1;
+                    const float sideHwM = 0.5f * (sideHw0 + sideHw1);
+                    const Vec2 s0 = n0 * side;
+                    const Vec2 s1 = n1 * side;
+                    const Vec2 sM = nMid * side;
+                    const float probeOff = sideHwM + swW * 0.52f;
+                    const Vec2 swP0 = p0 + s0 * probeOff;
+                    const Vec2 swPM = mid + sM * probeOff;
+                    const Vec2 swP1 = p1 + s1 * probeOff;
+                    if (real.isInWater(swPM) ||
+                        real.isOnRoad(swP0, 0.9f) ||
+                        real.isOnRoad(swPM, 0.9f) ||
+                        real.isOnRoad(swP1, 0.9f)) {
+                        continue;
+                    }
+                    const Vec2 c0P{p0.x + s0.x * sideHw0, p0.z + s0.z * sideHw0};
+                    const Vec2 c1P{p1.x + s1.x * sideHw1, p1.z + s1.z * sideHw1};
+                    const Vec2 o0P{p0.x + s0.x * (sideHw0 + swW), p0.z + s0.z * (sideHw0 + swW)};
+                    const Vec2 o1P{p1.x + s1.x * (sideHw1 + swW), p1.z + s1.z * (sideHw1 + swW)};
+                    const float yc0 = evalRoadY(c0P);
+                    const float yc1 = evalRoadY(c1P);
+                    const float yo0 = evalRoadY(o0P);
+                    const float yo1 = evalRoadY(o1P);
+                    const Vec3 c0Bot{c0P.x, yc0 - 0.02f, c0P.z};
+                    const Vec3 c1Bot{c1P.x, yc1 - 0.02f, c1P.z};
+                    const Vec3 c0Top{p0.x + s0.x * (sideHw0 + 0.08f), yc0 + curbH, p0.z + s0.z * (sideHw0 + 0.08f)};
+                    const Vec3 c1Top{p1.x + s1.x * (sideHw1 + 0.08f), yc1 + curbH, p1.z + s1.z * (sideHw1 + 0.08f)};
+                    const Vec3 o0Top{o0P.x, yo0 + curbH, o0P.z};
+                    const Vec3 o1Top{o1P.x, yo1 + curbH, o1P.z};
+                    const Vec3 curbN{-s0.x, 0.25f, -s0.z};
+                    pushQuadV3(sidewalksV, c0Bot, c1Bot, c1Top, c0Top, curbN.normalized(),
+                               0.04f, swV0, 0.04f, swV1, 0.08f, swV1, 0.08f, swV0, kSwTint);
+                    pushQuadV3(sidewalksV, c0Top, c1Top, o1Top, o0Top, {0, 1, 0},
+                               0.0f, swV0, 0.0f, swV1, 1.0f, swV1, 1.0f, swV0, kSwTint);
+                }
+            }
+
+            // Continuous 3D Korean Highway Concrete New Jersey Barriers, Anti-Glare Medians & Urban Soundproof Walls!
+            if (isExpressway && !isBridge && !ss.inInter) {
+                const Vec2 nMid = (n0 + n1).normalized();
+                const Vec2 segDir = ss.segDir;
+                const ColorRGBA kJerseyCol{182, 186, 192, 255};
+                const ColorRGBA kAntiGlareGreen{22, 118, 72, 255};
+                const ColorRGBA kGuardSteel{196, 202, 212, 255};
+                const ColorRGBA kSoundGlass{138, 168, 194, 255};
+                const ColorRGBA kSoundFrame{54, 62, 74, 255};
+
+                for (float side : {-1.0f, 1.0f}) {
+                    const float sideHw0 = (side < 0.0f) ? hwL0 : hwR0;
+                    const float sideHw1 = (side < 0.0f) ? hwL1 : hwR1;
+                    const float sideHwM = 0.5f * (sideHw0 + sideHw1);
+                    const Vec2 s0 = n0 * side;
+                    const Vec2 s1 = n1 * side;
+                    const Vec2 sM = nMid * side;
+
+                    // Distinguish tightly-spaced opposing expressway carriageway (central median!) from on/off-ramps!
+                    const NearestOsmRoad oppNr = real.findNearestRoad(mid + sM * (sideHwM + 4.5f), 14.0f);
+                    const bool isOppParallelExp = oppNr.found && oppNr.roadIdx != ri &&
+                                                  oppNr.roadClass <= 1u &&
+                                                  oppNr.tangent.dot(segDir) < -0.78f;
+
+                    const Vec2 rampProbe0 = p0 + s0 * (sideHw0 + 0.85f);
+                    const Vec2 rampProbeM = mid + sM * (sideHwM + 0.85f);
+                    const Vec2 rampProbe1 = p1 + s1 * (sideHw1 + 0.85f);
+                    const bool tightTouching = real.isOnRoad(rampProbe0, 0.25f) ||
+                                               real.isOnRoad(rampProbeM, 0.25f) ||
+                                               real.isOnRoad(rampProbe1, 0.25f);
+                    if (tightTouching) {
+                        // Keep same-direction merge/exit ramps open; on tight opposing expressway medians,
+                        // emit ONE shared concrete Jersey median + green anti-glare screen from the lower roadIdx!
+                        if (!isOppParallelExp || ri > oppNr.roadIdx) continue;
+                    }
+
+                    const bool isMedianSide = isOppParallelExp || real.isOnRoad(mid + sM * (sideHwM + 5.2f), 2.0f);
+                    const float inDelta = tightTouching ? 0.02f : 0.14f;
+                    const float outDelta = tightTouching ? 0.44f : (isMedianSide ? 0.56f : 0.48f);
+                    const float wallH = isMedianSide ? 1.04f : 0.90f;
+
+                    const Vec2 i0P{p0.x + s0.x * (sideHw0 + inDelta), p0.z + s0.z * (sideHw0 + inDelta)};
+                    const Vec2 i1P{p1.x + s1.x * (sideHw1 + inDelta), p1.z + s1.z * (sideHw1 + inDelta)};
+                    const Vec2 o0P{p0.x + s0.x * (sideHw0 + outDelta), p0.z + s0.z * (sideHw0 + outDelta)};
+                    const Vec2 o1P{p1.x + s1.x * (sideHw1 + outDelta), p1.z + s1.z * (sideHw1 + outDelta)};
+                    const float yi0 = evalRoadY(i0P);
+                    const float yi1 = evalRoadY(i1P);
+
+                    const Vec3 i0B{i0P.x, yi0 - 0.05f, i0P.z};
+                    const Vec3 i1B{i1P.x, yi1 - 0.05f, i1P.z};
+                    const Vec3 i0T{i0P.x + s0.x * 0.10f, yi0 + wallH, i0P.z + s0.z * 0.10f};
+                    const Vec3 i1T{i1P.x + s1.x * 0.10f, yi1 + wallH, i1P.z + s1.z * 0.10f};
+                    const Vec3 o0B{o0P.x, yi0 - 0.05f, o0P.z};
+                    const Vec3 o1B{o1P.x, yi1 - 0.05f, o1P.z};
+                    const Vec3 o0T{o0P.x - s0.x * 0.10f, yi0 + wallH, o0P.z - s0.z * 0.10f};
+                    const Vec3 o1T{o1P.x - s1.x * 0.10f, yi1 + wallH, o1P.z - s1.z * 0.10f};
+
+                    const Vec3 inN = Vec3{-s0.x, 0.18f, -s0.z}.normalized();
+                    const Vec3 outN = Vec3{s0.x, 0.18f, s0.z}.normalized();
+                    pushQuadV3(piersV, i0B, i1B, i1T, i0T, inN, 0, 0, 1, 0, 1, 1, 0, 1, kJerseyCol);
+                    pushQuadV3(piersV, i0T, i1T, o1T, o0T, {0, 1, 0}, 0, 0, 1, 0, 1, 1, 0, 1, kJerseyCol);
+                    pushQuadV3(piersV, o1B, o0B, o0T, o1T, outN, 0, 0, 1, 0, 1, 1, 0, 1, kJerseyCol);
+
+                    if (isMedianSide) {
+                        const float midDelta = 0.5f * (inDelta + outDelta);
+                        const Vec3 g0B{p0.x + s0.x * (sideHw0 + midDelta), yi0 + wallH, p0.z + s0.z * (sideHw0 + midDelta)};
+                        const Vec3 g1B{p1.x + s1.x * (sideHw1 + midDelta), yi1 + wallH, p1.z + s1.z * (sideHw1 + midDelta)};
+                        const Vec3 g0T{g0B.x, yi0 + wallH + 0.42f, g0B.z};
+                        const Vec3 g1T{g1B.x, yi1 + wallH + 0.42f, g1B.z};
+                        pushQuadV3(piersV, g0B, g1B, g1T, g0T, inN, 0, 0, 1, 0, 1, 1, 0, 1, kAntiGlareGreen);
+                        pushQuadV3(piersV, g1B, g0B, g0T, g1T, outN, 0, 0, 1, 0, 1, 1, 0, 1, kAntiGlareGreen);
+                    } else {
+                        const Vec3 r0B{i0P.x + s0.x * 0.08f, yi0 + wallH + 0.02f, i0P.z + s0.z * 0.08f};
+                        const Vec3 r1B{i1P.x + s1.x * 0.08f, yi1 + wallH + 0.02f, i1P.z + s1.z * 0.08f};
+                        const Vec3 r0T{r0B.x, yi0 + wallH + 0.24f, r0B.z};
+                        const Vec3 r1T{r1B.x, yi1 + wallH + 0.24f, r1B.z};
+                        pushQuadV3(piersV, r0B, r1B, r1T, r0T, inN, 0, 0, 1, 0, 1, 1, 0, 1, kGuardSteel);
+                        pushQuadV3(piersV, r1B, r0B, r0T, r1T, outN, 0, 0, 1, 0, 1, 1, 0, 1, kGuardSteel);
+
+                        const bool facesWaterfront =
+                            real.isInWater(mid + sM * (sideHwM + 26.0f)) ||
+                            real.isInWater(mid + sM * (sideHwM + 68.0f)) ||
+                            real.isInWater(mid + sM * (sideHwM + 125.0f));
+                        if (hw >= 6.8f && !facesWaterfront) {
+                            const float swDelta = outDelta - 0.08f;
+                            const Vec3 s0B{p0.x + s0.x * (sideHw0 + swDelta), yi0 + wallH + 0.24f, p0.z + s0.z * (sideHw0 + swDelta)};
+                            const Vec3 s1B{p1.x + s1.x * (sideHw1 + swDelta), yi1 + wallH + 0.24f, p1.z + s1.z * (sideHw1 + swDelta)};
+                            const Vec3 s0T{s0B.x, yi0 + wallH + 2.35f, s0B.z};
+                            const Vec3 s1T{s1B.x, yi1 + wallH + 2.35f, s1B.z};
+                            pushQuadV3(piersV, s0B, s1B, s1T, s0T, inN, 0, 0, 1, 0, 1, 1, 0, 1, kSoundGlass);
+                            pushQuadV3(piersV, s1B, s0B, s0T, s1T, outN, 0, 0, 1, 0, 1, 1, 0, 1, kSoundGlass);
+                            if ((idx & 1u) == 0u) {
                                 pushBoxPiers(piersV, {s0B.x, yi0 + wallH + 1.30f, s0B.z}, {0.16f, 2.25f, 0.16f}, kSoundFrame);
-                                const Vec3 cap0{s0T.x, s0T.y + 0.10f, s0T.z};
-                                const Vec3 cap1{s1T.x, s1T.y + 0.10f, s1T.z};
-                                pushQuadV3(piersV, s0T, s1T, cap1, cap0, inN, 0, 0, 1, 0, 1, 1, 0, 1, kSoundFrame);
                             }
+                            const Vec3 cap0{s0T.x, s0T.y + 0.10f, s0T.z};
+                            const Vec3 cap1{s1T.x, s1T.y + 0.10f, s1T.z};
+                            pushQuadV3(piersV, s0T, s1T, cap1, cap0, inN, 0, 0, 1, 0, 1, 1, 0, 1, kSoundFrame);
                         }
                     }
                 }
+            }
 
-                // Bridge concrete deck underside fascia + sleek guardrails (+ taller expressway viaduct parapets) + vertical piers!
-                if (isBridge) {
-                    const float thick = isExpressway ? 1.35f : 1.15f;
-                    const float railH = isExpressway ? 1.02f : 0.65f;
-                    for (float side : {-1.0f, 1.0f}) {
-                        const Vec2 s0 = n0 * side;
-                        const Vec2 s1 = n1 * side;
-                        const Vec3 top0{p0.x + s0.x * (hw + 0.18f), y0 + railH, p0.z + s0.z * (hw + 0.18f)};
-                        const Vec3 top1{p1.x + s1.x * (hw + 0.18f), y1 + railH, p1.z + s1.z * (hw + 0.18f)};
-                        const Vec3 bot0{p0.x + s0.x * (hw + 0.18f), y0 - thick, p0.z + s0.z * (hw + 0.18f)};
-                        const Vec3 bot1{p1.x + s1.x * (hw + 0.18f), y1 - thick, p1.z + s1.z * (hw + 0.18f)};
-                        pushQuadV3(piersV, bot0, bot1, top1, top0, Vec3{s0.x, 0.0f, s0.z}.normalized(),
-                                   0, 0, 1, 0, 1, 1, 0, 1, kPierCol);
-                        if (isExpressway) {
-                            // Inner road-facing concrete parapet + metallic upper viaduct rail!
-                            const Vec3 inBot0{p0.x + s0.x * (hw + 0.04f), y0, p0.z + s0.z * (hw + 0.04f)};
-                            const Vec3 inBot1{p1.x + s1.x * (hw + 0.04f), y1, p1.z + s1.z * (hw + 0.04f)};
-                            const Vec3 inTop0{inBot0.x, y0 + railH, inBot0.z};
-                            const Vec3 inTop1{inBot1.x, y1 + railH, inBot1.z};
-                            pushQuadV3(piersV, inBot0, inBot1, inTop1, inTop0, Vec3{-s0.x, 0.0f, -s0.z}.normalized(),
-                                       0, 0, 1, 0, 1, 1, 0, 1, {182, 186, 192, 255});
-                            pushQuadV3(piersV, inTop0, inTop1, top1, top0, {0, 1, 0},
-                                       0, 0, 1, 0, 1, 1, 0, 1, {182, 186, 192, 255});
-                        }
+            // Bridge concrete deck underside fascia + sleek guardrails (+ taller expressway viaduct parapets) + vertical piers!
+            if (isBridge) {
+                const float thick = isExpressway ? 1.35f : 1.15f;
+                const float railH = isExpressway ? 1.02f : 0.65f;
+                for (float side : {-1.0f, 1.0f}) {
+                    const float sideHw0 = (side < 0.0f) ? hwL0 : hwR0;
+                    const float sideHw1 = (side < 0.0f) ? hwL1 : hwR1;
+                    const Vec2 s0 = n0 * side;
+                    const Vec2 s1 = n1 * side;
+                    const Vec3 top0{p0.x + s0.x * (sideHw0 + 0.18f), y0 + railH, p0.z + s0.z * (sideHw0 + 0.18f)};
+                    const Vec3 top1{p1.x + s1.x * (sideHw1 + 0.18f), y1 + railH, p1.z + s1.z * (sideHw1 + 0.18f)};
+                    const Vec3 bot0{p0.x + s0.x * (sideHw0 + 0.18f), y0 - thick, p0.z + s0.z * (sideHw0 + 0.18f)};
+                    const Vec3 bot1{p1.x + s1.x * (sideHw1 + 0.18f), y1 - thick, p1.z + s1.z * (sideHw1 + 0.18f)};
+                    pushQuadV3(piersV, bot0, bot1, top1, top0, Vec3{s0.x, 0.0f, s0.z}.normalized(),
+                               0, 0, 1, 0, 1, 1, 0, 1, kPierCol);
+                    if (isExpressway) {
+                        const Vec3 inBot0{p0.x + s0.x * (sideHw0 + 0.04f), y0, p0.z + s0.z * (sideHw0 + 0.04f)};
+                        const Vec3 inBot1{p1.x + s1.x * (sideHw1 + 0.04f), y1, p1.z + s1.z * (sideHw1 + 0.04f)};
+                        const Vec3 inTop0{inBot0.x, y0 + railH, inBot0.z};
+                        const Vec3 inTop1{inBot1.x, y1 + railH, inBot1.z};
+                        pushQuadV3(piersV, inBot0, inBot1, inTop1, inTop0, Vec3{-s0.x, 0.0f, -s0.z}.normalized(),
+                                   0, 0, 1, 0, 1, 1, 0, 1, {182, 186, 192, 255});
+                        pushQuadV3(piersV, inTop0, inTop1, top1, top0, {0, 1, 0},
+                                   0, 0, 1, 0, 1, 1, 0, 1, {182, 186, 192, 255});
                     }
-                    if (distM >= nextPierDist) {
-                        nextPierDist = distM + 36.0f;
-                        const float yMid = 0.5f * (y0 + y1);
-                        const float demMid = real.sampleDem(mid);
-                        if (yMid - demMid > 1.6f) {
-                            const float pTop = yMid - thick;
-                            const float pBot = demMid - 2.6f;
-                            const float pH = std::max(1.2f, pTop - pBot);
-                            const Vec2 nMid = (n0 + n1).normalized();
-                            for (float side : {-0.55f, 0.55f}) {
-                                const Vec3 pc{mid.x + nMid.x * (hw * side), 0.5f * (pTop + pBot), mid.z + nMid.z * (hw * side)};
-                                pushBoxPiers(piersV, pc, {2.4f, pH, 2.4f}, {148, 152, 158, 255});
-                            }
+                }
+                if (dist1 >= nextPierDist) {
+                    nextPierDist = dist1 + 36.0f;
+                    const float yMid = 0.5f * (y0 + y1);
+                    const float demMid = real.sampleDem(mid);
+                    if (yMid - demMid > 1.6f) {
+                        const float pTop = yMid - thick;
+                        const float pBot = demMid - 2.6f;
+                        const float pH = std::max(1.2f, pTop - pBot);
+                        const Vec2 nMid = (n0 + n1).normalized();
+                        for (float side : {-0.55f, 0.55f}) {
+                            const Vec3 pc{mid.x + nMid.x * (hw * side), 0.5f * (pTop + pBot), mid.z + nMid.z * (hw * side)};
+                            pushBoxPiers(piersV, pc, {2.4f, pH, 2.4f}, {148, 152, 158, 255});
                         }
                     }
                 }

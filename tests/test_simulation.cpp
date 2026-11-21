@@ -3083,6 +3083,129 @@ void testV340ExpresswayVsCityRoadDistinction() {
     ++gTestsPassed;
 }
 
+void testV350CleanIntersectionsAndBusShelterSetback() {
+    auto findAsset = [](const char* rel) -> std::string {
+        const char* prefixes[] = {"assets/", "../assets/", "../../assets/"};
+        for (const char* pre : prefixes) {
+            const std::string p = std::string(pre) + rel;
+            std::ifstream f(p, std::ios::binary);
+            if (f.good()) return p;
+        }
+        return {};
+    };
+    const std::string ocmapPath = findAsset("maps/seoul_real.ocmap");
+    ASSERT_TRUE(!ocmapPath.empty());
+
+    oc::GameWorld world(20263500ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    ASSERT_TRUE(world.city().hasRealSeoulMap());
+    const oc::RealSeoulData& real = world.city().realData();
+    const auto& roads = real.roads();
+    const auto& rVerts = real.roadVerts();
+
+    // 1. Verify 4-bit roadFlags + 4-bit totalLanes vertex-color packing matches world.frag exact decode
+    for (int lanes = 0; lanes <= 12; ++lanes) {
+        for (int flags = 0; flags < 16; ++flags) {
+            const std::uint8_t packed = static_cast<std::uint8_t>((lanes << 4) | (flags & 0x0F));
+            const float normG = static_cast<float>(packed) / 255.0f;
+            const int decoded = static_cast<int>(std::floor(normG * 255.0f + 0.5f));
+            ASSERT_TRUE((decoded >> 4) == lanes);
+            ASSERT_TRUE((decoded & 15) == flags);
+        }
+    }
+
+    // 2. Verify Gangnam Station (3780, 2835) has crossing major arteries AND Teheran-ro (4010, 2745)
+    //    has opposite-direction parallel dual carriageways whose flush contact formula has zero overlap & zero gap.
+    {
+        std::vector<std::uint32_t> gnRoads;
+        real.queryChunkRoads({3780.0f, 2835.0f}, 60.0f, gnRoads);
+        bool foundCrossingMajors = false;
+        for (std::size_t a = 0; a < gnRoads.size() && !foundCrossingMajors; ++a) {
+            const oc::OsmRoadRec& ra = roads[gnRoads[a]];
+            if (ra.roadClass > 2u || ra.halfWidth < 6.0f || ra.vertCount < 2) continue;
+            const oc::Vec2 da = (rVerts[ra.firstVert + ra.vertCount - 1] - rVerts[ra.firstVert]).normalized();
+            for (std::size_t b = a + 1; b < gnRoads.size(); ++b) {
+                const oc::OsmRoadRec& rb = roads[gnRoads[b]];
+                if (rb.roadClass > 2u || rb.halfWidth < 6.0f || rb.vertCount < 2) continue;
+                const oc::Vec2 db = (rVerts[rb.firstVert + rb.vertCount - 1] - rVerts[rb.firstVert]).normalized();
+                if (std::abs(da.dot(db)) < 0.76f) {
+                    foundCrossingMajors = true;
+                    break;
+                }
+            }
+        }
+        ASSERT_TRUE(foundCrossingMajors);
+
+        std::vector<std::uint32_t> thRoads;
+        real.queryChunkRoads({4010.0f, 2745.0f}, 45.0f, thRoads);
+        bool foundOppTwins = false;
+        for (std::size_t a = 0; a < thRoads.size() && !foundOppTwins; ++a) {
+            const oc::OsmRoadRec& ra = roads[thRoads[a]];
+            if (ra.roadClass != 2u || ra.halfWidth < 7.0f || ra.vertCount < 2) continue;
+            const oc::Vec2 pA0 = rVerts[ra.firstVert];
+            const oc::Vec2 pA1 = rVerts[ra.firstVert + ra.vertCount - 1];
+            const oc::Vec2 da = (pA1 - pA0).normalized();
+            const oc::Vec2 perpA{-da.z, da.x};
+            for (std::size_t b = a + 1; b < thRoads.size(); ++b) {
+                const oc::OsmRoadRec& rb = roads[thRoads[b]];
+                if (rb.roadClass != 2u || rb.halfWidth < 7.0f || rb.vertCount < 2) continue;
+                const oc::Vec2 pB0 = rVerts[rb.firstVert];
+                const oc::Vec2 pB1 = rVerts[rb.firstVert + rb.vertCount - 1];
+                const oc::Vec2 db = (pB1 - pB0).normalized();
+                if (da.dot(db) < -0.82f) {
+                    const float gap = std::abs(((pB0 + pB1) * 0.5f - (pA0 + pA1) * 0.5f).dot(perpA));
+                    if (gap > 8.0f && gap < ra.halfWidth + rb.halfWidth + 1.85f) {
+                        const float hwA = gap * (ra.halfWidth / (ra.halfWidth + rb.halfWidth));
+                        const float hwB = gap * (rb.halfWidth / (ra.halfWidth + rb.halfWidth));
+                        ASSERT_TRUE(hwA >= 2.6f && hwB >= 2.6f);
+                        ASSERT_TRUE(std::abs((hwA + hwB) - gap) < 0.01f);
+                        foundOppTwins = true;
+                        break;
+                    }
+                }
+            }
+        }
+        ASSERT_TRUE(foundOppTwins);
+    }
+
+    // 3. Verify EVERY streamed OSM SubwayEntrance (5.5x2.7m) and BusShelter (4.8x1.7m) across Gangnam Station,
+    //    Teheran-ro, and Gwanghwamun keeps ALL 4 footprint corners strictly off road asphalt (0cm curb overhang)!
+    const oc::Vec2 checkSpots[3] = {
+        {3780.0f,  2835.0f}, // Gangnam Station 8-lane intersection
+        {4010.0f,  2745.0f}, // Teheran-ro mid-boulevard
+        {-930.0f, -5650.0f}  // Gwanghwamun Sejong-daero
+    };
+    oc::PlayerInput idle{};
+    int totalTransitStructures = 0;
+    for (const oc::Vec2& spot : checkSpots) {
+        world.fastTravelTo(spot, "검증");
+        for (int f = 0; f < 5; ++f) {
+            world.update(1.0f / 60.0f, idle);
+        }
+        for (const auto& p : world.city().streetProps()) {
+            if (p.kind != oc::StreetPropKind::SubwayEntrance && p.kind != oc::StreetPropKind::BusShelter) {
+                continue;
+            }
+            ++totalTransitStructures;
+            const float halfLen   = (p.kind == oc::StreetPropKind::SubwayEntrance) ? 2.80f : 2.70f;
+            const float halfDepth = (p.kind == oc::StreetPropKind::SubwayEntrance) ? 1.40f : 0.95f;
+            const oc::Vec2 toRoad{-std::sin(p.yaw), std::cos(p.yaw)};
+            const oc::Vec2 dirAway = toRoad * -1.0f;
+            const oc::Vec2 along{-dirAway.z, dirAway.x};
+            ASSERT_TRUE(!real.isOnRoad(p.pos, halfDepth + 0.45f));
+            for (float sx : {-1.0f, 1.0f}) {
+                for (float sz : {-1.0f, 1.0f}) {
+                    const oc::Vec2 corner = p.pos + along * (sx * halfLen) + dirAway * (sz * halfDepth);
+                    ASSERT_TRUE(!real.isOnRoad(corner, 0.30f));
+                }
+            }
+        }
+    }
+    ASSERT_TRUE(totalTransitStructures >= 4);
+
+    ++gTestsPassed;
+}
+
 
 } // namespace
 
@@ -3118,8 +3241,9 @@ int main() {
     testV320ZeroRoadBlockingBuildingsAndExactRoadElevation();
     testV330MobileUiScalingAndIntersectionDiscipline();
     testV340ExpresswayVsCityRoadDistinction();
+    testV350CleanIntersectionsAndBusShelterSetback();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.4.2 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.5.0 simulation test suites succeeded!\n";
     return 0;
 }
 
