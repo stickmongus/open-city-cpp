@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/Math.hpp"
+#include "world/OcrmRoadMesh.hpp"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -133,10 +134,15 @@ public:
     bool loadFromBytes(const std::uint8_t* data, std::size_t size);
     bool loadFromFile(const std::string& path);
     bool tryAutoLoadDesktop();
+    bool loadOcrmFromBytes(const std::uint8_t* data, std::size_t size);
+    bool loadOcrmFromFile(const std::string& path);
+    bool tryAutoLoadOcrmDesktop();
 
     bool isLoaded() const { return loaded_; }
     bool has3DRoads() const { return has3DRoads_; }
     bool isOcm6() const { return isOcm6_; }
+    bool hasOcrmMesh() const { return ocrmMesh_.isLoaded(); }
+    const OcrmRoadMesh& ocrmMesh() const { return ocrmMesh_; }
     float demScale() const { return demScale_; }
     const OcMapHeader& header() const { return hdr_; }
 
@@ -278,6 +284,9 @@ private:
     static constexpr int kWaterGridH = 84;
     std::vector<std::vector<std::uint32_t>> waterGrid_;
     void buildWaterGrid();
+
+    // Pre-baked single-topology 3D road/junction/sidewalk/marking polygon mesh (OCRM v1)
+    OcrmRoadMesh ocrmMesh_;
 };
 
 } // namespace oc

@@ -79,15 +79,19 @@ private:
         RooftopConcrete = 19,
         BridgeConcrete = 20,
         FoliageCanopy = 21,
-        LandmarkStone = 22
+        LandmarkStone = 22,
+        RoadPaint = 23,
+        RoadPoly = 24
     };
 
     struct RealChunkGpu {
         int cx = 0;
         int cz = 0;
+        bool usesOcrm = false;
         std::uint64_t lastUsedFrame = 0;
         GpuMesh groundMesh{};
         GpuMesh roadsMesh{};
+        GpuMesh roadPaintMesh{};
         GpuMesh sidewalksMesh{};
         GpuMesh bridgePiersMesh{};
         GpuMesh bldgAptMesh{};

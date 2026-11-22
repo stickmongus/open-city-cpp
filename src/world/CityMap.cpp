@@ -812,6 +812,14 @@ bool CityMap::loadRealSeoulMapFromFile(const std::string& path) {
     return true;
 }
 
+bool CityMap::loadOcrmRoadMesh(const std::uint8_t* bytes, std::size_t size) {
+    return realData_.loadOcrmFromBytes(bytes, size);
+}
+
+bool CityMap::loadOcrmRoadMeshFromFile(const std::string& path) {
+    return realData_.loadOcrmFromFile(path);
+}
+
 void CityMap::buildRealSeoulMacroGeography() {
     // Keep mountains_, perimeterMountains_, bridges_, tributaries_, arterials_ metadata populated,
     // while snapping landmarks_, macroBuildings_, spawn, and POIs to EXACT Real-OSM GPS coordinates!

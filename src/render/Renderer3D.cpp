@@ -411,6 +411,7 @@ void Renderer3D::buildSeoulSignAtlas(VulkanContext& vk, const std::vector<std::u
 void Renderer3D::destroyRealChunkGpu(VulkanContext& vk, RealChunkGpu& ch) {
     vk.destroyMesh(ch.groundMesh);
     vk.destroyMesh(ch.roadsMesh);
+    vk.destroyMesh(ch.roadPaintMesh);
     vk.destroyMesh(ch.sidewalksMesh);
     vk.destroyMesh(ch.bridgePiersMesh);
     vk.destroyMesh(ch.bldgAptMesh);
@@ -1848,10 +1849,11 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     const auto& bldgs = real.buildings();
     const auto& flatBldgs = real.flatChunkBldgs();
 
-    std::vector<Vertex3D> groundV, roadsV, sidewalksV, piersV;
+    std::vector<Vertex3D> groundV, roadsV, roadPaintV, sidewalksV, piersV;
     std::vector<Vertex3D> aptV, glassV, graniteV, brickV, stuccoV, hanokV, heritageV, roofV;
     groundV.reserve(32 * 32 * 6);
     roadsV.reserve(3072);
+    roadPaintV.reserve(2048);
     sidewalksV.reserve(2560);
     piersV.reserve(512);
     aptV.reserve(2048);
@@ -1860,6 +1862,10 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     brickV.reserve(2048);
     stuccoV.reserve(2048);
     roofV.reserve(2048);
+
+    OcrmDecodedChunk ocrmCh{};
+    const bool useOcrm = real.hasOcrmMesh() && real.ocrmMesh().decodeChunk(cx, cz, ocrmCh);
+    out.usesOcrm = useOcrm;
 
     // Query all nearby roads around this chunk FIRST and bin their local edges into a 16x16 spatial grid
     // so BOTH the high-res 8m urban ground subbase (0% road poke-through!) AND curved road intersections
@@ -2006,6 +2012,44 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 lg[iz * (kGn + 1) + ix] = {{wx, y, wz}, Vec3{hL - hR, 16.0f, hD - hU}.normalized(), h, wtr, insideRoad};
             }
         }
+
+        // Also depress 8m ground subbase beneath ALL OCRM ground road/junction polygons (e.g. wide curved SUMO junctions!)
+        if (useOcrm) {
+            const auto depressByOcrmList = [&](const std::vector<std::uint16_t>& idxList) {
+                for (std::size_t k = 0; k + 2 < idxList.size(); k += 3) {
+                    const OcrmDecodedVertex& v0 = ocrmCh.verts[idxList[k]];
+                    const OcrmDecodedVertex& v1 = ocrmCh.verts[idxList[k + 1]];
+                    const OcrmDecodedVertex& v2 = ocrmCh.verts[idxList[k + 2]];
+                    const float cxT = (v0.px + v1.px + v2.px) * (1.0f / 3.0f);
+                    const float czT = (v0.pz + v1.pz + v2.pz) * (1.0f / 3.0f);
+                    const float minYT = std::min({v0.py, v1.py, v2.py});
+                    const float avgYT = (v0.py + v1.py + v2.py) * (1.0f / 3.0f);
+                    if (avgYT - real.sampleDem({cxT, czT}) > 1.80f) continue; // Elevated bridge/viaduct deck!
+
+                    const float tx0 = std::min({v0.px, v1.px, v2.px}) - 8.5f;
+                    const float tx1 = std::max({v0.px, v1.px, v2.px}) + 8.5f;
+                    const float tz0 = std::min({v0.pz, v1.pz, v2.pz}) - 8.5f;
+                    const float tz1 = std::max({v0.pz, v1.pz, v2.pz}) + 8.5f;
+                    const int i0x = std::clamp(static_cast<int>(std::floor((tx0 - gx0) / step)), 0, kGn);
+                    const int i1x = std::clamp(static_cast<int>(std::ceil((tx1 - gx0) / step)), 0, kGn);
+                    const int i0z = std::clamp(static_cast<int>(std::floor((tz0 - gz0) / step)), 0, kGn);
+                    const int i1z = std::clamp(static_cast<int>(std::ceil((tz1 - gz0) / step)), 0, kGn);
+                    const float capY = minYT - 0.48f;
+                    for (int iz = i0z; iz <= i1z; ++iz) {
+                        for (int ix = i0x; ix <= i1x; ++ix) {
+                            LocalGNode& nd = lg[iz * (kGn + 1) + ix];
+                            if (!nd.inWater && capY < nd.pos.y) {
+                                nd.pos.y = capY;
+                            }
+                        }
+                    }
+                }
+            };
+            depressByOcrmList(ocrmCh.idxUrban);
+            depressByOcrmList(ocrmCh.idxHighway);
+            depressByOcrmList(ocrmCh.idxInter);
+        }
+
         const ColorRGBA kGroundCol{162, 164, 168, 255};
         auto pushGVert = [&](const LocalGNode& n) {
             Vertex3D v{};
@@ -2035,8 +2079,42 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     }
 
     // ------------------------------------------------------------------------
-    // 1. REAL CURVED OPENSTREETMAP SEOUL ROADS, CLEAN INTERSECTIONS, SIDEWALKS & BRIDGE PIERS!
+    // 1. REAL SEOUL ROADS, JUNCTIONS, SIDEWALKS & BRIDGE STRUCTURES!
+    //    v6.0.0: Prefer pre-baked OCRM v1 single-topology polygon mesh (SUMO / Korean HD Map)
+    //            for 0.00% overlapping ribbons & 0.00% intersection sidewalk intrusion!
     // ------------------------------------------------------------------------
+    if (useOcrm) {
+        auto emitOcrmSubmesh = [&](const std::vector<std::uint16_t>& idxList,
+                                   std::vector<Vertex3D>& dst,
+                                   bool isSidewalk) {
+            if (idxList.empty()) return;
+            dst.reserve(dst.size() + idxList.size());
+            for (std::uint16_t vi : idxList) {
+                const OcrmDecodedVertex& dv = ocrmCh.verts[vi];
+                Vertex3D v{};
+                v.px = dv.px;
+                v.py = dv.py;
+                v.pz = dv.pz;
+                v.nx = dv.nx;
+                v.ny = dv.ny;
+                v.nz = dv.nz;
+                v.u  = isSidewalk ? (dv.uCm * 0.01f) : 0.0f;
+                v.v  = isSidewalk ? -1.0f : 0.0f; // v < -0.5 selects OCRM world-space sidewalk shader!
+                v.r  = static_cast<float>(dv.r) / 255.0f;
+                v.g  = static_cast<float>(dv.g) / 255.0f;
+                v.b  = static_cast<float>(dv.b) / 255.0f;
+                v.a  = static_cast<float>(dv.a) / 255.0f;
+                dst.push_back(v);
+            }
+        };
+        emitOcrmSubmesh(ocrmCh.idxUrban,    roadsV,     false);
+        emitOcrmSubmesh(ocrmCh.idxHighway,  roadsV,     false);
+        emitOcrmSubmesh(ocrmCh.idxInter,    roadsV,     false);
+        emitOcrmSubmesh(ocrmCh.idxMarking,  roadPaintV, false);
+        emitOcrmSubmesh(ocrmCh.idxSidewalk, sidewalksV, true);
+        emitOcrmSubmesh(ocrmCh.idxBridge,   piersV,     false);
+    }
+    if (!useOcrm) {
     const ColorRGBA kSwTint{196, 198, 202, 255};
     const ColorRGBA kPierCol{168, 172, 178, 255};
 
@@ -2844,6 +2922,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             }
         }
     }
+    } // end if (!useOcrm)
 
     // ------------------------------------------------------------------------
     // 2. REAL EXTRUDED 3D OCM4 SEOUL ARCHITECTURE (184,308 Real Buildings + 3D Roofs + Multi-Part Stepped Towers!)
@@ -3254,6 +3333,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
 
     if (!groundV.empty())    out.groundMesh       = vk.createMesh(groundV);
     if (!roadsV.empty())     out.roadsMesh        = vk.createMesh(roadsV);
+    if (!roadPaintV.empty()) out.roadPaintMesh    = vk.createMesh(roadPaintV);
     if (!sidewalksV.empty()) out.sidewalksMesh    = vk.createMesh(sidewalksV);
     if (!piersV.empty())     out.bridgePiersMesh  = vk.createMesh(piersV);
     if (!aptV.empty())       out.bldgAptMesh      = vk.createMesh(aptV);
@@ -3357,7 +3437,11 @@ void Renderer3D::updateAndDrawRealSeoulChunks(VulkanContext& vk, const CityMap& 
 
             if (!shadowPass) {
                 drawMesh(vk, ch.groundMesh,      id, kWhite, 0.86f, 0.00f, 0.0f, MatId::SidewalkPavers, false);
-                drawMesh(vk, ch.roadsMesh,       id, kWhite, 0.56f, 0.00f, 0.0f, MatId::RoadAsphalt,    false);
+                drawMesh(vk, ch.roadsMesh,       id, kWhite, 0.56f, 0.00f, 0.0f,
+                         ch.usesOcrm ? MatId::RoadPoly : MatId::RoadAsphalt, false);
+                if (ch.usesOcrm) {
+                    drawMesh(vk, ch.roadPaintMesh, id, kWhite, 0.46f, 0.02f, 0.0f, MatId::RoadPaint, false);
+                }
                 drawMesh(vk, ch.sidewalksMesh,   id, kWhite, 0.78f, 0.00f, 0.0f, MatId::SidewalkPavers, false);
             }
             drawMesh(vk, ch.bridgePiersMesh, id, kWhite, 0.80f, 0.04f, 0.0f, MatId::BridgeConcrete,       shadowPass);

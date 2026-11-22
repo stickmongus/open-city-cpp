@@ -3949,6 +3949,107 @@ void testV520ExpresswayParityGradeLimitsAndOsmSignalDiscipline() {
     ++gTestsPassed;
 }
 
+void testV600OcrmTopologicalRoadMeshAndZeroIntersectionIntrusion() {
+    // 1. Bounds-checked zero-dependency LZ4 decoder must safely reject truncated / corrupt / zero-offset inputs
+    {
+        const std::uint8_t badZeroOff[] = {0x00, 0x00, 0x00};
+        std::uint8_t dst[32]{};
+        ASSERT_TRUE(!oc::OcrmRoadMesh::decompressLz4Block(badZeroOff, sizeof(badZeroOff), dst, sizeof(dst)));
+        const std::uint8_t truncLit[] = {0xF0, 0xFF};
+        ASSERT_TRUE(!oc::OcrmRoadMesh::decompressLz4Block(truncLit, sizeof(truncLit), dst, sizeof(dst)));
+        oc::OcrmRoadMesh badMesh;
+        ASSERT_TRUE(!badMesh.loadFromBytes(badZeroOff, sizeof(badZeroOff)));
+    }
+
+    // 2. Load real pre-baked Seoul OCRM v1 mesh + OCM6 v4 map via GameWorld & verify header + chunk coverage
+    oc::GameWorld world(20266000ULL);
+    static constexpr const char* kMapPaths[] = {
+        "assets/maps/seoul_real.ocmap", "../assets/maps/seoul_real.ocmap", "../../assets/maps/seoul_real.ocmap"
+    };
+    static constexpr const char* kOcrmPaths[] = {
+        "assets/maps/seoul_roads_hd.ocrm", "../assets/maps/seoul_roads_hd.ocrm", "../../assets/maps/seoul_roads_hd.ocrm"
+    };
+    bool mapOk = false;
+    for (const char* p : kMapPaths) {
+        if (world.loadRealSeoulMapFromFile(p)) { mapOk = true; break; }
+    }
+    ASSERT_TRUE(mapOk);
+
+    bool ocrmOk = false;
+    for (const char* p : kOcrmPaths) {
+        if (world.loadOcrmRoadMeshFromFile(p)) { ocrmOk = true; break; }
+    }
+    ASSERT_TRUE(ocrmOk);
+    ASSERT_TRUE(world.city().hasOcrmRoadMesh());
+
+    const oc::OcrmRoadMesh& ocrm = world.city().realData().ocrmMesh();
+    const oc::OcrmHeader& oh = ocrm.header();
+    ASSERT_TRUE(oh.version == 1u);
+    ASSERT_TRUE((oh.flags & 1u) != 0u); // LZ4 compressed
+    ASSERT_TRUE((oh.flags & 4u) != 0u); // Lossless SoA+Delta16 encoding
+    ASSERT_TRUE(oh.chunksX == 75u && oh.chunksZ == 48u);
+    ASSERT_TRUE(ocrm.activeChunkCount() >= 3000u);
+    ASSERT_TRUE(oh.totalRoadTris >= 800000u);
+    ASSERT_TRUE(oh.totalSidewalkTris >= 700000u);
+
+    // 3. Decode key Seoul landmarks (Gangnam Station Crossroads, Teheran-ro, Gyeongbu Expressway, Gwanghwamun)
+    //    Verify every decoded vertex is finite, every index is in bounds, and submeshes are populated!
+    const struct { int cx; int cz; bool needBridge; } kAuditChunks[] = {
+        {44, 40, false}, // Gangnam Station Crossroads (3762, 2839)
+        {47, 39, false}, // Teheran-ro Boulevard (4357, 2621)
+        {40, 35, true},  // Gyeongbu Expressway (2762, 1569)
+        {27,  6, false}, // Gwanghwamun / Sejong-daero (-700, -5700)
+    };
+    for (const auto& ac : kAuditChunks) {
+        ASSERT_TRUE(ocrm.hasChunk(ac.cx, ac.cz));
+        oc::OcrmDecodedChunk ch{};
+        ASSERT_TRUE(ocrm.decodeChunk(ac.cx, ac.cz, ch));
+        ASSERT_TRUE(!ch.verts.empty());
+        ASSERT_TRUE((ch.idxUrban.size() + ch.idxHighway.size() + ch.idxInter.size()) >= 30u);
+        ASSERT_TRUE(!ch.idxMarking.empty());
+        if (ac.needBridge) {
+            ASSERT_TRUE(!ch.idxHighway.empty());
+            ASSERT_TRUE(!ch.idxBridge.empty());
+        }
+        for (const auto& v : ch.verts) {
+            ASSERT_TRUE(std::isfinite(v.px) && std::isfinite(v.py) && std::isfinite(v.pz));
+            ASSERT_TRUE(std::isfinite(v.nx) && std::isfinite(v.ny) && std::isfinite(v.nz));
+            ASSERT_TRUE(v.py > -20.0f && v.py < 600.0f);
+        }
+        auto checkBounds = [&](const std::vector<std::uint16_t>& idx) {
+            ASSERT_TRUE((idx.size() % 3u) == 0u);
+            for (std::uint16_t i : idx) ASSERT_TRUE(i < ch.verts.size());
+        };
+        checkBounds(ch.idxUrban);
+        checkBounds(ch.idxHighway);
+        checkBounds(ch.idxInter);
+        checkBounds(ch.idxSidewalk);
+        checkBounds(ch.idxMarking);
+        checkBounds(ch.idxBridge);
+    }
+
+    // 4. CRITICAL USER REGRESSION: Gangnam Station Crossroads (3762, 2839) MUST have ZERO sidewalk
+    //    or raised median vertices slicing across the central 15m radius of the 10x10 intersection!
+    {
+        oc::OcrmDecodedChunk gn{};
+        ASSERT_TRUE(ocrm.decodeChunk(44, 40, gn));
+        ASSERT_TRUE(!gn.idxInter.empty());
+        ASSERT_TRUE(!gn.idxSidewalk.empty());
+        int intrudingSwVerts = 0;
+        float minSwDist = 1e9f;
+        for (std::uint16_t vi : gn.idxSidewalk) {
+            const auto& v = gn.verts[vi];
+            const float d = std::hypot(v.px - 3762.0f, v.pz - 2839.0f);
+            minSwDist = std::min(minSwDist, d);
+            if (d < 15.0f) ++intrudingSwVerts;
+        }
+        ASSERT_TRUE(intrudingSwVerts == 0);
+        ASSERT_TRUE(minSwDist >= 15.0f);
+    }
+
+    ++gTestsPassed;
+}
+
 
 } // namespace
 
@@ -3990,8 +4091,9 @@ int main() {
     testV500UltraSmoothRoadsSuspensionAndOcm6Realism();
     testV510ZeroGroundPokeThroughAndLevelTwinBoulevards();
     testV520ExpresswayParityGradeLimitsAndOsmSignalDiscipline();
+    testV600OcrmTopologicalRoadMeshAndZeroIntersectionIntrusion();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v5.2.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.0.0 simulation test suites succeeded!\n";
     return 0;
 }
 

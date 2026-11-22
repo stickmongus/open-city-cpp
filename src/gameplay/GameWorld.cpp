@@ -344,6 +344,14 @@ bool GameWorld::loadRealSeoulMapFromFile(const std::string& path) {
     return true;
 }
 
+bool GameWorld::loadOcrmRoadMesh(const std::uint8_t* bytes, std::size_t size) {
+    return city_.loadOcrmRoadMesh(bytes, size);
+}
+
+bool GameWorld::loadOcrmRoadMeshFromFile(const std::string& path) {
+    return city_.loadOcrmRoadMeshFromFile(path);
+}
+
 void GameWorld::reset() {
     rng_ = Rng(seed_);
     vehicles_.clear();
@@ -438,8 +446,8 @@ void GameWorld::reset() {
     player_.onGround = true;
 
     spawnInitialWorld();
-    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL ULTRA-REAL 4K v5.2" : "WELCOME TO SEOUL (VULKAN)",
-               city_.hasRealSeoulMap() ? "실제 서울 초정밀 랜드마크·도로·교통 4K v5.2에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
+    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL HD-TOPOLOGY ROADS v6.0" : "WELCOME TO SEOUL (VULKAN)",
+               city_.hasRealSeoulMap() ? "실제 서울 단일 토폴로지 정밀도로·교차로 4K v6.0에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
 #if defined(__ANDROID__)
                "Tap Minimap: Full Seoul Map  |  Top Bar: Custom · Weather · Camera",
                "미니맵 터치: 서울 전체 지도 · 상단 버튼: 커스텀 · 날씨 · 시점 전환",

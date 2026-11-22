@@ -14,6 +14,8 @@ public:
 
     bool loadRealSeoulMap(const std::uint8_t* bytes, std::size_t size);
     bool loadRealSeoulMapFromFile(const std::string& path);
+    bool loadOcrmRoadMesh(const std::uint8_t* bytes, std::size_t size);
+    bool loadOcrmRoadMeshFromFile(const std::string& path);
 
     void reset();
     void update(float dt, const PlayerInput& input);

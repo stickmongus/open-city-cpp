@@ -342,10 +342,13 @@ public:
     float raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDist) const;
     float raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const;
 
-    // Real-World OpenStreetMap + SRTM 30m DEM Seoul GIS Loader (v3.0.0)
+    // Real-World OpenStreetMap + SRTM 15m DTM + Eclipse SUMO OCRM v1 Seoul GIS Loader (v6.0.0)
     bool loadRealSeoulMap(const std::uint8_t* bytes, std::size_t size);
     bool loadRealSeoulMapFromFile(const std::string& path);
+    bool loadOcrmRoadMesh(const std::uint8_t* bytes, std::size_t size);
+    bool loadOcrmRoadMeshFromFile(const std::string& path);
     bool hasRealSeoulMap() const { return realData_.isLoaded(); }
+    bool hasOcrmRoadMesh() const { return realData_.hasOcrmMesh(); }
     const RealSeoulData& realData() const { return realData_; }
 
     // Default iconic Seoul spawn (Analytic Banpo-daero fallback or Real OSM Gangnam/Teheran-ro boulevard!)

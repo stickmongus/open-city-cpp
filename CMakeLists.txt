@@ -9,7 +9,7 @@ endif()
 # without requiring a separate VC++ Redistributable install.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(open_city VERSION 5.2.0 LANGUAGES C CXX)
+project(open_city VERSION 6.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -42,9 +42,10 @@ if(UNIX AND NOT ANDROID AND RUSTC_EXECUTABLE)
     list(APPEND OPEN_CITY_RUST_OBJECTS "${RUST_PHYSICS_OBJ}")
 endif()
 
-# Pure C++20 + Rust simulation core (Real OpenStreetMap Seoul GIS + SRTM 30m DEM,
-# 25k real roads, 107k real building polygons, realistic car physics, escapable police AI)
+# Pure C++20 + Rust simulation core (Real OpenStreetMap Seoul GIS + Eclipse SUMO OCRM v1
+# single-topology 3D road polygons + Korean HD Map GIS support + SRTM 15m DTM)
 add_library(open_city_core STATIC
+    src/world/OcrmRoadMesh.cpp
     src/world/RealSeoulData.cpp
     src/world/CityMap.cpp
     src/gameplay/GameWorld.cpp

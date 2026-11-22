@@ -676,6 +676,7 @@ void main() {
         vec2 dUvDx = dFdx(fragUv);
         vec2 dUvDy = dFdy(fragUv);
         bool isSidewalkStrip = (fragUv.y > 0.5);
+        bool isOcrmSidewalk  = (fragUv.y < -0.5);
         vec3 pAlb; vec2 pNxy; float pR; float pAO;
 
         if (isSidewalkStrip) {
@@ -709,6 +710,49 @@ void main() {
                 roughness = mix(pR, 0.52, wetRoadFactor * 0.65);
                 surfaceAO = pAO;
                 N = perturbNormalGrad(N, dp1, dp2, pvDdx, pvDdy, pNxy, 0.82 * detailFade);
+            }
+        } else if (isOcrmSidewalk) {
+            // OCRM v1 Single-Topology Disjoint Sidewalks, Vertical Dressed Granite Curbs & Pure Granite Median Islands!
+            float curbM = fragUv.x;
+            vec2 wallBase = vec2(fragPosition.x + fragPosition.z, fragPosition.y);
+            vec2 dWdx = dFdx(wallBase);
+            vec2 dWdy = dFdy(wallBase);
+            if (curbM < 0.0) {
+                // Vertical dressed granite curbstone OR enclosed median island (NO yellow tactile strip!)
+                bool isVertCurb = (abs(N.y) < 0.65);
+                vec2 cUv  = isVertCurb ? (wallBase * vec2(0.45, 0.85)) : (p * 0.42);
+                vec2 cDdx = isVertCurb ? (dWdx * vec2(0.45, 0.85)) : (dPdx * 0.42);
+                vec2 cDdy = isVertCurb ? (dWdy * vec2(0.45, 0.85)) : (dPdy * 0.42);
+                sampleStreetTileGrad(6, cUv, cDdx, cDdy, pAlb, pNxy, pR, pAO);
+                albedo = pAlb * (isVertCurb ? 0.90 : 0.98);
+                roughness = mix(pR, 0.50, wetRoadFactor * 0.60);
+                surfaceAO = pAO;
+                N = perturbNormalGrad(N, dp1, dp2, cDdx, cDdy, pNxy, 0.82 * detailFade);
+            } else if (curbM < 0.30) {
+                // Dressed Pocheon granite curb top coping (first 30cm along road edge)
+                vec2 cUv = p * 0.45;
+                sampleStreetTileGrad(6, cUv, dPdx * 0.45, dPdy * 0.45, pAlb, pNxy, pR, pAO);
+                albedo = pAlb;
+                roughness = mix(pR, 0.50, wetRoadFactor * 0.60);
+                surfaceAO = pAO;
+                N = perturbNormalGrad(N, dp1, dp2, dPdx * 0.45, dPdy * 0.45, pNxy, 0.82 * detailFade);
+            } else if (curbM > 0.88 && curbM < 1.28) {
+                // Authentic Seoul Yellow Tactile Braille Guide Strip (노란 점자블록) set 0.88..1.28m back from curb!
+                vec2 tUv = p * 1.45;
+                sampleStreetTileGrad(5, tUv, dPdx * 1.45, dPdy * 1.45, pAlb, pNxy, pR, pAO);
+                albedo = pAlb;
+                roughness = mix(pR, 0.42, wetRoadFactor * 0.55);
+                surfaceAO = pAO;
+                N = perturbNormalGrad(N, dp1, dp2, dPdx * 1.45, dPdy * 1.45, pNxy, 0.92 * detailFade);
+            } else {
+                // Interlocking Seoul Granite Sidewalk Pavers (Tile 3) with natural urban variation!
+                vec2 pvUv = p * 0.52;
+                sampleStreetTileGrad(3, pvUv, dPdx * 0.52, dPdy * 0.52, pAlb, pNxy, pR, pAO);
+                float swVar = fbm2(p * 0.08);
+                albedo = pAlb * mix(0.86, 1.06, swVar);
+                roughness = mix(pR, 0.52, wetRoadFactor * 0.65);
+                surfaceAO = pAO;
+                N = perturbNormalGrad(N, dp1, dp2, dPdx * 0.52, dPdy * 0.52, pNxy, 0.80 * detailFade);
             }
         } else {
             // Urban sidewalk-to-building plaza subbase: Tile 4 Large Honed Seoul Granite Flagstones!
@@ -1111,6 +1155,103 @@ void main() {
         metallic = 0.02;
         surfaceAO = mix(1.0, pAO, 0.65);
         N = perturbNormalGrad(N, dp1, dp2, dUdx, dUdy, pNxy, 0.65 * detailFade);
+    }
+    else if (matId == 23) {
+        // MAT 23: OCRM v1 Retroreflective Korean Thermoplastic Road Markings (Yellow Centerline, White Dashed, Blue Bus Lane, Zebra Crosswalks)
+        vec2 p = fragPosition.xz;
+        vec3 dp1 = dFdx(fragPosition);
+        vec3 dp2 = dFdy(fragPosition);
+        vec2 dPdx = dFdx(p);
+        vec2 dPdy = dFdy(p);
+        vec3 pAlb; vec2 pNxy; float pR; float pAO;
+        sampleStreetTileGrad(0, p * 0.30, dPdx * 0.30, dPdy * 0.30, pAlb, pNxy, pR, pAO);
+        float paintWear = mix(0.84, 1.0, smoothstep(0.15, 0.74, valueNoise(p * 3.6)));
+        albedo = mix(pAlb * 1.08, albedo * 0.96, paintWear * 0.92);
+        roughness = mix(0.46, 0.22, wetRoadFactor * 0.72);
+        metallic = 0.02;
+        surfaceAO = mix(1.0, pAO, 0.45);
+        N = perturbNormalGrad(N, dp1, dp2, dPdx * 0.30, dPdy * 0.30, pNxy, 0.32 * detailFade);
+        float wetAmt = clamp(wetRoadFactor + nightFactor * 0.16, 0.0, 1.0);
+        wetRoadSurface = wetAmt * 0.75;
+        if (wetAmt > 0.02) {
+            albedo *= (1.0 - wetAmt * 0.18);
+            roughness = mix(roughness, 0.14, wetAmt * 0.65);
+        }
+    }
+    else if (matId == 24) {
+        // MAT 24: OCRM v1 Single-Topology Asphalt Polygons (Tile 0 Urban / Tile 1 Dark Expressway SMA / Tile 2 Worn Intersection)
+        // ZERO overlapping road ribbons, ZERO Z-fighting, plus full organic 2-layer rotated Voronoi rain puddles & reflections!
+        vec2 p = fragPosition.xz;
+        vec3 dp1 = dFdx(fragPosition);
+        vec3 dp2 = dFdy(fragPosition);
+        vec2 dPdx = dFdx(p);
+        vec2 dPdy = dFdy(p);
+        int streetTile = (srgbBase.r < 0.35) ? 1 : ((srgbBase.r > 0.65) ? 2 : 0);
+        vec2 roadUv = p * 0.26;
+        vec3 pAlb; vec2 pNxy; float pR; float pAO;
+        sampleStreetTileGrad(streetTile, roadUv, dPdx * 0.26, dPdy * 0.26, pAlb, pNxy, pR, pAO);
+
+        float macroPatina = fbm2(p * 0.045) * 0.55 + fbm2(p * 0.14) * 0.45;
+        if (streetTile == 1) {
+            // Sleek dark Korean expressway SMA (경부고속도로 · 올림픽대로 · 강변북로 · 내부순환로)
+            albedo = (pAlb * 1.12 + vec3(0.004, 0.004, 0.005)) * mix(0.90, 1.12, macroPatina);
+            roughness = mix(pR, 0.44, 0.24);
+        } else if (streetTile == 2) {
+            // Worn multi-directional Seoul urban intersection asphalt (강남역 사거리 등)
+            albedo = (pAlb * 1.04 + vec3(0.006, 0.006, 0.008)) * mix(0.90, 1.12, macroPatina);
+            roughness = mix(pR, 0.48, 0.24);
+        } else {
+            // Weathered Seoul urban crushed-granite aggregate asphalt
+            albedo = (pAlb * 1.08 + vec3(0.007, 0.007, 0.009)) * mix(0.88, 1.14, macroPatina);
+            roughness = mix(pR, 0.54, 0.20);
+        }
+        surfaceAO = pAO;
+        N = perturbNormalGrad(N, dp1, dp2, dPdx * 0.26, dPdy * 0.26, pNxy, 0.78 * detailFade);
+
+        float wetAmt = clamp(wetRoadFactor + nightFactor * 0.16, 0.0, 1.0);
+        wetRoadSurface = wetAmt;
+        if (wetAmt > 0.02) {
+            vec2 warp = vec2(fbm2(p * 0.085 + vec2(3.1, 7.4)), fbm2(p * 0.085 + vec2(11.7, 2.3)));
+            float pNoise = fbm2(p * 0.145 + warp * 1.45) * 0.72 + valueNoise(p * 0.52) * 0.28;
+            // Only form mirror puddles when road is actually wet (wetRoadFactor > 0) — zero phantom spots on dry dusk asphalt!
+            puddleMask = smoothstep(0.55 - wetRoadFactor * 0.17, 0.77 - wetRoadFactor * 0.10, pNoise) * wetRoadFactor;
+            albedo *= (1.0 - wetRoadFactor * 0.24 - puddleMask * 0.22);
+            roughness = mix(roughness, 0.22, wetRoadFactor * 0.48);
+            roughness = mix(roughness, 0.04, puddleMask);
+            if (puddleMask > 0.26 && wetRoadFactor > 0.12 && detailFade > 0.05) {
+                vec2 ripN = vec2(0.0);
+                vec2 uv1 = p * 1.73;
+                vec2 c1 = floor(uv1);
+                vec2 f1 = fract(uv1) - 0.5;
+                vec2 j1 = (vec2(hash12(c1 + 3.1), hash12(c1 + 19.7)) - 0.5) * 0.64;
+                vec2 d1 = f1 - j1;
+                float s1 = hash12(c1 + 41.3);
+                if (s1 > 0.42) {
+                    float age1 = fract(animTime * 1.35 + s1 * 11.7);
+                    float dist1 = length(d1);
+                    float wave1 = sin((dist1 - age1 * 0.34) * 52.0) * exp(-abs(dist1 - age1 * 0.34) * 28.0);
+                    float env1 = smoothstep(0.0, 0.08, age1) * (1.0 - age1) * (1.0 - smoothstep(0.18, 0.36, dist1));
+                    ripN += normalize(d1 + vec2(1e-4)) * (wave1 * env1);
+                }
+                vec2 pRot = vec2(p.x * 0.7986 - p.y * 0.6018, p.x * 0.6018 + p.y * 0.7986);
+                vec2 uv2 = pRot * 2.81 + vec2(13.4, 7.9);
+                vec2 c2 = floor(uv2);
+                vec2 f2 = fract(uv2) - 0.5;
+                vec2 j2 = (vec2(hash12(c2 + 7.3), hash12(c2 + 29.1)) - 0.5) * 0.64;
+                vec2 d2 = f2 - j2;
+                float s2 = hash12(c2 + 67.9);
+                if (s2 > 0.48) {
+                    float age2 = fract(animTime * 1.65 + s2 * 13.1);
+                    float dist2 = length(d2);
+                    float wave2 = sin((dist2 - age2 * 0.32) * 56.0) * exp(-abs(dist2 - age2 * 0.32) * 32.0);
+                    float env2 = smoothstep(0.0, 0.08, age2) * (1.0 - age2) * (1.0 - smoothstep(0.16, 0.34, dist2));
+                    vec2 n2Rot = normalize(d2 + vec2(1e-4)) * (wave2 * env2 * 0.75);
+                    ripN += vec2(n2Rot.x * 0.7986 + n2Rot.y * 0.6018, -n2Rot.x * 0.6018 + n2Rot.y * 0.7986);
+                }
+                float ripBlend = smoothstep(0.28, 0.72, puddleMask) * smoothstep(0.12, 0.45, wetRoadFactor) * detailFade;
+                N = normalize(mix(N, normalize(vec3(ripN.x * 0.055, 1.0, ripN.y * 0.055)), ripBlend));
+            }
+        }
     }
 
     // -----------------------------------------------------------------------

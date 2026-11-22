@@ -109,10 +109,14 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
 
     GameWorld world(20261107ULL);
 
-    // Load Real-World OpenStreetMap Seoul GIS + SRTM 30m DEM (v3.0.0 — works identically on Desktop & Android APK!)
+    // Load Real-World OpenStreetMap Seoul GIS + SRTM 15m DTM + Eclipse SUMO OCRM v1 single-topology road mesh (v6.0.0)
     const auto ocmapBytes = app.loadAssetBytes("maps/seoul_real.ocmap");
     if (!ocmapBytes.empty()) {
         world.loadRealSeoulMap(ocmapBytes.data(), ocmapBytes.size());
+    }
+    const auto ocrmBytes = app.loadAssetBytes("maps/seoul_roads_hd.ocrm");
+    if (!ocrmBytes.empty()) {
+        world.loadOcrmRoadMesh(ocrmBytes.data(), ocrmBytes.size());
     }
 
     // Apply CLI test/screenshot overrides before streaming & rendering
@@ -669,7 +673,7 @@ extern "C" void android_main(struct android_app* state) {
 int main(int argc, char** argv) {
     const oc::CliOptions cli = oc::parseArgs(argc, argv);
     oc::PlatformApp app;
-    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v5.2 — Ultra-Real Seoul 4K (Native Vulkan)")) {
+    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v6.0 — Single-Topology HD Roads & Ultra-Real Seoul 4K (Native Vulkan)")) {
         return 1;
     }
     const int rc = oc::runApplication(app, cli);

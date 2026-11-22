@@ -376,7 +376,31 @@ bool RealSeoulData::tryAutoLoadDesktop() {
         "maps/seoul_real.ocmap"
     };
     for (const char* p : kCandidates) {
-        if (loadFromFile(p)) return true;
+        if (loadFromFile(p)) {
+            tryAutoLoadOcrmDesktop();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool RealSeoulData::loadOcrmFromBytes(const std::uint8_t* data, std::size_t size) {
+    return ocrmMesh_.loadFromBytes(data, size);
+}
+
+bool RealSeoulData::loadOcrmFromFile(const std::string& path) {
+    return ocrmMesh_.loadFromFile(path);
+}
+
+bool RealSeoulData::tryAutoLoadOcrmDesktop() {
+    static constexpr const char* kCandidates[] = {
+        "assets/maps/seoul_roads_hd.ocrm",
+        "../assets/maps/seoul_roads_hd.ocrm",
+        "../../assets/maps/seoul_roads_hd.ocrm",
+        "maps/seoul_roads_hd.ocrm"
+    };
+    for (const char* p : kCandidates) {
+        if (ocrmMesh_.loadFromFile(p)) return true;
     }
     return false;
 }
