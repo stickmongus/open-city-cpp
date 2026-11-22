@@ -63,7 +63,9 @@ bool RealSeoulData::loadFromBytes(const std::uint8_t* data, std::size_t size) {
     };
 
     if (!readBlock(&hdr_, sizeof(OcMapHeader))) return false;
-    if (std::memcmp(hdr_.magic, "OCM3", 4) != 0 || hdr_.version != 1) return false;
+    const bool isOcm4 = (std::memcmp(hdr_.magic, "OCM4", 4) == 0 && hdr_.version == 2);
+    const bool isOcm3 = (std::memcmp(hdr_.magic, "OCM3", 4) == 0 && hdr_.version == 1);
+    if (!isOcm4 && !isOcm3) return false;
     if (hdr_.chunksX == 0 || hdr_.chunksZ == 0 || hdr_.demW < 2 || hdr_.demH < 2) return false;
 
     const std::size_t demCount = static_cast<std::size_t>(hdr_.demW) * static_cast<std::size_t>(hdr_.demH);
@@ -117,7 +119,48 @@ bool RealSeoulData::loadFromBytes(const std::uint8_t* data, std::size_t size) {
         }
     }
     if (!readBlock(roadVerts_.data(), roadVerts_.size() * sizeof(Vec2))) return false;
-    if (!readBlock(buildings_.data(), buildings_.size() * sizeof(OsmBldgRec))) return false;
+    if (isOcm4) {
+        if (!readBlock(buildings_.data(), buildings_.size() * sizeof(OsmBldgRec))) return false;
+    } else {
+        #pragma pack(push, 1)
+        struct OsmBldgRecV3 {
+            std::uint32_t firstVert;
+            std::uint16_t vertCount;
+            std::uint8_t style;
+            std::uint8_t colorIdx;
+            float cx, cz;
+            float baseY, height;
+            float halfX, halfZ;
+        };
+        #pragma pack(pop)
+        static_assert(sizeof(OsmBldgRecV3) == 32, "OsmBldgRecV3 must be 32 bytes");
+        std::vector<OsmBldgRecV3> v3(hdr_.bldgCount);
+        if (!readBlock(v3.data(), v3.size() * sizeof(OsmBldgRecV3))) return false;
+        for (std::size_t i = 0; i < v3.size(); ++i) {
+            const OsmBldgRecV3& s = v3[i];
+            OsmBldgRec& b = buildings_[i];
+            b.firstVert = s.firstVert;
+            b.vertCount = s.vertCount;
+            // Remap legacy OCM3 style (0..6) to OCM4 style (0..9)
+            static constexpr std::uint8_t kMap[7] = {0, 1, 3, 4, 5, 6, 7};
+            b.style = (s.style < 7u) ? kMap[s.style] : 3u;
+            b.roofShape = (b.style == 6u) ? 2u : 0u;
+            b.facadeR = 204u;
+            b.facadeG = 200u;
+            b.facadeB = 194u;
+            b.roofHeightQ = (b.style == 6u) ? 8u : 0u;
+            b.flags = (b.style == 3u || b.style == 4u || b.style == 5u) ? 2u : 0u;
+            b.variantSeed = static_cast<std::uint8_t>((s.colorIdx * 61u + static_cast<std::uint32_t>(i) * 37u) & 255u);
+            b.pad_ = 0u;
+            b.cx = s.cx;
+            b.cz = s.cz;
+            b.baseY = s.baseY;
+            b.minHeight = 0.0f;
+            b.height = s.height;
+            b.halfX = s.halfX;
+            b.halfZ = s.halfZ;
+        }
+    }
     if (!readBlock(bldgVerts_.data(), bldgVerts_.size() * sizeof(OsmLocalVert))) return false;
     if (!readBlock(chunks_.data(), chunks_.size() * sizeof(OcChunkHdr))) return false;
     if (!readBlock(flatChunkRoads_.data(), flatChunkRoads_.size() * sizeof(std::uint32_t))) return false;
@@ -241,32 +284,43 @@ bool RealSeoulData::loadFromBytes(const std::uint8_t* data, std::size_t size) {
             return inside;
         };
 
+        auto cullAtPoint = [&](const Vec2& pt) {
+            if (!isInCoreBounds(pt)) return;
+            const int cx = std::clamp(static_cast<int>(std::floor((pt.x - hdr_.minX) / hdr_.chunkSize)),
+                                      0, static_cast<int>(hdr_.chunksX) - 1);
+            const int cz = std::clamp(static_cast<int>(std::floor((pt.z - hdr_.minZ) / hdr_.chunkSize)),
+                                      0, static_cast<int>(hdr_.chunksZ) - 1);
+            const OcChunkHdr& ch = chunks_[static_cast<std::size_t>(cz) * hdr_.chunksX + static_cast<std::size_t>(cx)];
+            for (std::uint32_t j = 0; j < ch.bldgLen; ++j) {
+                OsmBldgRec& bldg = buildings_[flatChunkBldgs_[ch.bldgStart + j]];
+                if (bldg.vertCount < 3 || bldg.minHeight >= 4.5f) continue; // Keep elevated skybridges intact!
+                if (pointInBldgPoly(bldg, pt)) {
+                    bldg.vertCount = 0;
+                    bldg.height = 0.0f;
+                    bldg.halfX = 0.0f;
+                    bldg.halfZ = 0.0f;
+                }
+            }
+        };
+
         for (const OsmRoadRec& r : roads_) {
             if (r.roadClass > 4 || (r.flags & 4u) != 0u || r.vertCount < 2) continue; // Skip tunnels & narrow back alleys
+            const float hw = std::max(2.6f, r.halfWidth);
+            const float probeLat = (r.roadClass <= 3u && hw >= 4.5f) ? (hw - 1.0f) : 0.0f;
             for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
                 const Vec2 a = roadVerts_[r.firstVert + s];
                 const Vec2 b = roadVerts_[r.firstVert + s + 1];
                 const Vec2 e = b - a;
                 const float segLen = e.length();
-                const int steps = std::max(1, static_cast<int>(std::ceil(segLen / 6.0f)));
+                const Vec2 rightN = (segLen > 1e-4f) ? Vec2{-e.z / segLen, e.x / segLen} : Vec2{0.0f, 1.0f};
+                const int steps = std::max(1, static_cast<int>(std::ceil(segLen / 5.5f)));
                 for (int k = 0; k <= steps; ++k) {
                     const float t = static_cast<float>(k) / static_cast<float>(steps);
                     const Vec2 pt = a + e * t;
-                    if (!isInCoreBounds(pt)) continue;
-                    const int cx = std::clamp(static_cast<int>(std::floor((pt.x - hdr_.minX) / hdr_.chunkSize)),
-                                              0, static_cast<int>(hdr_.chunksX) - 1);
-                    const int cz = std::clamp(static_cast<int>(std::floor((pt.z - hdr_.minZ) / hdr_.chunkSize)),
-                                              0, static_cast<int>(hdr_.chunksZ) - 1);
-                    const OcChunkHdr& ch = chunks_[static_cast<std::size_t>(cz) * hdr_.chunksX + static_cast<std::size_t>(cx)];
-                    for (std::uint32_t j = 0; j < ch.bldgLen; ++j) {
-                        OsmBldgRec& bldg = buildings_[flatChunkBldgs_[ch.bldgStart + j]];
-                        if (bldg.vertCount < 3) continue;
-                        if (pointInBldgPoly(bldg, pt)) {
-                            bldg.vertCount = 0;
-                            bldg.height = 0.0f;
-                            bldg.halfX = 0.0f;
-                            bldg.halfZ = 0.0f;
-                        }
+                    cullAtPoint(pt);
+                    if (probeLat > 0.5f) {
+                        cullAtPoint(pt - rightN * probeLat);
+                        cullAtPoint(pt + rightN * probeLat);
                     }
                 }
             }
@@ -410,6 +464,7 @@ bool RealSeoulData::resolveCircleBuildings(Vec2& pos, float radius, Vec2* outNor
 
     for (std::uint32_t k = 0; k < ch.bldgLen; ++k) {
         const OsmBldgRec& b = buildings_[flatChunkBldgs_[ch.bldgStart + k]];
+        if (b.minHeight > 3.0f) continue; // Allow cars & pedestrians cleanly beneath skybridges / upper cantilevers!
         if (std::abs(pos.x - b.cx) > b.halfX + radius + 0.2f ||
             std::abs(pos.z - b.cz) > b.halfZ + radius + 0.2f) {
             continue;
@@ -488,6 +543,7 @@ float RealSeoulData::raycastBuildings2D(const Vec2& origin, const Vec2& dir, flo
             const OcChunkHdr& ch = chunks_[row + static_cast<std::size_t>(cx)];
             for (std::uint32_t k = 0; k < ch.bldgLen; ++k) {
                 const OsmBldgRec& b = buildings_[flatChunkBldgs_[ch.bldgStart + k]];
+                if (b.minHeight > 3.0f || b.vertCount < 3) continue;
                 if (b.cx + b.halfX < rx0 || b.cx - b.halfX > rx1 ||
                     b.cz + b.halfZ < rz0 || b.cz - b.halfZ > rz1) {
                     continue;
@@ -533,12 +589,13 @@ float RealSeoulData::raycastBuildings3D(const Vec3& origin, const Vec3& dir, flo
             const OcChunkHdr& ch = chunks_[row + static_cast<std::size_t>(cx)];
             for (std::uint32_t k = 0; k < ch.bldgLen; ++k) {
                 const OsmBldgRec& b = buildings_[flatChunkBldgs_[ch.bldgStart + k]];
+                if (b.vertCount < 3) continue;
                 if (b.cx + b.halfX < rx0 || b.cx - b.halfX > rx1 ||
                     b.cz + b.halfZ < rz0 || b.cz - b.halfZ > rz1) {
                     continue;
                 }
-                const float yMin = b.baseY - 2.0f;
-                const float yMax = b.baseY + b.height;
+                const float yMin = (b.minHeight > 0.1f) ? (b.baseY + b.minHeight) : (b.baseY - 2.0f);
+                const float yMax = b.baseY + b.height + static_cast<float>(b.roofHeightQ) * 0.25f;
                 if (d2Len > 1e-5f) {
                     const std::uint16_t n = b.vertCount;
                     for (std::uint16_t i = 0; i < n; ++i) {

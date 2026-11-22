@@ -70,12 +70,12 @@ float aaBand(float distFromCenter, float halfWidth) {
     return 1.0 - smoothstep(halfWidth - fw, halfWidth + fw, distFromCenter);
 }
 
-// Seam-free 4x4 PBR Texture Atlas Sampling using explicit tile-scaled gradients (ZERO mip bleeding!)
+// Seam-free 4x4 4096x4096 PBR Texture Atlas Sampling using explicit tile-scaled gradients (ZERO mip bleeding!)
 void samplePbrTile(int tileId, vec2 uv, out vec3 outAlbedoLin, out vec2 outNormXY, out float outRough, out float outAO) {
     vec2 tileOrigin = vec2(float(tileId & 3), float(tileId >> 2)) * 0.25;
     vec2 ddx = clamp(dFdx(uv) * 0.25, vec2(-0.08), vec2(0.08));
     vec2 ddy = clamp(dFdy(uv) * 0.25, vec2(-0.08), vec2(0.08));
-    vec2 local = (clamp(fract(uv), 0.004, 0.996)) * 0.25;
+    vec2 local = (clamp(fract(uv), 0.0012, 0.9988)) * 0.25;
     vec2 atlasUv = tileOrigin + local;
     vec3 texAlb = textureGrad(pbrAlbedoTex, atlasUv, ddx, ddy).rgb;
     vec4 texNR  = textureGrad(pbrNormalRoughTex, atlasUv, ddx, ddy);
@@ -223,6 +223,7 @@ void main() {
     float surfaceAO = 1.0;
     bool isWindowPane = false;
     bool isGlassTowerWin = false;
+    vec3 windowReflTint = vec3(1.0);
 
     float viewDist = length(viewPos - fragPosition);
     float detailFade = 1.0 - smoothstep(32.0, 160.0, viewDist);
@@ -537,7 +538,17 @@ void main() {
         roughness = mix(roughness, 0.09, puddleMask);
     }
     else if (matId == 2 || matId == 3 || matId == 4 || matId == 16 || matId == 18) {
-        // Real 2048x2048 PBR Architectural Building Facades + Normal Maps + Reflective Windows + Night Interior Glow!
+        // Real 4096x4096 PBR Architectural Building Facades + 3D Interior Parallax Mapping + Real OCM4 RGB & Variety!
+        // Opaque buildings always output alpha = 1.0; vertex alpha carries OCM4 architectural metadata byte!
+        int varByte = int(floor(srgbBase.a * 255.0 + 0.5));
+        bool isOcm4Meta = (varByte < 255);
+        bool metaHasRetail1F = isOcm4Meta ? ((varByte & 128) != 0) : (matId == 2 || matId == 4 || matId == 18);
+        bool metaDarkMetal   = isOcm4Meta ? ((varByte & 64) != 0) : false;
+        float archSeed = isOcm4Meta
+            ? (float(varByte & 63) / 63.0)
+            : fract(dot(floor(fragPosition.xz * 0.045), vec2(12.9898, 78.233)));
+        alphaOut = 1.0;
+
         if (abs(N.y) < 0.45) {
             // Real-OSM polygons pass exact wall-metric UV (u = horizontal meters, v = vertical height meters)!
             vec2 wallM = (dot(fragUv, fragUv) > 0.0001)
@@ -546,81 +557,216 @@ void main() {
 
             bool isGlassTower = (matId == 3);
             bool isKoreaApt   = (matId == 16);
-            bool isGroundFlr  = (wallM.y < 3.9);
+            bool isGroundFlr  = (wallM.y < 3.95) && metaHasRetail1F;
+
+            // Per-building bay width & floor height rhythm so neighboring Seoul buildings never look like clones!
+            float uJitter = mix(0.88, 1.14, archSeed);
+            float vJitter = mix(0.92, 1.09, fract(archSeed * 3.73));
 
             int tileId = 4;
             vec2 tileScale = vec2(0.11, 0.11);
-            if (isGroundFlr && (matId == 2 || matId == 4 || matId == 18)) {
-                tileId = 7; // Korean 1F Commercial Storefront (카페/편의점/식당 유리창!)
-                tileScale = vec2(0.125, 0.256);
-            } else if (matId == 16) {
-                tileId = 2; // Korean Apartment Facade
-                tileScale = vec2(0.095, 0.105);
-            } else if (matId == 3) {
-                tileId = 3; // Glass Curtain-Wall Skyscraper
-                tileScale = vec2(0.105, 0.095);
+            if (isGroundFlr) {
+                tileId = 7; // Korean 1F Commercial Storefront (카페/편의점/식당 통유리!)
+                tileScale = vec2(0.125 * mix(0.92, 1.10, archSeed), 0.254);
+            } else if (isKoreaApt) {
+                tileId = 2; // Korean High-Rise Apartment Facade (래미안/자이/힐스테이트)
+                tileScale = vec2(0.095 * uJitter, 0.105 * vJitter);
+            } else if (isGlassTower) {
+                tileId = 3; // Glass & Dark Metallic Curtain-Wall Skyscraper
+                tileScale = vec2(0.105 * uJitter, 0.096 * vJitter);
             } else if (matId == 4) {
-                tileId = 4; // Granite Korean Office
-                tileScale = vec2(0.115, 0.105);
+                tileId = 4; // Honed Granite / Limestone Corporate Office
+                tileScale = vec2(0.115 * uJitter, 0.106 * vJitter);
             } else if (matId == 2) {
-                tileId = 5; // Brick Commercial / Villa
-                tileScale = vec2(0.135, 0.120);
+                tileId = 5; // Brick Commercial / Korean Multi-Family Villa
+                tileScale = vec2(0.132 * uJitter, 0.120 * vJitter);
             } else {
-                tileId = 6; // Stucco Commercial
-                tileScale = vec2(0.135, 0.120);
+                tileId = 6; // Modern Commercial Stone-Tile / Stucco
+                tileScale = vec2(0.132 * uJitter, 0.118 * vJitter);
             }
 
             vec2 pbrUv = wallM * tileScale;
             vec3 pAlb; vec2 pNxy; float pR; float pAO;
             samplePbrTile(tileId, pbrUv, pAlb, pNxy, pR, pAO);
 
-            // Detect reflective architectural glass windows cleanly via baked PBR roughness < 0.14!
+            // Detect reflective architectural glass windows cleanly via baked 4K PBR roughness < 0.145!
             bool pbrWin = (pR < 0.145);
             if (pbrWin) {
                 isWindowPane = true;
                 isGlassTowerWin = isGlassTower;
-                // Subtle glass pane reflection tint + night interior room luminance variation!
-                vec2 winCell = floor(wallM * vec2(0.45, 0.30));
-                float roomSeed = hash12(winCell + floor(fragPosition.xz * 0.04));
-                albedo = isGlassTower ? mix(pAlb, pAlb * (albedo * 1.4 + vec3(0.15)), 0.45) : (pAlb * 0.82);
-                roughness = isGlassTower ? 0.035 : 0.055;
-                metallic = isGlassTower ? 0.38 : 0.22;
 
-                float litProb = isGroundFlr ? 0.86 : (isGlassTower ? 0.54 : 0.44);
-                if (roomSeed > (1.0 - litProb)) {
-                    vec3 warmInt = pow(vec3(0.98, 0.80, 0.54), vec3(2.2));
-                    vec3 coolInt = pow(vec3(0.68, 0.84, 0.98), vec3(2.2));
-                    vec3 intCol = (roomSeed > 0.84) ? coolInt : warmInt;
-                    emissiveColor = intCol;
-                    emissive = max(emissive, mix(isGroundFlr ? 0.24 : 0.06, isGroundFlr ? 1.55 : 1.18, nightFactor));
+                // -----------------------------------------------------------------
+                // TRUE 3D INTERIOR PARALLAX MAPPING BEHIND ARCHITECTURAL GLASS!
+                // -----------------------------------------------------------------
+                vec2 roomFreq = isGroundFlr ? vec2(0.28, 0.26) : (isGlassTower ? vec2(0.40, 0.28) : vec2(0.35, 0.30));
+                vec2 roomCoord = floor(wallM * roomFreq);
+                vec2 rPos2 = fract(wallM * roomFreq);
+
+                // Floor-clustered Seoul office occupancy (whole office floors glow together at night!)
+                float bldKey = floor(archSeed * 63.0 + 0.5);
+                float floorSeed = hash12(vec2(roomCoord.y + bldKey * 7.1, floor(fragPosition.x * 0.025) + floor(fragPosition.z * 0.025)));
+                float roomSeed  = hash12(roomCoord + vec2(bldKey * 13.7, floor(fragPosition.x * 0.03) - floor(fragPosition.z * 0.03)));
+
+                vec3 T_w = normalize(cross(N, vec3(0.0, 1.0, 0.0)));
+                vec3 rayW = -V;
+                vec3 rDir = vec3(dot(rayW, T_w), rayW.y, max(dot(rayW, -N), 0.08));
+                float roomDepth = isGroundFlr ? 0.92 : 0.72;
+                float tBack = roomDepth / rDir.z;
+                float tX = (abs(rDir.x) > 0.001) ? (((rDir.x > 0.0) ? (1.0 - rPos2.x) : rPos2.x) / abs(rDir.x)) : 99.0;
+                float tY = (abs(rDir.y) > 0.001) ? (((rDir.y > 0.0) ? (1.0 - rPos2.y) : rPos2.y) / abs(rDir.y)) : 99.0;
+                float tHit = min(tBack, min(tX, tY));
+                vec3 hitP = vec3(rPos2, 0.0) + rDir * tHit;
+
+                // Interior surface shading: ceiling slab + linear LED light bars, back wall, side partitions, floor
+                float depthAO = exp(-hitP.z * 1.45);
+                vec3 intRoomBase = vec3(0.10, 0.11, 0.13);
+                float ceilLightBar = 0.0;
+                if (tY <= tX && tY <= tBack) {
+                    if (rDir.y > 0.0) {
+                        // Office / retail ceiling with crisp recessed LED light strips
+                        intRoomBase = vec3(0.19, 0.20, 0.22);
+                        float barX = 1.0 - smoothstep(0.18, 0.30, abs(hitP.x - 0.5));
+                        float barZ = smoothstep(0.12, 0.24, fract(hitP.z * 2.6)) * (1.0 - smoothstep(0.68, 0.80, fract(hitP.z * 2.6)));
+                        ceilLightBar = barX * barZ;
+                    } else {
+                        // Darker interior floor slab
+                        intRoomBase = vec3(0.055, 0.058, 0.064);
+                    }
+                } else if (tBack <= tX) {
+                    // Back interior wall with subtle desk/partition band
+                    float deskBand = smoothstep(0.28, 0.36, hitP.y);
+                    intRoomBase = mix(vec3(0.06, 0.065, 0.075), vec3(0.14, 0.145, 0.155), deskBand) * depthAO;
+                } else {
+                    // Side partition walls
+                    intRoomBase = vec3(0.10, 0.105, 0.115) * depthAO;
+                }
+
+                // Subtle partially-lowered office Venetian blinds on random windows (authentic Teheran-ro detail!)
+                float blindDrop = (roomSeed > 0.45 && !isGroundFlr) ? (0.18 + 0.36 * fract(roomSeed * 5.7)) : 0.0;
+                float blindMask = (rPos2.y > (1.0 - blindDrop)) ? 1.0 : 0.0;
+                if (blindMask > 0.5) {
+                    float slat = 0.82 + 0.18 * sin(rPos2.y * 58.0);
+                    intRoomBase = mix(intRoomBase, vec3(0.24, 0.25, 0.27) * slat, 0.72);
+                }
+
+                // Authentic Low-E architectural glass tint & reflection coating per building
+                // (Sapphire-blue, emerald-teal, dark smoked charcoal, warm bronze, crisp silver-mirror!)
+                vec3 glassTint;
+                if (metaDarkMetal) {
+                    float bronzeMix = fract(archSeed * 2.3);
+                    glassTint = mix(vec3(0.014, 0.018, 0.026), vec3(0.036, 0.026, 0.018), bronzeMix);
+                    windowReflTint = mix(vec3(0.36, 0.42, 0.52), vec3(0.84, 0.66, 0.46), bronzeMix);
+                } else if (isGlassTower) {
+                    vec3 blueLowE   = vec3(0.016, 0.052, 0.105);
+                    vec3 tealLowE   = vec3(0.014, 0.068, 0.072);
+                    vec3 silverLowE = vec3(0.034, 0.048, 0.068);
+                    glassTint = (archSeed < 0.42) ? mix(blueLowE, tealLowE, archSeed / 0.42)
+                                                  : mix(tealLowE, silverLowE, (archSeed - 0.42) / 0.58);
+                    glassTint = mix(glassTint, glassTint * (albedo * 1.40 + vec3(0.20)), 0.40);
+                    vec3 blueRefl   = vec3(0.40, 0.72, 1.08);
+                    vec3 tealRefl   = vec3(0.36, 0.84, 0.78);
+                    vec3 silverRefl = vec3(0.70, 0.84, 0.98);
+                    windowReflTint = (archSeed < 0.42) ? mix(blueRefl, tealRefl, archSeed / 0.42)
+                                                       : mix(tealRefl, silverRefl, (archSeed - 0.42) / 0.58);
+                } else if (isGroundFlr) {
+                    glassTint = vec3(0.014, 0.022, 0.032);
+                    windowReflTint = vec3(0.52, 0.62, 0.74);
+                } else {
+                    glassTint = mix(vec3(0.016, 0.026, 0.040), vec3(0.026, 0.036, 0.048), archSeed);
+                    windowReflTint = mix(vec3(0.56, 0.70, 0.86), vec3(0.68, 0.78, 0.88), archSeed);
+                }
+
+                // Physically linear daytime glass: deep sleek tempered glass with crisp 3D parallax interior depth (ZERO chalky grey!)
+                albedo = glassTint + intRoomBase * (isGroundFlr ? 0.14 : 0.10);
+                roughness = metaDarkMetal ? 0.026 : (isGlassTower ? 0.032 : 0.048);
+                metallic  = metaDarkMetal ? 0.54  : (isGlassTower ? 0.44  : 0.24);
+
+                // Realistic Dusk / Night Interior Illumination (ZERO glow at sunny afternoon 16:51!)
+                float duskUpper = smoothstep(0.46, 0.84, nightFactor);
+                float dusk1F    = smoothstep(0.30, 0.76, nightFactor);
+                bool floorActive = isGlassTower ? (floorSeed > 0.36) : (floorSeed > 0.26);
+                float roomLitProb = isGroundFlr ? 0.84 : (floorActive ? (isGlassTower ? 0.74 : 0.58) : 0.09);
+
+                if (roomSeed > (1.0 - roomLitProb)) {
+                    vec3 warmHome   = pow(vec3(1.00, 0.80, 0.50), vec3(2.2)); // 3000K Korean apartment/cafe warm glow
+                    vec3 crispOff   = pow(vec3(0.84, 0.92, 1.00), vec3(2.2)); // 5000K Korean office LED
+                    vec3 neutralOff = pow(vec3(0.96, 0.89, 0.74), vec3(2.2)); // 4000K warm-white commercial
+                    vec3 intCol = isKoreaApt
+                        ? mix(warmHome, neutralOff, step(0.74, roomSeed))
+                        : (isGlassTower ? mix(crispOff, neutralOff, step(0.62, roomSeed))
+                                        : mix(warmHome, crispOff, step(0.70, roomSeed)));
+
+                    float interiorPat = (0.34 + 0.66 * depthAO + ceilLightBar * 1.15) * (1.0 - blindMask * 0.55);
+                    float glowAmt = isGroundFlr
+                        ? mix(0.04, 1.48, dusk1F)
+                        : (duskUpper * (isGlassTower ? 1.18 : 1.02));
+                    if (glowAmt > 0.005) {
+                        emissiveColor = intCol * interiorPat;
+                        emissive = max(emissive, glowAmt);
+                    }
                 }
             } else {
-                // Modulate baked PBR architectural masonry/stone/concrete cleanly with per-building color variety
-                vec3 bldTint = mix(vec3(1.0), clamp(albedo * 1.65 + vec3(0.18), 0.45, 1.35), 0.55);
-                albedo = pAlb * bldTint;
-                roughness = pR;
-                metallic = isGlassTower ? 0.42 : 0.05;
+                // Opaque Architectural Cladding / Masonry / Honed Granite / Anodized Mullions:
+                // Preserve full 4K micro-detail while cleanly honoring each real building's 24-bit OCM4 facade RGB!
+                float pLum = dot(pAlb, vec3(0.299, 0.587, 0.114));
+                vec3 normTex = pAlb / max(pLum, 0.08);
+                if (metaDarkMetal && isGlassTower) {
+                    // Brushed dark charcoal / bronze / titanium skyscraper structural mullions & spandrel panels
+                    albedo = mix(albedo * 0.72, pAlb * (albedo * 1.45 + vec3(0.08)), 0.52);
+                    roughness = mix(0.24, pR, 0.45);
+                    metallic = 0.68;
+                } else if (matId == 2) {
+                    // Brick / Villa: keep rich red/terracotta mortar contrast while shifting tone to building's real RGB
+                    albedo = pAlb * mix(vec3(1.0), clamp(albedo * 2.05 + vec3(0.14), 0.42, 1.42), 0.68);
+                    roughness = pR;
+                    metallic = 0.04;
+                } else {
+                    // Korean Apartments, Honed Granite Offices, Limestone Commercial, Civic: true per-building RGB!
+                    float detailScale = clamp(pLum * 1.85, 0.35, 1.38);
+                    vec3 tintedClad = albedo * detailScale * mix(vec3(1.0), normTex, 0.35);
+                    albedo = mix(pAlb, tintedClad, 0.78);
+                    // Modern Seoul apartment 1F-3F dark granite podium base (래미안/자이/힐스테이트 석재 기단부!)
+                    if (isKoreaApt && wallM.y < 8.4) {
+                        float baseBlend = 1.0 - smoothstep(7.8, 8.5, wallM.y);
+                        albedo = mix(albedo, albedo * vec3(0.58, 0.59, 0.62), baseBlend * 0.75);
+                    }
+                    roughness = pR;
+                    metallic = isGlassTower ? 0.46 : (metaDarkMetal ? 0.42 : 0.06);
+                }
                 surfaceAO = pAO;
-                N = perturbNormal(N, fragPosition, pbrUv, pNxy, 0.90 * detailFade);
+                N = perturbNormal(N, fragPosition, pbrUv, pNxy, 0.92 * detailFade);
             }
-            // Ground-level urban street contact ambient occlusion
-            albedo *= mix(0.70, 1.0, smoothstep(0.0, 2.4, wallM.y));
+            // Ground-level urban street contact ambient occlusion (subtle & natural)
+            albedo *= mix(0.76, 1.0, smoothstep(0.0, 2.2, wallM.y));
         } else {
-            // Flat architectural rooftop (Tile 10 Concrete OR Signature Korean green waterproof urethane roof!)
-            vec2 roofUv = fragPosition.xz * 0.09;
+            // Architectural Rooftop (Flat Concrete / Korean Green Urethane OR Real 3D Sloped Roofs!)
+            vec2 roofUv = fragPosition.xz * 0.095;
             vec3 pAlb; vec2 pNxy; float pR; float pAO;
             samplePbrTile(10, roofUv, pAlb, pNxy, pR, pAO);
-            if (matId == 2) {
-                vec3 krRoofGreen = pow(vec3(0.24, 0.46, 0.34), vec3(2.2));
-                albedo = mix(pAlb, krRoofGreen * (0.75 + pAlb * 0.7), 0.72);
+            bool isSlopedRoof = (N.y < 0.96);
+            if (isSlopedRoof) {
+                // Real 3D gabled/hipped/pyramidal/dome/skillion roof material (slate charcoal, terracotta, or standing-seam metal!)
+                vec3 slateCol = pow(vec3(0.24, 0.26, 0.30), vec3(2.2));
+                vec3 terraCol = pow(vec3(0.50, 0.26, 0.19), vec3(2.2));
+                vec3 metalCol = pow(vec3(0.36, 0.40, 0.45), vec3(2.2));
+                vec3 rTint = (matId == 2) ? mix(slateCol, terraCol, step(0.42, archSeed))
+                                          : ((matId == 3 || metaDarkMetal) ? metalCol : mix(slateCol, albedo * 0.55, 0.35));
+                albedo = rTint * (0.72 + pAlb * 0.85);
+                roughness = (matId == 3 || metaDarkMetal) ? 0.36 : 0.62;
+                metallic = (matId == 3 || metaDarkMetal) ? 0.48 : 0.06;
+            } else if (matId == 2) {
+                // Signature Korean green waterproof urethane flat roof (옥상 초록 우레탄 방수!)
+                vec3 krRoofGreen = pow(vec3(0.23, 0.45, 0.33), vec3(2.2));
+                albedo = mix(pAlb, krRoofGreen * (0.76 + pAlb * 0.68), 0.72);
                 roughness = 0.54;
+                metallic = 0.04;
             } else {
-                albedo = pAlb * mix(0.75, 1.10, 0.5);
+                albedo = pAlb * mix(0.76, 1.08, 0.5);
                 roughness = pR;
+                metallic = 0.05;
             }
             surfaceAO = pAO;
-            metallic = 0.04;
-            N = perturbNormal(N, fragPosition, roofUv, pNxy, 0.65 * detailFade);
+            N = perturbNormal(N, fragPosition, roofUv, pNxy, 0.68 * detailFade);
         }
     }
     else if (matId == 6) {
@@ -745,9 +891,9 @@ void main() {
     float sunVis = 1.0 - shadow * 0.90;
 
     float hemi = clamp(N.y * 0.5 + 0.5, 0.0, 1.0);
-    vec3 ambient = mix(groundAmbient * 0.78, skyAmbient * 0.90, hemi) * surfaceAO;
-    ambient = mix(ambient, ambient * vec3(0.68, 0.80, 1.08), shadow * 0.50);
-    float contactAo = mix(0.62, 1.0, clamp(fragPosition.y / 1.8, 0.0, 1.0));
+    vec3 ambient = mix(groundAmbient * 0.86, skyAmbient * 1.02, hemi) * surfaceAO;
+    ambient = mix(ambient, ambient * vec3(0.76, 0.88, 1.16), shadow * 0.48);
+    float contactAo = mix(0.66, 1.0, clamp(fragPosition.y / 1.8, 0.0, 1.0));
     if (N.y > 0.75) contactAo = 1.0;
 
     vec3 H = normalize(L + V);
@@ -810,16 +956,16 @@ void main() {
             envRefl *= mix(1.0, 0.34, smoothstep(0.08, 0.56, R.y));
         }
 
-        float specExp = (matId == 6) ? 210.0 : ((matId == 8) ? 340.0 : ((matId == 7) ? mix(260.0, 32.0, clamp(roughness * 1.4, 0.0, 1.0)) : 160.0));
+        float specExp = (matId == 6) ? 210.0 : ((matId == 8) ? 340.0 : ((matId == 7) ? mix(260.0, 32.0, clamp(roughness * 1.4, 0.0, 1.0)) : 200.0));
         float sunRefl = pow(max(dot(R, L), 0.0), specExp);
-        envRefl += sunColor * sunRefl * sunVis * ((matId == 6) ? 2.6 : ((matId == 8) ? 2.8 : ((matId == 7) ? 2.4 : 1.75)));
+        envRefl += sunColor * sunRefl * sunVis * ((matId == 6) ? 2.6 : ((matId == 8) ? 2.8 : ((matId == 7) ? 2.4 : 2.15)));
 
         float wetCoat = puddleMask * 0.62 + wetRoadSurface * 0.14;
         float coatStrength = (matId == 6) ? 0.88
                            : ((matId == 8) ? 0.64
                            : ((matId == 7) ? (0.86 * clearcoatMask)
-                           : (isWindowPane ? (isGlassTowerWin ? 0.86 : 0.74)
-                           : ((matId == 3) ? 0.68
+                           : (isWindowPane ? (isGlassTowerWin ? 0.94 : 0.78)
+                           : ((matId == 3) ? 0.72
                            : ((matId == 4) ? (0.36 * (1.0 - step(0.3, roughness))) : wetCoat)))));
         if (matId == 7) {
             float flake = valueNoise(fragPosition.xz * 125.0 + vec2(fragPosition.y * 98.0));
@@ -837,9 +983,9 @@ void main() {
             float coatFresnel = (matId == 8)
                                     ? (0.065 + 0.88 * pow(1.0 - ndotv, 4.2))
                                     : (isWindowPane
-                                           ? (0.16 + 0.80 * pow(1.0 - ndotv, 3.6))
+                                           ? (0.20 + 0.78 * pow(1.0 - ndotv, 3.2))
                                            : (0.06 + 0.90 * pow(1.0 - ndotv, 4.2)));
-            envLit += envRefl * coatFresnel * coatStrength;
+            envLit += envRefl * (isWindowPane ? windowReflTint : vec3(1.0)) * coatFresnel * coatStrength;
         }
     }
 

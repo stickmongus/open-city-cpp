@@ -29,7 +29,7 @@ import os
 import numpy as np
 from PIL import Image
 
-TILE = 512
+TILE = 1024
 GRID = 4
 SIZE = TILE * GRID
 
@@ -45,7 +45,6 @@ def tileable_fbm(n: int, octaves=5, base_freq=4, seed=1):
         if freq > n:
             break
         grid = rng.random((freq, freq), dtype=np.float32)
-        # Bilinear smoothstep periodic upsample
         coords = np.linspace(0, freq, n, endpoint=False, dtype=np.float32)
         i0 = np.floor(coords).astype(np.int32) % freq
         i1 = (i0 + 1) % freq
@@ -82,7 +81,10 @@ def height_to_normal_xy(h: np.ndarray, strength: float = 2.8):
 def make_rgba(rgb_f, a_f=None):
     out = np.empty((TILE, TILE, 4), dtype=np.uint8)
     out[:, :, 0:3] = np.clip(rgb_f * 255.0, 0, 255).astype(np.uint8)
-    out[:, :, 3] = 255
+    if a_f is not None:
+        out[:, :, 3] = np.clip(a_f * 255.0, 0, 255).astype(np.uint8)
+    else:
+        out[:, :, 3] = 255
     return out
 
 
@@ -98,15 +100,13 @@ def make_nr(h, rough_f, ao_f, strength=3.0):
 
 def gen_asphalt():
     n1 = tileable_fbm(TILE, octaves=6, base_freq=8, seed=101)
-    n2 = tileable_fbm(TILE, octaves=4, base_freq=32, seed=102)
-    fine = tileable_fbm(TILE, octaves=3, base_freq=64, seed=103)
-    # Dark mineral speckles + subtle longitudinal tire wear + tar seam cracks
+    n2 = tileable_fbm(TILE, octaves=5, base_freq=32, seed=102)
+    fine = tileable_fbm(TILE, octaves=3, base_freq=128, seed=103)
     y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32) / TILE
     crack_field = np.abs(tileable_fbm(TILE, octaves=4, base_freq=6, seed=104) - 0.5)
-    crack = np.clip(1.0 - crack_field * 55.0, 0.0, 1.0)
+    crack = np.clip(1.0 - crack_field * 58.0, 0.0, 1.0)
     wear = 0.5 + 0.5 * np.sin(x * math.pi * 4.0)
     base = 0.165 + (n1 - 0.5) * 0.055 + (n2 - 0.5) * 0.045 + (fine - 0.5) * 0.065
-    # Bright quartz aggregate flecks
     fleck = (fine > 0.78).astype(np.float32) * 0.06
     lum = np.clip(base + fleck - crack * 0.075 - wear * 0.015, 0.05, 0.34)
     rgb = np.stack([lum * 0.98, lum * 0.99, lum * 1.04], axis=-1)
@@ -117,13 +117,10 @@ def gen_asphalt():
 
 
 def gen_sidewalk_pavers():
-    # Authentic Seoul interlocking square/herringbone granite sidewalk tiles (8x8 per tile)
     y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
     gx = (x / (TILE / 8.0))
     gy = (y / (TILE / 8.0))
-    ix = np.floor(gx).astype(np.int32)
     iy = np.floor(gy).astype(np.int32)
-    # Stagger every other row by half brick
     gx_s = gx + (iy % 2) * 0.5
     ix_s = np.floor(gx_s).astype(np.int32) % 8
     fx = gx_s - np.floor(gx_s)
@@ -132,16 +129,15 @@ def gen_sidewalk_pavers():
     seam_x = np.minimum(fx, 1.0 - fx)
     seam_y = np.minimum(fy, 1.0 - fy)
     seam_d = np.minimum(seam_x, seam_y)
-    grout = np.clip((0.055 - seam_d) / 0.035, 0.0, 1.0)
-    bevel = np.clip((seam_d - 0.04) / 0.06, 0.0, 1.0)
+    grout = np.clip((0.050 - seam_d) / 0.030, 0.0, 1.0)
+    bevel = np.clip((seam_d - 0.035) / 0.055, 0.0, 1.0)
 
-    # Per-paver warm sandstone / Seoul granite variation
     rng = np.random.default_rng(201)
     paver_var = rng.uniform(-0.055, 0.055, size=(8, 8)).astype(np.float32)
     paver_warm = rng.uniform(-0.025, 0.035, size=(8, 8)).astype(np.float32)
     pv = paver_var[iy % 8, ix_s]
     pw = paver_warm[iy % 8, ix_s]
-    grain = tileable_fbm(TILE, octaves=5, base_freq=16, seed=202)
+    grain = tileable_fbm(TILE, octaves=5, base_freq=24, seed=202)
 
     r = 0.57 + pv + pw + (grain - 0.5) * 0.09
     g = 0.55 + pv + pw * 0.4 + (grain - 0.5) * 0.08
@@ -154,7 +150,8 @@ def gen_sidewalk_pavers():
 
 
 def gen_korean_apartment():
-    # Authentic Seoul high-rise apartment (래미안/자이/아크로): 4 bays x 4 floors per 512px tile!
+    """Ultra-crisp 1024px Korean Luxury Apartment (래미안/자이/아크로):
+    4 bays x 4 floors, precast slab seams, 3-pane sliding veranda windows, glass railings, AC louver niche!"""
     y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
     bx = (x / (TILE / 4.0))
     by = (y / (TILE / 4.0))
@@ -163,61 +160,67 @@ def gen_korean_apartment():
     ci = np.floor(bx).astype(np.int32) % 4
     ri = np.floor(by).astype(np.int32) % 4
 
-    grain = tileable_fbm(TILE, octaves=5, base_freq=12, seed=301)
-    # Warm travertine/concrete exterior panel wall + horizontal floor slab line
-    slab_seam = ((fy < 0.045) | (fy > 0.97)).astype(np.float32)
-    col_seam = ((fx < 0.025) | (fx > 0.975)).astype(np.float32)
+    grain = tileable_fbm(TILE, octaves=5, base_freq=16, seed=301)
+    slab_seam = ((fy < 0.042) | (fy > 0.972)).astype(np.float32)
+    slab_ledge = ((fy >= 0.042) & (fy < 0.085)).astype(np.float32)
+    col_seam = ((fx < 0.022) | (fx > 0.978)).astype(np.float32)
 
-    # Wide Korean veranda sliding window: fx in [0.09..0.91], fy in [0.16..0.78]
-    in_win = (fx > 0.09) & (fx < 0.91) & (fy > 0.16) & (fy < 0.78)
-    frame_outer = (fx > 0.07) & (fx < 0.93) & (fy > 0.13) & (fy < 0.81) & (~in_win)
-    # Center sliding sash mullion + balcony glass safety railing at bottom 32% of window
-    sash_v = in_win & ((np.abs(fx - 0.50) < 0.018) | (np.abs(fx - 0.28) < 0.012) | (np.abs(fx - 0.72) < 0.012))
-    rail_bar = in_win & (np.abs(fy - 0.54) < 0.018)
-    rail_posts = in_win & (fy > 0.54) & ((np.abs(fx - 0.20) < 0.010) | (np.abs(fx - 0.50) < 0.010) | (np.abs(fx - 0.80) < 0.010))
-    # Subtle curtain/blind depth per apartment unit
+    # Wide Korean sliding veranda window (fx in [0.08..0.80]) + side AC louver vent bay ([0.84..0.94])!
+    in_win = (fx > 0.08) & (fx < 0.80) & (fy > 0.15) & (fy < 0.78)
+    frame_outer = (fx > 0.062) & (fx < 0.818) & (fy > 0.125) & (fy < 0.805) & (~in_win)
+    # Recessed AC outdoor-unit louver vent bay (실외기 루버) typical of every modern Korean apartment!
+    in_louver = (fx > 0.845) & (fx < 0.945) & (fy > 0.22) & (fy < 0.74)
+    louver_slat = in_louver & ((np.sin(fy * 260.0) > 0.0))
+
+    sash_v = in_win & ((np.abs(fx - 0.44) < 0.015) | (np.abs(fx - 0.26) < 0.010) | (np.abs(fx - 0.62) < 0.010))
+    rail_bar = in_win & (np.abs(fy - 0.54) < 0.016)
+    rail_glass = in_win & (fy > 0.556) & (~sash_v)
+    rail_posts = in_win & (fy > 0.54) & ((np.abs(fx - 0.17) < 0.008) | (np.abs(fx - 0.44) < 0.008) | (np.abs(fx - 0.71) < 0.008))
+
     rng = np.random.default_rng(302)
     unit_lit = rng.uniform(0.0, 1.0, size=(4, 4)).astype(np.float32)
     uval = unit_lit[ri, ci]
-    curtain = np.clip(0.5 + 0.5 * np.sin(fx * 55.0 + uval * 10.0), 0.0, 1.0)
+    curtain = np.clip(0.5 + 0.5 * np.sin(fx * 68.0 + uval * 10.0), 0.0, 1.0)
 
-    # Concrete wall color
-    wall_r = 0.78 + (grain - 0.5) * 0.08 - slab_seam * 0.14 - col_seam * 0.07
-    wall_g = 0.76 + (grain - 0.5) * 0.08 - slab_seam * 0.14 - col_seam * 0.07
-    wall_b = 0.73 + (grain - 0.5) * 0.07 - slab_seam * 0.13 - col_seam * 0.07
+    wall_r = 0.80 + (grain - 0.5) * 0.07 - slab_seam * 0.16 + slab_ledge * 0.05 - col_seam * 0.08
+    wall_g = 0.78 + (grain - 0.5) * 0.07 - slab_seam * 0.16 + slab_ledge * 0.05 - col_seam * 0.08
+    wall_b = 0.75 + (grain - 0.5) * 0.06 - slab_seam * 0.15 + slab_ledge * 0.04 - col_seam * 0.07
     rgb = np.stack([wall_r, wall_g, wall_b], axis=-1)
 
-    # Dark anodized window frame
-    rgb[frame_outer] = np.array([0.22, 0.24, 0.27])
+    rgb[frame_outer] = np.array([0.20, 0.22, 0.25])
+    rgb[in_louver] = np.array([0.28, 0.30, 0.33])
+    rgb[louver_slat] = np.array([0.46, 0.48, 0.52])
 
-    # Recessed tinted sliding veranda glass with soft interior curtain tones
-    win_r = 0.15 + uval * 0.12 + curtain * 0.04
-    win_g = 0.21 + uval * 0.11 + curtain * 0.04
-    win_b = 0.28 + uval * 0.08 + curtain * 0.03
+    win_r = 0.11 + uval * 0.07 + curtain * 0.03
+    win_g = 0.16 + uval * 0.07 + curtain * 0.03
+    win_b = 0.23 + uval * 0.06 + curtain * 0.02
     win_rgb = np.stack([win_r, win_g, win_b], axis=-1)
-    # Soft gradient darker near ceiling of room
-    room_grad = np.clip((fy - 0.16) / 0.62, 0.0, 1.0)[:, :, None]
-    win_rgb *= (0.62 + 0.48 * room_grad)
+    room_grad = np.clip((fy - 0.15) / 0.63, 0.0, 1.0)[:, :, None]
+    win_rgb *= (0.58 + 0.48 * room_grad)
     rgb[in_win] = win_rgb[in_win]
-    rgb[sash_v | rail_bar | rail_posts] = np.array([0.18, 0.20, 0.23])
+    # Subtle frosted-tint lower glass safety railing
+    rgb[rail_glass] = rgb[rail_glass] * 0.78 + np.array([0.08, 0.11, 0.14])
+    rgb[sash_v | rail_bar | rail_posts] = np.array([0.16, 0.18, 0.21])
 
-    h = 0.70 + grain * 0.12 - slab_seam * 0.22 - col_seam * 0.10
-    h[frame_outer] = 0.55
-    h[in_win] = 0.25
-    h[sash_v | rail_bar | rail_posts] = 0.58
+    h = 0.72 + grain * 0.10 - slab_seam * 0.25 + slab_ledge * 0.12 - col_seam * 0.10
+    h[frame_outer] = 0.54
+    h[in_louver] = 0.32
+    h[louver_slat] = 0.60
+    h[in_win] = 0.20
+    h[sash_v | rail_bar | rail_posts] = 0.62
 
-    rough = np.full((TILE, TILE), 0.78, dtype=np.float32) + (grain - 0.5) * 0.10
-    rough[in_win] = 0.08
-    rough[frame_outer | sash_v | rail_bar] = 0.36
-    ao = np.ones((TILE, TILE), dtype=np.float32) - slab_seam * 0.28
-    ao[in_win] = 0.85
-    # Pack window mask in albedo alpha channel (alpha < 0.5 => emissive/reflective window pane!)
-    win_mask = np.where(in_win & (~sash_v) & (~rail_bar), 0.25, 1.0).astype(np.float32)
-    return make_rgba(rgb, win_mask), make_nr(h, rough, ao, strength=5.0)
+    rough = np.full((TILE, TILE), 0.76, dtype=np.float32) + (grain - 0.5) * 0.10
+    rough[in_win] = 0.06
+    rough[frame_outer | sash_v | rail_bar | in_louver] = 0.34
+    ao = np.ones((TILE, TILE), dtype=np.float32) - slab_seam * 0.32
+    ao[in_win] = np.where((fy < 0.22)[in_win], 0.62, 0.88)
+    ao[in_louver] = 0.60
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=5.8)
 
 
 def gen_glass_curtainwall():
-    # Gangnam / Yeouido modern glass skyscraper (6 bays x 4 floors)
+    """Ultra-crisp 1024px Gangnam/Yeouido Glass Curtain-Wall Skyscraper (6 bays x 4 floors):
+    projecting anodized aluminum fins, structural spandrel glass, realistic office blinds & acoustic ceiling!"""
     y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
     bx = x / (TILE / 6.0)
     by = y / (TILE / 4.0)
@@ -227,207 +230,239 @@ def gen_glass_curtainwall():
     ri = np.floor(by).astype(np.int32) % 4
 
     rng = np.random.default_rng(401)
-    pane_tint = rng.uniform(-0.04, 0.05, size=(4, 6)).astype(np.float32)[ri, ci]
+    pane_tint = rng.uniform(-0.035, 0.045, size=(4, 6)).astype(np.float32)[ri, ci]
     blinds = rng.uniform(0.0, 1.0, size=(4, 6)).astype(np.float32)[ri, ci]
+    blind_drop = rng.uniform(0.28, 0.72, size=(4, 6)).astype(np.float32)[ri, ci]
     n = tileable_fbm(TILE, octaves=4, base_freq=8, seed=402)
 
-    mullion_v = (fx < 0.055) | (fx > 0.945)
-    spandrel = (fy < 0.24)  # Solid dark structural spandrel panel between office floors
-    transom = (fy >= 0.24) & (fy < 0.29) | (fy > 0.96)
-    is_glass = (~mullion_v) & (~spandrel) & (~transom)
+    mullion_fin = (fx < 0.048) | (fx > 0.952)
+    mullion_sub = (np.abs(fx - 0.50) < 0.012)
+    spandrel = (fy < 0.25)  # Solid dark structural spandrel band between office floors
+    spandrel_groove = (np.abs(fy - 0.125) < 0.012)
+    transom = ((fy >= 0.25) & (fy < 0.295)) | (fy > 0.965)
+    is_glass = (~mullion_fin) & (~mullion_sub) & (~spandrel) & (~transom)
 
-    # Deep reflective slate-blue architectural glass + subtle office blinds/ceiling strip
-    blind_lines = (0.5 + 0.5 * np.sin(fy * 110.0)) * (blinds > 0.45) * (fy < 0.62)
-    ceil_glow = ((fy > 0.31) & (fy < 0.41)).astype(np.float32) * 0.10
-    gr = 0.14 + pane_tint + ceil_glow + blind_lines * 0.08 + (n - 0.5) * 0.04
-    gg = 0.22 + pane_tint + ceil_glow + blind_lines * 0.08 + (n - 0.5) * 0.04
-    gb = 0.31 + pane_tint + ceil_glow * 0.7 + blind_lines * 0.07 + (n - 0.5) * 0.05
+    # Venetian office blinds drawn to varying heights per bay + subtle ceiling fluorescent bay
+    has_blind = (blinds > 0.42) & (fy > 0.30) & (fy < blind_drop)
+    blind_slat = (0.5 + 0.5 * np.sin(fy * 190.0)) * has_blind.astype(np.float32)
+    ceil_strip = ((fy > 0.31) & (fy < 0.38) & (fx > 0.16) & (fx < 0.84)).astype(np.float32) * 0.07
+
+    gr = 0.10 + pane_tint + ceil_strip + blind_slat * 0.11 + (n - 0.5) * 0.03
+    gg = 0.17 + pane_tint + ceil_strip + blind_slat * 0.11 + (n - 0.5) * 0.03
+    gb = 0.25 + pane_tint + ceil_strip * 0.7 + blind_slat * 0.10 + (n - 0.5) * 0.04
     rgb = np.stack([gr, gg, gb], axis=-1)
 
-    # Spandrel dark metallic blue-grey glass & anodized aluminum mullions
-    rgb[spandrel] = np.array([0.11, 0.14, 0.19])
-    rgb[mullion_v | transom] = np.array([0.22, 0.25, 0.30])
+    rgb[spandrel] = np.array([0.09, 0.12, 0.17])
+    rgb[spandrel_groove] = np.array([0.05, 0.07, 0.10])
+    rgb[mullion_fin | transom] = np.array([0.24, 0.27, 0.32])
+    rgb[mullion_sub] = np.array([0.16, 0.19, 0.24])
 
-    h = np.full((TILE, TILE), 0.35, dtype=np.float32) + (n - 0.5) * 0.03
-    h[spandrel] = 0.52
-    h[mullion_v | transom] = 0.85
+    h = np.full((TILE, TILE), 0.30, dtype=np.float32) + (n - 0.5) * 0.025
+    h[spandrel] = 0.50
+    h[spandrel_groove] = 0.28
+    h[mullion_sub] = 0.65
+    h[mullion_fin | transom] = 0.94
 
-    rough = np.full((TILE, TILE), 0.05, dtype=np.float32)
-    rough[spandrel] = 0.22
-    rough[mullion_v | transom] = 0.32
+    rough = np.full((TILE, TILE), 0.045, dtype=np.float32)
+    rough[spandrel] = 0.20
+    rough[mullion_fin | transom | mullion_sub] = 0.28
     ao = np.ones((TILE, TILE), dtype=np.float32)
-    ao[mullion_v | transom] = 0.88
-    win_mask = np.where(is_glass, 0.20, 1.0).astype(np.float32)
-    return make_rgba(rgb, win_mask), make_nr(h, rough, ao, strength=4.5)
+    ao[mullion_fin | transom] = 0.86
+    ao[is_glass & (fy < 0.34)] = 0.76
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=5.2)
 
 
 def gen_granite_office():
-    # Honed Korean granite corporate office tower (4 bays x 4 floors)
+    """Ultra-crisp 1024px Honed Korean Pocheon Granite Corporate Office (4 bays x 4 floors):
+    beveled ashlar stone panels, deep recessed window reveals, projecting stone sills & bronze mullions!"""
     y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
     bx = x / (TILE / 4.0)
     by = y / (TILE / 4.0)
     fx = bx - np.floor(bx)
     fy = by - np.floor(by)
-    # Stone panel ashlar joints (8x8 panels)
+    ci = np.floor(bx).astype(np.int32) % 4
+    ri = np.floor(by).astype(np.int32) % 4
+
     sx = (x / (TILE / 8.0))
     sy = (y / (TILE / 8.0))
     psx = sx - np.floor(sx)
     psy = sy - np.floor(sy)
-    stone_joint = (psx < 0.022) | (psx > 0.978) | (psy < 0.022) | (psy > 0.978)
+    stone_joint = (psx < 0.018) | (psx > 0.982) | (psy < 0.018) | (psy > 0.982)
 
     rng = np.random.default_rng(501)
-    slab_var = rng.uniform(-0.045, 0.045, size=(8, 8)).astype(np.float32)[np.floor(sy).astype(np.int32) % 8, np.floor(sx).astype(np.int32) % 8]
-    grain = tileable_fbm(TILE, octaves=5, base_freq=20, seed=502)
+    slab_var = rng.uniform(-0.048, 0.048, size=(8, 8)).astype(np.float32)[np.floor(sy).astype(np.int32) % 8, np.floor(sx).astype(np.int32) % 8]
+    blinds = rng.uniform(0.0, 1.0, size=(4, 4)).astype(np.float32)[ri, ci]
+    grain = tileable_fbm(TILE, octaves=5, base_freq=28, seed=502)
 
-    in_win = (fx > 0.16) & (fx < 0.84) & (fy > 0.22) & (fy < 0.78)
-    frame = (fx > 0.13) & (fx < 0.87) & (fy > 0.19) & (fy < 0.81) & (~in_win)
-    mullion = in_win & (np.abs(fx - 0.50) < 0.020)
+    in_win = (fx > 0.15) & (fx < 0.85) & (fy > 0.21) & (fy < 0.77)
+    sill = (fx > 0.12) & (fx < 0.88) & (fy >= 0.77) & (fy < 0.83)
+    lintel = (fx > 0.13) & (fx < 0.87) & (fy > 0.17) & (fy <= 0.21)
+    frame = (fx > 0.125) & (fx < 0.875) & (fy > 0.185) & (fy < 0.795) & (~in_win) & (~sill) & (~lintel)
+    mullion = in_win & ((np.abs(fx - 0.50) < 0.018) | (np.abs(fy - 0.36) < 0.014))
 
-    r = 0.64 + slab_var + (grain - 0.5) * 0.09
-    g = 0.62 + slab_var + (grain - 0.5) * 0.09
-    b = 0.59 + slab_var + (grain - 0.5) * 0.08
+    r = 0.66 + slab_var + (grain - 0.5) * 0.08
+    g = 0.64 + slab_var + (grain - 0.5) * 0.08
+    b = 0.61 + slab_var + (grain - 0.5) * 0.07
     rgb = np.stack([r, g, b], axis=-1)
-    rgb[stone_joint] *= 0.68
-    rgb[frame | mullion] = np.array([0.24, 0.21, 0.19])
+    rgb[stone_joint] *= 0.64
+    rgb[sill] = rgb[sill] * 1.10
+    rgb[lintel] = rgb[lintel] * 0.82
+    rgb[frame | mullion] = np.array([0.21, 0.19, 0.17])
 
-    # Deep bronze-grey reflective corporate office glass
-    win_shade = np.clip((fy - 0.22) / 0.56, 0.0, 1.0)
-    wr = 0.12 + 0.08 * win_shade
-    wg = 0.17 + 0.09 * win_shade
-    wb = 0.22 + 0.10 * win_shade
+    win_shade = np.clip((fy - 0.21) / 0.56, 0.0, 1.0)
+    b_slat = (0.5 + 0.5 * np.sin(fy * 170.0)) * (blinds > 0.50) * (fy < 0.52)
+    wr = 0.10 + 0.07 * win_shade + b_slat * 0.09
+    wg = 0.14 + 0.08 * win_shade + b_slat * 0.09
+    wb = 0.20 + 0.09 * win_shade + b_slat * 0.08
     wrgb = np.stack([wr, wg, wb], axis=-1)
     rgb[in_win & (~mullion)] = wrgb[in_win & (~mullion)]
 
-    h = 0.78 + grain * 0.10 - stone_joint.astype(np.float32) * 0.22
-    h[frame] = 0.56
-    h[in_win] = 0.20
+    h = 0.78 + grain * 0.10 - stone_joint.astype(np.float32) * 0.26
+    h[sill] = 0.94
+    h[lintel] = 0.64
+    h[frame] = 0.54
+    h[in_win] = 0.16
     h[mullion] = 0.52
 
-    rough = np.full((TILE, TILE), 0.54, dtype=np.float32) + (grain - 0.5) * 0.12
-    rough[in_win] = 0.07
-    rough[frame | mullion] = 0.34
-    ao = np.ones((TILE, TILE), dtype=np.float32) - stone_joint.astype(np.float32) * 0.28
-    win_mask = np.where(in_win & (~mullion), 0.22, 1.0).astype(np.float32)
-    return make_rgba(rgb, win_mask), make_nr(h, rough, ao, strength=5.0)
+    rough = np.full((TILE, TILE), 0.52, dtype=np.float32) + (grain - 0.5) * 0.12
+    rough[in_win] = 0.055
+    rough[frame | mullion] = 0.32
+    ao = np.ones((TILE, TILE), dtype=np.float32) - stone_joint.astype(np.float32) * 0.30
+    ao[in_win & (fy < 0.29)] = 0.65
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=5.8)
 
 
 def gen_brick_commercial():
-    # Authentic Seongsu / Hongdae / Gangnam red-terracotta brick commercial facade (4 bays x 4 floors)
+    """Ultra-crisp 1024px Seongsu/Hongdae Red-Terracotta Brick Commercial & Loft (4 bays x 4 floors)."""
     y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
-    # Brick grid: 16 bricks wide x 48 courses tall
-    row = np.floor(y / (TILE / 48.0)).astype(np.int32)
-    bx_raw = x / (TILE / 16.0) + (row % 2) * 0.5
-    col = np.floor(bx_raw).astype(np.int32) % 16
+    row = np.floor(y / (TILE / 56.0)).astype(np.int32)
+    bx_raw = x / (TILE / 18.0) + (row % 2) * 0.5
+    col = np.floor(bx_raw).astype(np.int32) % 18
     bfx = bx_raw - np.floor(bx_raw)
-    bfy = (y / (TILE / 48.0)) - row
-    mortar = (bfx < 0.07) | (bfx > 0.93) | (bfy < 0.14) | (bfy > 0.86)
+    bfy = (y / (TILE / 56.0)) - row
+    mortar = (bfx < 0.065) | (bfx > 0.935) | (bfy < 0.13) | (bfy > 0.87)
 
     rng = np.random.default_rng(601)
-    bvar = rng.uniform(-0.08, 0.08, size=(48, 16)).astype(np.float32)[row % 48, col]
-    grain = tileable_fbm(TILE, octaves=5, base_freq=24, seed=602)
+    bvar = rng.uniform(-0.085, 0.085, size=(56, 18)).astype(np.float32)[row % 56, col]
+    grain = tileable_fbm(TILE, octaves=5, base_freq=32, seed=602)
 
-    r = np.clip(0.54 + bvar + (grain - 0.5) * 0.11, 0.2, 0.85)
-    g = np.clip(0.28 + bvar * 0.6 + (grain - 0.5) * 0.07, 0.1, 0.65)
-    b = np.clip(0.21 + bvar * 0.4 + (grain - 0.5) * 0.06, 0.08, 0.55)
+    r = np.clip(0.56 + bvar + (grain - 0.5) * 0.11, 0.2, 0.86)
+    g = np.clip(0.30 + bvar * 0.6 + (grain - 0.5) * 0.07, 0.1, 0.65)
+    b = np.clip(0.22 + bvar * 0.4 + (grain - 0.5) * 0.06, 0.08, 0.55)
     rgb = np.stack([r, g, b], axis=-1)
     rgb[mortar] = np.array([0.48, 0.46, 0.43]) * (0.85 + 0.3 * grain[mortar, None])
 
-    # Recessed black-steel loft windows (4 bays x 4 floors)
     wx = (x / (TILE / 4.0)) - np.floor(x / (TILE / 4.0))
     wy = (y / (TILE / 4.0)) - np.floor(y / (TILE / 4.0))
-    in_win = (wx > 0.18) & (wx < 0.82) & (wy > 0.18) & (wy < 0.80)
-    frame = (wx > 0.14) & (wx < 0.86) & (wy > 0.14) & (wy < 0.84) & (~in_win)
-    mull = in_win & ((np.abs(wx - 0.50) < 0.022) | (np.abs(wy - 0.48) < 0.022))
+    in_win = (wx > 0.18) & (wx < 0.82) & (wy > 0.18) & (wy < 0.78)
+    sill = (wx > 0.14) & (wx < 0.86) & (wy >= 0.78) & (wy < 0.84)
+    lintel = (wx > 0.14) & (wx < 0.86) & (wy > 0.12) & (wy <= 0.18)
+    frame = (wx > 0.15) & (wx < 0.85) & (wy > 0.15) & (wy < 0.81) & (~in_win) & (~sill) & (~lintel)
+    mull = in_win & ((np.abs(wx - 0.50) < 0.018) | (np.abs(wy - 0.46) < 0.018))
 
-    rgb[frame | mull] = np.array([0.13, 0.14, 0.16])
-    wshade = np.clip((wy - 0.18) / 0.62, 0.0, 1.0)
-    wrgb = np.stack([0.14 + 0.12 * wshade, 0.17 + 0.11 * wshade, 0.22 + 0.09 * wshade], axis=-1)
+    rgb[sill | lintel] = np.array([0.58, 0.56, 0.53]) * (0.90 + 0.2 * grain[sill | lintel, None])
+    rgb[frame | mull] = np.array([0.12, 0.13, 0.15])
+    wshade = np.clip((wy - 0.18) / 0.60, 0.0, 1.0)
+    wrgb = np.stack([0.11 + 0.09 * wshade, 0.14 + 0.09 * wshade, 0.19 + 0.08 * wshade], axis=-1)
     rgb[in_win & (~mull)] = wrgb[in_win & (~mull)]
 
-    h = 0.78 + grain * 0.14 - mortar.astype(np.float32) * 0.36
+    h = 0.78 + grain * 0.14 - mortar.astype(np.float32) * 0.38
+    h[sill] = 0.94
+    h[lintel] = 0.86
     h[frame] = 0.58
-    h[in_win] = 0.18
-    h[mull] = 0.55
+    h[in_win] = 0.15
+    h[mull] = 0.54
 
     rough = np.full((TILE, TILE), 0.84, dtype=np.float32) + (grain - 0.5) * 0.12
-    rough[in_win] = 0.08
-    rough[frame | mull] = 0.35
-    ao = np.ones((TILE, TILE), dtype=np.float32) - mortar.astype(np.float32) * 0.32
-    win_mask = np.where(in_win & (~mull), 0.24, 1.0).astype(np.float32)
-    return make_rgba(rgb, win_mask), make_nr(h, rough, ao, strength=6.0)
+    rough[in_win] = 0.065
+    rough[frame | mull] = 0.34
+    ao = np.ones((TILE, TILE), dtype=np.float32) - mortar.astype(np.float32) * 0.34
+    ao[in_win & (wy < 0.26)] = 0.62
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=6.5)
 
 
 def gen_stucco_commercial():
-    # Authentic Korean 근린생활시설 mid-rise ivory/limestone commercial building (4 bays x 4 floors)
+    """Ultra-crisp 1024px Korean 근린생활시설 Mid-Rise Limestone-Tile/Stucco Commercial (4 bays x 4 floors)."""
     y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
     wx = (x / (TILE / 4.0)) - np.floor(x / (TILE / 4.0))
     wy = (y / (TILE / 4.0)) - np.floor(y / (TILE / 4.0))
-    grain = tileable_fbm(TILE, octaves=5, base_freq=16, seed=701)
+    grain = tileable_fbm(TILE, octaves=5, base_freq=20, seed=701)
 
-    # Subtle exterior porcelain/granite tile grid (16x16)
     tx = (x / (TILE / 16.0)) - np.floor(x / (TILE / 16.0))
     ty = (y / (TILE / 16.0)) - np.floor(y / (TILE / 16.0))
-    tjoint = (tx < 0.03) | (ty < 0.03)
+    tjoint = (tx < 0.024) | (ty < 0.024)
+    floor_band = (wy < 0.045) | (wy > 0.965)
 
-    in_win = (wx > 0.11) & (wx < 0.89) & (wy > 0.20) & (wy < 0.76)
-    frame = (wx > 0.08) & (wx < 0.92) & (wy > 0.17) & (wy < 0.79) & (~in_win)
-    mull = in_win & ((np.abs(wx - 0.50) < 0.020) | (np.abs(wx - 0.30) < 0.012) | (np.abs(wx - 0.70) < 0.012))
+    in_win = (wx > 0.09) & (wx < 0.91) & (wy > 0.19) & (wy < 0.75)
+    sill = (wx > 0.07) & (wx < 0.93) & (wy >= 0.75) & (wy < 0.80)
+    frame = (wx > 0.068) & (wx < 0.932) & (wy > 0.165) & (wy < 0.775) & (~in_win) & (~sill)
+    mull = in_win & ((np.abs(wx - 0.50) < 0.017) | (np.abs(wx - 0.28) < 0.010) | (np.abs(wx - 0.72) < 0.010))
 
-    r = 0.76 + (grain - 0.5) * 0.08
-    g = 0.74 + (grain - 0.5) * 0.08
-    b = 0.70 + (grain - 0.5) * 0.08
+    r = 0.77 + (grain - 0.5) * 0.07
+    g = 0.75 + (grain - 0.5) * 0.07
+    b = 0.71 + (grain - 0.5) * 0.07
     rgb = np.stack([r, g, b], axis=-1)
-    rgb[tjoint] *= 0.84
-    rgb[frame | mull] = np.array([0.20, 0.22, 0.26])
+    rgb[tjoint] *= 0.83
+    rgb[floor_band] *= 0.86
+    rgb[sill] = np.array([0.46, 0.48, 0.52])
+    rgb[frame | mull] = np.array([0.19, 0.21, 0.25])
 
-    wshade = np.clip((wy - 0.20) / 0.56, 0.0, 1.0)
-    wrgb = np.stack([0.16 + 0.11 * wshade, 0.21 + 0.11 * wshade, 0.26 + 0.10 * wshade], axis=-1)
+    wshade = np.clip((wy - 0.19) / 0.56, 0.0, 1.0)
+    wrgb = np.stack([0.12 + 0.08 * wshade, 0.17 + 0.09 * wshade, 0.23 + 0.09 * wshade], axis=-1)
     rgb[in_win & (~mull)] = wrgb[in_win & (~mull)]
 
-    h = 0.74 + grain * 0.08 - tjoint.astype(np.float32) * 0.15
+    h = 0.74 + grain * 0.08 - tjoint.astype(np.float32) * 0.16 - floor_band.astype(np.float32) * 0.14
+    h[sill] = 0.88
     h[frame] = 0.52
-    h[in_win] = 0.22
+    h[in_win] = 0.18
     h[mull] = 0.50
 
-    rough = np.full((TILE, TILE), 0.72, dtype=np.float32)
-    rough[in_win] = 0.08
+    rough = np.full((TILE, TILE), 0.70, dtype=np.float32)
+    rough[in_win] = 0.06
+    rough[sill | frame | mull] = 0.32
     ao = np.ones((TILE, TILE), dtype=np.float32) - tjoint.astype(np.float32) * 0.18
-    win_mask = np.where(in_win & (~mull), 0.25, 1.0).astype(np.float32)
-    return make_rgba(rgb, win_mask), make_nr(h, rough, ao, strength=4.2)
+    ao[in_win & (wy < 0.26)] = 0.66
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=4.8)
 
 
 def gen_storefront_1f():
-    # Ground-floor Korean retail glass bays + dark stone pilasters + warm interior cafe/shop lighting
+    """Ultra-crisp 1024px Ground-Floor Korean Retail Glass Bays & Corporate Lobby:
+    honed basalt pilasters, sleek upper sign fascia, tempered glass bays, recessed doors & warm interiors!"""
     y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
     bx = x / (TILE / 4.0)
     fx = bx - np.floor(bx)
     fy = y / float(TILE)
-    grain = tileable_fbm(TILE, octaves=4, base_freq=16, seed=801)
+    grain = tileable_fbm(TILE, octaves=4, base_freq=20, seed=801)
 
-    pilaster = (fx < 0.09) | (fx > 0.91)
-    lintel = fy < 0.16
-    kickplate = fy > 0.88
+    pilaster = (fx < 0.085) | (fx > 0.915)
+    lintel = fy < 0.17
+    fascia_trim = (fy >= 0.15) & (fy < 0.18)
+    kickplate = fy > 0.89
     in_glass = (~pilaster) & (~lintel) & (~kickplate)
-    door_mull = in_glass & ((np.abs(fx - 0.50) < 0.022) | (np.abs(fy - 0.28) < 0.014))
+    door_mull = in_glass & ((np.abs(fx - 0.50) < 0.018) | (np.abs(fy - 0.30) < 0.012) | (np.abs(fx - 0.25) < 0.008) | (np.abs(fx - 0.75) < 0.008))
+    door_handle = in_glass & ((np.abs(fx - 0.46) < 0.010) | (np.abs(fx - 0.54) < 0.010)) & (fy > 0.54) & (fy < 0.70)
 
-    # Warm dark honed basalt pilasters & transom
-    rgb = np.stack([0.24 + (grain - 0.5) * 0.06, 0.25 + (grain - 0.5) * 0.06, 0.27 + (grain - 0.5) * 0.06], axis=-1)
-    # Warm sunlit / lit Korean shop interior behind glass
-    warm_shelf = 0.5 + 0.5 * np.sin(fy * 28.0) * 0.35
-    gr = 0.34 + 0.22 * (1.0 - fy) * warm_shelf
-    gg = 0.30 + 0.18 * (1.0 - fy) * warm_shelf
-    gb = 0.24 + 0.12 * (1.0 - fy)
+    rgb = np.stack([0.21 + (grain - 0.5) * 0.05, 0.22 + (grain - 0.5) * 0.05, 0.24 + (grain - 0.5) * 0.05], axis=-1)
+    rgb[fascia_trim] = np.array([0.36, 0.39, 0.44])
+    warm_shelf = 0.5 + 0.5 * np.sin(fy * 32.0) * 0.35
+    gr = 0.26 + 0.18 * (1.0 - fy) * warm_shelf
+    gg = 0.24 + 0.15 * (1.0 - fy) * warm_shelf
+    gb = 0.20 + 0.11 * (1.0 - fy)
     rgb[in_glass] = np.stack([gr, gg, gb], axis=-1)[in_glass]
-    rgb[door_mull] = np.array([0.14, 0.15, 0.17])
+    rgb[door_mull] = np.array([0.13, 0.14, 0.16])
+    rgb[door_handle] = np.array([0.74, 0.76, 0.80])
 
-    h = np.full((TILE, TILE), 0.80, dtype=np.float32) + grain * 0.08
-    h[in_glass] = 0.22
+    h = np.full((TILE, TILE), 0.82, dtype=np.float32) + grain * 0.07
+    h[fascia_trim] = 0.94
+    h[in_glass] = 0.18
     h[door_mull] = 0.56
-    rough = np.full((TILE, TILE), 0.48, dtype=np.float32)
-    rough[in_glass] = 0.06
+    h[door_handle] = 0.76
+    rough = np.full((TILE, TILE), 0.44, dtype=np.float32)
+    rough[in_glass] = 0.05
+    rough[door_handle | fascia_trim] = 0.22
     ao = np.ones((TILE, TILE), dtype=np.float32)
-    win_mask = np.where(in_glass & (~door_mull), 0.28, 1.0).astype(np.float32)
-    return make_rgba(rgb, win_mask), make_nr(h, rough, ao, strength=4.5)
+    ao[in_glass & (fy < 0.24)] = 0.65
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=5.0)
 
 
 def gen_park_grass():

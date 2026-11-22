@@ -1909,7 +1909,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
             for (std::uint32_t bi : bldgIds) {
                 if (signCount >= 180) break;
                 const OsmBldgRec& b = realData_.buildings()[bi];
-                if (b.vertCount < 3 || b.style == 5 || b.height < 5.5f) continue; // Skip Hanoks & tiny sheds
+                if (b.vertCount < 3 || b.style == 6u || b.minHeight > 1.0f || b.height < 5.5f) continue; // Skip Hanoks, elevated parts & tiny sheds
                 if ((Vec2{b.cx, b.cz} - focus).lengthSq() > 190.0f * 190.0f) continue;
 
                 // Compute polygon winding to guarantee outward wall normal

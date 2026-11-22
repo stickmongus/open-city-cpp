@@ -1765,16 +1765,50 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
             liveryMb.addBox({xC, b.yBeltRear + 0.52f, s * (b.beltHalfW + 0.012f)}, {0.42f, 0.14f, 0.016f}, {218, 34, 42, 255});
         }
     } else if (b.isFireTruck) {
-        // Authentic Seoul 119 Fire Pumper: silver side equipment roller shutters + roof aluminum extension ladder + lightbar!
+        // Authentic Seoul 119 Fire Pumper: brushed aluminum side & rear roller shutters, rear climb ladder,
+        // reflective safety stripe, rear steel step bumper & roof extension ladder + lightbar!
         const float barY = b.yRoof + 0.08f;
         liveryMb.addBox({b.xRoofFront - 0.18f, barY, 0.0f}, {0.20f, 0.11f, b.roofHalfW * 1.65f}, {242, 36, 42, 255});
         for (float s : {-1.0f, 1.0f}) {
-            // Two brushed aluminum equipment shutters on each flank (proud +0.014m off flat pump body!)
+            // Two brushed aluminum equipment shutters on each flank + dark shutter handle recesses
             for (int bay = 0; bay < 2; ++bay) {
                 const float bx = lerpf(b.xBpillar - 0.65f, b.xRearTip + 0.85f, static_cast<float>(bay));
-                chromeMb.addBox({bx, lerpf(b.groundClear, b.yRoof, 0.54f), s * (b.beltHalfW + 0.012f)},
+                const float by = lerpf(b.groundClear, b.yRoof, 0.54f);
+                chromeMb.addBox({bx, by, s * (b.beltHalfW + 0.012f)},
                                 {1.15f, 0.96f, 0.022f}, {198, 204, 212, 255});
+                trimMb.addBox({bx, by - 0.42f, s * (b.beltHalfW + 0.026f)},
+                              {0.64f, 0.055f, 0.014f}, kTrimDark);
             }
+            // Crisp white/fluorescent-yellow 119 reflective side stripe
+            liveryMb.addBox({0.5f * (b.xFrontNose + b.xRearTip), b.yBeltRear - 0.18f, s * (b.halfW + 0.012f)},
+                            {b.halfL * 1.88f, 0.12f, 0.016f}, {246, 244, 232, 255});
+        }
+        // Rear Fire Pumper Face: aluminum hose-reel roller shutter + chrome step bumper + vertical access ladder + 119 warning stripe!
+        const float rxRear = b.xRearTip - 0.012f;
+        chromeMb.addBox({rxRear, lerpf(b.groundClear, b.yRoof, 0.52f), 0.0f},
+                        {0.024f, 1.04f, b.beltHalfW * 1.18f}, {196, 202, 210, 255});
+        // Horizontal shutter grooves & bottom lock bar on rear shutter
+        for (int g = 0; g < 4; ++g) {
+            const float gy = lerpf(b.groundClear + 0.46f, b.yRoof - 0.44f, static_cast<float>(g) / 3.0f);
+            trimMb.addBox({rxRear - 0.012f, gy, 0.0f}, {0.014f, 0.026f, b.beltHalfW * 1.14f}, kTrimDark);
+        }
+        // High-visibility yellow/white Korean 119 rear reflective safety stripe & rear beacon pods
+        liveryMb.addBox({rxRear - 0.008f, b.groundClear + 0.34f, 0.0f},
+                        {0.020f, 0.15f, b.halfW * 1.84f}, {248, 208, 42, 255});
+        liveryMb.addBox({rxRear - 0.008f, b.yRoof - 0.16f, 0.0f},
+                        {0.020f, 0.10f, b.roofHalfW * 1.72f}, {244, 246, 250, 255});
+        // Chrome diamond-plate rear footstep bumper
+        chromeMb.addBox({rxRear - 0.085f, b.groundClear + 0.12f, 0.0f},
+                        {0.18f, 0.10f, b.halfW * 1.88f}, kChromeCol);
+        // Vertical chrome rear roof-access ladder on right rear flank
+        for (float lr : {0.62f, 0.88f}) {
+            chromeMb.addBox({rxRear - 0.065f, lerpf(b.groundClear + 0.25f, b.yRoof, 0.50f), lr * b.beltHalfW},
+                            {0.045f, (b.yRoof - b.groundClear) - 0.28f, 0.045f}, kChromeCol);
+        }
+        for (int r = 0; r < 6; ++r) {
+            const float ry = lerpf(b.groundClear + 0.40f, b.yRoof - 0.18f, static_cast<float>(r) / 5.0f);
+            chromeMb.addBox({rxRear - 0.065f, ry, 0.75f * b.beltHalfW},
+                            {0.036f, 0.036f, 0.28f * b.beltHalfW}, kChromeCol);
         }
         // Aluminum roof extension ladder rails & rungs
         const float ladLen = b.halfL * 1.48f;
@@ -1789,15 +1823,19 @@ CarMeshSet buildCadCar(VulkanContext& vk, VehicleKind kind) {
         }
     } else if (b.isSeoulBus) {
         // Authentic Seoul City Bus (파랑 간선버스 / 초록 지선버스):
-        // Crisp white lower Seoul livery beltline wave + roof twin white HVAC / electric battery pods + front LED route bezel!
+        // Crisp white lower Seoul livery beltline wave + rear livery stripe + roof twin white HVAC / electric battery pods + front/rear LED route bezels!
         for (float s : {-1.0f, 1.0f}) {
             const float bandY = b.yBeltRear - 0.11f;
             liveryMb.addBox({0.0f, bandY, s * (b.halfW + 0.010f)}, {b.halfL * 1.84f, 0.16f, 0.018f}, {244, 246, 250, 255});
             liveryMb.addBox({0.0f, bandY - 0.105f, s * (b.halfW + 0.010f)}, {b.halfL * 1.84f, 0.045f, 0.016f}, {214, 224, 238, 255});
         }
-        // Front crisp white accent fascia strip + dark upper LED destination sign housing
+        // Front & rear crisp white accent fascia strip + dark upper LED destination sign housings
         liveryMb.addBox({b.xFrontNose + 0.010f, b.yNose - 0.14f, 0.0f}, {0.022f, 0.14f, b.halfW * 1.76f}, {244, 246, 250, 255});
+        liveryMb.addBox({b.xRearTip - 0.010f, b.yBeltRear - 0.11f, 0.0f}, {0.022f, 0.16f, b.halfW * 1.82f}, {244, 246, 250, 255});
         trimMb.addBox({b.xRoofFront + 0.045f, b.yRoof - 0.16f, 0.0f}, {0.14f, 0.34f, b.roofHalfW * 1.56f}, kDloGloss);
+        trimMb.addBox({b.xRearTip - 0.012f, b.yRoof - 0.24f, 0.0f}, {0.032f, 0.28f, b.roofHalfW * 1.18f}, kDloGloss);
+        // Rear engine-bay vertical ventilation louver grille
+        trimMb.addBox({b.xRearTip - 0.012f, b.groundClear + 0.56f, 0.0f}, {0.026f, 0.42f, b.halfW * 1.24f}, kTrimDark);
         // Twin white rooftop HVAC / electric battery pods
         liveryMb.addBox({ 0.85f, b.yRoof + 0.18f, 0.0f}, {2.45f, 0.28f, b.roofHalfW * 1.34f}, {238, 242, 246, 255});
         liveryMb.addBox({-2.05f, b.yRoof + 0.16f, 0.0f}, {2.25f, 0.24f, b.roofHalfW * 1.28f}, {234, 238, 244, 255});

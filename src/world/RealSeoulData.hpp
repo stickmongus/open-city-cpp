@@ -38,18 +38,25 @@ struct OsmRoadRec {
 };
 static_assert(sizeof(OsmRoadRec) == 32 && alignof(OsmRoadRec) == 4, "OsmRoadRec must be naturally 4-byte aligned");
 
-#pragma pack(push, 1)
-
 struct OsmBldgRec {
     std::uint32_t firstVert;
     std::uint16_t vertCount;
-    std::uint8_t style;      // 0=KoreanApt,1=GlassTower,2=GraniteOffice,3=BrickComm,4=StuccoComm,5=Hanok,6=Civic
-    std::uint8_t colorIdx;
+    std::uint8_t style;       // 0=Apt,1=BlueGlass,2=DarkMetalGlass,3=Granite,4=Brick,5=Stucco,6=Hanok,7=Civic,8=Industrial,9=Villa
+    std::uint8_t roofShape;   // 0=Flat,1=Gabled,2=Hipped,3=Pyramidal,4=Dome,5=Skillion,6=SteppedCrown
+    std::uint8_t facadeR;     // True 24-bit per-building architectural RGB
+    std::uint8_t facadeG;
+    std::uint8_t facadeB;
+    std::uint8_t roofHeightQ; // Roof height in 0.25m units (roofH = roofHeightQ * 0.25f)
+    std::uint8_t flags;       // bit0=isPart, bit1=hasRetail1F, bit2=hasPodium, bit3=hasCrownBand
+    std::uint8_t variantSeed; // 0..255 per-building architectural/glass/lighting seed
+    std::uint16_t pad_;
     float cx, cz;
-    float baseY, height;
+    float baseY, minHeight, height;
     float halfX, halfZ;
 };
-static_assert(sizeof(OsmBldgRec) == 32, "OsmBldgRec must be 32 bytes");
+static_assert(sizeof(OsmBldgRec) == 44 && alignof(OsmBldgRec) == 4, "OsmBldgRec must be 44 bytes and naturally 4-byte aligned");
+
+#pragma pack(push, 1)
 
 struct OcChunkHdr {
     std::uint32_t roadStart, roadLen;

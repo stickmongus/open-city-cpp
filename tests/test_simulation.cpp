@@ -2527,9 +2527,9 @@ void testV300RealOsmSeoulMapAndPbr() {
                                 static_cast<std::uint32_t>(hdr[23]);
         ASSERT_TRUE(w == expW && h == expH);
     };
-    checkPng("maps/seoul_map_2d.png", 2048, 1312);
-    checkPng("textures/pbr_albedo.png", 2048, 2048);
-    checkPng("textures/pbr_normal_rough.png", 2048, 2048);
+    checkPng("maps/seoul_map_2d.png", 3072, 1968);
+    checkPng("textures/pbr_albedo.png", 4096, 4096);
+    checkPng("textures/pbr_normal_rough.png", 4096, 4096);
 
     // 2. Load Real OpenStreetMap Seoul GIS + SRTM 30m DEM binary into GameWorld
     const std::string ocmapPath = findAsset("maps/seoul_real.ocmap");
@@ -3207,6 +3207,110 @@ void testV350CleanIntersectionsAndBusShelterSetback() {
 }
 
 
+void testV400RealOcm4BuildingsAndZeroRoadIntrusions() {
+    auto findOcmap = []() -> std::string {
+        const char* paths[] = {
+            "assets/maps/seoul_real.ocmap",
+            "../assets/maps/seoul_real.ocmap",
+            "../../assets/maps/seoul_real.ocmap"
+        };
+        for (const char* p : paths) {
+            std::ifstream f(p, std::ios::binary);
+            if (f.good()) return p;
+        }
+        return {};
+    };
+    const std::string ocmapPath = findOcmap();
+    ASSERT_TRUE(!ocmapPath.empty());
+
+    oc::GameWorld world(20264000ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    const oc::RealSeoulData& real = world.city().realData();
+    const oc::OcMapHeader& hdr = real.header();
+
+    // 1. Verify OCM4 v2 high-density 3D Seoul architectural dataset (184K buildings, 10 styles, 7 roof shapes, multi-part towers)
+    ASSERT_TRUE(hdr.magic[0] == 'O' && hdr.magic[1] == 'C' && hdr.magic[2] == 'M' && hdr.magic[3] == '4' && hdr.version == 2u);
+    ASSERT_TRUE(real.buildings().size() >= 180000u);
+    ASSERT_TRUE(real.bldgVerts().size() >= 850000u);
+
+    int styleHist[10]{};
+    int roofNonFlat = 0;
+    int multiParts = 0;
+    int elevatedParts = 0;
+    int steppedCrowns = 0;
+    const oc::OsmBldgRec* sampleElevated = nullptr;
+    for (const oc::OsmBldgRec& b : real.buildings()) {
+        if (b.vertCount < 3u) continue;
+        if (b.style < 10u) ++styleHist[b.style];
+        if (b.roofShape > 0u) ++roofNonFlat;
+        if (b.roofShape == 6u) ++steppedCrowns;
+        if ((b.flags & 1u) != 0u) ++multiParts;
+        if (b.minHeight > 4.0f && b.height - b.minHeight >= 4.0f) {
+            ++elevatedParts;
+            if (!sampleElevated && b.halfX >= 3.0f && b.halfZ >= 3.0f) {
+                sampleElevated = &b;
+            }
+        }
+    }
+    for (int s = 0; s < 10; ++s) {
+        ASSERT_TRUE(styleHist[s] > 20);
+    }
+    ASSERT_TRUE(roofNonFlat >= 20000);
+    ASSERT_TRUE(steppedCrowns >= 500);
+    ASSERT_TRUE(multiParts >= 800);
+    ASSERT_TRUE(elevatedParts >= 70);
+    ASSERT_TRUE(sampleElevated != nullptr);
+
+    // 2. Exact regression check for bldg #40410 at Seolleung Station (5106.4, 2301.3) in Teheran-ro blue bus lane!
+    {
+        oc::Vec2 seolleungBusLane{5106.4f, 2301.3f};
+        ASSERT_TRUE(!real.resolveCircleBuildings(seolleungBusLane, 0.8f));
+    }
+
+    // 3. Verify ZERO buildings intrude onto major Seoul road carriageways across Gangnam Station -> Teheran-ro -> Seolleung!
+    int majorRoadProbes = 0;
+    for (const oc::OsmRoadRec& r : real.roads()) {
+        if (r.roadClass > 3u || (r.flags & 4u) != 0u || r.vertCount < 2u) continue;
+        if (r.maxX < 3600.0f || r.minX > 5300.0f || r.maxZ < 2100.0f || r.minZ > 3000.0f) continue;
+        const float hw = std::max(2.6f, r.halfWidth);
+        const float latProbe = std::max(0.0f, hw - 1.35f);
+        for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
+            const oc::Vec2 a = real.roadVerts()[r.firstVert + s];
+            const oc::Vec2 b = real.roadVerts()[r.firstVert + s + 1];
+            const oc::Vec2 e = b - a;
+            const float len = e.length();
+            if (len < 1.0f) continue;
+            const oc::Vec2 rightN{-e.z / len, e.x / len};
+            const oc::Vec2 mid = (a + b) * 0.5f;
+            if (mid.x < 3600.0f || mid.x > 5300.0f || mid.z < 2100.0f || mid.z > 3000.0f) continue;
+            oc::Vec2 pC = mid;
+            ASSERT_TRUE(!real.resolveCircleBuildings(pC, 0.25f));
+            ++majorRoadProbes;
+            if (latProbe > 1.0f) {
+                oc::Vec2 pL = mid - rightN * latProbe;
+                oc::Vec2 pR = mid + rightN * latProbe;
+                ASSERT_TRUE(!real.resolveCircleBuildings(pL, 0.20f));
+                ASSERT_TRUE(!real.resolveCircleBuildings(pR, 0.20f));
+                majorRoadProbes += 2;
+            }
+        }
+    }
+    ASSERT_TRUE(majorRoadProbes >= 200);
+
+    // 4. Verify 3D raycast hits elevated OCM4 building_part at its true [baseY+minHeight, baseY+height] band!
+    {
+        const oc::OsmBldgRec& eb = *sampleElevated;
+        const float midY = eb.baseY + 0.5f * (eb.minHeight + eb.height);
+        const float distOut = std::max(eb.halfX, eb.halfZ) + 18.0f;
+        const oc::Vec3 rayOrigin{eb.cx - distOut, midY, eb.cz};
+        const float tHit = real.raycastBuildings3D(rayOrigin, {1.0f, 0.0f, 0.0f}, distOut + 10.0f);
+        ASSERT_TRUE(tHit > 0.0f && tHit < distOut + 8.0f);
+    }
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -3242,8 +3346,9 @@ int main() {
     testV330MobileUiScalingAndIntersectionDiscipline();
     testV340ExpresswayVsCityRoadDistinction();
     testV350CleanIntersectionsAndBusShelterSetback();
+    testV400RealOcm4BuildingsAndZeroRoadIntrusions();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v3.5.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v4.0.0 simulation test suites succeeded!\n";
     return 0;
 }
 

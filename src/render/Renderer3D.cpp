@@ -885,24 +885,29 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
             if (!pv.empty()) realParksMesh_ = vk.createMesh(pv);
         }
 
-        // 4. Distant Real Seoul Skyline LOD (Real OSM towers >= 46m tall beyond the active 5x5 chunk window!)
+        // 4. Distant Real Seoul Skyline LOD (Prioritize ALL real supertall towers >= 68m, then >= 46m, with true OCM4 RGB!)
         {
             distantSkyline_.clear();
-            distantSkyline_.reserve(900);
+            distantSkyline_.reserve(1300);
             const auto& bldgs = real.buildings();
-            const std::size_t stride = std::max<std::size_t>(1, bldgs.size() / 4200);
-            for (std::size_t i = 0; i < bldgs.size() && distantSkyline_.size() < 900; i += stride) {
-                const OsmBldgRec& b = bldgs[i];
-                if (b.height < 46.0f || (b.halfX < 7.0f && b.halfZ < 7.0f)) continue;
-                const bool isGlass = (b.style == 1);
-                const ColorRGBA c = isGlass ? ColorRGBA{84, 112, 138, 255}
-                                            : ((b.style == 0) ? ColorRGBA{204, 198, 190, 255}
-                                                              : ColorRGBA{158, 156, 152, 255});
-                distantSkyline_.push_back(DistantSkylineBlock{
-                    {b.cx, b.cz},
-                    {std::min(b.halfX * 2.0f, 68.0f), std::min(b.halfZ * 2.0f, 68.0f)},
-                    b.baseY - 2.0f, b.height + 2.0f, c, isGlass
-                });
+            for (int pass = 0; pass < 2 && distantSkyline_.size() < 1300; ++pass) {
+                const float minH = (pass == 0) ? 68.0f : 46.0f;
+                const float maxH = (pass == 0) ? 9999.0f : 68.0f;
+                const std::size_t stride = (pass == 0) ? 1u : std::max<std::size_t>(1, bldgs.size() / 6500);
+                for (std::size_t i = 0; i < bldgs.size() && distantSkyline_.size() < 1300; i += stride) {
+                    const OsmBldgRec& b = bldgs[i];
+                    if (b.vertCount < 3 || b.height < minH || b.height >= maxH) continue;
+                    if (b.halfX < 6.0f && b.halfZ < 6.0f) continue;
+                    const bool isGlass = (b.style == 1u || b.style == 2u);
+                    const ColorRGBA c{b.facadeR, b.facadeG, b.facadeB, 255u};
+                    const float baseLift = (b.minHeight > 0.1f) ? b.minHeight : -2.0f;
+                    const float spanH = std::max(4.0f, b.height - std::max(0.0f, b.minHeight) + ((b.minHeight > 0.1f) ? 0.0f : 2.0f));
+                    distantSkyline_.push_back(DistantSkylineBlock{
+                        {b.cx, b.cz},
+                        {std::min(b.halfX * 2.0f, 76.0f), std::min(b.halfZ * 2.0f, 76.0f)},
+                        b.baseY + baseLift, spanH, c, isGlass
+                    });
+                }
             }
         }
     } else {
@@ -1673,21 +1678,42 @@ inline bool pointInTri2DCCW(const Vec2& p, const Vec2& a, const Vec2& b, const V
            cross2DXZ(c, a, p) >= -1e-4f;
 }
 
+inline void pushTriV3(std::vector<Vertex3D>& dst, const Vec3& a, const Vec3& b, const Vec3& c,
+                      const Vec3& n, const ColorRGBA& col) {
+    const float cr = static_cast<float>(col.r) / 255.0f;
+    const float cg = static_cast<float>(col.g) / 255.0f;
+    const float cb = static_cast<float>(col.b) / 255.0f;
+    const float ca = static_cast<float>(col.a) / 255.0f;
+    auto mk = [&](const Vec3& p) -> Vertex3D {
+        Vertex3D vv{};
+        vv.px = p.x; vv.py = p.y; vv.pz = p.z;
+        vv.nx = n.x; vv.ny = n.y; vv.nz = n.z;
+        vv.u = 0.0f; vv.v = 0.0f;
+        vv.r = cr; vv.g = cg; vv.b = cb; vv.a = ca;
+        return vv;
+    };
+    dst.push_back(mk(a));
+    dst.push_back(mk(b));
+    dst.push_back(mk(c));
+}
+
 void earClipRoofXZ(const std::vector<Vec2>& poly, float roofY, const ColorRGBA& col,
-                   std::vector<Vertex3D>& dst) {
+                   std::vector<Vertex3D>& dst, bool flipDown = false) {
     const int n = static_cast<int>(poly.size());
     if (n < 3) return;
     const float cr = static_cast<float>(col.r) / 255.0f;
     const float cg = static_cast<float>(col.g) / 255.0f;
     const float cb = static_cast<float>(col.b) / 255.0f;
+    const float ca = static_cast<float>(col.a) / 255.0f;
+    const float ny = flipDown ? -1.0f : 1.0f;
     auto emitTri = [&](const Vec2& a, const Vec2& b, const Vec2& c) {
-        const Vec2 pts[3] = {a, b, c};
+        const Vec2 pts[3] = {a, flipDown ? c : b, flipDown ? b : c};
         for (int k = 0; k < 3; ++k) {
             Vertex3D v{};
             v.px = pts[k].x; v.py = roofY; v.pz = pts[k].z;
-            v.nx = 0.0f; v.ny = 1.0f; v.nz = 0.0f;
+            v.nx = 0.0f; v.ny = ny; v.nz = 0.0f;
             v.u = 0.0f; v.v = 0.0f;
-            v.r = cr; v.g = cg; v.b = cb; v.a = 1.0f;
+            v.r = cr; v.g = cg; v.b = cb; v.a = ca;
             dst.push_back(v);
         }
     };
@@ -2458,14 +2484,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     }
 
     // ------------------------------------------------------------------------
-    // 2. REAL EXTRUDED 3D OPENSTREETMAP BUILDING POLYGONS (107,600 Seoul Buildings!)
+    // 2. REAL EXTRUDED 3D OCM4 SEOUL ARCHITECTURE (184,308 Real Buildings + 3D Roofs + Multi-Part Stepped Towers!)
     // ------------------------------------------------------------------------
-    static constexpr ColorRGBA kAptPal[4]     = {{222, 218, 210, 255}, {210, 214, 218, 255}, {214, 206, 194, 255}, {202, 206, 212, 255}};
-    static constexpr ColorRGBA kGlassPal[4]   = {{148, 186, 218, 255}, {132, 174, 210, 255}, {162, 192, 214, 255}, {122, 158, 192, 255}};
-    static constexpr ColorRGBA kGranitePal[4] = {{194, 192, 186, 255}, {182, 178, 170, 255}, {204, 202, 198, 255}, {168, 170, 174, 255}};
-    static constexpr ColorRGBA kBrickPal[4]   = {{186, 128, 102, 255}, {174, 118,  94, 255}, {198, 166, 138, 255}, {154, 114,  96, 255}};
-    static constexpr ColorRGBA kStuccoPal[4]  = {{218, 212, 200, 255}, {206, 202, 196, 255}, {212, 198, 184, 255}, {196, 198, 202, 255}};
-
     // Cache landmark exclusion circles once per chunk build so bespoke hero landmarks never double-render
     struct ExclZone { Vec2 pos; float rSq; };
     std::vector<ExclZone> excl;
@@ -2490,7 +2510,18 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     }
 
     std::vector<Vec2> polyPts;
-    polyPts.reserve(24);
+    polyPts.reserve(48);
+    std::vector<Vec2> crownPts;
+    crownPts.reserve(48);
+
+    auto makeSlopeNormal = [](const Vec3& a, const Vec3& b, const Vec3& c) -> Vec3 {
+        Vec3 n = (b - a).cross(c - a);
+        const float l = n.length();
+        if (l < 1e-5f) return {0.0f, 1.0f, 0.0f};
+        n = n / l;
+        if (n.y < 0.0f) n = n * -1.0f;
+        return n;
+    };
 
     for (std::uint32_t k = 0; k < ch.bldgLen; ++k) {
         const OsmBldgRec& b = bldgs[flatBldgs[ch.bldgStart + k]];
@@ -2529,23 +2560,53 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             std::reverse(polyPts.begin(), polyPts.end());
         }
 
+        // Pack OCM4 per-building architectural metadata into vertex alpha (0..254; 255 reserved for legacy landmarks)
+        const bool hasRetail1F = (b.flags & 2u) != 0u;
+        const bool isDarkMetal = (b.style == 2u || b.style == 8u);
+        const std::uint8_t varAlpha = static_cast<std::uint8_t>(
+            (hasRetail1F ? 128u : 0u) | (isDarkMetal ? 64u : 0u) | (b.variantSeed % 63u));
+        const ColorRGBA wallCol{b.facadeR, b.facadeG, b.facadeB, varAlpha};
+        const ColorRGBA roofCol{b.facadeR, b.facadeG, b.facadeB, varAlpha};
+
         std::vector<Vertex3D>* wallDst = &graniteV;
         std::vector<Vertex3D>* roofDst = &roofV;
-        ColorRGBA tint = kGranitePal[b.colorIdx & 3u];
+        std::vector<Vertex3D>* slopedDst = &graniteV;
         switch (b.style) {
-            case 0: wallDst = &aptV;     tint = kAptPal[b.colorIdx & 3u];     break;
-            case 1: wallDst = &glassV;   tint = kGlassPal[b.colorIdx & 3u];   break;
-            case 2: wallDst = &graniteV; tint = kGranitePal[b.colorIdx & 3u]; break;
-            case 3: wallDst = &brickV;   tint = kBrickPal[b.colorIdx & 3u];   roofDst = &brickV; break; // Korean green urethane roof!
-            case 4: wallDst = &stuccoV;  tint = kStuccoPal[b.colorIdx & 3u];  break;
-            case 5: wallDst = &graniteV; tint = {216, 208, 194, 255};         roofDst = &hanokV; break; // Traditional Hanok giwa roof!
-            default: wallDst = &graniteV; tint = kGranitePal[b.colorIdx & 3u]; break;
+            case 0: wallDst = &aptV;     roofDst = &roofV;  slopedDst = &graniteV; break; // Korean High-Rise Apartment
+            case 1: wallDst = &glassV;   roofDst = &roofV;  slopedDst = &glassV;   break; // Blue/Teal Glass Skyscraper
+            case 2: wallDst = &glassV;   roofDst = &roofV;  slopedDst = &glassV;   break; // Dark Charcoal/Bronze Metallic Tower
+            case 3: wallDst = &graniteV; roofDst = &roofV;  slopedDst = &graniteV; break; // Honed Granite Corporate Office
+            case 4: wallDst = &brickV;   roofDst = &brickV; slopedDst = &brickV;   break; // Brick Commercial (green flat / slate-terra sloped)
+            case 5: wallDst = &stuccoV;  roofDst = &roofV;  slopedDst = &stuccoV;  break; // Modern Limestone/Stucco Commercial
+            case 6: wallDst = &graniteV; roofDst = &hanokV; slopedDst = &hanokV;   break; // Traditional Korean Hanok (Giwa Roof!)
+            case 7: wallDst = &graniteV; roofDst = &roofV;  slopedDst = &graniteV; break; // School / Hospital / Civic
+            case 8: wallDst = &stuccoV;  roofDst = &roofV;  slopedDst = &stuccoV;  break; // Industrial / Stadium / Station Hall
+            case 9:
+            default:
+                wallDst = ((b.variantSeed & 1u) != 0u) ? &brickV : &stuccoV;
+                roofDst = &brickV;
+                slopedDst = &brickV;
+                break; // Korean Multi-Family Villa / House
         }
 
-        // Deep foundation (-3.5m) guarantees zero floating buildings on hilly Seoul slopes!
-        const float yBot = b.baseY - 3.5f;
+        // True minHeight extrusion for 3D multi-part stepped skyscrapers & skybridges; deep (-3.5m) foundation otherwise!
+        const bool isElevated = (b.minHeight > 0.15f);
+        const float yBot = isElevated ? (b.baseY + b.minHeight) : (b.baseY - 3.5f);
         const float yTop = b.baseY + b.height;
+        const float vBot = isElevated ? b.minHeight : -3.5f;
+        const float vTop = b.height;
+
+        // Check if footprint is cleanly star-shaped around centroid (safe for ridged/pyramidal/stepped roofs)
+        bool starConvex = true;
         float accumU = 0.0f;
+        const bool emitPodiumCornice = ((b.flags & 4u) != 0u) && !isElevated && (b.height >= 11.5f) && (polyPts.size() <= 20u);
+        const ColorRGBA podiumCol{
+            static_cast<std::uint8_t>(std::max(44, static_cast<int>(b.facadeR) * 65 / 100)),
+            static_cast<std::uint8_t>(std::max(46, static_cast<int>(b.facadeG) * 65 / 100)),
+            static_cast<std::uint8_t>(std::max(50, static_cast<int>(b.facadeB) * 65 / 100)),
+            255u
+        };
+
         for (std::size_t i = 0; i < polyPts.size(); ++i) {
             const Vec2& pA = polyPts[i];
             const Vec2& pB = polyPts[(i + 1) % polyPts.size()];
@@ -2556,39 +2617,266 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
 
             // Outward normal for CCW polygon in (x, z)
             const Vec3 outN{dz / edgeLen, 0.0f, -dx / edgeLen};
+            const Vec2 mid = (pA + pB) * 0.5f;
+            if ((mid.x - b.cx) * outN.x + (mid.z - b.cz) * outN.z <= 0.15f) {
+                starConvex = false;
+            }
+
             const float u0 = accumU;
             const float u1 = accumU + edgeLen;
             accumU = u1;
 
-            // v = height above ground floor b.baseY so 1F storefronts (v < 3.9m) align accurately!
-            const float vBot = -3.5f;
-            const float vTop = b.height;
             pushQuadV3(*wallDst,
                        {pA.x, yBot, pA.z}, {pB.x, yBot, pB.z},
                        {pB.x, yTop, pB.z}, {pA.x, yTop, pA.z},
-                       outN, u0, vBot, u1, vBot, u1, vTop, u0, vTop, tint);
+                       outN, u0, vBot, u1, vBot, u1, vTop, u0, vTop, wallCol);
+
+            // 3D Ground-Floor Commercial Podium Cornice Ledge (separates 1F retail glass from upper stories!)
+            if (emitPodiumCornice && edgeLen >= 1.2f) {
+                const float yC0 = b.baseY + 3.92f;
+                const float yC1 = b.baseY + 4.24f;
+                const float proj = 0.34f;
+                const Vec3 iA0{pA.x, yC0, pA.z};
+                const Vec3 iB0{pB.x, yC0, pB.z};
+                const Vec3 iA1{pA.x, yC1, pA.z};
+                const Vec3 iB1{pB.x, yC1, pB.z};
+                const Vec3 oA0{pA.x + outN.x * proj, yC0, pA.z + outN.z * proj};
+                const Vec3 oB0{pB.x + outN.x * proj, yC0, pB.z + outN.z * proj};
+                const Vec3 oA1{pA.x + outN.x * proj, yC1, pA.z + outN.z * proj};
+                const Vec3 oB1{pB.x + outN.x * proj, yC1, pB.z + outN.z * proj};
+                pushQuadV3(piersV, oA0, oB0, oB1, oA1, outN, 0,0, 1,0, 1,1, 0,1, podiumCol);
+                pushQuadV3(piersV, iA1, iB1, oB1, oA1, {0, 1, 0}, 0,0, 1,0, 1,1, 0,1, podiumCol);
+                pushQuadV3(piersV, oA0, oB0, iB0, iA0, {0, -1, 0}, 0,0, 1,0, 1,1, 0,1, podiumCol);
+            }
         }
 
-        // Exact ear-clipped polygon roof cap (handles L-shaped, U-shaped & courtyard Seoul buildings!)
-        earClipRoofXZ(polyPts, yTop, tint, *roofDst);
+        // Watertight underside soffit cap for elevated skybridges / stepped skyscraper upper parts
+        if (b.minHeight > 0.5f) {
+            earClipRoofXZ(polyPts, yBot, {124, 128, 134, 255}, piersV, true);
+        }
 
-        // Baked Architectural Rooftop Superstructures (elevator penthouse, HVAC chillers & comms masts -> 0 extra draw calls!)
-        if (b.style != 5 && b.height >= 12.0f && b.halfX >= 5.5f && b.halfZ >= 5.5f) {
-            const float phW = std::min(b.halfX * 0.72f, 9.5f);
-            const float phD = std::min(b.halfZ * 0.72f, 9.5f);
-            const float phH = (b.height >= 42.0f) ? 4.4f : 2.8f;
-            const ColorRGBA phCol = (b.style == 1) ? ColorRGBA{124, 134, 146, 255} : ColorRGBA{176, 174, 170, 255};
-            pushBoxPiers(piersV, {b.cx, yTop + phH * 0.5f, b.cz}, {phW, phH, phD}, phCol);
-            // Dual rooftop HVAC cooling units
-            if (b.halfX >= 8.5f && b.halfZ >= 8.5f) {
-                const float ox = std::min(b.halfX * 0.44f, 6.2f);
-                pushBoxPiers(piersV, {b.cx + ox, yTop + 1.15f, b.cz - phD * 0.35f}, {2.6f, 2.3f, 2.2f}, {148, 152, 158, 255});
-                pushBoxPiers(piersV, {b.cx - ox, yTop + 0.95f, b.cz + phD * 0.35f}, {2.2f, 1.9f, 2.0f}, {136, 142, 148, 255});
+        // --------------------------------------------------------------------
+        // REAL 3D ARCHITECTURAL ROOF GEOMETRY (7 Shapes: Flat+Parapet, Gabled, Hipped, Pyramidal, Dome, Skillion, SteppedCrown!)
+        // --------------------------------------------------------------------
+        const float roofH = std::max(0.0f, static_cast<float>(b.roofHeightQ) * 0.25f);
+        const std::uint8_t rShape = b.roofShape;
+        bool handledRoof = false;
+
+        if ((rShape == 1u || rShape == 2u) && polyPts.size() == 4u && roofH >= 0.8f) {
+            // Authentic 3D Ridged Gabled (1) or Hipped (2) Roof on 4-corner footprints (Korean Villas, Hanoks, Houses, Halls!)
+            std::vector<Vec2> eave = polyPts;
+            if (b.style == 6u) {
+                // Iconic Korean Hanok projecting curved Giwa eave overhang (처마!)
+                for (Vec2& ep : eave) {
+                    Vec2 dv = ep - bCenter;
+                    const float dl = dv.length();
+                    if (dl > 0.2f) ep = ep + dv * (0.48f / dl);
+                }
             }
-            // Sleek rooftop telecom / broadcast mast on Seoul skyscrapers (>= 40m)!
-            if (b.height >= 40.0f && ((k & 1u) == 0u)) {
-                const float mastH = (b.height >= 80.0f) ? 14.0f : 8.5f;
-                pushBoxPiers(piersV, {b.cx, yTop + phH + mastH * 0.5f, b.cz}, {0.42f, mastH, 0.42f}, {188, 194, 202, 255});
+            const float len01 = (eave[1] - eave[0]).length() + (eave[3] - eave[2]).length();
+            const float len12 = (eave[2] - eave[1]).length() + (eave[0] - eave[3]).length();
+            // Arrange so (q0->q1) and (q2->q3) are the TWO LONG EAVE SIDES, (q3->q0) and (q1->q2) are the SHORT ENDS
+            const int rot = (len01 >= len12) ? 0 : 1;
+            const Vec2 q0 = eave[static_cast<std::size_t>((0 + rot) & 3)];
+            const Vec2 q1 = eave[static_cast<std::size_t>((1 + rot) & 3)];
+            const Vec2 q2 = eave[static_cast<std::size_t>((2 + rot) & 3)];
+            const Vec2 q3 = eave[static_cast<std::size_t>((3 + rot) & 3)];
+            const Vec2 endA = (q3 + q0) * 0.5f;
+            const Vec2 endB = (q1 + q2) * 0.5f;
+            const float inset = (rShape == 1u) ? 0.03f : 0.24f;
+            const Vec2 rA = endA + (endB - endA) * inset;
+            const Vec2 rB = endB + (endA - endB) * inset;
+            const float yPeak = yTop + std::min(roofH, 7.5f);
+
+            const Vec3 v0{q0.x, yTop, q0.z}, v1{q1.x, yTop, q1.z};
+            const Vec3 v2{q2.x, yTop, q2.z}, v3{q3.x, yTop, q3.z};
+            const Vec3 vrA{rA.x, yPeak, rA.z}, vrB{rB.x, yPeak, rB.z};
+
+            // Two main long roof slopes
+            const Vec3 nS1 = makeSlopeNormal(v0, v1, vrB);
+            pushQuadV3(*slopedDst, v0, v1, vrB, vrA, nS1, 0,0, 1,0, 1,1, 0,1, roofCol);
+            const Vec3 nS2 = makeSlopeNormal(v2, v3, vrA);
+            pushQuadV3(*slopedDst, v2, v3, vrA, vrB, nS2, 0,0, 1,0, 1,1, 0,1, roofCol);
+
+            if (rShape == 1u) {
+                // Solid masonry/stucco gabled triangular end walls (zero stretched attic windows!)
+                const ColorRGBA gableCol{b.facadeR, b.facadeG, b.facadeB, 255u};
+                const Vec3 eA = v0 - v3;
+                const float eAl = std::max(0.01f, eA.length());
+                const Vec3 nEndA{eA.z / eAl, 0.0f, -eA.x / eAl};
+                pushTriV3(piersV, v3, v0, vrA, nEndA, gableCol);
+                const Vec3 eB = v2 - v1;
+                const float eBl = std::max(0.01f, eB.length());
+                const Vec3 nEndB{eB.z / eBl, 0.0f, -eB.x / eBl};
+                pushTriV3(piersV, v1, v2, vrB, nEndB, gableCol);
+            } else {
+                // Hipped triangular roof end slopes
+                pushTriV3(*slopedDst, v3, v0, vrA, makeSlopeNormal(v3, v0, vrA), roofCol);
+                pushTriV3(*slopedDst, v1, v2, vrB, makeSlopeNormal(v1, v2, vrB), roofCol);
+            }
+            // Close underside on overhanging Hanok eaves
+            if (b.style == 6u) {
+                earClipRoofXZ(polyPts, yTop, roofCol, *roofDst);
+            }
+            handledRoof = true;
+        } else if ((rShape == 1u || rShape == 2u || rShape == 3u) && starConvex && polyPts.size() <= 10u && roofH >= 0.8f) {
+            // Sloped Hipped / Pyramidal apex roof for non-rectangular convex footprints
+            const Vec3 apex{b.cx, yTop + std::min(roofH, 9.0f), b.cz};
+            for (std::size_t i = 0; i < polyPts.size(); ++i) {
+                const Vec2& pA = polyPts[i];
+                const Vec2& pB = polyPts[(i + 1) % polyPts.size()];
+                const Vec3 vA{pA.x, yTop, pA.z};
+                const Vec3 vB{pB.x, yTop, pB.z};
+                pushTriV3(*slopedDst, vA, vB, apex, makeSlopeNormal(vA, vB, apex), roofCol);
+            }
+            handledRoof = true;
+        } else if (rShape == 4u && roofH >= 1.5f) {
+            // 3D Architectural Dome (Civic Halls, Cathedrals, Observatories, Stadiums!)
+            earClipRoofXZ(polyPts, yTop, roofCol, *roofDst);
+            const float domeR = std::clamp(std::min(b.halfX, b.halfZ) * 0.78f, 3.0f, 38.0f);
+            const float domeH = std::clamp(roofH, 3.0f, domeR * 1.15f);
+            constexpr int kRings = 3;
+            constexpr int kSegs = 12;
+            for (int r = 0; r < kRings; ++r) {
+                const float phi0 = (static_cast<float>(r) / static_cast<float>(kRings)) * (kPi * 0.5f);
+                const float phi1 = (static_cast<float>(r + 1) / static_cast<float>(kRings)) * (kPi * 0.5f);
+                const float rr0 = domeR * std::cos(phi0);
+                const float rr1 = domeR * std::cos(phi1);
+                const float yy0 = yTop + domeH * std::sin(phi0);
+                const float yy1 = yTop + domeH * std::sin(phi1);
+                for (int s = 0; s < kSegs; ++s) {
+                    const float th0 = (static_cast<float>(s) / static_cast<float>(kSegs)) * (2.0f * kPi);
+                    const float th1 = (static_cast<float>(s + 1) / static_cast<float>(kSegs)) * (2.0f * kPi);
+                    const Vec3 a0{b.cx + rr0 * std::cos(th0), yy0, b.cz + rr0 * std::sin(th0)};
+                    const Vec3 b0{b.cx + rr0 * std::cos(th1), yy0, b.cz + rr0 * std::sin(th1)};
+                    const Vec3 b1{b.cx + rr1 * std::cos(th1), yy1, b.cz + rr1 * std::sin(th1)};
+                    const Vec3 a1{b.cx + rr1 * std::cos(th0), yy1, b.cz + rr1 * std::sin(th0)};
+                    const Vec3 dn = makeSlopeNormal(a0, b0, b1);
+                    if (r + 1 == kRings) {
+                        pushTriV3(*slopedDst, a0, b0, {b.cx, yTop + domeH, b.cz}, dn, roofCol);
+                    } else {
+                        pushQuadV3(*slopedDst, a0, b0, b1, a1, dn, 0,0, 1,0, 1,1, 0,1, roofCol);
+                    }
+                }
+            }
+            handledRoof = true;
+        } else if (rShape == 5u && starConvex && polyPts.size() <= 12u && roofH >= 1.0f) {
+            // 3D Mono-Pitch Skillion Slanted Roof + Watertight Gable Side Walls!
+            const Vec2 axis = (b.halfX >= b.halfZ) ? Vec2{1.0f, 0.0f} : Vec2{0.0f, 1.0f};
+            float pMin = 1e9f, pMax = -1e9f;
+            for (const Vec2& p : polyPts) {
+                const float pr = (p.x - b.cx) * axis.x + (p.z - b.cz) * axis.z;
+                pMin = std::min(pMin, pr);
+                pMax = std::max(pMax, pr);
+            }
+            const float span = std::max(2.0f, pMax - pMin);
+            const float sH = std::min(roofH, 6.5f);
+            auto evalSlantY = [&](const Vec2& p) -> float {
+                const float pr = (p.x - b.cx) * axis.x + (p.z - b.cz) * axis.z;
+                return yTop + ((pr - pMin) / span) * sH;
+            };
+            const Vec3 roofN = Vec3{-axis.x * (sH / span), 1.0f, -axis.z * (sH / span)}.normalized();
+            const Vec3 ctr3{b.cx, yTop + sH * 0.5f, b.cz};
+            for (std::size_t i = 0; i < polyPts.size(); ++i) {
+                const Vec2& pA = polyPts[i];
+                const Vec2& pB = polyPts[(i + 1) % polyPts.size()];
+                const float yA = evalSlantY(pA);
+                const float yB = evalSlantY(pB);
+                pushTriV3(*slopedDst, ctr3, {pA.x, yA, pA.z}, {pB.x, yB, pB.z}, roofN, roofCol);
+                // Close height delta along walls
+                const float dx = pB.x - pA.x, dz = pB.z - pA.z;
+                const float el = std::sqrt(dx * dx + dz * dz);
+                if (el >= 0.15f && (yA > yTop + 0.05f || yB > yTop + 0.05f)) {
+                    const Vec3 outN{dz / el, 0.0f, -dx / el};
+                    pushQuadV3(*wallDst, {pA.x, yTop, pA.z}, {pB.x, yTop, pB.z},
+                               {pB.x, yB, pB.z}, {pA.x, yA, pA.z},
+                               outN, 0.0f, vTop, el, vTop, el, vTop + (yB - yTop), 0.0f, vTop + (yA - yTop), wallCol);
+                }
+            }
+            handledRoof = true;
+        } else if (rShape == 6u && starConvex && polyPts.size() <= 20u && b.halfX >= 5.5f && b.halfZ >= 5.5f) {
+            // Iconic Seoul Skyscraper Recessed 3D Stepped Architectural Crown!
+            earClipRoofXZ(polyPts, yTop, roofCol, *roofDst);
+            const float crownH = std::clamp((roofH >= 2.0f) ? roofH : 4.5f, 3.0f, 11.0f);
+            const float yCrown = yTop + crownH;
+            crownPts.clear();
+            for (const Vec2& p : polyPts) {
+                crownPts.push_back(bCenter + (p - bCenter) * 0.84f);
+            }
+            float crownU = 0.0f;
+            for (std::size_t i = 0; i < crownPts.size(); ++i) {
+                const Vec2& pA = crownPts[i];
+                const Vec2& pB = crownPts[(i + 1) % crownPts.size()];
+                const float dx = pB.x - pA.x, dz = pB.z - pA.z;
+                const float el = std::sqrt(dx * dx + dz * dz);
+                if (el < 0.15f) continue;
+                const Vec3 outN{dz / el, 0.0f, -dx / el};
+                pushQuadV3(*wallDst, {pA.x, yTop, pA.z}, {pB.x, yTop, pB.z},
+                           {pB.x, yCrown, pB.z}, {pA.x, yCrown, pA.z},
+                           outN, crownU, vTop, crownU + el, vTop, crownU + el, vTop + crownH, crownU, vTop + crownH, wallCol);
+                crownU += el;
+            }
+            earClipRoofXZ(crownPts, yCrown, roofCol, *roofDst);
+            if (b.height >= 45.0f && ((b.variantSeed & 1u) == 0u)) {
+                const float mastH = (b.height >= 90.0f) ? 16.0f : 9.5f;
+                pushBoxPiers(piersV, {b.cx, yCrown + mastH * 0.5f, b.cz}, {0.42f, mastH, 0.42f}, {192, 198, 206, 255});
+            }
+            handledRoof = true;
+        }
+
+        if (!handledRoof) {
+            // Flat ear-clipped polygon roof cap (handles L-shaped, U-shaped & courtyard Seoul buildings!)
+            earClipRoofXZ(polyPts, yTop, roofCol, *roofDst);
+
+            // Crisp 3D Perimeter Rooftop Parapet Wall (0.95m tall) on medium/tall flat Seoul buildings!
+            if (b.style != 6u && b.height >= 12.0f && polyPts.size() <= 24u) {
+                const float paraH = (b.height >= 36.0f) ? 1.15f : 0.85f;
+                const ColorRGBA paraCol{
+                    static_cast<std::uint8_t>(std::max(58, static_cast<int>(b.facadeR) * 82 / 100)),
+                    static_cast<std::uint8_t>(std::max(60, static_cast<int>(b.facadeG) * 82 / 100)),
+                    static_cast<std::uint8_t>(std::max(64, static_cast<int>(b.facadeB) * 82 / 100)),
+                    255u
+                };
+                for (std::size_t i = 0; i < polyPts.size(); ++i) {
+                    const Vec2& pA = polyPts[i];
+                    const Vec2& pB = polyPts[(i + 1) % polyPts.size()];
+                    const float dx = pB.x - pA.x, dz = pB.z - pA.z;
+                    const float el = std::sqrt(dx * dx + dz * dz);
+                    if (el < 0.25f) continue;
+                    const Vec3 outN{dz / el, 0.0f, -dx / el};
+                    pushQuadV3(piersV, {pA.x, yTop, pA.z}, {pB.x, yTop, pB.z},
+                               {pB.x, yTop + paraH, pB.z}, {pA.x, yTop + paraH, pA.z},
+                               outN, 0,0, 1,0, 1,1, 0,1, paraCol);
+                }
+            }
+
+            // Baked Architectural Rooftop Superstructures (elevator penthouse, HVAC chillers, helipad & telecom masts!)
+            if (b.style != 6u && b.height >= 12.0f && b.halfX >= 5.5f && b.halfZ >= 5.5f) {
+                const float phW = std::min(b.halfX * 0.68f, 9.5f);
+                const float phD = std::min(b.halfZ * 0.68f, 9.5f);
+                const float phH = (b.height >= 42.0f) ? 4.4f : 2.8f;
+                const ColorRGBA phCol = (b.style == 1u || b.style == 2u)
+                    ? ColorRGBA{112, 122, 134, 255}
+                    : ColorRGBA{176, 174, 170, 255};
+                pushBoxPiers(piersV, {b.cx, yTop + phH * 0.5f, b.cz}, {phW, phH, phD}, phCol);
+                if (b.halfX >= 8.5f && b.halfZ >= 8.5f) {
+                    const float ox = std::min(b.halfX * 0.44f, 6.2f);
+                    pushBoxPiers(piersV, {b.cx + ox, yTop + 1.15f, b.cz - phD * 0.35f}, {2.6f, 2.3f, 2.2f}, {148, 152, 158, 255});
+                    pushBoxPiers(piersV, {b.cx - ox, yTop + 0.95f, b.cz + phD * 0.35f}, {2.2f, 1.9f, 2.0f}, {136, 142, 148, 255});
+                }
+                // Korean high-rise rooftop helipad slab (옥상 헬기장 >= 65m)
+                if (b.height >= 65.0f && b.halfX >= 10.5f && b.halfZ >= 10.5f) {
+                    pushBoxPiers(piersV, {b.cx, yTop + phH + 0.16f, b.cz}, {std::min(phW * 0.92f, 8.2f), 0.32f, std::min(phD * 0.92f, 8.2f)}, {96, 102, 110, 255});
+                }
+                // Sleek rooftop telecom / broadcast mast on Seoul skyscrapers (>= 42m)!
+                if (b.height >= 42.0f && ((b.variantSeed & 1u) == 0u)) {
+                    const float mastH = (b.height >= 80.0f) ? 14.5f : 8.5f;
+                    pushBoxPiers(piersV, {b.cx, yTop + phH + mastH * 0.5f, b.cz}, {0.42f, mastH, 0.42f}, {188, 194, 202, 255});
+                    if (b.height >= 60.0f) {
+                        // Red aviation obstruction beacon cap
+                        pushBoxPiers(piersV, {b.cx, yTop + phH + mastH + 0.35f, b.cz}, {0.72f, 0.72f, 0.72f}, {228, 42, 42, 255});
+                    }
+                }
             }
         }
     }
@@ -2615,7 +2903,11 @@ void Renderer3D::prepareRealSeoulChunks(VulkanContext& vk, const CityMap& city, 
     const int centerCz = std::clamp(static_cast<int>(std::floor((focus.z - hdr.minZ) / hdr.chunkSize)),
                                     0, static_cast<int>(hdr.chunksZ) - 1);
 
-    constexpr int kRadius = 2; // 5x5 chunks = 1.28 km x 1.28 km full-detail Real-OSM Seoul window!
+    constexpr int kRadius = 2; // 5x5 chunks = 1.28 km x 1.28 km full-detail Real-Seoul OCM4 window!
+    struct PendingChunk { int cx, cz, distSq; std::int64_t key; };
+    std::vector<PendingChunk> missing;
+    missing.reserve(25);
+
     for (int dz = -kRadius; dz <= kRadius; ++dz) {
         const int cz = centerCz + dz;
         if (cz < 0 || cz >= static_cast<int>(hdr.chunksZ)) continue;
@@ -2625,18 +2917,31 @@ void Renderer3D::prepareRealSeoulChunks(VulkanContext& vk, const CityMap& city, 
             const std::int64_t key = (static_cast<std::int64_t>(cz) << 16) | static_cast<std::int64_t>(cx);
             auto it = realChunks_.find(key);
             if (it == realChunks_.end()) {
-                RealChunkGpu ch{};
-                ch.lastUsedFrame = frameCounter_;
-                buildRealSeoulChunkMesh(vk, city, cx, cz, ch);
-                realChunks_.emplace(key, std::move(ch));
+                missing.push_back({cx, cz, dx * dx + dz * dz, key});
             } else {
                 it->second.lastUsedFrame = frameCounter_;
             }
         }
     }
 
-    // LRU evict oldest inactive chunks safely before render passes start (capped at 48 resident GPU chunks!)
-    constexpr std::size_t kMaxResidentChunks = 48;
+    if (!missing.empty()) {
+        std::sort(missing.begin(), missing.end(), [](const PendingChunk& a, const PendingChunk& b) {
+            return a.distSq < b.distSq;
+        });
+        // Full synchronous warmup on initial startup or fast-travel teleport; smooth frame-budgeted streaming while driving!
+        const bool fullWarmup = realChunks_.empty() || (missing.size() >= 12u);
+        const std::size_t budget = fullWarmup ? missing.size() : std::min<std::size_t>(missing.size(), 2u);
+        for (std::size_t i = 0; i < budget; ++i) {
+            const PendingChunk& pc = missing[i];
+            RealChunkGpu ch{};
+            ch.lastUsedFrame = frameCounter_;
+            buildRealSeoulChunkMesh(vk, city, pc.cx, pc.cz, ch);
+            realChunks_.emplace(pc.key, std::move(ch));
+        }
+    }
+
+    // LRU evict oldest inactive chunks safely before render passes start (49-chunk 7x7 resident window!)
+    constexpr std::size_t kMaxResidentChunks = 49;
     if (realChunks_.size() > kMaxResidentChunks) {
         vk.waitIdle();
         while (realChunks_.size() > kMaxResidentChunks) {
@@ -3997,13 +4302,19 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
             if (v.kind == VehicleKind::SeoulBus) {
                 eye.x -= 0.14f;
             }
-            // Clamp seated driver head strictly beneath low-slung supercar/hypercar/musclecar rooflines (zero roof clipping!)
-            float maxSafeEyeY = std::max(0.74f, spec.chassisHeight - 0.24f);
-            if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype ||
-                v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::MuscleCar) {
-                maxSafeEyeY = std::min(maxSafeEyeY, 0.94f);
+            if (v.kind == VehicleKind::ClassicRoadster) {
+                // Open-top roadster has no roof: seat driver cleanly inside bucket seat with head & shoulders clearly visible!
+                eye.x -= 0.28f;
+                eye.y = std::max(eye.y, 1.14f);
+            } else {
+                // Clamp seated driver head strictly beneath low-slung supercar/hypercar/musclecar rooflines (zero roof clipping!)
+                float maxSafeEyeY = std::max(0.74f, spec.chassisHeight - 0.24f);
+                if (v.kind == VehicleKind::Hypercar || v.kind == VehicleKind::TrackPrototype ||
+                    v.kind == VehicleKind::SportsCoupe || v.kind == VehicleKind::MuscleCar) {
+                    maxSafeEyeY = std::min(maxSafeEyeY, 0.94f);
+                }
+                eye.y = std::min(eye.y, maxSafeEyeY);
             }
-            eye.y = std::min(eye.y, maxSafeEyeY);
             ColorRGBA drvTop{54, 64, 82, 255};
             ColorRGBA drvSkin{234, 194, 162, 255};
             ColorRGBA drvHair{28, 24, 22, 255};
