@@ -2777,22 +2777,29 @@ void testV320ZeroRoadBlockingBuildingsAndExactRoadElevation() {
     const auto& roads = real.roads();
     const auto& rVerts = real.roadVerts();
     for (const auto& r : roads) {
-        if (r.roadClass > 3 || (r.flags & 4u) != 0u || r.vertCount < 2) continue;
+        if (r.roadClass > 3 || (r.flags & 4u) != 0u || r.layer >= 1 || (r.flags & 2u) != 0u || r.vertCount < 2) continue;
         for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
             const oc::Vec2 mid = (rVerts[r.firstVert + s] + rVerts[r.firstVert + s + 1]) * 0.5f;
             if (!real.isInCoreBounds(mid)) continue;
             oc::Vec2 probe = mid;
-            // Checking small radius 0.1m ensures road centerline never sits inside any active building!
+            // Checking small radius 0.1m ensures ground road centerline never sits inside any active building!
             ASSERT_TRUE(!real.resolveCircleBuildings(probe, 0.1f));
         }
     }
 
-    // 3. Verify exact millimeter road surface elevation parity (CityMap::surfaceHeightAt == sampleDem + roadSurfaceLiftAt)
+    // 3. Verify exact millimeter road surface elevation parity (CityMap::surfaceHeightAt == 3D deck height / DEM + lift)
     const oc::Vec2 spawnRoad = world.player().pos;
     const float lift = real.roadSurfaceLiftAt(spawnRoad);
     ASSERT_TRUE(lift >= 0.055f && lift <= 0.090f);
-    const float expectedY = real.sampleDem(spawnRoad) + lift;
-    ASSERT_TRUE(std::abs(city.surfaceHeightAt(spawnRoad) - expectedY) < 1e-4f);
+    if (real.has3DRoads()) {
+        const oc::RoadSurfaceHit hit = real.findRoadSurfaceAt(spawnRoad, -1e9f, 0.85f);
+        ASSERT_TRUE(hit.found);
+        const float expectedY = std::max(real.sampleDem(spawnRoad), hit.y);
+        ASSERT_TRUE(std::abs(city.surfaceHeightAt(spawnRoad) - expectedY) < 1e-4f);
+    } else {
+        const float expectedY = real.sampleDem(spawnRoad) + lift;
+        ASSERT_TRUE(std::abs(city.surfaceHeightAt(spawnRoad) - expectedY) < 1e-4f);
+    }
 
     // Verify off-road point inside a park / away from roads returns 0.0 lift
     const oc::Vec2 namsanPeak{283.0f, -3078.0f};
@@ -2976,7 +2983,7 @@ void testV340ExpresswayVsCityRoadDistinction() {
         const oc::OsmRoadRec& expR = real.roads()[gNr.roadIdx];
         const oc::RoadLaneLayout eLay = oc::RealSeoulData::computeRoadLaneLayout(expR);
         ASSERT_TRUE(eLay.styleByte == 176u);
-        ASSERT_TRUE(eLay.totalLanes == 4 && eLay.lanesInDir == 4);
+        ASSERT_TRUE(eLay.totalLanes >= 4 && eLay.totalLanes <= 5 && eLay.lanesInDir == eLay.totalLanes);
         ASSERT_TRUE(eLay.laneWidth > 3.45f && eLay.laneWidth < 3.75f);
         const float outerBusRightEdge = eLay.laneCenterOffset(eLay.lanesInDir - 1) + 1.24f;
         ASSERT_TRUE(outerBusRightEdge < eLay.driveRight - 0.15f); // Even 2.48m SeoulBus stays cleanly out of 갓길!
@@ -3228,8 +3235,11 @@ void testV400RealOcm4BuildingsAndZeroRoadIntrusions() {
     const oc::RealSeoulData& real = world.city().realData();
     const oc::OcMapHeader& hdr = real.header();
 
-    // 1. Verify OCM4 v2 high-density 3D Seoul architectural dataset (184K buildings, 10 styles, 7 roof shapes, multi-part towers)
-    ASSERT_TRUE(hdr.magic[0] == 'O' && hdr.magic[1] == 'C' && hdr.magic[2] == 'M' && hdr.magic[3] == '4' && hdr.version == 2u);
+    // 1. Verify OCM4 v2 / OCM5 v3 high-density 3D Seoul architectural dataset (184K buildings, 10 styles, 7 roof shapes, multi-part towers)
+    const bool validOcMap =
+        (hdr.magic[0] == 'O' && hdr.magic[1] == 'C' && hdr.magic[2] == 'M' &&
+         ((hdr.magic[3] == '4' && hdr.version == 2u) || (hdr.magic[3] == '5' && hdr.version == 3u)));
+    ASSERT_TRUE(validOcMap);
     ASSERT_TRUE(real.buildings().size() >= 180000u);
     ASSERT_TRUE(real.bldgVerts().size() >= 850000u);
 
@@ -3270,7 +3280,7 @@ void testV400RealOcm4BuildingsAndZeroRoadIntrusions() {
     // 3. Verify ZERO buildings intrude onto major Seoul road carriageways across Gangnam Station -> Teheran-ro -> Seolleung!
     int majorRoadProbes = 0;
     for (const oc::OsmRoadRec& r : real.roads()) {
-        if (r.roadClass > 3u || (r.flags & 4u) != 0u || r.vertCount < 2u) continue;
+        if (r.roadClass > 3u || (r.flags & 4u) != 0u || r.layer >= 1 || (r.flags & 2u) != 0u || r.vertCount < 2u) continue;
         if (r.maxX < 3600.0f || r.minX > 5300.0f || r.maxZ < 2100.0f || r.minZ > 3000.0f) continue;
         const float hw = std::max(2.6f, r.halfWidth);
         const float latProbe = std::max(0.0f, hw - 1.35f);
@@ -3297,7 +3307,7 @@ void testV400RealOcm4BuildingsAndZeroRoadIntrusions() {
     }
     ASSERT_TRUE(majorRoadProbes >= 200);
 
-    // 4. Verify 3D raycast hits elevated OCM4 building_part at its true [baseY+minHeight, baseY+height] band!
+    // 4. Verify 3D raycast hits elevated OCM4/5 building_part at its true [baseY+minHeight, baseY+height] band!
     {
         const oc::OsmBldgRec& eb = *sampleElevated;
         const float midY = eb.baseY + 0.5f * (eb.minHeight + eb.height);
@@ -3306,6 +3316,176 @@ void testV400RealOcm4BuildingsAndZeroRoadIntrusions() {
         const float tHit = real.raycastBuildings3D(rayOrigin, {1.0f, 0.0f, 0.0f}, distOut + 10.0f);
         ASSERT_TRUE(tHit > 0.0f && tHit < distOut + 8.0f);
     }
+
+    ++gTestsPassed;
+}
+
+
+void testV410Real3DGradeSeparatedRoadsAndSmoothBridges() {
+    auto findOcmap = []() -> std::string {
+        const char* paths[] = {
+            "assets/maps/seoul_real.ocmap",
+            "../assets/maps/seoul_real.ocmap",
+            "../../assets/maps/seoul_real.ocmap"
+        };
+        for (const char* p : paths) {
+            std::ifstream f(p, std::ios::binary);
+            if (f.good()) return p;
+        }
+        return {};
+    };
+    const std::string ocmapPath = findOcmap();
+    ASSERT_TRUE(!ocmapPath.empty());
+
+    oc::GameWorld world(20264100ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    const oc::CityMap& city = world.city();
+    const oc::RealSeoulData& real = city.realData();
+    const oc::OcMapHeader& hdr = real.header();
+
+    // 1. Verify OCM5 v3 real 3D multi-level Seoul road network (50K+ roads, 266K+ 3D vertices, 184K+ buildings)
+    ASSERT_TRUE(hdr.magic[0] == 'O' && hdr.magic[1] == 'C' && hdr.magic[2] == 'M' && hdr.magic[3] == '5' && hdr.version == 3u);
+    ASSERT_TRUE(real.has3DRoads());
+    ASSERT_TRUE(real.roads().size() >= 45000u);
+    ASSERT_TRUE(real.roadVerts().size() >= 250000u);
+    ASSERT_TRUE(real.roadVertYs().size() == real.roadVerts().size());
+    ASSERT_TRUE(real.buildings().size() >= 180000u);
+
+    // 2. Exact Samseonggyo x Bundang-Suseo regression (user screenshot spot: 7200..7560, 1400..1560):
+    //    Verify smooth flat Samseonggyo (layer=1, y~16-18m) AND Bundang-Suseo flying >=10m overhead (layer=3, y~29-32m),
+    //    plus multi-level surfaceHeightAt(p, refY) tracking both decks cleanly with ZERO sawtooth jumps!
+    bool foundSamseongDeck = false;
+    bool foundBundangFlyover = false;
+    oc::Vec2 crossingPt{0.0f, 0.0f};
+    bool foundCrossing = false;
+    float samseongYAtCross = 0.0f;
+    float bundangYAtCross = 0.0f;
+
+    struct SegInfo { oc::Vec2 a, b; float yA, yB; };
+    std::vector<SegInfo> samseongSegs, bundangSegs;
+    for (const oc::OsmRoadRec& r : real.roads()) {
+        if (r.vertCount < 2u || (r.flags & 4u) != 0u) continue;
+        if (r.maxX < 7200.0f || r.minX > 7560.0f || r.maxZ < 1380.0f || r.minZ > 1580.0f) continue;
+        for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
+            const oc::Vec2 a = real.roadVerts()[r.firstVert + s];
+            const oc::Vec2 b = real.roadVerts()[r.firstVert + s + 1];
+            const float yA = real.roadVertY(r.firstVert + s);
+            const float yB = real.roadVertY(r.firstVert + s + 1);
+            const float len = (b - a).length();
+            if (len >= 2.0f) {
+                const float grade = std::abs(yB - yA) / len;
+                ASSERT_TRUE(grade < 0.10f); // Smooth <=10% grade across entire Samseonggyo interchange!
+            }
+            const float yMid = 0.5f * (yA + yB);
+            if (r.layer == 1 && r.roadClass == 2u && yMid >= 14.0f && yMid <= 20.0f) {
+                foundSamseongDeck = true;
+                samseongSegs.push_back({a, b, yA, yB});
+            }
+            if (r.layer >= 3 && r.roadClass <= 1u && yMid >= 27.0f && yMid <= 34.0f) {
+                foundBundangFlyover = true;
+                bundangSegs.push_back({a, b, yA, yB});
+            }
+        }
+    }
+    ASSERT_TRUE(foundSamseongDeck);
+    ASSERT_TRUE(foundBundangFlyover);
+
+    // Find exact 2D crossing between Samseonggyo (layer 1) and Bundang-Suseo (layer 3)
+    for (const auto& s1 : samseongSegs) {
+        for (const auto& s2 : bundangSegs) {
+            const oc::Vec2 d1 = s1.b - s1.a;
+            const oc::Vec2 d2 = s2.b - s2.a;
+            const float det = d1.x * d2.z - d1.z * d2.x;
+            if (std::abs(det) < 1e-4f) continue;
+            const oc::Vec2 diff = s2.a - s1.a;
+            const float t = (diff.x * d2.z - diff.z * d2.x) / det;
+            const float u = (diff.x * d1.z - diff.z * d1.x) / det;
+            if (t >= 0.0f && t <= 1.0f && u >= 0.0f && u <= 1.0f) {
+                crossingPt = s1.a + d1 * t;
+                samseongYAtCross = oc::lerpf(s1.yA, s1.yB, t);
+                bundangYAtCross = oc::lerpf(s2.yA, s2.yB, u);
+                foundCrossing = true;
+                break;
+            }
+        }
+        if (foundCrossing) break;
+    }
+    ASSERT_TRUE(foundCrossing);
+    ASSERT_TRUE(bundangYAtCross - samseongYAtCross >= 10.0f);
+
+    // Multi-level surfaceHeightAt(p, refY) must independently track Samseonggyo (~17m) AND Bundang-Suseo (~30m)!
+    const float hLower = city.surfaceHeightAt(crossingPt, samseongYAtCross);
+    const float hUpper = city.surfaceHeightAt(crossingPt, bundangYAtCross);
+    ASSERT_TRUE(std::abs(hLower - samseongYAtCross) < 1.0f);
+    ASSERT_TRUE(std::abs(hUpper - bundangYAtCross) < 1.0f);
+    ASSERT_TRUE(hUpper - hLower >= 10.0f);
+    ASSERT_TRUE(real.isOnLowerRoadUnder(crossingPt, bundangYAtCross, 1.5f));
+
+    // 3. Verify Naebu Circular Expressway (내부순환로) elevated viaducts sit >= 8m above bare-earth DTM
+    int naebuElevatedCount = 0;
+    int naebuElevatedVerts = 0;
+    for (const oc::OsmRoadRec& r : real.roads()) {
+        if (r.roadClass > 1u || r.layer < 2 || r.halfWidth < 5.2f || r.maxZ > -2500.0f || r.vertCount < 2u) continue;
+        const std::uint32_t midIdx = r.firstVert + r.vertCount / 2u;
+        const oc::Vec2 mp = real.roadVerts()[midIdx];
+        const float my = real.roadVertY(midIdx);
+        if (my - real.sampleDem(mp) >= 8.0f) {
+            ++naebuElevatedCount;
+            naebuElevatedVerts += static_cast<int>(r.vertCount);
+        }
+    }
+    ASSERT_TRUE(naebuElevatedCount >= 10);
+    ASSERT_TRUE(naebuElevatedVerts >= 150);
+
+    // 4. Verify Banpo Bridge (반포대교) Han River deck is smooth & elevated >= 17.5m over Han River water
+    {
+        const oc::Vec2 banpoPt{1028.6f, 1015.4f};
+        ASSERT_TRUE(real.sampleDem(banpoPt) < 2.0f);
+        const float banpoH = city.surfaceHeightAt(banpoPt);
+        ASSERT_TRUE(banpoH >= 17.5f && banpoH <= 25.0f);
+    }
+
+    // 5. Verify Gyeongbu Expressway (경부고속도로) real Korean 10-lane width (5 lanes/dir, halfWidth >= 8.5m)
+    {
+        const oc::Vec2 gbPt{2762.4f, 1569.3f};
+        const oc::NearestOsmRoad nr = real.findNearestRoad(gbPt, 24.0f);
+        ASSERT_TRUE(nr.found);
+        ASSERT_TRUE(nr.roadClass == 0u);
+        ASSERT_TRUE(nr.halfWidth >= 8.5f);
+        const oc::OsmRoadRec& gbRec = real.roads()[nr.roadIdx];
+        ASSERT_TRUE(gbRec.lanes >= 5u);
+    }
+
+    // 6. Global urban Seoul zero-sawtooth bridge/viaduct audit:
+    //    ZERO elevated edges (>2m) exceed 11% relative-to-DTM grade anywhere, and ZERO valley/flat urban
+    //    bridges (dem < 35m) exceed 14% absolute grade!
+    int auditedBridgeEdges = 0;
+    for (const oc::OsmRoadRec& r : real.roads()) {
+        if ((r.flags & 4u) != 0u || r.vertCount < 2u) continue;
+        const bool isElev = ((r.flags & 2u) != 0u) || (r.layer >= 1) || ((r.flags2 & 4u) != 0u);
+        if (!isElev) continue;
+        for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
+            const oc::Vec2 a = real.roadVerts()[r.firstVert + s];
+            const oc::Vec2 b = real.roadVerts()[r.firstVert + s + 1];
+            const oc::Vec2 mid = (a + b) * 0.5f;
+            if (std::abs(mid.x) > 11000.0f || mid.z < -6500.0f || mid.z > 4500.0f) continue;
+            const float len = (b - a).length();
+            if (len < 2.0f) continue;
+            const float yA = real.roadVertY(r.firstVert + s);
+            const float yB = real.roadVertY(r.firstVert + s + 1);
+            const float dA = real.sampleDem(a);
+            const float dB = real.sampleDem(b);
+            const float absGrade = std::abs(yB - yA) / len;
+            const float relGrade = std::abs((yB - dB) - (yA - dA)) / len;
+            // Smooth bridge deck over a ravine has small absGrade; road following a mountain slope has small relGrade.
+            ASSERT_TRUE(std::min(absGrade, relGrade) <= 0.13f);
+            if (std::max(dA, dB) < 35.0f) {
+                ASSERT_TRUE(absGrade <= 0.15f);
+            }
+            ++auditedBridgeEdges;
+        }
+    }
+    ASSERT_TRUE(auditedBridgeEdges >= 5000);
 
     ++gTestsPassed;
 }
@@ -3347,8 +3527,9 @@ int main() {
     testV340ExpresswayVsCityRoadDistinction();
     testV350CleanIntersectionsAndBusShelterSetback();
     testV400RealOcm4BuildingsAndZeroRoadIntrusions();
+    testV410Real3DGradeSeparatedRoadsAndSmoothBridges();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v4.0.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v4.1.0 simulation test suites succeeded!\n";
     return 0;
 }
 

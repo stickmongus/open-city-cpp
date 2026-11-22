@@ -52,6 +52,7 @@ bool raySegmentIntersect2D(const Vec2& o, const Vec2& d, const Vec2& a, const Ve
 
 bool RealSeoulData::loadFromBytes(const std::uint8_t* data, std::size_t size) {
     loaded_ = false;
+    has3DRoads_ = false;
     if (!data || size < sizeof(OcMapHeader)) return false;
 
     std::size_t off = 0;
@@ -63,9 +64,10 @@ bool RealSeoulData::loadFromBytes(const std::uint8_t* data, std::size_t size) {
     };
 
     if (!readBlock(&hdr_, sizeof(OcMapHeader))) return false;
+    const bool isOcm5 = (std::memcmp(hdr_.magic, "OCM5", 4) == 0 && hdr_.version == 3);
     const bool isOcm4 = (std::memcmp(hdr_.magic, "OCM4", 4) == 0 && hdr_.version == 2);
     const bool isOcm3 = (std::memcmp(hdr_.magic, "OCM3", 4) == 0 && hdr_.version == 1);
-    if (!isOcm4 && !isOcm3) return false;
+    if (!isOcm5 && !isOcm4 && !isOcm3) return false;
     if (hdr_.chunksX == 0 || hdr_.chunksZ == 0 || hdr_.demW < 2 || hdr_.demH < 2) return false;
 
     const std::size_t demCount = static_cast<std::size_t>(hdr_.demW) * static_cast<std::size_t>(hdr_.demH);
@@ -74,6 +76,7 @@ bool RealSeoulData::loadFromBytes(const std::uint8_t* data, std::size_t size) {
     demDecimeters_.resize(demCount);
     roads_.resize(hdr_.roadCount);
     roadVerts_.resize(hdr_.roadVertCount);
+    roadVertY_.resize(hdr_.roadVertCount, 0.0f);
     buildings_.resize(hdr_.bldgCount);
     bldgVerts_.resize(hdr_.bldgVertCount);
     chunks_.resize(numChunks);
@@ -85,7 +88,16 @@ bool RealSeoulData::loadFromBytes(const std::uint8_t* data, std::size_t size) {
     pois_.resize(hdr_.poiCount);
 
     if (!readBlock(demDecimeters_.data(), demCount * sizeof(std::int16_t))) return false;
-    {
+    if (isOcm5) {
+        if (!readBlock(roads_.data(), roads_.size() * sizeof(OsmRoadRec))) return false;
+        std::vector<Vec3> verts3(hdr_.roadVertCount);
+        if (!readBlock(verts3.data(), verts3.size() * sizeof(Vec3))) return false;
+        for (std::size_t i = 0; i < verts3.size(); ++i) {
+            roadVerts_[i] = {verts3[i].x, verts3[i].z};
+            roadVertY_[i] = verts3[i].y;
+        }
+        has3DRoads_ = true;
+    } else {
         #pragma pack(push, 1)
         struct OsmRoadRecDisk {
             std::uint32_t firstVert;
@@ -110,16 +122,17 @@ bool RealSeoulData::loadFromBytes(const std::uint8_t* data, std::size_t size) {
             r.lanes = d.lanes;
             r.flags = d.flags;
             r.nameSlot = d.nameSlot;
-            r.pad_ = 0;
+            r.layer = ((d.flags & 2u) != 0u) ? 1 : 0;
+            r.flags2 = (d.roadClass <= 1u) ? 2u : 0u;
             r.halfWidth = d.halfWidth;
             r.minX = d.minX;
             r.minZ = d.minZ;
             r.maxX = d.maxX;
             r.maxZ = d.maxZ;
         }
+        if (!readBlock(roadVerts_.data(), roadVerts_.size() * sizeof(Vec2))) return false;
     }
-    if (!readBlock(roadVerts_.data(), roadVerts_.size() * sizeof(Vec2))) return false;
-    if (isOcm4) {
+    if (isOcm5 || isOcm4) {
         if (!readBlock(buildings_.data(), buildings_.size() * sizeof(OsmBldgRec))) return false;
     } else {
         #pragma pack(push, 1)
@@ -170,9 +183,8 @@ bool RealSeoulData::loadFromBytes(const std::uint8_t* data, std::size_t size) {
     if (!readBlock(parkTris_.data(), parkTris_.size() * sizeof(OsmTri2D))) return false;
     if (!readBlock(pois_.data(), pois_.size() * sizeof(OsmPoiRec))) return false;
 
-    // Filter SRTM C-band skyscraper radar spikes (e.g. fake +64m dome over Gangnam Finance Center & Yeouido Parc1)
-    // along urban CBD roads & high-rise clusters while preserving 100% of Namsan (258m), Bukhansan, Gwanaksan & natural hills!
-    {
+    // Filter SRTM C-band skyscraper radar spikes for legacy OCM3/OCM4 maps (OCM5 already bakes the bare-earth DTM!)
+    if (!isOcm5) {
         const int W = static_cast<int>(hdr_.demW);
         const int H = static_cast<int>(hdr_.demH);
         const float invDemX = static_cast<float>(W - 1) / (hdr_.demMaxX - hdr_.demMinX);
@@ -259,14 +271,22 @@ bool RealSeoulData::loadFromBytes(const std::uint8_t* data, std::size_t size) {
     buildWaterGrid();
     loaded_ = true;
 
-    // Re-snap all 107,600 building foundations to exact filtered bare-earth DTM!
-    for (auto& b : buildings_) {
-        b.baseY = sampleDem({b.cx, b.cz});
+    if (!isOcm5) {
+        // Legacy OCM3/OCM4: re-snap buildings & synthesize roadVertY_ from bare-earth DTM
+        for (auto& b : buildings_) {
+            b.baseY = sampleDem({b.cx, b.cz});
+        }
+        for (const auto& r : roads_) {
+            const float lift = roadClassLift(r.roadClass);
+            for (std::uint16_t vi = 0; vi < r.vertCount; ++vi) {
+                const std::uint32_t idx = r.firstVert + vi;
+                roadVertY_[idx] = sampleDem(roadVerts_[idx]) + lift;
+            }
+        }
     }
 
-    // Cull OSM underground shopping malls / subway concourses (layer=-1) & overpass roofs
-    // whose building footprint polygons illegally sit directly across drivable major Seoul roads
-    // (e.g., Gangnam Station Underground Mall blocking Teheran-ro x Gangnam-daero!).
+    // Cull any ground-level building footprint illegally sitting directly across drivable major ground roads
+    // (Skip elevated viaducts / bridges so buildings beside/under viaducts are preserved cleanly!)
     {
         auto pointInBldgPoly = [&](const OsmBldgRec& b, const Vec2& pt) -> bool {
             if (b.vertCount < 3) return false;
@@ -304,7 +324,9 @@ bool RealSeoulData::loadFromBytes(const std::uint8_t* data, std::size_t size) {
         };
 
         for (const OsmRoadRec& r : roads_) {
-            if (r.roadClass > 4 || (r.flags & 4u) != 0u || r.vertCount < 2) continue; // Skip tunnels & narrow back alleys
+            if (r.roadClass > 4 || (r.flags & 4u) != 0u || (r.flags & 2u) != 0u || r.layer >= 1 || r.vertCount < 2) {
+                continue; // Skip tunnels, elevated viaducts/bridges & narrow back alleys
+            }
             const float hw = std::max(2.6f, r.halfWidth);
             const float probeLat = (r.roadClass <= 3u && hw >= 4.5f) ? (hw - 1.0f) : 0.0f;
             for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
@@ -452,19 +474,25 @@ void RealSeoulData::queryChunkPois(const Vec2& center, float radius, std::vector
     }
 }
 
-bool RealSeoulData::resolveCircleBuildings(Vec2& pos, float radius, Vec2* outNormal) const {
+bool RealSeoulData::resolveCircleBuildings(Vec2& pos, float radius, Vec2* outNormal, float entityY) const {
     if (!loaded_ || !isInCoreBounds(pos)) return false;
     const int cx = std::clamp(static_cast<int>(std::floor((pos.x - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
     const int cz = std::clamp(static_cast<int>(std::floor((pos.z - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
     const OcChunkHdr& ch = chunks_[static_cast<std::size_t>(cz) * hdr_.chunksX + static_cast<std::size_t>(cx)];
 
+    const bool checkY = (entityY > -1e8f);
     bool collided = false;
     Vec2 accumNormal{0.0f, 0.0f};
     const float r2 = radius * radius;
 
     for (std::uint32_t k = 0; k < ch.bldgLen; ++k) {
         const OsmBldgRec& b = buildings_[flatChunkBldgs_[ch.bldgStart + k]];
-        if (b.minHeight > 3.0f) continue; // Allow cars & pedestrians cleanly beneath skybridges / upper cantilevers!
+        if (!checkY && b.minHeight > 3.0f) continue; // Allow cars & pedestrians cleanly beneath skybridges / upper cantilevers!
+        if (checkY) {
+            const float bTop = b.baseY + b.height + static_cast<float>(b.roofHeightQ) * 0.25f;
+            const float bBot = b.baseY + b.minHeight;
+            if (entityY > bTop - 0.35f || entityY + 2.4f < bBot) continue;
+        }
         if (std::abs(pos.x - b.cx) > b.halfX + radius + 0.2f ||
             std::abs(pos.z - b.cz) > b.halfZ + radius + 0.2f) {
             continue;
@@ -620,16 +648,19 @@ float RealSeoulData::raycastBuildings3D(const Vec3& origin, const Vec3& dir, flo
     return hit ? bestT : -1.0f;
 }
 
-NearestOsmRoad RealSeoulData::findNearestRoad(const Vec2& p, float maxSearchDist) const {
-    NearestOsmRoad res{};
-    if (!loaded_ || !isInCoreBounds(p)) return res;
+RoadSurfaceHit RealSeoulData::findRoadSurfaceAt(const Vec2& p, float refY, float extraMargin) const {
+    RoadSurfaceHit best{};
+    if (!loaded_ || !isInCoreBounds(p)) return best;
 
-    const int cx0 = std::clamp(static_cast<int>(std::floor((p.x - maxSearchDist - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
-    const int cx1 = std::clamp(static_cast<int>(std::floor((p.x + maxSearchDist - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
-    const int cz0 = std::clamp(static_cast<int>(std::floor((p.z - maxSearchDist - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
-    const int cz1 = std::clamp(static_cast<int>(std::floor((p.z + maxSearchDist - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
+    const bool hasRefY = (refY > -1e8f);
+    const bool overWater = !hasRefY && isInWater(p);
+    const float searchR = std::max(22.0f, 22.0f + extraMargin);
+    const int cx0 = std::clamp(static_cast<int>(std::floor((p.x - searchR - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
+    const int cx1 = std::clamp(static_cast<int>(std::floor((p.x + searchR - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
+    const int cz0 = std::clamp(static_cast<int>(std::floor((p.z - searchR - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
+    const int cz1 = std::clamp(static_cast<int>(std::floor((p.z + searchR - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
 
-    float bestDistSq = maxSearchDist * maxSearchDist;
+    float bestDistNorm = 1e9f;
     for (int cz = cz0; cz <= cz1; ++cz) {
         const std::size_t row = static_cast<std::size_t>(cz) * hdr_.chunksX;
         for (int cx = cx0; cx <= cx1; ++cx) {
@@ -637,6 +668,97 @@ NearestOsmRoad RealSeoulData::findNearestRoad(const Vec2& p, float maxSearchDist
             for (std::uint32_t k = 0; k < ch.roadLen; ++k) {
                 const std::uint32_t ri = flatChunkRoads_[ch.roadStart + k];
                 const OsmRoadRec& r = roads_[ri];
+                if (r.vertCount < 2 || (r.flags & 4u) != 0u) continue;
+                const float hw = std::max(2.6f, r.halfWidth) + extraMargin;
+                if (hw <= 0.0f) continue;
+                if (p.x < r.minX - hw || p.x > r.maxX + hw ||
+                    p.z < r.minZ - hw || p.z > r.maxZ + hw) {
+                    continue;
+                }
+                const float hw2 = hw * hw;
+                const float lift = roadClassLift(r.roadClass);
+                for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
+                    const Vec2 a = roadVerts_[r.firstVert + s];
+                    const Vec2 b = roadVerts_[r.firstVert + s + 1];
+                    const Vec2 ab = b - a;
+                    const float l2 = ab.lengthSq();
+                    const float t = (l2 > 1e-6f) ? clampf((p - a).dot(ab) / l2, 0.0f, 1.0f) : 0.0f;
+                    const Vec2 q = a + ab * t;
+                    const float d2 = (p - q).lengthSq();
+                    if (d2 > hw2) continue;
+
+                    const float baseDeckY = has3DRoads_
+                        ? lerpf(roadVertY_[r.firstVert + s], roadVertY_[r.firstVert + s + 1], t)
+                        : sampleDem(q);
+                    const float deckY = baseDeckY + lift;
+                    if (hasRefY && deckY > refY + 2.6f) {
+                        // Overhead deck above our roof — ignore so we stay on our current lower surface!
+                        continue;
+                    }
+
+                    const float distNorm = std::sqrt(d2) / hw;
+                    bool take = false;
+                    if (!best.found) {
+                        take = true;
+                    } else if (hasRefY || overWater) {
+                        // Pick the highest deck under refY + 2.6m (or highest bridge over water);
+                        // if two decks are on the same level (within 0.45m), prefer higher road-class lift / closer center.
+                        if (deckY > best.y + 0.45f) {
+                            take = true;
+                        } else if (std::abs(deckY - best.y) <= 0.45f &&
+                                   (deckY > best.y + 0.002f || (std::abs(deckY - best.y) <= 0.002f && distNorm < bestDistNorm))) {
+                            take = true;
+                        }
+                    } else {
+                        // No refY on land: prefer lowest distinct physical level (ground road under overhead viaduct),
+                        // and within the same level (<= 0.85m), prefer higher rendered surface (major boulevard over alley).
+                        if (deckY < best.y - 0.85f) {
+                            take = true;
+                        } else if (std::abs(deckY - best.y) <= 0.85f &&
+                                   (deckY > best.y + 0.002f || (std::abs(deckY - best.y) <= 0.002f && distNorm < bestDistNorm))) {
+                            take = true;
+                        }
+                    }
+
+                    if (take) {
+                        best.found = true;
+                        best.y = deckY;
+                        best.roadIdx = ri;
+                        best.roadClass = r.roadClass;
+                        best.layer = r.layer;
+                        best.isBridge = (r.flags & 2u) != 0u || (r.layer >= 1) || ((r.flags2 & 4u) != 0u);
+                        best.isLink = (r.flags2 & 1u) != 0u;
+                        best.halfWidth = r.halfWidth;
+                        best.tangent = (l2 > 1e-6f) ? (ab / std::sqrt(l2)) : Vec2{1.0f, 0.0f};
+                        bestDistNorm = distNorm;
+                    }
+                }
+            }
+        }
+    }
+    return best;
+}
+
+NearestOsmRoad RealSeoulData::findNearestRoad(const Vec2& p, float maxSearchDist, float refY) const {
+    NearestOsmRoad res{};
+    if (!loaded_ || !isInCoreBounds(p)) return res;
+
+    const bool hasRefY = has3DRoads_ && (refY > -1e8f);
+    const int cx0 = std::clamp(static_cast<int>(std::floor((p.x - maxSearchDist - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
+    const int cx1 = std::clamp(static_cast<int>(std::floor((p.x + maxSearchDist - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
+    const int cz0 = std::clamp(static_cast<int>(std::floor((p.z - maxSearchDist - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
+    const int cz1 = std::clamp(static_cast<int>(std::floor((p.z + maxSearchDist - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
+
+    const float maxDistSq = maxSearchDist * maxSearchDist;
+    float bestScore = 1e30f;
+    for (int cz = cz0; cz <= cz1; ++cz) {
+        const std::size_t row = static_cast<std::size_t>(cz) * hdr_.chunksX;
+        for (int cx = cx0; cx <= cx1; ++cx) {
+            const OcChunkHdr& ch = chunks_[row + static_cast<std::size_t>(cx)];
+            for (std::uint32_t k = 0; k < ch.roadLen; ++k) {
+                const std::uint32_t ri = flatChunkRoads_[ch.roadStart + k];
+                const OsmRoadRec& r = roads_[ri];
+                if (r.vertCount < 2 || (r.flags & 4u) != 0u) continue;
                 if (p.x < r.minX - r.halfWidth - maxSearchDist || p.x > r.maxX + r.halfWidth + maxSearchDist ||
                     p.z < r.minZ - r.halfWidth - maxSearchDist || p.z > r.maxZ + r.halfWidth + maxSearchDist) {
                     continue;
@@ -644,21 +766,36 @@ NearestOsmRoad RealSeoulData::findNearestRoad(const Vec2& p, float maxSearchDist
                 for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
                     const Vec2 a = roadVerts_[r.firstVert + s];
                     const Vec2 b = roadVerts_[r.firstVert + s + 1];
-                    const Vec2 q = closestPointOnSeg(p, a, b);
+                    const Vec2 ab = b - a;
+                    const float l2 = ab.lengthSq();
+                    const float t = (l2 > 1e-6f) ? clampf((p - a).dot(ab) / l2, 0.0f, 1.0f) : 0.0f;
+                    const Vec2 q = a + ab * t;
                     const float d2 = (p - q).lengthSq();
-                    if (d2 < bestDistSq) {
-                        bestDistSq = d2;
+                    if (d2 >= maxDistSq) continue;
+
+                    const float deckY = has3DRoads_
+                        ? (lerpf(roadVertY_[r.firstVert + s], roadVertY_[r.firstVert + s + 1], t) + roadClassLift(r.roadClass))
+                        : (sampleDem(q) + roadClassLift(r.roadClass));
+                    float score = d2;
+                    if (hasRefY) {
+                        const float dy = std::abs(deckY - refY);
+                        score += (dy * 3.5f) * (dy * 3.5f);
+                    }
+                    if (score < bestScore) {
+                        bestScore = score;
                         res.found = true;
                         res.roadIdx = ri;
                         res.segIdx = s;
                         res.dist = std::sqrt(d2);
                         res.halfWidth = r.halfWidth;
+                        res.deckY = deckY;
                         res.roadClass = r.roadClass;
-                        res.isBridge = (r.flags & 2u) != 0u;
+                        res.layer = r.layer;
+                        res.isBridge = (r.flags & 2u) != 0u || (r.layer >= 1) || ((r.flags2 & 4u) != 0u);
                         res.isOneway = (r.flags & 1u) != 0u;
+                        res.isLink = (r.flags2 & 1u) != 0u;
                         res.closestPt = q;
-                        const Vec2 e = b - a;
-                        res.tangent = (e.lengthSq() > 1e-6f) ? e.normalized() : Vec2{1.0f, 0.0f};
+                        res.tangent = (l2 > 1e-6f) ? (ab / std::sqrt(l2)) : Vec2{1.0f, 0.0f};
                     }
                 }
             }
@@ -681,6 +818,7 @@ float RealSeoulData::roadSurfaceLiftAt(const Vec2& p) const {
             const OcChunkHdr& ch = chunks_[row + static_cast<std::size_t>(cx)];
             for (std::uint32_t k = 0; k < ch.roadLen; ++k) {
                 const OsmRoadRec& r = roads_[flatChunkRoads_[ch.roadStart + k]];
+                if ((r.flags & 4u) != 0u || r.layer >= 1) continue;
                 const float lift = roadClassLift(r.roadClass);
                 if (lift <= bestLift) continue;
                 const float hw = std::max(2.6f, r.halfWidth) + 0.25f;
@@ -717,6 +855,7 @@ bool RealSeoulData::isOnRoad(const Vec2& p, float extraMargin) const {
             const OcChunkHdr& ch = chunks_[row + static_cast<std::size_t>(cx)];
             for (std::uint32_t k = 0; k < ch.roadLen; ++k) {
                 const OsmRoadRec& r = roads_[flatChunkRoads_[ch.roadStart + k]];
+                if ((r.flags & 4u) != 0u) continue;
                 const float hw = std::max(2.6f, r.halfWidth) + extraMargin;
                 if (hw <= 0.0f) continue;
                 if (p.x < r.minX - hw || p.x > r.maxX + hw ||
@@ -736,22 +875,69 @@ bool RealSeoulData::isOnRoad(const Vec2& p, float extraMargin) const {
     return false;
 }
 
+bool RealSeoulData::isOnLowerRoadUnder(const Vec2& p, float deckY, float extraMargin) const {
+    if (!loaded_ || !isInCoreBounds(p)) return false;
+    const float searchR = std::max(18.0f, 18.0f + extraMargin);
+    const int cx0 = std::clamp(static_cast<int>(std::floor((p.x - searchR - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
+    const int cx1 = std::clamp(static_cast<int>(std::floor((p.x + searchR - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
+    const int cz0 = std::clamp(static_cast<int>(std::floor((p.z - searchR - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
+    const int cz1 = std::clamp(static_cast<int>(std::floor((p.z + searchR - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
+    for (int cz = cz0; cz <= cz1; ++cz) {
+        const std::size_t row = static_cast<std::size_t>(cz) * hdr_.chunksX;
+        for (int cx = cx0; cx <= cx1; ++cx) {
+            const OcChunkHdr& ch = chunks_[row + static_cast<std::size_t>(cx)];
+            for (std::uint32_t k = 0; k < ch.roadLen; ++k) {
+                const OsmRoadRec& r = roads_[flatChunkRoads_[ch.roadStart + k]];
+                if (r.vertCount < 2 || (r.flags & 4u) != 0u) continue;
+                const float hw = std::max(2.6f, r.halfWidth) + extraMargin;
+                if (p.x < r.minX - hw || p.x > r.maxX + hw ||
+                    p.z < r.minZ - hw || p.z > r.maxZ + hw) {
+                    continue;
+                }
+                const float hw2 = hw * hw;
+                for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
+                    const Vec2 a = roadVerts_[r.firstVert + s];
+                    const Vec2 b = roadVerts_[r.firstVert + s + 1];
+                    const Vec2 ab = b - a;
+                    const float l2 = ab.lengthSq();
+                    const float t = (l2 > 1e-6f) ? clampf((p - a).dot(ab) / l2, 0.0f, 1.0f) : 0.0f;
+                    const Vec2 q = a + ab * t;
+                    if ((p - q).lengthSq() > hw2) continue;
+                    const float ry = has3DRoads_
+                        ? lerpf(roadVertY_[r.firstVert + s], roadVertY_[r.firstVert + s + 1], t)
+                        : sampleDem(q);
+                    if (ry < deckY - 2.2f) return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 bool RealSeoulData::isOnBridge(const Vec2& p, float extraMargin) const {
     if (!loaded_ || !isInCoreBounds(p)) return false;
-    const int cx = std::clamp(static_cast<int>(std::floor((p.x - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
-    const int cz = std::clamp(static_cast<int>(std::floor((p.z - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
-    const OcChunkHdr& ch = chunks_[static_cast<std::size_t>(cz) * hdr_.chunksX + static_cast<std::size_t>(cx)];
-    for (std::uint32_t k = 0; k < ch.roadLen; ++k) {
-        const OsmRoadRec& r = roads_[flatChunkRoads_[ch.roadStart + k]];
-        if ((r.flags & 2u) == 0u) continue;
-        const float hw = r.halfWidth + extraMargin;
-        if (p.x < r.minX - hw || p.x > r.maxX + hw || p.z < r.minZ - hw || p.z > r.maxZ + hw) continue;
-        const float hw2 = hw * hw;
-        for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
-            const Vec2 a = roadVerts_[r.firstVert + s];
-            const Vec2 b = roadVerts_[r.firstVert + s + 1];
-            const Vec2 q = closestPointOnSeg(p, a, b);
-            if ((p - q).lengthSq() <= hw2) return true;
+    const float searchR = std::max(18.0f, 18.0f + extraMargin);
+    const int cx0 = std::clamp(static_cast<int>(std::floor((p.x - searchR - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
+    const int cx1 = std::clamp(static_cast<int>(std::floor((p.x + searchR - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
+    const int cz0 = std::clamp(static_cast<int>(std::floor((p.z - searchR - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
+    const int cz1 = std::clamp(static_cast<int>(std::floor((p.z + searchR - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
+    for (int cz = cz0; cz <= cz1; ++cz) {
+        const std::size_t row = static_cast<std::size_t>(cz) * hdr_.chunksX;
+        for (int cx = cx0; cx <= cx1; ++cx) {
+            const OcChunkHdr& ch = chunks_[row + static_cast<std::size_t>(cx)];
+            for (std::uint32_t k = 0; k < ch.roadLen; ++k) {
+                const OsmRoadRec& r = roads_[flatChunkRoads_[ch.roadStart + k]];
+                if ((r.flags & 2u) == 0u && r.layer < 1 && (r.flags2 & 4u) == 0u) continue;
+                const float hw = std::max(2.6f, r.halfWidth) + extraMargin;
+                if (p.x < r.minX - hw || p.x > r.maxX + hw || p.z < r.minZ - hw || p.z > r.maxZ + hw) continue;
+                const float hw2 = hw * hw;
+                for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
+                    const Vec2 a = roadVerts_[r.firstVert + s];
+                    const Vec2 b = roadVerts_[r.firstVert + s + 1];
+                    const Vec2 q = closestPointOnSeg(p, a, b);
+                    if ((p - q).lengthSq() <= hw2) return true;
+                }
+            }
         }
     }
     return false;
@@ -769,8 +955,10 @@ bool RealSeoulData::isInWater(const Vec2& p) const {
 }
 
 bool RealSeoulData::findConnectingRoadAt(const Vec2& junctionPt, std::uint32_t excludeRoadIdx,
-                                         std::uint32_t& outRoadIdx, std::uint32_t& outVertIdx, int& outDir) const {
+                                         std::uint32_t& outRoadIdx, std::uint32_t& outVertIdx, int& outDir,
+                                         float curY) const {
     if (!loaded_ || !isInCoreBounds(junctionPt)) return false;
+    const bool checkY = has3DRoads_ && (curY > -1e8f);
     const int cx = std::clamp(static_cast<int>(std::floor((junctionPt.x - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
     const int cz = std::clamp(static_cast<int>(std::floor((junctionPt.z - hdr_.minZ) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksZ) - 1);
     const OcChunkHdr& ch = chunks_[static_cast<std::size_t>(cz) * hdr_.chunksX + static_cast<std::size_t>(cx)];
@@ -781,10 +969,11 @@ bool RealSeoulData::findConnectingRoadAt(const Vec2& junctionPt, std::uint32_t e
         const std::uint32_t ri = flatChunkRoads_[ch.roadStart + k];
         if (ri == excludeRoadIdx) continue;
         const OsmRoadRec& r = roads_[ri];
-        if (r.roadClass > 4) continue; // Keep traffic smoothly on arterial/collector streets!
+        if (r.roadClass > 4 || (r.flags & 4u) != 0u) continue; // Keep traffic smoothly on drivable arterial/collector roads!
         if (junctionPt.x < r.minX - 15.0f || junctionPt.x > r.maxX + 15.0f ||
             junctionPt.z < r.minZ - 15.0f || junctionPt.z > r.maxZ + 15.0f) continue;
         for (std::uint16_t vi = 0; vi < r.vertCount; ++vi) {
+            if (checkY && std::abs(roadVertY_[r.firstVert + vi] - curY) > 2.8f) continue;
             const float d2 = (roadVerts_[r.firstVert + vi] - junctionPt).lengthSq();
             if (d2 < bestD2) {
                 bestD2 = d2;

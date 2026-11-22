@@ -269,11 +269,14 @@ bool CityMap::isOnBridge(const Vec2& p, float margin) const {
 float CityMap::bridgeDeckElevationAt(const Vec2& p, float* outSlopeZ) const {
     if (outSlopeZ) *outSlopeZ = 0.0f;
     if (realData_.isLoaded() && realData_.isInCoreBounds(p)) {
+        if (realData_.has3DRoads()) {
+            const RoadSurfaceHit hit = realData_.findRoadSurfaceAt(p, 1e4f, 1.5f);
+            return hit.found ? hit.y : 0.0f;
+        }
         const NearestOsmRoad nr = realData_.findNearestRoad(p, 18.0f);
         if (!nr.found || !nr.isBridge || nr.dist > nr.halfWidth + 2.2f) return 0.0f;
         const Vec2 perp{-nr.tangent.z, nr.tangent.x};
         const float demRaw = realData_.sampleDem(p);
-        // Filter SRTM 30m bridge-radar spikes so twin Han River bridge carriageways share an identical level deck!
         const float waterRef = std::min({demRaw,
                                          realData_.sampleDem(p + perp * 26.0f),
                                          realData_.sampleDem(p - perp * 26.0f)});
@@ -317,10 +320,17 @@ float CityMap::bridgeDeckElevationAt(const Vec2& p, float* outSlopeZ) const {
     return maxH + arch;
 }
 
-float CityMap::surfaceHeightAt(const Vec2& p) const {
+float CityMap::surfaceHeightAt(const Vec2& p, float refY) const {
     if (realData_.isLoaded()) {
         const float demY = realData_.sampleDem(p);
         if (realData_.isInCoreBounds(p)) {
+            if (realData_.has3DRoads()) {
+                const RoadSurfaceHit hit = realData_.findRoadSurfaceAt(p, refY, 0.85f);
+                if (hit.found) {
+                    return std::max(demY, hit.y);
+                }
+                return demY;
+            }
             if (realData_.isOnBridge(p, 1.5f)) {
                 return std::max(demY + 0.08f, bridgeDeckElevationAt(p) + 0.02f);
             }
@@ -902,7 +912,7 @@ void CityMap::buildRealSeoulMacroGeography() {
 
         for (std::uint32_t ri : candRoads) {
             const OsmRoadRec& r = roads[ri];
-            if (r.roadClass > 2 || r.halfWidth < 7.5f || (r.flags & 2u) != 0u || r.vertCount < 2) continue;
+            if (r.roadClass > 2 || r.halfWidth < 6.0f || (r.flags & 2u) != 0u || r.layer >= 1 || r.vertCount < 2) continue;
             const bool isOneway = (r.flags & 1u) != 0u;
             const RoadLaneLayout layout = RealSeoulData::computeRoadLaneLayout(r);
             for (std::uint16_t i = 0; i + 1 < r.vertCount; ++i) {
@@ -910,7 +920,7 @@ void CityMap::buildRealSeoulMacroGeography() {
                 const Vec2 p1 = rVerts[r.firstVert + i + 1];
                 const Vec2 seg = p1 - p0;
                 const float segLen = seg.length();
-                if (segLen < 20.0f) continue;
+                if (segLen < 8.0f) continue;
                 const Vec2 dir = seg / segLen;
                 // On divided one-way Teheran-ro, pick the TRUE Eastbound carriageway (dir.x > 0) so the player
                 // never spawns facing oncoming traffic (and the blue Seoul bus-only lane sits properly on the RIGHT)!
@@ -1486,8 +1496,9 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
         Vec2 pp{pr.x, pr.z};
         if ((pp - focus).lengthSq() > 340.0f * 340.0f) continue;
         if (realData_.isInWater(pp)) continue;
-        const NearestOsmRoad nr = realData_.findNearestRoad(pp, 36.0f);
-        if (!nr.found) continue;
+        const float poiDemY = realData_.sampleDem(pp);
+        const NearestOsmRoad nr = realData_.findNearestRoad(pp, 36.0f, poiDemY);
+        if (!nr.found || nr.roadClass <= 1u || nr.isBridge || nr.layer >= 1) continue;
         const float roadHw = std::max(2.6f, nr.halfWidth);
         Vec2 awayRoad = pp - nr.closestPt;
         if (awayRoad.lengthSq() < 0.04f) awayRoad = {-nr.tangent.z, nr.tangent.x};
@@ -1530,21 +1541,22 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
         const Vec2 toRoad = awayRoad * -1.0f;
         const float faceRoadYaw = std::atan2(-toRoad.x, toRoad.z);
         const std::uint8_t var = static_cast<std::uint8_t>(pid & 0xFFu);
+        const float ppY = realData_.sampleDem(pp);
         if (pr.kind == 0) {
-            streetProps_.push_back(StreetProp{pp, StreetPropKind::SubwayEntrance, faceRoadYaw, false, {}, 0.0f, pp, 0,0,0,0,0,0, var});
+            streetProps_.push_back(StreetProp{pp, StreetPropKind::SubwayEntrance, faceRoadYaw, false, {}, 0.0f, pp, 0,0,0,0,0,0, var, ppY});
             // Iconic Seoul Ddareungi public bike-share rack next to subway exits!
             const Vec2 bikeP = pp + nr.tangent * 5.2f;
             Vec2 bChk = bikeP;
             if (!realData_.isInWater(bikeP) && !realData_.isOnRoad(bikeP, 1.25f) &&
                 !realData_.resolveCircleBuildings(bChk, 1.0f) && !hasPropNearby(bikeP, 3.0f)) {
-                streetProps_.push_back(StreetProp{bikeP, StreetPropKind::DdareungiRack, faceRoadYaw, false, {}, 0.0f, bikeP, 0,0,0,0,0,0, var});
+                streetProps_.push_back(StreetProp{bikeP, StreetPropKind::DdareungiRack, faceRoadYaw, false, {}, 0.0f, bikeP, 0,0,0,0,0,0, var, realData_.sampleDem(bikeP)});
             }
         } else {
-            streetProps_.push_back(StreetProp{pp, StreetPropKind::BusShelter, faceRoadYaw, false, {}, 0.0f, pp, 0,0,0,0,0,0, var});
+            streetProps_.push_back(StreetProp{pp, StreetPropKind::BusShelter, faceRoadYaw, false, {}, 0.0f, pp, 0,0,0,0,0,0, var, ppY});
             const Vec2 binP = pp - nr.tangent * 3.8f;
             Vec2 bChk = binP;
             if (!realData_.isInWater(binP) && !realData_.isOnRoad(binP, 1.0f) && !realData_.resolveCircleBuildings(bChk, 0.6f)) {
-                streetProps_.push_back(StreetProp{binP, StreetPropKind::TrashBin, faceRoadYaw, false, {}, 0.0f, binP, 0,0,0,0,0,0, var});
+                streetProps_.push_back(StreetProp{binP, StreetPropKind::TrashBin, faceRoadYaw, false, {}, 0.0f, binP, 0,0,0,0,0,0, var, realData_.sampleDem(binP)});
             }
         }
     }
@@ -1583,8 +1595,9 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
     for (std::uint32_t ri : roadIds) {
         const OsmRoadRec& r = realData_.roads()[ri];
         if (r.roadClass > 4 || (r.flags & 4u) != 0u || r.vertCount < 2) continue; // Skip tunnels & tiny back alleys
-        const bool isExpressway = (r.roadClass <= 1u);
-        const bool isBridge = (r.flags & 2u) != 0u;
+        const bool isExpressway = (r.roadClass <= 1u) || ((r.flags2 & 2u) != 0u);
+        const bool isLink = (r.flags2 & 1u) != 0u;
+        const bool isBridge = ((r.flags & 2u) != 0u) || (r.layer >= 1) || ((r.flags2 & 4u) != 0u);
         const bool isOneway = (r.flags & 1u) != 0u;
         const float hw = std::max(2.6f, r.halfWidth);
         const auto& verts = realData_.roadVerts();
@@ -1601,6 +1614,8 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
         for (std::uint16_t s = 0; s + 1 < r.vertCount; ++s) {
             const Vec2 a = verts[r.firstVert + s];
             const Vec2 b = verts[r.firstVert + s + 1];
+            const float yA = realData_.has3DRoads() ? realData_.roadVertY(r.firstVert + s) : 0.0f;
+            const float yB = realData_.has3DRoads() ? realData_.roadVertY(r.firstVert + s + 1) : 0.0f;
             const Vec2 e = b - a;
             const float segLen = e.length();
             if (segLen < 2.5f) {
@@ -1610,6 +1625,19 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
             const Vec2 tang = e / segLen;
             const Vec2 rightN{-tang.z, tang.x};
             const float segEndDist = distAccum + segLen;
+            auto evalDeckY = [&](float t, const Vec2& pt) -> float {
+                if (realData_.has3DRoads()) {
+                    return lerpf(yA, yB, t) + RealSeoulData::roadClassLift(r.roadClass);
+                }
+                return surfaceHeightAt(pt);
+            };
+            auto hasSameLevelRoadAt = [&](const Vec2& pt, float refDeckY, float margin) -> bool {
+                if (realData_.has3DRoads()) {
+                    const RoadSurfaceHit sh = realData_.findRoadSurfaceAt(pt, refDeckY + 0.5f, margin);
+                    return sh.found && std::abs(sh.y - refDeckY) < 2.4f;
+                }
+                return realData_.isOnRoad(pt, margin);
+            };
 
             // Fast segment distance cull (check closest point on segment to focus, NOT just midpoint, so 700m Teheran-ro never culls!)
             const float tFocus = clampf((focus - a).dot(e) / (segLen * segLen), 0.0f, 1.0f);
@@ -1639,28 +1667,30 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                 while (nextLamp < walkMax) {
                     const float t = clampf((nextLamp - distAccum) / segLen, 0.0f, 1.0f);
                     const Vec2 cPt = a + e * t;
+                    const float deckY = evalDeckY(t, cPt);
                     for (float side : {-1.0f, 1.0f}) {
                         const Vec2 lp = cPt + rightN * (side * (hw + 0.42f));
                         const Vec2 clearProbe = cPt + rightN * (side * (hw + 1.15f));
-                        if (!realData_.isOnRoad(clearProbe, 0.25f) && !hasPropNearby(lp, 6.0f)) {
+                        if (!hasSameLevelRoadAt(clearProbe, deckY, 0.25f) && !hasPropNearby(lp, 6.0f)) {
                             const Vec2 armDir = rightN * (-side);
                             const float armYaw = std::atan2(armDir.z, armDir.x);
-                            streetProps_.push_back(StreetProp{lp, StreetPropKind::StreetLight, armYaw, false, {}, 0.0f, lp, 0,0,0,0,0,0, 3u});
+                            streetProps_.push_back(StreetProp{lp, StreetPropKind::StreetLight, armYaw, false, {}, 0.0f, lp, 0,0,0,0,0,0, 3u, deckY});
                         }
                     }
                     nextLamp += 32.0f;
                 }
                 // Heavy Korean GREEN Expressway Overhead Truss Gantries every 125m (even on elevated viaducts!)
-                if (hw >= 5.5f && gantryCount < 26) {
+                if (!isLink && hw >= 5.5f && gantryCount < 26) {
                     advanceToWindow(nextGantry, 125.0f);
                     while (nextGantry < walkMax && gantryCount < 26) {
                         const float t = clampf((nextGantry - distAccum) / segLen, 0.0f, 1.0f);
                         const Vec2 gp = a + e * t;
                         if ((gp - focus).lengthSq() < 285.0f * 285.0f && !hasGantryNear(gp, 55.0f)) {
+                            const float deckY = evalDeckY(t, gp);
                             const float gYaw = std::atan2(rightN.z, rightN.x);
                             const std::uint8_t spanDm = static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround((hw + 0.6f) * 10.0f)), 60, 118));
                             // Bit 7 (0x80) flags an authentic Korean GREEN Expressway Truss Gantry!
-                            streetProps_.push_back(StreetProp{gp, StreetPropKind::RoadGantry, gYaw, false, {}, 0.0f, gp, 0,0,0,0,0,0, static_cast<std::uint8_t>(spanDm | 0x80u)});
+                            streetProps_.push_back(StreetProp{gp, StreetPropKind::RoadGantry, gYaw, false, {}, 0.0f, gp, 0,0,0,0,0,0, static_cast<std::uint8_t>(spanDm | 0x80u), deckY});
                             gantryPositions.push_back(gp);
                             ++gantryCount;
                         }
@@ -1671,24 +1701,31 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                 continue;
             }
 
-            // A) Han River Bridge Overhead Lamp Posts every 28m along outer bridge parapets!
-            if (isBridge) {
+            // A) Bridge & Elevated Overpass Overhead Lamp Posts every 28m along outer parapets!
+            if (isBridge || isLink) {
                 advanceToWindow(nextLamp, 28.0f);
                 while (nextLamp < walkMax) {
                     const float t = clampf((nextLamp - distAccum) / segLen, 0.0f, 1.0f);
                     const Vec2 cPt = a + e * t;
+                    const float deckY = evalDeckY(t, cPt);
                     for (float side : {-1.0f, 1.0f}) {
                         const Vec2 lp = cPt + rightN * (side * (hw + 0.15f));
-                        // Place lamps only on the outer parapet (skip inner median gap between twin bridge decks)
                         const Vec2 outerProbe = cPt + rightN * (side * (hw + 2.8f));
-                        if (!realData_.isOnRoad(outerProbe, 0.4f) && !hasPropNearby(lp, 4.0f)) {
+                        if (!hasSameLevelRoadAt(outerProbe, deckY, 0.4f) && !hasPropNearby(lp, 4.0f)) {
                             const Vec2 armDir = rightN * (-side);
                             const float armYaw = std::atan2(armDir.z, armDir.x);
-                            streetProps_.push_back(StreetProp{lp, StreetPropKind::StreetLight, armYaw, false, {}, 0.0f, lp, 0,0,0,0,0,0, 1});
+                            streetProps_.push_back(StreetProp{lp, StreetPropKind::StreetLight, armYaw, false, {}, 0.0f, lp, 0,0,0,0,0,0, 1u, deckY});
                         }
                     }
                     nextLamp += 28.0f;
                 }
+                distAccum = segEndDist;
+                continue;
+            }
+
+            // Skip ground-sidewalk furniture on road segments that are already climbing onto an elevated viaduct!
+            const float segMidY = evalDeckY(0.5f, (a + b) * 0.5f);
+            if (segMidY > realData_.sampleDem((a + b) * 0.5f) + 1.15f) {
                 distAccum = segEndDist;
                 continue;
             }
@@ -1701,10 +1738,11 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                     const Vec2 gp = a + e * t;
                     if (!realData_.isInWater(gp) && (gp - focus).lengthSq() < 260.0f * 260.0f &&
                         !hasGantryNear(gp, 58.0f)) {
+                        const float deckY = evalDeckY(t, gp);
                         const float gYaw = std::atan2(rightN.z, rightN.x);
                         // Low 7 bits store road span half-width in decimeters (60..115 -> 6.0..11.5m), bit 7 = 0 (BLUE City Sign!)
                         const std::uint8_t spanDm = static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround((hw + 0.6f) * 10.0f)), 60, 115));
-                        streetProps_.push_back(StreetProp{gp, StreetPropKind::RoadGantry, gYaw, false, {}, 0.0f, gp, 0,0,0,0,0,0, spanDm});
+                        streetProps_.push_back(StreetProp{gp, StreetPropKind::RoadGantry, gYaw, false, {}, 0.0f, gp, 0,0,0,0,0,0, spanDm, deckY});
                         gantryPositions.push_back(gp);
                         ++gantryCount;
                     }
@@ -1722,7 +1760,8 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         !realData_.resolveCircleBuildings(test, 0.75f)) {
                         const Vec2 armDir = rightN * (-side);
                         const float armYaw = std::atan2(armDir.z, armDir.x);
-                        streetProps_.push_back(StreetProp{sigPos, StreetPropKind::TrafficLight, armYaw, false, {}, 0.0f, sigPos});
+                        const float sy = realData_.sampleDem(sigPos);
+                        streetProps_.push_back(StreetProp{sigPos, StreetPropKind::TrafficLight, armYaw, false, {}, 0.0f, sigPos, 0,0,0,0,0,0, 0u, sy});
                         signalPositions.push_back(sigPos);
 
                         // Corner pedestrian safety bollards (2 crisp steel posts flanking the crosswalk curb!)
@@ -1730,7 +1769,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                             const Vec2 bp = sigPos + tang * (static_cast<float>(bi) * 1.45f) - rightN * (side * 0.30f);
                             Vec2 bChk = bp;
                             if (!realData_.isOnRoad(bp, 0.30f) && !realData_.resolveCircleBuildings(bChk, 0.35f)) {
-                                streetProps_.push_back(StreetProp{bp, StreetPropKind::Bollard, armYaw, false, {}, 0.0f, bp});
+                                streetProps_.push_back(StreetProp{bp, StreetPropKind::Bollard, armYaw, false, {}, 0.0f, bp, 0,0,0,0,0,0, 0u, realData_.sampleDem(bp)});
                             }
                         }
                         // KEPCO traffic signal / power control cabinet neatly set back on outer sidewalk!
@@ -1738,7 +1777,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         Vec2 uChk = uPos;
                         if (!realData_.isOnRoad(uPos, 1.10f) && !realData_.resolveCircleBuildings(uChk, 0.65f) &&
                             !hasPropNearby(uPos, 2.0f)) {
-                            streetProps_.push_back(StreetProp{uPos, StreetPropKind::UtilityBox, armYaw, false, {}, 0.0f, uPos});
+                            streetProps_.push_back(StreetProp{uPos, StreetPropKind::UtilityBox, armYaw, false, {}, 0.0f, uPos, 0,0,0,0,0,0, 0u, realData_.sampleDem(uPos)});
                         }
                         break;
                     }
@@ -1778,7 +1817,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         const float armYaw = std::atan2(armDir.z, armDir.x);
                         // Major boulevards get decorative Korean street banner flags (variant = 2)!
                         const std::uint8_t lVar = (r.roadClass <= 2) ? 2u : 0u;
-                        streetProps_.push_back(StreetProp{lp, StreetPropKind::StreetLight, armYaw, false, {}, 0.0f, lp, 0,0,0,0,0,0, lVar});
+                        streetProps_.push_back(StreetProp{lp, StreetPropKind::StreetLight, armYaw, false, {}, 0.0f, lp, 0,0,0,0,0,0, lVar, realData_.sampleDem(lp)});
                     }
                 }
                 nextLamp += lampStep;
@@ -1796,7 +1835,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                     if (!realData_.isInWater(medPos) && !realData_.isOnRoad(medPos, 0.15f) &&
                         realData_.isOnRoad(oppProbe, 1.2f) && !hasPropNearby(medPos, 6.2f)) {
                         const float mYaw = std::atan2(tang.z, tang.x);
-                        streetProps_.push_back(StreetProp{medPos, StreetPropKind::MedianBarrier, mYaw, false, {}, 0.0f, medPos});
+                        streetProps_.push_back(StreetProp{medPos, StreetPropKind::MedianBarrier, mYaw, false, {}, 0.0f, medPos, 0,0,0,0,0,0, 0u, realData_.sampleDem(medPos)});
                     }
                     nextMedian += 9.0f;
                 }
@@ -1823,7 +1862,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                                 !realData_.resolveCircleBuildings(tG, 0.55f) &&
                                 !hasPropNearby(gp, 4.2f)) {
                                 const float gYaw = std::atan2(tang.z, tang.x);
-                                streetProps_.push_back(StreetProp{gp, StreetPropKind::PedGuardrail, gYaw, false, {}, 0.0f, gp});
+                                streetProps_.push_back(StreetProp{gp, StreetPropKind::PedGuardrail, gYaw, false, {}, 0.0f, gp, 0,0,0,0,0,0, 0u, realData_.sampleDem(gp)});
                             }
                         }
                     }
@@ -1887,7 +1926,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                             case 5: fKind = StreetPropKind::CafeTable; break;
                             default: fKind = StreetPropKind::UtilityBox; break;
                         }
-                        streetProps_.push_back(StreetProp{fp, fKind, faceYaw, false, {}, 0.0f, fp, 0,0,0,0,0,0, static_cast<std::uint8_t>(slot & 0xFF)});
+                        streetProps_.push_back(StreetProp{fp, fKind, faceYaw, false, {}, 0.0f, fp, 0,0,0,0,0,0, static_cast<std::uint8_t>(slot & 0xFF), realData_.sampleDem(fp)});
                     }
                 }
                 nextFurn += furnStep;
@@ -1930,8 +1969,8 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                     if (eLen < 5.2f) continue;
                     const Vec2 outN = Vec2{edge.z / eLen, -edge.x / eLen} * windSign;
                     const Vec2 wallMid = (pA + pB) * 0.5f;
-                    const NearestOsmRoad nr = realData_.findNearestRoad(wallMid, 42.0f);
-                    if (!nr.found || nr.roadClass > maxRoadCls) continue;
+                    const NearestOsmRoad nr = realData_.findNearestRoad(wallMid, 42.0f, b.baseY);
+                    if (!nr.found || nr.roadClass > maxRoadCls || nr.isBridge || nr.layer >= 1) continue;
                     if (pass == 1 && nr.roadClass <= 3u) continue; // Already handled in pass 0
                     const float edgeClear = nr.dist - std::max(2.6f, nr.halfWidth);
                     if (edgeClear < 0.25f || edgeClear > maxEdgeClear) continue;
@@ -1949,7 +1988,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         if (!realData_.isOnRoad(mountPos, 0.25f) && !hasPropNearby(mountPos, 4.6f)) {
                             const std::uint8_t shopSlot = static_cast<std::uint8_t>(
                                 8u + ((bi + static_cast<std::uint32_t>(i) * 3u + static_cast<std::uint32_t>(mi) * 5u) % 12u));
-                            streetProps_.push_back(StreetProp{mountPos, StreetPropKind::ShopSign, signYaw, false, {}, 0.0f, mountPos, 0,0,0,0,0,0, shopSlot});
+                            streetProps_.push_back(StreetProp{mountPos, StreetPropKind::ShopSign, signYaw, false, {}, 0.0f, mountPos, 0,0,0,0,0,0, shopSlot, realData_.sampleDem(mountPos)});
                             ++signCount;
                             placedOnWall = true;
                         }
@@ -2160,7 +2199,7 @@ bool CityMap::resolveCircleWorld(Vec2& pos, float radius, Vec2* outHitNormal) co
     return hit;
 }
 
-bool CityMap::resolveOBBBuildings(const OBB2D& obb, Vec2& outPush) const {
+bool CityMap::resolveOBBBuildings(const OBB2D& obb, Vec2& outPush, float entityY) const {
     outPush = {0.0f, 0.0f};
     const float boundR = obb.halfExtents.length() + 1.0f;
     bool hit = false;
@@ -2180,7 +2219,7 @@ bool CityMap::resolveOBBBuildings(const OBB2D& obb, Vec2& outPush) const {
         for (int k = 0; k < 3; ++k) {
             Vec2 probe = obb.center + outPush + fwd * offsets[k];
             const Vec2 before = probe;
-            if (realData_.resolveCircleBuildings(probe, rWheel)) {
+            if (realData_.resolveCircleBuildings(probe, rWheel, nullptr, entityY)) {
                 outPush += (probe - before);
                 hit = true;
             }

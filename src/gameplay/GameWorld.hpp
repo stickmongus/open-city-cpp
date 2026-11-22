@@ -33,8 +33,8 @@ public:
     int ownedPropertyCount() const;
     float tuningDiscountScale() const;
 
-    // 3D Ground, Seoul Mountains & 15 Han River Bridges Elevation + Realistic Escapable Police AI
-    float surfaceHeightAt(const Vec2& pos) const;
+    // 3D Ground, Seoul Mountains & Real Grade-Separated 3D Bridges/Viaducts Elevation + Realistic Escapable Police AI
+    float surfaceHeightAt(const Vec2& pos, float refY = -1e9f) const;
     float computePlayerSupportHeight(const Vec2& pos, float currentY, Vec2* platformCarryVel = nullptr) const;
     void reportCrime(float heatDelta, int minStars, const Vec2& crimePos, bool directWitness = false);
     void clearWantedLevel(bool showToast = true);
@@ -107,13 +107,13 @@ public:
         return best;
     }
 
-    Vehicle& spawnCustomVehicle(VehicleKind kind, const Vec2& pos, float heading, ColorRGBA paint) {
+    Vehicle& spawnCustomVehicle(VehicleKind kind, const Vec2& pos, float heading, ColorRGBA paint, float refY = -1e9f) {
         Vehicle v{};
         v.id = nextVehicleId_++;
         v.kind = kind;
         const auto& sp = getVehicleSpec(kind);
         v.pos = pos;
-        v.posY = city_.surfaceHeightAt(pos);
+        v.posY = city_.surfaceHeightAt(pos, refY);
         v.heading = heading;
         v.paintColor = paint;
         v.health = sp.maxHealth;
@@ -135,6 +135,7 @@ public:
         v->isParked = false;
         player_.drivingVehicleId = v->id;
         player_.pos = v->pos;
+        player_.posY = v->posY;
         return true;
     }
 

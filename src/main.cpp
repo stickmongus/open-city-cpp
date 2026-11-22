@@ -151,7 +151,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
                            : (cli.driveHypercar ? VehicleKind::Hypercar : VehicleKind::SportsCoupe);
         ColorRGBA pCol = cli.forceSiren ? ColorRGBA{244, 246, 250, 255}
                        : (cli.driveHypercar ? ColorRGBA{22, 138, 224, 255} : ColorRGBA{218, 36, 48, 255});
-        Vehicle& car = world.spawnCustomVehicle(vkKind, world.player().pos, cli.hasYaw ? (cli.yawDeg * kPi / 180.0f) : defaultYaw, pCol);
+        Vehicle& car = world.spawnCustomVehicle(vkKind, world.player().pos, cli.hasYaw ? (cli.yawDeg * kPi / 180.0f) : defaultYaw, pCol, world.player().posY);
         car.stripeStyle = (cli.driveHypercar && !cli.forceSiren) ? 1 : 0;
         if (cli.forceSiren) {
             car.isPolice = true;
@@ -502,7 +502,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
                 smoothCamArmScale += (targetScale - smoothCamArmScale) * std::min(1.0f, dt * 7.5f);
             }
             desiredPos = anchor + armDir * (armLen * smoothCamArmScale);
-            const float terrainFloor = world.city().surfaceHeightAt({desiredPos.x, desiredPos.z}) + 0.55f;
+            const float terrainFloor = world.city().surfaceHeightAt({desiredPos.x, desiredPos.z}, anchor.y) + 0.55f;
             if (desiredPos.y < terrainFloor) desiredPos.y = terrainFloor;
         };
 
@@ -519,7 +519,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
                     camYaw += diff * std::min(1.0f, dt * 3.6f);
                 }
                 const float viewYaw = lookBack ? (camYaw + kPi) : camYaw;
-                const float gy = std::max(world.city().surfaceHeightAt(pCar->pos), pCar->posY);
+                const float gy = std::max(world.city().surfaceHeightAt(pCar->pos, pCar->posY), pCar->posY);
                 if (firstPerson && !lookBack) {
                     const Vec3 eyeLoc = driverSeatEyeLocal(pCar->kind);
                     const float ch = std::cos(pCar->heading), shH = std::sin(pCar->heading);
@@ -543,7 +543,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
                     applySpringArmCollision({pCar->pos.x, gy + spec.chassisHeight * 0.78f, pCar->pos.z}, cam.position, 2.2f);
                 }
             } else {
-                const float gy = std::max(world.city().surfaceHeightAt(pl.pos), pl.posY);
+                const float gy = std::max(world.city().surfaceHeightAt(pl.pos, pl.posY), pl.posY);
                 if (firstPerson) {
                     cam.position = {pl.pos.x, gy + 1.66f, pl.pos.z};
                     cam.target = cam.position + Vec3{std::cos(camYaw) * std::cos(camPitch),
@@ -637,7 +637,7 @@ extern "C" void android_main(struct android_app* state) {
 int main(int argc, char** argv) {
     const oc::CliOptions cli = oc::parseArgs(argc, argv);
     oc::PlatformApp app;
-    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v4.0 — Real 3D Seoul Architecture (Native Vulkan)")) {
+    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v4.1 — Real 3D Seoul Roads & Bridges (Native Vulkan)")) {
         return 1;
     }
     const int rc = oc::runApplication(app, cli);

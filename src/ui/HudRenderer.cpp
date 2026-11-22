@@ -585,18 +585,24 @@ void HudRenderer::drawRadarMinimap(Vulkan2D& ui, VulkanContext& vk, const GameWo
     ui.drawRoundedRectOutline(r.x + r.w - hw - 4.0f, r.y + 4.0f, hw, 20.0f, 5.0f, 1.0f, accent);
     ui.drawText(mapHint, r.x + r.w - hw + 2.0f, r.y + 7.0f, hintFont, accent);
 
-    // Live Korean Road Type Pill at top-left of minimap (instantly distinguishes Expressway vs City Avenue!)
+    // Live Korean Road Type Pill at top-left of minimap (instantly distinguishes Expressway / Ring Road / Bridge / City Avenue!)
     if (city.hasRealSeoulMap()) {
-        const NearestOsmRoad nr = city.realData().findNearestRoad(pPos, 28.0f);
+        const NearestOsmRoad nr = city.realData().findNearestRoad(pPos, 28.0f, world.player().posY);
         if (nr.found && nr.dist <= nr.halfWidth + 3.5f) {
             const char* rLblEn = "LOCAL";
             const char* rLblKo = "일반도로";
             ColorRGBA rCol{168, 184, 206, 245};
             ColorRGBA rBg{16, 22, 34, 220};
             if (nr.roadClass <= 1u) {
-                if (pPos.x > 2100.0f && pPos.x < 3300.0f && pPos.z > 600.0f) {
+                if (pPos.x > 2050.0f && pPos.x < 3400.0f && pPos.z > 600.0f) {
                     rLblEn = mobileUi_ ? "GYEONGBU" : "GYEONGBU EXP";
                     rLblKo = mobileUi_ ? "경부고속" : "경부고속도로";
+                } else if (pPos.z < -2600.0f) {
+                    rLblEn = mobileUi_ ? "NAEBU RING" : "NAEBU CIRCULAR";
+                    rLblKo = mobileUi_ ? "내부순환" : "내부순환로";
+                } else if (pPos.x > 6400.0f && pPos.z > 800.0f) {
+                    rLblEn = mobileUi_ ? "DONGBU EXP" : "BUNDANG-SUSEO";
+                    rLblKo = mobileUi_ ? "분당수서" : "분당수서로";
                 } else if (pPos.z > 150.0f && pPos.z < 2050.0f) {
                     rLblEn = mobileUi_ ? "OLYMPIC" : "OLYMPIC EXP";
                     rLblKo = mobileUi_ ? "올림픽로" : "올림픽대로";
@@ -610,8 +616,9 @@ void HudRenderer::drawRadarMinimap(Vulkan2D& ui, VulkanContext& vk, const GameWo
                 rCol = {82, 242, 162, 255};
                 rBg  = {12, 54, 38, 232};
             } else if (nr.isBridge) {
-                rLblEn = "BRIDGE";
-                rLblKo = mobileUi_ ? "한강대교" : "한강 대교";
+                const bool nearHan = (pPos.z > -1850.0f && pPos.z < 1250.0f);
+                rLblEn = nearHan ? "HAN BRIDGE" : "BRIDGE";
+                rLblKo = nearHan ? (mobileUi_ ? "한강대교" : "한강 대교") : (mobileUi_ ? "교량·고가" : "교량 / 고가");
                 rCol = {255, 214, 88, 255};
                 rBg  = {48, 38, 14, 226};
             } else if (nr.roadClass == 2u) {
@@ -1420,7 +1427,7 @@ void HudRenderer::drawHelpOverlay(Vulkan2D& ui, const GameWorld& world, int scre
     const float w = 316.0f, h = 172.0f;
     ui.drawRoundedRect(18.0f, 16.0f, w, h, 10.0f, {10, 14, 22, 198});
     ui.drawRoundedRectOutline(18.0f, 16.0f, w, h, 10.0f, 1.2f, accent);
-    ui.drawText(pickText("OPEN CITY SEOUL v4.0 (VULKAN)", "오픈 시티 서울 v4.0 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
+    ui.drawText(pickText("OPEN CITY SEOUL v4.1 (VULKAN)", "오픈 시티 서울 v4.1 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
     const char* lines[7] = {
         "WASD: 이동/운전 | Space: 점프/핸드브레이크",
         "Shift: 달리기/니트로 | F/E: 차량 탑승/상점",

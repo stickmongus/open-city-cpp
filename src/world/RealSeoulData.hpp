@@ -30,9 +30,10 @@ struct OsmRoadRec {
     std::uint16_t vertCount;
     std::uint8_t roadClass;  // 0=motorway,1=trunk,2=primary,3=secondary,4=tertiary,5=residential,6=living
     std::uint8_t lanes;
-    std::uint8_t flags;      // bit0=oneway, bit1=bridge, bit2=tunnel
+    std::uint8_t flags;      // bit0=oneway, bit1=bridge/elevated, bit2=tunnel
     std::uint8_t nameSlot;
-    std::uint16_t pad_;
+    std::int8_t layer;       // Real vertical grade layer (-1=underpass, 0=ground, 1..3=elevated viaduct/flyover)
+    std::uint8_t flags2;     // bit0=isLink(IC ramp), bit1=isRingOrExpressway, bit2=isViaduct, bit3=isHanRiverBridge
     float halfWidth;
     float minX, minZ, maxX, maxZ;
 };
@@ -90,11 +91,26 @@ struct NearestOsmRoad {
     std::uint32_t segIdx = 0;
     float dist = 1e9f;
     float halfWidth = 6.0f;
+    float deckY = 0.0f;
     std::uint8_t roadClass = 5;
+    std::int8_t layer = 0;
     bool isBridge = false;
     bool isOneway = false;
+    bool isLink = false;
     Vec2 closestPt{};
     Vec2 tangent{1.0f, 0.0f}; // Unit direction along road segment
+};
+
+struct RoadSurfaceHit {
+    bool found = false;
+    float y = 0.0f;
+    std::uint32_t roadIdx = 0;
+    std::uint8_t roadClass = 5;
+    std::int8_t layer = 0;
+    bool isBridge = false;
+    bool isLink = false;
+    float halfWidth = 3.5f;
+    Vec2 tangent{1.0f, 0.0f};
 };
 
 struct RoadLaneLayout {
@@ -119,6 +135,7 @@ public:
     bool tryAutoLoadDesktop();
 
     bool isLoaded() const { return loaded_; }
+    bool has3DRoads() const { return has3DRoads_; }
     const OcMapHeader& header() const { return hdr_; }
 
     // Real SRTM 30m DEM terrain elevation anywhere across Greater Seoul (30.7km x 24.5km)
@@ -134,11 +151,11 @@ public:
     void queryChunkPois(const Vec2& center, float radius, std::vector<std::uint32_t>& outIds) const;
 
     // Exact 2D real-OSM polygon building collision & 2D/3D raycasting
-    bool resolveCircleBuildings(Vec2& pos, float radius, Vec2* outNormal = nullptr) const;
+    bool resolveCircleBuildings(Vec2& pos, float radius, Vec2* outNormal = nullptr, float entityY = -1e9f) const;
     float raycastBuildings2D(const Vec2& origin, const Vec2& dir, float maxDist) const;
     float raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const;
 
-    // Exact nearest real OSM road & bridge / water queries
+    // Exact nearest real OSM road & true 3D multi-level deck queries
     static constexpr float roadClassLift(std::uint8_t roadClass) {
         return 0.035f + static_cast<float>(roadClass < 6u ? (6u - roadClass) : 0u) * 0.008f;
     }
@@ -147,36 +164,51 @@ public:
         const float hw = std::max(2.6f, r.halfWidth);
         const bool isOneway = (r.flags & 1u) != 0u;
         const bool isBridge = (r.flags & 2u) != 0u;
-        const bool isExpressway = (r.roadClass <= 1u);
-        if (isExpressway && isOneway && hw >= 3.2f) {
+        const bool isLink = (r.flags2 & 1u) != 0u;
+        const bool isExpressway = (r.roadClass <= 1u) || ((r.flags2 & 2u) != 0u);
+        if (isExpressway && isOneway && hw >= 2.8f) {
             // Exact match with world.frag isHighway (styleByte == 176):
-            // Inner median shoulder (shL) + outer emergency shoulder 갓길 (shR) + 3.45m Korean highway lanes!
+            // Inner median shoulder (shL) + outer emergency shoulder 갓길 (shR) + ~3.45m Korean highway lanes!
             const float shR = (hw >= 7.0f) ? 1.15f : 0.55f;
             const float shL = (hw >= 7.0f) ? 0.58f : 0.32f;
             out.driveLeft = -hw + shL;
             out.driveRight = hw - shR;
-            const float driveSpan = std::max(2.6f, out.driveRight - out.driveLeft);
-            out.totalLanes = std::clamp(static_cast<int>(std::lround(driveSpan / 3.45f)), 1, 6);
+            const float driveSpan = std::max(2.4f, out.driveRight - out.driveLeft);
+            int maxByWidth = std::max(1, static_cast<int>(std::floor(driveSpan / 2.85f)));
+            int laneCnt = (r.lanes >= 1u && r.lanes <= 6u)
+                ? std::min<int>(static_cast<int>(r.lanes), maxByWidth)
+                : std::clamp(static_cast<int>(std::lround(driveSpan / 3.45f)), 1, 6);
+            if (isLink) laneCnt = std::min(laneCnt, 2);
+            out.totalLanes = std::clamp(laneCnt, 1, 6);
             out.lanesInDir = out.totalLanes;
             out.laneWidth = driveSpan / static_cast<float>(out.totalLanes);
             out.styleByte = 176u;
-        } else if (r.roadClass <= 4u && hw >= 3.2f) {
+        } else if (r.roadClass <= 4u && hw >= 3.1f) {
             const float usableH = std::max(1.8f, hw - 0.34f);
             if (isOneway) {
-                out.totalLanes = std::clamp(static_cast<int>(std::lround((hw * 2.0f - 0.68f) / 3.25f)), 1, 8);
+                const int maxByWidth = std::max(1, static_cast<int>(std::floor((2.0f * usableH) / 2.75f)));
+                int laneCnt = (r.lanes >= 1u && r.lanes <= 8u)
+                    ? std::min<int>(static_cast<int>(r.lanes), maxByWidth)
+                    : std::clamp(static_cast<int>(std::lround((hw * 2.0f - 0.68f) / 3.25f)), 1, 8);
+                if (isLink) laneCnt = std::min(laneCnt, 2);
+                out.totalLanes = std::clamp(laneCnt, 1, 8);
                 out.lanesInDir = out.totalLanes;
                 out.driveLeft = -usableH;
                 out.driveRight = usableH;
                 out.laneWidth = (2.0f * usableH) / static_cast<float>(out.totalLanes);
                 if (isBridge) {
                     out.styleByte = 204u; // Bridge one-way: white edge lines, NO crosswalks
-                } else if (r.roadClass == 2u && out.totalLanes >= 4) {
+                } else if (r.roadClass == 2u && !isLink && out.totalLanes >= 4) {
                     out.styleByte = 240u; // Major Seoul city boulevard with iconic blue bus-only lane!
                 } else {
                     out.styleByte = 128u; // Standard city one-way multi-lane street
                 }
             } else {
-                out.lanesInDir = std::clamp(static_cast<int>(std::lround((hw - 0.56f) / 3.25f)), 1, 4);
+                const int maxPerDir = std::max(1, static_cast<int>(std::floor((usableH - 0.22f) / 2.75f)));
+                int perDir = (r.lanes >= 2u && r.lanes <= 10u)
+                    ? std::min<int>(static_cast<int>(r.lanes / 2u), maxPerDir)
+                    : std::clamp(static_cast<int>(std::lround((hw - 0.56f) / 3.25f)), 1, 4);
+                out.lanesInDir = std::clamp(perDir, 1, 4);
                 out.totalLanes = out.lanesInDir * 2;
                 out.driveLeft = 0.22f;
                 out.driveRight = usableH;
@@ -186,19 +218,25 @@ public:
         }
         return out;
     }
-    NearestOsmRoad findNearestRoad(const Vec2& p, float maxSearchDist = 48.0f) const;
+
+    RoadSurfaceHit findRoadSurfaceAt(const Vec2& p, float refY = -1e9f, float extraMargin = 0.75f) const;
+    NearestOsmRoad findNearestRoad(const Vec2& p, float maxSearchDist = 48.0f, float refY = -1e9f) const;
     float roadSurfaceLiftAt(const Vec2& p) const;
     bool isOnRoad(const Vec2& p, float extraMargin = 0.0f) const;
+    bool isOnLowerRoadUnder(const Vec2& p, float deckY, float extraMargin = 0.8f) const;
     bool isOnBridge(const Vec2& p, float extraMargin = 0.0f) const;
     bool isInWater(const Vec2& p) const;
 
-    // Connected road-graph junction lookup for smooth real-road AI traffic & police!
+    // Connected road-graph junction lookup for smooth real-road AI traffic & police (respects 3D elevation!)
     bool findConnectingRoadAt(const Vec2& junctionPt, std::uint32_t excludeRoadIdx,
-                              std::uint32_t& outRoadIdx, std::uint32_t& outVertIdx, int& outDir) const;
+                              std::uint32_t& outRoadIdx, std::uint32_t& outVertIdx, int& outDir,
+                              float curY = -1e9f) const;
 
     // Direct read-only accessors for 3D Vulkan chunk mesh streaming
     const std::vector<OsmRoadRec>& roads() const { return roads_; }
     const std::vector<Vec2>& roadVerts() const { return roadVerts_; }
+    const std::vector<float>& roadVertYs() const { return roadVertY_; }
+    float roadVertY(std::uint32_t idx) const { return (idx < roadVertY_.size()) ? roadVertY_[idx] : 0.0f; }
     const std::vector<OsmBldgRec>& buildings() const { return buildings_; }
     const std::vector<OsmLocalVert>& bldgVerts() const { return bldgVerts_; }
     const std::vector<OsmTri2D>& waterTris() const { return waterTris_; }
@@ -215,10 +253,12 @@ public:
 
 private:
     bool loaded_ = false;
+    bool has3DRoads_ = false;
     OcMapHeader hdr_{};
     std::vector<std::int16_t> demDecimeters_;
     std::vector<OsmRoadRec> roads_;
     std::vector<Vec2> roadVerts_;
+    std::vector<float> roadVertY_;
     std::vector<OsmBldgRec> buildings_;
     std::vector<OsmLocalVert> bldgVerts_;
     std::vector<OcChunkHdr> chunks_;

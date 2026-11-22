@@ -1668,6 +1668,31 @@ inline void pushBoxPiers(std::vector<Vertex3D>& dst, const Vec3& center, const V
     pushQuadV3(dst, p011, p111, p110, p010, { 0,  1,  0}, 0,0, 1,0, 1,1, 0,1, col);
 }
 
+inline void pushOrientedBoxPiers(std::vector<Vertex3D>& dst, const Vec3& center,
+                                 const Vec2& axisR, const Vec2& axisF,
+                                 float fullW, float fullH, float fullL,
+                                 const ColorRGBA& col) {
+    const Vec3 r{axisR.x * (fullW * 0.5f), 0.0f, axisR.z * (fullW * 0.5f)};
+    const Vec3 f{axisF.x * (fullL * 0.5f), 0.0f, axisF.z * (fullL * 0.5f)};
+    const Vec3 u{0.0f, fullH * 0.5f, 0.0f};
+    const Vec3 p000 = center - r - u - f;
+    const Vec3 p100 = center + r - u - f;
+    const Vec3 p101 = center + r - u + f;
+    const Vec3 p001 = center - r - u + f;
+    const Vec3 p010 = center - r + u - f;
+    const Vec3 p110 = center + r + u - f;
+    const Vec3 p111 = center + r + u + f;
+    const Vec3 p011 = center - r + u + f;
+    const Vec3 nR{axisR.x, 0.0f, axisR.z};
+    const Vec3 nF{axisF.x, 0.0f, axisF.z};
+    pushQuadV3(dst, p010, p110, p111, p011, { 0,  1,  0}, 0,0, 1,0, 1,1, 0,1, col);
+    pushQuadV3(dst, p001, p101, p100, p000, { 0, -1,  0}, 0,0, 1,0, 1,1, 0,1, col);
+    pushQuadV3(dst, p100, p101, p111, p110,  nR,          0,0, 1,0, 1,1, 0,1, col);
+    pushQuadV3(dst, p001, p000, p010, p011,  nR * -1.0f,  0,0, 1,0, 1,1, 0,1, col);
+    pushQuadV3(dst, p101, p001, p011, p111,  nF,          0,0, 1,0, 1,1, 0,1, col);
+    pushQuadV3(dst, p000, p100, p110, p010,  nF * -1.0f,  0,0, 1,0, 1,1, 0,1, col);
+}
+
 inline float cross2DXZ(const Vec2& a, const Vec2& b, const Vec2& c) {
     return (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
 }
@@ -1875,10 +1900,12 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     struct LocalRoadSeg {
         Vec2 a{}, e{}, dir{};
         float invLen2 = 0.0f;
+        float yA = 0.0f, yB = 0.0f;
         float minX = 0.0f, maxX = 0.0f, minZ = 0.0f, maxZ = 0.0f;
         float ohw = 2.6f;
         std::uint32_t roadIdx = 0;
         std::uint8_t roadClass = 4;
+        std::int8_t layer = 0;
         bool isBridge = false;
     };
     constexpr int kGridN = 16;
@@ -1888,6 +1915,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     const float gridSpan = hdr.chunkSize + gridPad * 2.0f;
     const float invCellSz = static_cast<float>(kGridN) / gridSpan;
 
+    const bool has3DRoads = real.has3DRoads();
     std::vector<LocalRoadSeg> localSegs;
     localSegs.reserve(chunkNearRoads.size() * 6u);
     std::vector<std::uint32_t> gridCells[kGridN * kGridN];
@@ -1896,7 +1924,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
         const OsmRoadRec& ro = roads[rj];
         if (ro.vertCount < 2 || (ro.flags & 4u) != 0u) continue;
         const float ohw = std::max(2.6f, ro.halfWidth);
-        const bool isBridgeO = (ro.flags & 2u) != 0u;
+        const bool isBridgeO = ((ro.flags & 2u) != 0u) || (ro.layer >= 1) || ((ro.flags2 & 4u) != 0u);
         for (std::uint16_t s = 0; s + 1 < ro.vertCount; ++s) {
             const Vec2 a = rVerts[ro.firstVert + s];
             const Vec2 b = rVerts[ro.firstVert + s + 1];
@@ -1911,11 +1939,14 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             const Vec2 e = b - a;
             const float l2 = e.lengthSq();
             if (l2 < 1e-4f) continue;
+            const float yA = has3DRoads ? real.roadVertY(ro.firstVert + s) : real.sampleDem(a);
+            const float yB = has3DRoads ? real.roadVertY(ro.firstVert + s + 1) : real.sampleDem(b);
             const std::uint32_t segId = static_cast<std::uint32_t>(localSegs.size());
             localSegs.push_back(LocalRoadSeg{
                 a, e, e / std::sqrt(l2), 1.0f / l2,
+                yA, yB,
                 sMinX, sMaxX, sMinZ, sMaxZ,
-                ohw, rj, ro.roadClass, isBridgeO
+                ohw, rj, ro.roadClass, ro.layer, isBridgeO
             });
             const int c0x = std::clamp(static_cast<int>(std::floor((sMinX - ohw - gridMinX) * invCellSz)), 0, kGridN - 1);
             const int c1x = std::clamp(static_cast<int>(std::floor((sMaxX + ohw - gridMinX) * invCellSz)), 0, kGridN - 1);
@@ -1934,8 +1965,11 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     struct RoadSubSeg {
         Vec2 p0{}, p1{}, mid{};
         Vec2 n0{}, n1{}, segDir{}, segPerp{};
+        float y0 = 0.0f, y1 = 0.0f;
         float dist0 = 0.0f, dist1 = 0.0f;
         float hwL = 2.6f, hwR = 2.6f;
+        std::uint32_t oppRoadIdxL = 0xFFFFFFFFu;
+        std::uint32_t oppRoadIdxR = 0xFFFFFFFFu;
         bool inChunk = false;
         bool inInter = false;
         bool crossedMajor = false;
@@ -1953,8 +1987,9 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
         const OsmRoadRec& r = roads[ri];
         if (r.vertCount < 2 || (r.flags & 4u) != 0u) continue;
 
-        const bool isExpressway = (r.roadClass <= 1u);
-        const bool isBridge = (r.flags & 2u) != 0u;
+        const bool isExpressway = (r.roadClass <= 1u) || ((r.flags2 & 2u) != 0u);
+        const bool isLink = (r.flags2 & 1u) != 0u;
+        const bool isBridge = ((r.flags & 2u) != 0u) || (r.layer >= 1) || ((r.flags2 & 4u) != 0u);
         const float hw = std::max(2.6f, r.halfWidth);
         const RoadLaneLayout laneLayout = RealSeoulData::computeRoadLaneLayout(r);
 
@@ -1964,12 +1999,35 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
         const float roadTieBias = static_cast<float>(ri % 23u) * 0.0008f;
         const float classLift = RealSeoulData::roadClassLift(r.roadClass) + slipBias + roadTieBias;
 
-        auto evalRoadY = [&](const Vec2& p) -> float {
-            float y = real.sampleDem(p) + classLift;
-            if (isBridge) {
-                y = std::max(y, city.bridgeDeckElevationAt(p) + 0.02f + roadTieBias * 0.5f);
+        // Smooth C0-continuous corner elevation:
+        // - Elevated decks (yBase > demCenter + 0.85m): razor-flat horizontally (ZERO sawtooth or tilted bridge quads!)
+        // - Ground roads (yBase ~ demCenter): gently hug cross-slope DEM clamped within +/-0.35m of centerline yBase
+        // - Approach abutments (+0.15m..+0.85m): smooth continuous blend between the two, identical across shared edges!
+        auto evalCornerY = [&](const Vec2& pCenter, const Vec2& pCorner, float yBase) -> float {
+            if (!has3DRoads) {
+                float y = real.sampleDem(pCorner) + classLift;
+                if (isBridge) {
+                    y = std::max(y, city.bridgeDeckElevationAt(pCorner) + 0.02f + roadTieBias * 0.5f);
+                }
+                return y;
             }
-            return y;
+            const float demC = real.sampleDem(pCenter);
+            const float clearH = yBase - demC;
+            if (clearH >= 0.85f || isBridge) {
+                return yBase + classLift;
+            }
+            const float crossBlend = clampf(1.0f - (clearH - 0.15f) / 0.70f, 0.0f, 1.0f);
+            const float demCorner = real.sampleDem(pCorner);
+            const float crossDelta = clampf(demCorner - demC, -0.35f, 0.35f) * crossBlend;
+            return yBase + crossDelta + classLift;
+        };
+
+        auto hasSameLevelRoadAt = [&](const Vec2& pt, float refY, float margin) -> bool {
+            if (has3DRoads) {
+                const RoadSurfaceHit sh = real.findRoadSurfaceAt(pt, refY + 0.55f, margin);
+                return sh.found && std::abs(sh.y - refY) < 2.4f;
+            }
+            return real.isOnRoad(pt, margin);
         };
 
         // Precompute smooth mitered perpendicular offsets at each polyline vertex
@@ -1995,13 +2053,15 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             miters[i] = Vec2{-dir.z, dir.x};
         }
 
-        // Pass 1: Build <=4.8m sub-segments near this chunk & classify intersections / dual-carriageway medians / merges!
+        // Pass 1: Build <=4.8m 3D sub-segments near this chunk & classify same-level intersections / medians / merges!
         subs.clear();
         float distM = 0.0f;
         const float activeRadius = hdr.chunkSize * 0.55f + 20.0f;
         for (std::uint16_t i = 0; i + 1 < r.vertCount; ++i) {
             const Vec2 edgeA = rVerts[r.firstVert + i];
             const Vec2 edgeB = rVerts[r.firstVert + i + 1];
+            const float yEdgeA = has3DRoads ? real.roadVertY(r.firstVert + i) : real.sampleDem(edgeA);
+            const float yEdgeB = has3DRoads ? real.roadVertY(r.firstVert + i + 1) : real.sampleDem(edgeB);
             const Vec2 edgeVec = edgeB - edgeA;
             const float edgeLen = edgeVec.length();
             if (edgeLen < 0.25f) continue;
@@ -2016,6 +2076,9 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 const float t1 = static_cast<float>(sub + 1) / static_cast<float>(subSteps);
                 const Vec2 p0 = edgeA + edgeVec * t0;
                 const Vec2 p1 = edgeA + edgeVec * t1;
+                const float y0Base = lerpf(yEdgeA, yEdgeB, t0);
+                const float y1Base = lerpf(yEdgeA, yEdgeB, t1);
+                const float yMidBase = 0.5f * (y0Base + y1Base);
                 const float dist0 = distM;
                 distM += subLen;
                 const Vec2 mid = (p0 + p1) * 0.5f;
@@ -2038,6 +2101,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 ss.n1 = (sub + 1 == subSteps) ? miters[i + 1] : segPerp;
                 ss.segDir = segDir;
                 ss.segPerp = segPerp;
+                ss.y0 = y0Base;
+                ss.y1 = y1Base;
                 ss.dist0 = dist0;
                 ss.dist1 = distM;
                 ss.hwL = hw;
@@ -2054,6 +2119,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
 
                 float bestOppGapL = 1e9f, bestOppOhwL = 0.0f;
                 float bestOppGapR = 1e9f, bestOppOhwR = 0.0f;
+                std::uint32_t bestOppIdxL = 0xFFFFFFFFu;
+                std::uint32_t bestOppIdxR = 0xFFFFFFFFu;
 
                 for (int gz = q0z; gz <= q1z; ++gz) {
                     for (int gx = q0x; gx <= q1x; ++gx) {
@@ -2062,7 +2129,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                             segVisit[segId] = curStamp;
 
                             const LocalRoadSeg& ls = localSegs[segId];
-                            if (ls.roadIdx == ri || ls.isBridge != isBridge) continue;
+                            if (ls.roadIdx == ri) continue;
+                            if (!has3DRoads && ls.isBridge != isBridge) continue;
                             const float ohw = ls.ohw;
                             const float maxD = hw + ohw + 3.0f;
                             if (mid.x < ls.minX - maxD || mid.x > ls.maxX + maxD ||
@@ -2071,6 +2139,12 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                             }
 
                             const float tm = clampf((mid - ls.a).dot(ls.e) * ls.invLen2, 0.0f, 1.0f);
+                            if (has3DRoads) {
+                                // Strictly same-level interaction: grade-separated overpasses (|dY| > 2.4m)
+                                // NEVER punch fake intersection boxes or suppress lane markings on each other!
+                                const float lsY = lerpf(ls.yA, ls.yB, tm);
+                                if (std::abs(lsY - yMidBase) > 2.4f) continue;
+                            }
                             const Vec2 oClosest = ls.a + ls.e * tm;
                             const float dMid2 = (mid - oClosest).lengthSq();
                             if (dMid2 > maxD * maxD) continue;
@@ -2085,11 +2159,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                                 continue;
                             }
 
-                            // B) Crossing intersection road (angle > ~40 deg) -> clean intersection box!
-                            //    On major multi-lane boulevards (hw >= 6.0m), only true crossing streets (ohw >= 4.5m)
-                            //    create a full intersection box; narrow 1-lane slip lanes / alleys whose OSM start nodes
-                            //    snap to the boulevard centerline turn into clean dark merge asphalt themselves (Rule A)
-                            //    without punching holes through the boulevard's blue bus lane & yellow central median!
+                            // B) Crossing same-level intersection road (angle > ~40 deg) -> clean intersection box!
                             if (absDot < 0.76f) {
                                 const bool otherSubstantial = (hw >= 6.0f)
                                     ? (ls.roadClass <= 3u && ohw >= 4.5f)
@@ -2114,7 +2184,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                                 continue;
                             }
 
-                            // C) Opposite-direction parallel twin carriageway (Teheran-ro / Gangnam-daero / Gyeongbu):
+                            // C) Opposite-direction parallel twin carriageway (Teheran-ro / Gyeongbu / Naebu Circular):
                             //    Track closest opposing carriageway on each side for flush zero-overlap, zero-gap median!
                             if (dirDot < -0.82f && std::abs(static_cast<int>(r.roadClass) - static_cast<int>(ls.roadClass)) <= 1) {
                                 const float sideLat = (oClosest - mid).dot(segPerp);
@@ -2123,19 +2193,21 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                                     if (centerGap < bestOppGapL) {
                                         bestOppGapL = centerGap;
                                         bestOppOhwL = ohw;
+                                        bestOppIdxL = ls.roadIdx;
                                     }
                                 } else if (sideLat > 2.0f) {
                                     const float centerGap = sideLat;
                                     if (centerGap < bestOppGapR) {
                                         bestOppGapR = centerGap;
                                         bestOppOhwR = ohw;
+                                        bestOppIdxR = ls.roadIdx;
                                     }
                                 }
                                 continue;
                             }
 
                             // D) Same-direction merging / parallel road (IC ramps, turn pockets, slip lanes):
-                            //    Suppress touching edge line so yellow/white edge stripes never slice across merge asphalt!
+                            //    Suppress touching edge line & parapet so ramp merges flow seamlessly!
                             if (dirDot > 0.78f && dMid < hw + ohw + 0.55f) {
                                 const float sideLat = (oClosest - mid).dot(segPerp);
                                 if (sideLat < -0.4f) ss.suppressLeft = true;
@@ -2154,12 +2226,14 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                     const float exactL = bestOppGapL * (hw / (hw + bestOppOhwL)) + 0.015f;
                     ss.hwL = clampf(exactL, 2.6f, hw + 0.95f);
                     ss.isMedianEdgeL = true;
+                    ss.oppRoadIdxL = bestOppIdxL;
                     ss.suppressLeft = false; // Always preserve crisp central yellow median line!
                 }
                 if (bestOppOhwR > 0.0f && bestOppGapR < hw + bestOppOhwR + 1.85f) {
                     const float exactR = bestOppGapR * (hw / (hw + bestOppOhwR)) + 0.015f;
                     ss.hwR = clampf(exactR, 2.6f, hw + 0.95f);
                     ss.isMedianEdgeR = true;
+                    ss.oppRoadIdxR = bestOppIdxR;
                     ss.suppressRight = false; // Always preserve crisp central yellow median line!
                 }
 
@@ -2197,12 +2271,14 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             }
         }
 
-        // Pass 2: Place authentic Korean zebra crosswalks ONLY at real intersection approach edges
+        // Pass 2: Place authentic Korean zebra crosswalks ONLY at real ground-level intersection approach edges
         //         (plus spaced mid-block crosswalks on >145m unbroken city boulevards)!
-        if (!isExpressway && !isBridge && r.roadClass <= 3u && hw >= 4.8f && !subs.empty()) {
+        if (!isExpressway && !isBridge && !isLink && r.roadClass <= 3u && hw >= 4.8f && !subs.empty()) {
             float lastCwDist = -1e9f;
             for (std::size_t idx = 0; idx < subs.size(); ++idx) {
                 if (subs[idx].inInter) continue;
+                const float yMidS = 0.5f * (subs[idx].y0 + subs[idx].y1);
+                if (has3DRoads && (yMidS - real.sampleDem(subs[idx].mid)) > 1.0f) continue;
                 const bool prevMajor = (idx > 0 && subs[idx - 1].crossedMajor &&
                                         (subs[idx].p0 - subs[idx - 1].p1).lengthSq() < 1.0f);
                 const bool nextMajor = (idx + 1 < subs.size() && subs[idx + 1].crossedMajor &&
@@ -2218,6 +2294,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 if (subs[idx].inInter || subs[idx].isInterCrosswalk) {
                     runStartDist = subs[idx].dist1;
                 } else if (subs[idx].dist0 - runStartDist > 145.0f) {
+                    const float yMidS = 0.5f * (subs[idx].y0 + subs[idx].y1);
+                    if (has3DRoads && (yMidS - real.sampleDem(subs[idx].mid)) > 1.0f) continue;
                     bool clearAhead = true;
                     for (std::size_t j = idx + 1; j < subs.size() && (subs[j].dist0 - subs[idx].dist1) < 30.0f; ++j) {
                         if (subs[j].inInter || subs[j].isInterCrosswalk) { clearAhead = false; break; }
@@ -2230,7 +2308,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             }
         }
 
-        // Pass 3: Emit watertight road quads, sidewalks, expressway barriers & bridge piers!
+        // Pass 3: Emit watertight 3D road quads, sidewalks, expressway barriers, viaduct box girders & Korean piers!
         float nextPierDist = 18.0f;
         for (std::size_t idx = 0; idx < subs.size(); ++idx) {
             const RoadSubSeg& ss = subs[idx];
@@ -2256,17 +2334,20 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 hwR1 = 0.5f * (ss.hwR + subs[idx + 1].hwR);
             }
 
-            // Evaluate DEM height independently at all 4 road corners so wide boulevards hug cross-slopes seamlessly!
             const Vec2 p0L{p0.x - n0.x * hwL0, p0.z - n0.z * hwL0};
             const Vec2 p0R{p0.x + n0.x * hwR0, p0.z + n0.z * hwR0};
             const Vec2 p1R{p1.x + n1.x * hwR1, p1.z + n1.z * hwR1};
             const Vec2 p1L{p1.x - n1.x * hwL1, p1.z - n1.z * hwL1};
-            const Vec3 aL{p0L.x, evalRoadY(p0L), p0L.z};
-            const Vec3 aR{p0R.x, evalRoadY(p0R), p0R.z};
-            const Vec3 bR{p1R.x, evalRoadY(p1R), p1R.z};
-            const Vec3 bL{p1L.x, evalRoadY(p1L), p1L.z};
+            const Vec3 aL{p0L.x, evalCornerY(p0, p0L, ss.y0), p0L.z};
+            const Vec3 aR{p0R.x, evalCornerY(p0, p0R, ss.y0), p0R.z};
+            const Vec3 bR{p1R.x, evalCornerY(p1, p1R, ss.y1), p1R.z};
+            const Vec3 bL{p1L.x, evalCornerY(p1, p1L, ss.y1), p1L.z};
             const float y0 = 0.5f * (aL.y + aR.y);
             const float y1 = 0.5f * (bL.y + bR.y);
+            const float yMid = 0.5f * (y0 + y1);
+            const float demMid = real.sampleDem(mid);
+            const float clearMid = yMid - demMid;
+            const bool isElevatedDeck = isBridge || (has3DRoads && clearMid > 0.85f);
 
             const float effHw = 0.5f * (ss.hwL + ss.hwR);
             const float uL = -effHw;
@@ -2287,15 +2368,14 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             pushQuadV3(roadsV, aL, aR, bR, bL, {0, 1, 0},
                        uL, v0, uR, v0, uR, v1, uL, v1, roadMeta);
 
-            // Flanking raised Korean granite-curb + tactile-paving sidewalks ONLY outside intersections on City Streets!
-            if (!isExpressway && !isBridge && !ss.inInter && r.roadClass <= 4u) {
+            // Flanking raised Korean granite-curb + tactile-paving sidewalks ONLY on ground-level City Streets!
+            if (!isExpressway && !isElevatedDeck && !isLink && !ss.inInter && r.roadClass <= 4u) {
                 const float swW = (r.roadClass <= 2u) ? 3.0f : 2.2f;
                 const float curbH = 0.08f;
                 const float swV0 = 10.0f + dist0;
                 const float swV1 = 10.0f + dist1;
                 const Vec2 nMid = (n0 + n1).normalized();
                 for (float side : {-1.0f, 1.0f}) {
-                    // Never emit a sidewalk curb along a flush twin-carriageway median or slip-lane merge!
                     if (side < 0.0f && (ss.isMedianEdgeL || ss.suppressLeft)) continue;
                     if (side > 0.0f && (ss.isMedianEdgeR || ss.suppressRight)) continue;
                     const float sideHw0 = (side < 0.0f) ? hwL0 : hwR0;
@@ -2309,19 +2389,19 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                     const Vec2 swPM = mid + sM * probeOff;
                     const Vec2 swP1 = p1 + s1 * probeOff;
                     if (real.isInWater(swPM) ||
-                        real.isOnRoad(swP0, 0.9f) ||
-                        real.isOnRoad(swPM, 0.9f) ||
-                        real.isOnRoad(swP1, 0.9f)) {
+                        hasSameLevelRoadAt(swP0, y0, 0.9f) ||
+                        hasSameLevelRoadAt(swPM, yMid, 0.9f) ||
+                        hasSameLevelRoadAt(swP1, y1, 0.9f)) {
                         continue;
                     }
                     const Vec2 c0P{p0.x + s0.x * sideHw0, p0.z + s0.z * sideHw0};
                     const Vec2 c1P{p1.x + s1.x * sideHw1, p1.z + s1.z * sideHw1};
                     const Vec2 o0P{p0.x + s0.x * (sideHw0 + swW), p0.z + s0.z * (sideHw0 + swW)};
                     const Vec2 o1P{p1.x + s1.x * (sideHw1 + swW), p1.z + s1.z * (sideHw1 + swW)};
-                    const float yc0 = evalRoadY(c0P);
-                    const float yc1 = evalRoadY(c1P);
-                    const float yo0 = evalRoadY(o0P);
-                    const float yo1 = evalRoadY(o1P);
+                    const float yc0 = evalCornerY(p0, c0P, ss.y0);
+                    const float yc1 = evalCornerY(p1, c1P, ss.y1);
+                    const float yo0 = evalCornerY(p0, o0P, ss.y0);
+                    const float yo1 = evalCornerY(p1, o1P, ss.y1);
                     const Vec3 c0Bot{c0P.x, yc0 - 0.02f, c0P.z};
                     const Vec3 c1Bot{c1P.x, yc1 - 0.02f, c1P.z};
                     const Vec3 c0Top{p0.x + s0.x * (sideHw0 + 0.08f), yc0 + curbH, p0.z + s0.z * (sideHw0 + 0.08f)};
@@ -2337,7 +2417,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             }
 
             // Continuous 3D Korean Highway Concrete New Jersey Barriers, Anti-Glare Medians & Urban Soundproof Walls!
-            if (isExpressway && !isBridge && !ss.inInter) {
+            // (Ground-level expressways: 경부고속도로, 올림픽대로, 강변북로!)
+            if (isExpressway && !isElevatedDeck && !ss.inInter) {
                 const Vec2 nMid = (n0 + n1).normalized();
                 const Vec2 segDir = ss.segDir;
                 const ColorRGBA kJerseyCol{182, 186, 192, 255};
@@ -2347,6 +2428,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 const ColorRGBA kSoundFrame{54, 62, 74, 255};
 
                 for (float side : {-1.0f, 1.0f}) {
+                    if (side < 0.0f && ss.suppressLeft) continue;
+                    if (side > 0.0f && ss.suppressRight) continue;
                     const float sideHw0 = (side < 0.0f) ? hwL0 : hwR0;
                     const float sideHw1 = (side < 0.0f) ? hwL1 : hwR1;
                     const float sideHwM = 0.5f * (sideHw0 + sideHw1);
@@ -2354,25 +2437,24 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                     const Vec2 s1 = n1 * side;
                     const Vec2 sM = nMid * side;
 
-                    // Distinguish tightly-spaced opposing expressway carriageway (central median!) from on/off-ramps!
-                    const NearestOsmRoad oppNr = real.findNearestRoad(mid + sM * (sideHwM + 4.5f), 14.0f);
+                    const NearestOsmRoad oppNr = real.findNearestRoad(mid + sM * (sideHwM + 4.5f), 14.0f, yMid);
                     const bool isOppParallelExp = oppNr.found && oppNr.roadIdx != ri &&
                                                   oppNr.roadClass <= 1u &&
+                                                  std::abs(oppNr.deckY - yMid) < 2.6f &&
                                                   oppNr.tangent.dot(segDir) < -0.78f;
 
                     const Vec2 rampProbe0 = p0 + s0 * (sideHw0 + 0.85f);
                     const Vec2 rampProbeM = mid + sM * (sideHwM + 0.85f);
                     const Vec2 rampProbe1 = p1 + s1 * (sideHw1 + 0.85f);
-                    const bool tightTouching = real.isOnRoad(rampProbe0, 0.25f) ||
-                                               real.isOnRoad(rampProbeM, 0.25f) ||
-                                               real.isOnRoad(rampProbe1, 0.25f);
+                    const bool tightTouching = hasSameLevelRoadAt(rampProbe0, y0, 0.25f) ||
+                                               hasSameLevelRoadAt(rampProbeM, yMid, 0.25f) ||
+                                               hasSameLevelRoadAt(rampProbe1, y1, 0.25f);
                     if (tightTouching) {
-                        // Keep same-direction merge/exit ramps open; on tight opposing expressway medians,
-                        // emit ONE shared concrete Jersey median + green anti-glare screen from the lower roadIdx!
                         if (!isOppParallelExp || ri > oppNr.roadIdx) continue;
                     }
 
-                    const bool isMedianSide = isOppParallelExp || real.isOnRoad(mid + sM * (sideHwM + 5.2f), 2.0f);
+                    const bool isMedianSide = isOppParallelExp || (side < 0.0f ? ss.isMedianEdgeL : ss.isMedianEdgeR) ||
+                                              hasSameLevelRoadAt(mid + sM * (sideHwM + 5.2f), yMid, 2.0f);
                     const float inDelta = tightTouching ? 0.02f : 0.14f;
                     const float outDelta = tightTouching ? 0.44f : (isMedianSide ? 0.56f : 0.48f);
                     const float wallH = isMedianSide ? 1.04f : 0.90f;
@@ -2381,8 +2463,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                     const Vec2 i1P{p1.x + s1.x * (sideHw1 + inDelta), p1.z + s1.z * (sideHw1 + inDelta)};
                     const Vec2 o0P{p0.x + s0.x * (sideHw0 + outDelta), p0.z + s0.z * (sideHw0 + outDelta)};
                     const Vec2 o1P{p1.x + s1.x * (sideHw1 + outDelta), p1.z + s1.z * (sideHw1 + outDelta)};
-                    const float yi0 = evalRoadY(i0P);
-                    const float yi1 = evalRoadY(i1P);
+                    const float yi0 = evalCornerY(p0, i0P, ss.y0);
+                    const float yi1 = evalCornerY(p1, i1P, ss.y1);
 
                     const Vec3 i0B{i0P.x, yi0 - 0.05f, i0P.z};
                     const Vec3 i1B{i1P.x, yi1 - 0.05f, i1P.z};
@@ -2419,7 +2501,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                             real.isInWater(mid + sM * (sideHwM + 26.0f)) ||
                             real.isInWater(mid + sM * (sideHwM + 68.0f)) ||
                             real.isInWater(mid + sM * (sideHwM + 125.0f));
-                        if (hw >= 6.8f && !facesWaterfront) {
+                        if (!isLink && hw >= 6.8f && !facesWaterfront) {
                             const float swDelta = outDelta - 0.08f;
                             const Vec3 s0B{p0.x + s0.x * (sideHw0 + swDelta), yi0 + wallH + 0.24f, p0.z + s0.z * (sideHw0 + swDelta)};
                             const Vec3 s1B{p1.x + s1.x * (sideHw1 + swDelta), yi1 + wallH + 0.24f, p1.z + s1.z * (sideHw1 + swDelta)};
@@ -2438,44 +2520,155 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 }
             }
 
-            // Bridge concrete deck underside fascia + sleek guardrails (+ taller expressway viaduct parapets) + vertical piers!
-            if (isBridge) {
-                const float thick = isExpressway ? 1.35f : 1.15f;
-                const float railH = isExpressway ? 1.02f : 0.65f;
+            // Elevated Bridge & Korean Expressway Viaduct Box-Girder Deck, Watertight Soffit,
+            // Seamless Ramp-Friendly Parapets, Abutment Skirts & Lower-Road-Clearing T-Head / Portal Piers!
+            if (isElevatedDeck) {
+                const float thick = isExpressway ? 1.42f : 1.15f;
+                const float railH = isExpressway ? 0.96f : 0.72f;
+                const ColorRGBA kSoffitCol{132, 136, 144, 255};
+                const ColorRGBA kParapetCol{182, 186, 192, 255};
+                const ColorRGBA kAntiGlareGreen{22, 118, 72, 255};
+
+                // Low approach embankment (clearMid <= 2.35m): extend side retaining skirt cleanly into terrain!
+                const bool isAbutmentRamp = (clearMid <= 2.35f) && !real.isInWater(mid);
+                const float dem0 = real.sampleDem(p0);
+                const float dem1 = real.sampleDem(p1);
+                const float botY0 = isAbutmentRamp ? std::min(y0 - thick, dem0 - 0.65f) : (y0 - thick);
+                const float botY1 = isAbutmentRamp ? std::min(y1 - thick, dem1 - 0.65f) : (y1 - thick);
+
+                // Watertight bottom concrete box-girder underside soffit (solid when viewed from streets below!)
+                if (clearMid > 1.05f || real.isInWater(mid)) {
+                    const Vec3 uAL{p0L.x, y0 - thick, p0L.z};
+                    const Vec3 uAR{p0R.x, y0 - thick, p0R.z};
+                    const Vec3 uBR{p1R.x, y1 - thick, p1R.z};
+                    const Vec3 uBL{p1L.x, y1 - thick, p1L.z};
+                    pushQuadV3(piersV, uBL, uBR, uAR, uAL, {0, -1, 0},
+                               0, 0, 1, 0, 1, 1, 0, 1, kSoffitCol);
+                }
+
+                // Side concrete box-girder fascia & parapets:
+                // - Inside same-level intersections (ss.inInter) or where a same-level crossing/merge road touches
+                //   the deck edge, NEVER emit walls above asphalt (only underside fascia below y0/y1)!
+                const Vec2 nMidDeck = (n0 + n1).normalized();
                 for (float side : {-1.0f, 1.0f}) {
+                    const bool isSuppressed = (side < 0.0f) ? ss.suppressLeft : ss.suppressRight;
+                    if (isSuppressed) continue;
+
+                    const bool isMedianEdge = (side < 0.0f) ? ss.isMedianEdgeL : ss.isMedianEdgeR;
+                    const std::uint32_t oppIdx = (side < 0.0f) ? ss.oppRoadIdxL : ss.oppRoadIdxR;
                     const float sideHw0 = (side < 0.0f) ? hwL0 : hwR0;
                     const float sideHw1 = (side < 0.0f) ? hwL1 : hwR1;
+                    const float sideHwM = 0.5f * (sideHw0 + sideHw1);
                     const Vec2 s0 = n0 * side;
                     const Vec2 s1 = n1 * side;
-                    const Vec3 top0{p0.x + s0.x * (sideHw0 + 0.18f), y0 + railH, p0.z + s0.z * (sideHw0 + 0.18f)};
-                    const Vec3 top1{p1.x + s1.x * (sideHw1 + 0.18f), y1 + railH, p1.z + s1.z * (sideHw1 + 0.18f)};
-                    const Vec3 bot0{p0.x + s0.x * (sideHw0 + 0.18f), y0 - thick, p0.z + s0.z * (sideHw0 + 0.18f)};
-                    const Vec3 bot1{p1.x + s1.x * (sideHw1 + 0.18f), y1 - thick, p1.z + s1.z * (sideHw1 + 0.18f)};
-                    pushQuadV3(piersV, bot0, bot1, top1, top0, Vec3{s0.x, 0.0f, s0.z}.normalized(),
-                               0, 0, 1, 0, 1, 1, 0, 1, kPierCol);
-                    if (isExpressway) {
-                        const Vec3 inBot0{p0.x + s0.x * (sideHw0 + 0.04f), y0, p0.z + s0.z * (sideHw0 + 0.04f)};
-                        const Vec3 inBot1{p1.x + s1.x * (sideHw1 + 0.04f), y1, p1.z + s1.z * (sideHw1 + 0.04f)};
-                        const Vec3 inTop0{inBot0.x, y0 + railH, inBot0.z};
-                        const Vec3 inTop1{inBot1.x, y1 + railH, inBot1.z};
-                        pushQuadV3(piersV, inBot0, inBot1, inTop1, inTop0, Vec3{-s0.x, 0.0f, -s0.z}.normalized(),
-                                   0, 0, 1, 0, 1, 1, 0, 1, {182, 186, 192, 255});
-                        pushQuadV3(piersV, inTop0, inTop1, top1, top0, {0, 1, 0},
-                                   0, 0, 1, 0, 1, 1, 0, 1, {182, 186, 192, 255});
+                    const Vec2 sM = nMidDeck * side;
+
+                    // Check if any same-level road touches/crosses right outside this deck edge!
+                    const bool edgeHasSameLevelRoad =
+                        ss.inInter ||
+                        hasSameLevelRoadAt(p0 + s0 * (sideHw0 + 0.75f), y0, 0.35f) ||
+                        hasSameLevelRoadAt(mid + sM * (sideHwM + 0.75f), yMid, 0.35f) ||
+                        hasSameLevelRoadAt(p1 + s1 * (sideHw1 + 0.75f), y1, 0.35f);
+
+                    // On twin opposing bridge/viaduct carriageways sharing a flush median:
+                    // only emit ONE sleek central Jersey median + green anti-glare outside intersections!
+                    if (isMedianEdge) {
+                        if (ss.inInter || (oppIdx != 0xFFFFFFFFu && ri > oppIdx)) continue;
+                        const float medH = isExpressway ? 0.92f : 0.42f;
+                        const Vec3 mIn0B{p0.x + s0.x * (sideHw0 - 0.16f), y0 - 0.02f, p0.z + s0.z * (sideHw0 - 0.16f)};
+                        const Vec3 mIn1B{p1.x + s1.x * (sideHw1 - 0.16f), y1 - 0.02f, p1.z + s1.z * (sideHw1 - 0.16f)};
+                        const Vec3 mOut0B{p0.x + s0.x * (sideHw0 + 0.16f), y0 - 0.02f, p0.z + s0.z * (sideHw0 + 0.16f)};
+                        const Vec3 mOut1B{p1.x + s1.x * (sideHw1 + 0.16f), y1 - 0.02f, p1.z + s1.z * (sideHw1 + 0.16f)};
+                        const Vec3 mIn0T{mIn0B.x, y0 + medH, mIn0B.z};
+                        const Vec3 mIn1T{mIn1B.x, y1 + medH, mIn1B.z};
+                        const Vec3 mOut0T{mOut0B.x, y0 + medH, mOut0B.z};
+                        const Vec3 mOut1T{mOut1B.x, y1 + medH, mOut1B.z};
+                        const Vec3 inN = Vec3{-s0.x, 0.15f, -s0.z}.normalized();
+                        const Vec3 outN = Vec3{s0.x, 0.15f, s0.z}.normalized();
+                        pushQuadV3(piersV, mIn0B, mIn1B, mIn1T, mIn0T, inN, 0,0, 1,0, 1,1, 0,1, kParapetCol);
+                        pushQuadV3(piersV, mOut1B, mOut0B, mOut0T, mOut1T, outN, 0,0, 1,0, 1,1, 0,1, kParapetCol);
+                        pushQuadV3(piersV, mIn0T, mIn1T, mOut1T, mOut0T, {0,1,0}, 0,0, 1,0, 1,1, 0,1, kParapetCol);
+                        if (isExpressway) {
+                            const Vec3 g0B{p0.x + s0.x * sideHw0, y0 + medH, p0.z + s0.z * sideHw0};
+                            const Vec3 g1B{p1.x + s1.x * sideHw1, y1 + medH, p1.z + s1.z * sideHw1};
+                            const Vec3 g0T{g0B.x, y0 + medH + 0.36f, g0B.z};
+                            const Vec3 g1T{g1B.x, y1 + medH + 0.36f, g1B.z};
+                            pushQuadV3(piersV, g0B, g1B, g1T, g0T, inN, 0,0, 1,0, 1,1, 0,1, kAntiGlareGreen);
+                            pushQuadV3(piersV, g1B, g0B, g0T, g1T, outN, 0,0, 1,0, 1,1, 0,1, kAntiGlareGreen);
+                        }
+                        continue;
                     }
+
+                    if (edgeHasSameLevelRoad) {
+                        // Crossing or merging same-level road touches this edge -> ZERO wall above asphalt!
+                        continue;
+                    }
+
+                    const Vec3 outTop0{p0.x + s0.x * (sideHw0 + 0.32f), y0 + railH, p0.z + s0.z * (sideHw0 + 0.32f)};
+                    const Vec3 outTop1{p1.x + s1.x * (sideHw1 + 0.32f), y1 + railH, p1.z + s1.z * (sideHw1 + 0.32f)};
+                    const Vec3 outBot0{p0.x + s0.x * (sideHw0 + 0.32f), botY0,      p0.z + s0.z * (sideHw0 + 0.32f)};
+                    const Vec3 outBot1{p1.x + s1.x * (sideHw1 + 0.32f), botY1,      p1.z + s1.z * (sideHw1 + 0.32f)};
+                    const Vec3 inBot0{p0.x + s0.x * (sideHw0 + 0.02f), y0 - 0.02f, p0.z + s0.z * (sideHw0 + 0.02f)};
+                    const Vec3 inBot1{p1.x + s1.x * (sideHw1 + 0.02f), y1 - 0.02f, p1.z + s1.z * (sideHw1 + 0.02f)};
+                    const Vec3 inTop0{inBot0.x, y0 + railH, inBot0.z};
+                    const Vec3 inTop1{inBot1.x, y1 + railH, inBot1.z};
+
+                    const Vec3 outN = Vec3{s0.x, 0.0f, s0.z}.normalized();
+                    const Vec3 inN = Vec3{-s0.x, 0.10f, -s0.z}.normalized();
+                    pushQuadV3(piersV, outBot0, outBot1, outTop1, outTop0, outN, 0,0, 1,0, 1,1, 0,1, kPierCol);
+                    pushQuadV3(piersV, inBot0, inBot1, inTop1, inTop0, inN, 0,0, 1,0, 1,1, 0,1, kParapetCol);
+                    pushQuadV3(piersV, inTop0, inTop1, outTop1, outTop0, {0,1,0}, 0,0, 1,0, 1,1, 0,1, kParapetCol);
                 }
+
+                // Korean T-Head Viaduct Piers (T형 교각) or Portal-Frame Straddle Piers (문형 교각)
+                // placed every 34m ONLY where vertical clearance > 2.35m, NEVER obstructing lower streets!
                 if (dist1 >= nextPierDist) {
-                    nextPierDist = dist1 + 36.0f;
-                    const float yMid = 0.5f * (y0 + y1);
-                    const float demMid = real.sampleDem(mid);
-                    if (yMid - demMid > 1.6f) {
+                    nextPierDist = dist1 + 34.0f;
+                    if (clearMid > 2.35f) {
                         const float pTop = yMid - thick;
-                        const float pBot = demMid - 2.6f;
-                        const float pH = std::max(1.2f, pTop - pBot);
+                        const float pBot = demMid - 2.8f;
                         const Vec2 nMid = (n0 + n1).normalized();
-                        for (float side : {-0.55f, 0.55f}) {
-                            const Vec3 pc{mid.x + nMid.x * (hw * side), 0.5f * (pTop + pBot), mid.z + nMid.z * (hw * side)};
-                            pushBoxPiers(piersV, pc, {2.4f, pH, 2.4f}, {148, 152, 158, 255});
+                        const ColorRGBA kPierColDark{144, 148, 156, 255};
+                        const ColorRGBA kCapCol{156, 160, 168, 255};
+                        const float capH = 1.05f;
+                        const float colTop = pTop - capH;
+                        const float colH = std::max(0.8f, colTop - pBot);
+
+                        const bool centerOverRoad = real.isOnLowerRoadUnder(mid, yMid, 1.85f);
+                        if (centerOverRoad) {
+                            // Portal-Frame Straddle Pier: emit ONLY if both outer side columns clear the lower highway!
+                            // Over ultra-wide 10-lane expressways (Gyeongbu!), bridges span clear without mid-highway stubs!
+                            const Vec2 colL = mid - nMid * (hw + 1.45f);
+                            const Vec2 colR = mid + nMid * (hw + 1.45f);
+                            if (!real.isOnLowerRoadUnder(colL, yMid, 1.15f) &&
+                                !real.isOnLowerRoadUnder(colR, yMid, 1.15f)) {
+                                const float portalSpan = hw * 2.25f + 2.6f;
+                                pushOrientedBoxPiers(piersV, {mid.x, pTop - capH * 0.5f, mid.z},
+                                                     nMid, ss.segDir, portalSpan, capH, 2.2f, kCapCol);
+                                pushOrientedBoxPiers(piersV, {colL.x, 0.5f * (colTop + pBot), colL.z},
+                                                     nMid, ss.segDir, 1.9f, colH, 1.9f, kPierColDark);
+                                pushOrientedBoxPiers(piersV, {colR.x, 0.5f * (colTop + pBot), colR.z},
+                                                     nMid, ss.segDir, 1.9f, colH, 1.9f, kPierColDark);
+                            }
+                        } else if (hw >= 7.2f) {
+                            // Wide Han River bridge / 4-5 lane expressway viaduct: cap beam + twin columns!
+                            pushOrientedBoxPiers(piersV, {mid.x, pTop - capH * 0.5f, mid.z},
+                                                 nMid, ss.segDir, hw * 1.80f, capH, 2.3f, kCapCol);
+                            for (float side : {-0.52f, 0.52f}) {
+                                const Vec2 colPos = mid + nMid * (hw * side);
+                                if (!real.isOnLowerRoadUnder(colPos, yMid, 1.25f)) {
+                                    pushOrientedBoxPiers(piersV, {colPos.x, 0.5f * (colTop + pBot), colPos.z},
+                                                         nMid, ss.segDir, 2.3f, colH, 2.3f, kPierColDark);
+                                }
+                            }
+                        } else {
+                            // Iconic Korean T-Head Viaduct Pier (내부순환로 / 분당수서로 / IC 램프):
+                            // tapered cap beam + sturdy central concrete pier shaft!
+                            pushOrientedBoxPiers(piersV, {mid.x, pTop - capH * 0.5f, mid.z},
+                                                 nMid, ss.segDir, hw * 1.68f, capH, 2.2f, kCapCol);
+                            const float shaftW = clampf(hw * 0.48f, 1.95f, 3.2f);
+                            pushOrientedBoxPiers(piersV, {mid.x, 0.5f * (colTop + pBot), mid.z},
+                                                 nMid, ss.segDir, shaftW, colH, 2.1f, kPierColDark);
                         }
                     }
                 }
@@ -3137,7 +3330,7 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     // 1. Player Firearm Muzzle Flash Point Light
     if (pl.muzzleFlashTimer > 0.001f && pl.drivingVehicleId < 0) {
         const Vec2 pf = forwardFromHeading(pl.facingYaw);
-        const float gy = std::max(city.surfaceHeightAt(pl.pos), pl.posY);
+        const float gy = std::max(city.surfaceHeightAt(pl.pos, pl.posY), pl.posY);
         const float flashK = clampf(pl.muzzleFlashTimer / 0.055f, 0.25f, 1.0f);
         pushLocalLight({pl.pos.x + pf.x * 0.75f, gy + 1.38f, pl.pos.z + pf.z * 0.75f},
                        13.5f, {22.0f * flashK, 13.5f * flashK, 5.0f * flashK}, false);
@@ -3168,7 +3361,7 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     for (int i = 0; i < std::min<int>(4, static_cast<int>(sirenCands.size())); ++i) {
         const auto& v = vehs[static_cast<std::size_t>(sirenCands[static_cast<std::size_t>(i)].idx)];
         const auto& spec = getVehicleSpec(v.kind);
-        const float gy = std::max(city.surfaceHeightAt(v.pos), v.posY);
+        const float gy = std::max(city.surfaceHeightAt(v.pos, v.posY), v.posY);
         const bool redPhase = std::sin(v.sirenPhase * 14.0f) > 0.0f;
         const float boost = lerpf(0.75f, 1.35f, nightF);
         const Vec3 sCol = redPhase
@@ -3184,7 +3377,7 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
             if (nLights + 2 > SceneUBO::kMaxLocalLights) break;
             const auto& v = vehs[static_cast<std::size_t>(headCands[static_cast<std::size_t>(i)].idx)];
             const auto& spec = getVehicleSpec(v.kind);
-            const float gy = std::max(city.surfaceHeightAt(v.pos), v.posY);
+            const float gy = std::max(city.surfaceHeightAt(v.pos, v.posY), v.posY);
             const Vec2 vf = forwardFromHeading(v.heading);
             const Vec2 vr = rightFromHeading(v.heading);
             const ColorRGBA hl = getVehicleHeadlightColorRGBA(v.headlightColorIdx, nightF > 0.35f);
@@ -3224,7 +3417,8 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
         for (const auto& lc : lampCands) {
             if (nLights >= SceneUBO::kMaxLocalLights) break;
             const auto& p = props[static_cast<std::size_t>(lc.idx)];
-            const float gy = city.surfaceHeightAt(p.pos) + p.posY;
+            const float propBaseY = (p.baseY > -1e8f) ? p.baseY : city.surfaceHeightAt(p.pos);
+            const float gy = propBaseY + p.posY;
             const float ax = std::cos(p.yaw) * 1.92f;
             const float az = std::sin(p.yaw) * 1.92f;
             pushLocalLight({p.pos.x + ax, gy + 6.75f, p.pos.z + az},
@@ -3762,7 +3956,8 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
     city.queryPropsInRadius(focus, propRadius, visIdxBuf_);
     for (int pi : visIdxBuf_) {
         const StreetProp& p = city.streetProps()[static_cast<std::size_t>(pi)];
-        const float gy = city.surfaceHeightAt(p.pos) + p.posY;
+        const float propBaseY = (p.baseY > -1e8f) ? p.baseY : city.surfaceHeightAt(p.pos);
+        const float gy = propBaseY + p.posY;
         const float distSq = (Vec3{p.pos.x, gy, p.pos.z} - camPos).lengthSq();
         if (!shadowPass && distSq > propRadius * propRadius) continue;
 
@@ -5270,7 +5465,7 @@ void Renderer3D::drawAlphaAndEffects(VulkanContext& vk, const GameWorld& world,
     // 2. Smoked Curved Vehicle Glass + Underglow + Sirens + Nitro Flames!
     for (const auto& v : world.vehicles()) {
         if ((v.pos - focus).lengthSq() > 340.0f * 340.0f) continue;
-        const float gy = city.surfaceHeightAt(v.pos);
+        const float gy = city.surfaceHeightAt(v.pos, v.posY);
         drawVehicle(vk, v, gy, nightMode, false, true, false, &world.player());
     }
 
@@ -5322,7 +5517,7 @@ void Renderer3D::drawAlphaAndEffects(VulkanContext& vk, const GameWorld& world,
         const float len = d.length();
         if (len < 0.05f) continue;
         const Vec2 mid = (sk.a + sk.b) * 0.5f;
-        const float gy = city.surfaceHeightAt(mid) + 0.04f;
+        const float gy = city.surfaceHeightAt(mid, world.player().posY) + 0.04f;
         const float yaw = std::atan2(d.z, d.x);
         drawBox(vk, {mid.x, gy, mid.z}, {len + 0.08f, 0.02f, 0.24f}, yaw,
                 {18, 18, 20, static_cast<std::uint8_t>(clampf(sk.alpha, 0.0f, 1.0f) * 185.0f)},
@@ -5341,7 +5536,7 @@ void Renderer3D::drawAlphaAndEffects(VulkanContext& vk, const GameWorld& world,
     }
     {
         const auto& pl = world.player();
-        const float gy = std::max(city.surfaceHeightAt(pl.pos), pl.posY);
+        const float gy = std::max(city.surfaceHeightAt(pl.pos, pl.posY), pl.posY);
         const bool isThirdPerson = (camera.position - Vec3{pl.pos.x, gy + 1.56f, pl.pos.z}).lengthSq() > 0.70f;
         if (isThirdPerson && pl.drivingVehicleId < 0 && !pl.wasted && pl.currentWeapon != WeaponId::Fists) {
             const auto& slot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
@@ -5603,7 +5798,7 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
     const float texelWorld = (shadowSpan * 2.0f) / static_cast<float>(VulkanContext::kShadowMapSize);
     const float snapX = std::floor(focus.x / texelWorld) * texelWorld;
     const float snapZ = std::floor(focus.z / texelWorld) * texelWorld;
-    const Vec3 shadowTarget{snapX, world.city().surfaceHeightAt(focus), snapZ};
+    const Vec3 shadowTarget{snapX, world.city().surfaceHeightAt(focus, world.player().posY), snapZ};
     const Vec3 shadowEye = shadowTarget - lightDir * 220.0f;
     const Mat4 lightView = Mat4::lookAt(shadowEye, shadowTarget, {0, 1, 0});
     const Mat4 lightProj = Mat4::orthoVulkan(-shadowSpan, shadowSpan, -shadowSpan, shadowSpan, 10.0f, 480.0f);
@@ -5623,7 +5818,7 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
         const float vehCull = shadowPass ? 135.0f : 360.0f;
         for (const auto& v : world.vehicles()) {
             if ((v.pos - focus).lengthSq() > vehCull * vehCull) continue;
-            const float gy = world.city().surfaceHeightAt(v.pos);
+            const float gy = world.city().surfaceHeightAt(v.pos, v.posY);
             const bool hoodOnly = (!shadowPass && firstPerson && !lookBack && v.id == world.player().drivingVehicleId);
             drawVehicle(vk, v, gy, nightMode, shadowPass, false, hoodOnly, &world.player());
         }
@@ -5631,7 +5826,7 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
         // Draw Player with live 3D weapon carry / shoulder-aim / recoil / reload / equip / punch animations!
         const auto& pl = world.player();
         if (pl.drivingVehicleId < 0 && (!firstPerson || shadowPass)) {
-            const float gy = std::max(world.city().surfaceHeightAt(pl.pos), pl.posY);
+            const float gy = std::max(world.city().surfaceHeightAt(pl.pos, pl.posY), pl.posY);
             const ColorRGBA top = getPlayerTopColor(pl.currentOutfit, pl.characterCustom.customTopColorIdx);
             const ColorRGBA bot = getPlayerBottomColor(pl.currentOutfit, pl.characterCustom.customBottomColorIdx);
             const ColorRGBA skin = getPlayerSkinColor(pl.characterCustom.skinToneIdx);

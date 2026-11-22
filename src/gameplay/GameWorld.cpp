@@ -438,8 +438,8 @@ void GameWorld::reset() {
     player_.onGround = true;
 
     spawnInitialWorld();
-    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL 3D ARCHITECTURE v4.0" : "WELCOME TO SEOUL (VULKAN)",
-               city_.hasRealSeoulMap() ? "실제 서울 3D 건축 v4.0에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
+    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL 3D ROADS & CITY v4.1" : "WELCOME TO SEOUL (VULKAN)",
+               city_.hasRealSeoulMap() ? "실제 서울 입체도로·고속도로 v4.1에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
 #if defined(__ANDROID__)
                "Tap Minimap: Full Seoul Map  |  Top Bar: Custom · Weather · Camera",
                "미니맵 터치: 서울 전체 지도 · 상단 버튼: 커스텀 · 날씨 · 시점 전환",
@@ -677,7 +677,10 @@ void GameWorld::toggleRainWeather() {
                rainWeather_ ? ColorRGBA{108, 178, 224, 255} : ColorRGBA{232, 192, 92, 255}, 2.4f);
 }
 
-float GameWorld::surfaceHeightAt(const Vec2& pos) const {
+float GameWorld::surfaceHeightAt(const Vec2& pos, float refY) const {
+    if (city_.hasRealSeoulMap()) {
+        return city_.surfaceHeightAt(pos, refY);
+    }
     if (city_.isOnBridge(pos, 1.5f)) {
         return std::max(city_.terrainElevationAt(pos), city_.bridgeDeckElevationAt(pos));
     }
@@ -715,7 +718,7 @@ bool GameWorld::fastTravelTo(const Vec2& targetPos, const std::string& labelKo) 
     if (city_.hasRealSeoulMap() && city_.realData().isInCoreBounds(dest)) {
         // Snap smoothly onto the nearest real drivable OpenStreetMap road if inside water, building, or off-road plaza!
         Vec2 probe = dest;
-        const bool blocked = city_.realData().isInWater(dest) ||
+        const bool blocked = (city_.realData().isInWater(dest) && !city_.realData().isOnBridge(dest, 2.0f)) ||
                              city_.realData().resolveCircleBuildings(probe, 2.0f) ||
                              !city_.realData().isOnRoad(dest, 6.0f);
         if (blocked) {
@@ -774,7 +777,7 @@ bool GameWorld::fastTravelTo(const Vec2& targetPos, const std::string& labelKo) 
 }
 
 float GameWorld::computePlayerSupportHeight(const Vec2& pos, float currentY, Vec2* platformCarryVel) const {
-    float supportY = surfaceHeightAt(pos);
+    float supportY = surfaceHeightAt(pos, currentY);
     if (platformCarryVel) {
         *platformCarryVel = {0.0f, 0.0f};
     }
@@ -797,14 +800,15 @@ float GameWorld::computePlayerSupportHeight(const Vec2& pos, float currentY, Vec
 
     for (const auto& prop : city_.streetProps()) {
         if (prop.broken) continue;
+        const float propBase = (prop.baseY > -1e8f) ? prop.baseY : surfaceHeightAt(prop.pos, currentY);
         float r = 0.0f;
         float topY = 0.0f;
         if (prop.kind == StreetPropKind::Crate) {
             r = 0.58f;
-            topY = surfaceHeightAt(prop.pos) + 0.92f;
+            topY = propBase + 0.92f;
         } else if (prop.kind == StreetPropKind::Bench) {
             r = 0.72f;
-            topY = surfaceHeightAt(prop.pos) + 0.56f;
+            topY = propBase + 0.56f;
         } else {
             continue;
         }
@@ -1122,6 +1126,7 @@ void GameWorld::maintainTrafficPopulation() {
         int dir = 1;
         float heading = 0.0f;
         Vec2 spawnPos{};
+        float spawnY = -1e9f;
         std::uint32_t osmRi = UINT32_MAX;
         std::uint32_t osmVi = 0;
         int osmD = 1;
@@ -1142,11 +1147,20 @@ void GameWorld::maintainTrafficPopulation() {
             const RoadLaneLayout layout = RealSeoulData::computeRoadLaneLayout(r);
             const int laneIdx = (layout.lanesInDir > 1) ? rng_.rangeInt(0, layout.lanesInDir - 1) : 0;
             const float laneOff = layout.laneCenterOffset(laneIdx);
-            spawnPos = a + e * rng_.range(0.15f, 0.85f) + rightN * laneOff;
+            const float frac = rng_.range(0.15f, 0.85f);
+            spawnPos = a + e * frac + rightN * laneOff;
             osmVi = (osmD > 0) ? (seg + 1) : seg;
-            if (city_.realData().isInWater(spawnPos) && (r.flags & 2u) == 0u) continue;
-            Vec2 chk = spawnPos;
-            if (city_.realData().resolveCircleBuildings(chk, 1.5f)) continue;
+            const bool isElev = ((r.flags & 2u) != 0u) || (r.layer >= 1) || ((r.flags2 & 4u) != 0u);
+            if (city_.realData().isInWater(spawnPos) && !isElev) continue;
+            if (city_.realData().has3DRoads()) {
+                spawnY = lerpf(city_.realData().roadVertY(r.firstVert + seg),
+                               city_.realData().roadVertY(r.firstVert + seg + 1), frac) +
+                         RealSeoulData::roadClassLift(r.roadClass);
+            }
+            if (!isElev) {
+                Vec2 chk = spawnPos;
+                if (city_.realData().resolveCircleBuildings(chk, 1.5f)) continue;
+            }
         } else {
             horiz = rng_.chance(0.5f);
             const int baseRoad = horiz ? centerRz : centerRx;
@@ -1176,9 +1190,10 @@ void GameWorld::maintainTrafficPopulation() {
         const float distPlayer = (spawnPos - center).length();
         if (distPlayer < 32.0f || distPlayer > 265.0f) continue;
 
+        const float resolvedSpawnY = (spawnY > -1e8f) ? spawnY : surfaceHeightAt(spawnPos);
         bool tooClose = false;
         for (const auto& other : vehicles_) {
-            if ((other.pos - spawnPos).length() < 11.5f) {
+            if (std::abs(other.posY - resolvedSpawnY) < 2.2f && (other.pos - spawnPos).length() < 11.5f) {
                 tooClose = true;
                 break;
             }
@@ -1206,7 +1221,7 @@ void GameWorld::maintainTrafficPopulation() {
         v.id = nextVehicleId_++;
         v.kind = kind;
         v.pos = spawnPos;
-        v.posY = surfaceHeightAt(spawnPos);
+        v.posY = resolvedSpawnY;
         v.heading = heading;
         v.velocity = forwardFromHeading(heading) * 14.5f;
         v.health = spec.maxHealth;
@@ -1841,7 +1856,7 @@ bool GameWorld::tryEnterOrExitVehicle() {
         }
 
         player_.pos = exitPos;
-        const float exitSurfY = surfaceHeightAt(exitPos);
+        const float exitSurfY = surfaceHeightAt(exitPos, car->posY);
         player_.posY = std::max(exitSurfY, car->posY);
         player_.verticalVel = (player_.posY > exitSurfY + 0.05f) ? car->velY : 0.0f;
         player_.onGround = (player_.posY <= exitSurfY + 0.05f);
@@ -3741,7 +3756,7 @@ void GameWorld::updateWeaponCombat(float dt, const PlayerInput& input) {
         Particle mag{};
         mag.kind = ParticleKind::DroppedMag;
         mag.pos = {player_.pos.x + fwd2.x * 0.32f + right2.x * 0.16f,
-                   std::max(surfaceHeightAt(player_.pos), player_.posY) + 1.18f,
+                   std::max(surfaceHeightAt(player_.pos, player_.posY), player_.posY) + 1.18f,
                    player_.pos.z + fwd2.z * 0.32f + right2.z * 0.16f};
         mag.vel = {right2.x * rng_.range(-0.45f, 0.35f) + fwd2.x * rng_.range(0.15f, 0.55f),
                    rng_.range(-0.35f, 0.30f),
@@ -4097,6 +4112,15 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
 
     auto samplePointGroundH = [&](const Vec2& p, float* outSlope) -> float {
         if (outSlope) *outSlope = 0.0f;
+        if (city_.hasRealSeoulMap() && city_.realData().has3DRoads()) {
+            const float sh = city_.surfaceHeightAt(p, v.posY);
+            if (outSlope) {
+                const float shF = city_.surfaceHeightAt(p + fwdBefore * 1.5f, v.posY);
+                const float shB = city_.surfaceHeightAt(p - fwdBefore * 1.5f, v.posY);
+                *outSlope = std::atan(clampf((shF - shB) / 3.0f, -0.35f, 0.35f));
+            }
+            return sh;
+        }
         if (city_.isOnBridge(p, 1.5f)) {
             float slopeZ = 0.0f;
             const float bh = city_.bridgeDeckElevationAt(p, &slopeZ);
@@ -4346,7 +4370,7 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
                 } else {
                     std::uint32_t connR = 0, connV = 0;
                     int connD = 1;
-                    if (rd.findConnectingRoadAt(b, v.osmRoadIdx, connR, connV, connD)) {
+                    if (rd.findConnectingRoadAt(b, v.osmRoadIdx, connR, connV, connD, v.posY)) {
                         v.osmRoadIdx = connR;
                         v.osmVertIdx = connV;
                         v.osmDir = connD;
@@ -4672,7 +4696,7 @@ void GameWorld::updateVehicles(float dt) {
             v.sirenActive = false;
             v.velocity *= std::max(0.0f, 1.0f - 3.5f * dt);
             v.pos += v.velocity * dt;
-            const float groundY = surfaceHeightAt(v.pos);
+            const float groundY = surfaceHeightAt(v.pos, v.posY);
             if (v.posY > groundY || v.velY != 0.0f) {
                 v.velY -= 19.5f * dt;
                 v.posY += v.velY * dt;
@@ -4719,7 +4743,7 @@ void GameWorld::resolveVehicleCollisions(float dt) {
     // 1. Vehicle vs Building static OBB collisions (with 4-quadrant crumple & off-center yaw torque)
     for (auto& v : vehicles_) {
         Vec2 push{};
-        if (city_.resolveOBBBuildings(v.obb(), push)) {
+        if (city_.resolveOBBBuildings(v.obb(), push, v.posY)) {
             v.pos += push;
             const Vec2 n = push.normalized();
             const float intoWall = -v.velocity.dot(n);
@@ -4882,7 +4906,7 @@ void GameWorld::explodeVehicle(Vehicle& v) {
         player_.drivingVehicleId = -1;
         player_.pos = v.pos - rightFromHeading(v.heading) * 2.4f;
         city_.resolveCircleWorld(player_.pos, 0.45f);
-        const float ejSurf = surfaceHeightAt(player_.pos);
+        const float ejSurf = surfaceHeightAt(player_.pos, v.posY);
         player_.posY = std::max(ejSurf, v.posY);
         player_.onGround = (player_.posY <= ejSurf + 0.05f);
         player_.verticalVel = player_.onGround ? 0.0f : v.velY;
@@ -5518,10 +5542,10 @@ void GameWorld::updateNpcs(float dt) {
                     Vec2 bestCurb = npc.pos;
                     bool foundCurb = false;
                     float bestDistSq = 1e9f;
-                    for (int ai = 0; ai < 12; ++ai) {
-                        const float ang = static_cast<float>(ai) * (kTwoPi / 12.0f);
+                    for (int ai = 0; ai < 16; ++ai) {
+                        const float ang = static_cast<float>(ai) * (kTwoPi / 16.0f);
                         const Vec2 dir{std::cos(ang), std::sin(ang)};
-                        for (float probeD : {3.5f, 7.0f, 11.5f, 16.5f}) {
+                        for (float probeD : {3.5f, 7.0f, 11.5f, 16.5f, 22.5f, 29.0f, 36.0f}) {
                             const Vec2 cand = npc.pos + dir * probeD;
                             Vec2 chk = cand;
                             if (!rd.isOnRoad(cand, 0.70f) && !rd.isInWater(cand) &&
@@ -5539,7 +5563,7 @@ void GameWorld::updateNpcs(float dt) {
                     if (foundCurb) {
                         const Vec2 dir = (bestCurb - npc.pos).normalized();
                         npc.facingYaw = moveTowardsAngle(npc.facingYaw, std::atan2(dir.z, dir.x), dt * 11.0f);
-                        npc.velocity = dir * 3.4f;
+                        npc.velocity = dir * 4.6f;
                         npc.pos += npc.velocity * dt;
                     } else {
                         npc.velocity = {0.0f, 0.0f};
@@ -5879,9 +5903,10 @@ void GameWorld::updatePickupsAndProps(float dt) {
 
         const float minBreakSpeed = (prop.kind == StreetPropKind::StreetLight) ? 11.0f : 4.5f;
         const float maxPropClearance = (prop.kind == StreetPropKind::StreetLight) ? 3.2f : 1.35f;
+        const float propBaseY = (prop.baseY > -1e8f) ? prop.baseY : surfaceHeightAt(prop.pos);
         for (auto& v : vehicles_) {
             if (v.speed() < minBreakSpeed) continue;
-            if (v.posY - surfaceHeightAt(prop.pos) > maxPropClearance) continue;
+            if (std::abs(v.posY - propBaseY) > maxPropClearance) continue;
             if ((v.pos - prop.pos).lengthSq() < 6.2f) {
                 prop.broken = true;
                 prop.brokenTimer = 0.0f;

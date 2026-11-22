@@ -136,6 +136,7 @@ struct StreetProp {
     float angVelPitch = 0.0f;
     float angVelRoll = 0.0f;
     std::uint8_t variant = 0; // Sign slot / width / color variant
+    float baseY = -1e9f;      // Explicit 3D deck/ground elevation (falls back to surfaceHeightAt when <= -1e8)
 };
 
 enum class PoiKind {
@@ -299,7 +300,7 @@ public:
     const SeoulBridge* findBridgeAt(const Vec2& p, float margin = 0.0f) const;
     bool isOnBridge(const Vec2& p, float margin = 0.0f) const;
     float bridgeDeckElevationAt(const Vec2& p, float* outSlopeZ = nullptr) const;
-    float surfaceHeightAt(const Vec2& p) const;
+    float surfaceHeightAt(const Vec2& p, float refY = -1e9f) const;
 
     bool isOnRoad(const Vec2& p, float margin = 0.0f) const;
     bool isInIntersection(const Vec2& p) const;
@@ -337,7 +338,7 @@ public:
 
     // Collision & LOS raycasts against streamed + macro buildings, Han River embankments & bridges
     bool resolveCircleWorld(Vec2& pos, float radius, Vec2* outHitNormal = nullptr) const;
-    bool resolveOBBBuildings(const OBB2D& obb, Vec2& outPush) const;
+    bool resolveOBBBuildings(const OBB2D& obb, Vec2& outPush, float entityY = -1e9f) const;
     float raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDist) const;
     float raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const;
 
