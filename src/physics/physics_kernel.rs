@@ -472,19 +472,30 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
     let spin_rate = forward_spd * (1.0 + st.wheel_slip * 1.15);
     st.wheel_spin = fmodf(st.wheel_spin + spin_rate * dt * 2.4, TWO_PI);
 
-    // 4. Planted 3D Seoul Hill, Bridge Arch & Drop Contact Physics
+    // 4. Silky-Smooth 3D Seoul Hill, Bridge Arch & Drop Contact Physics (Zero jolts, zero zombie vel_y!)
     let prev_y = st.pos_y;
     let ground_y = inp.ground_height;
+    let inv_dt = 1.0 / maxf(dt, 0.004);
     if st.airborne == 0 {
-        if ground_y > prev_y + 0.002 && forward_spd > 2.5 {
-            let climb_rate = (ground_y - prev_y) / maxf(dt, 0.004);
-            st.vel_y = maxf(st.vel_y, minf(climb_rate, 12.0));
-        }
-        if prev_y > ground_y + 0.48 && st.vel_y > 1.0 {
+        let raw_climb = clampf((ground_y - prev_y) * inv_dt, -10.0, 10.0);
+        // Track genuine upward ramp velocity cleanly and decay rapidly to 0 on flat/downhill roads!
+        let target_vy = if raw_climb > 0.15 && forward_spd > 3.0 {
+            raw_climb
+        } else {
+            0.0
+        };
+        st.vel_y = lerpf(st.vel_y, target_vy, clampf(dt * 14.0, 0.0, 1.0));
+
+        // Only go airborne off genuine steep ledges/drops (never over normal road crests or intersections!)
+        if (prev_y > ground_y + 0.65 && st.vel_y > 1.8) || (prev_y > ground_y + 1.35) {
             st.airborne = 1;
             st.air_time = 0.0;
         } else {
-            st.pos_y = ground_y;
+            // Critically-damped chassis heave tracking (clamped within +/-0.12m of true tire surface
+            // so micro-undulations are soaked smoothly without tires ever clipping or floating!)
+            let heave_t = 1.0 - expf(-24.0 * dt);
+            let next_y = lerpf(prev_y, ground_y, heave_t);
+            st.pos_y = clampf(next_y, ground_y - 0.12, ground_y + 0.12);
             if st.vel_y < 0.0 {
                 st.vel_y = 0.0;
             }
@@ -502,74 +513,81 @@ pub unsafe extern "C" fn oc_rs_step_vehicle_dynamics(
             st.vel_y = 0.0;
             st.airborne = 0;
             st.air_time = 0.0;
-            let impact_comp = clampf(st.landed_impact_speed * 0.017, 0.04, 0.14);
+            let impact_comp = clampf(st.landed_impact_speed * 0.015, 0.03, 0.12);
             st.wheel_comp[0] = impact_comp;
             st.wheel_comp[1] = impact_comp;
             st.wheel_comp[2] = impact_comp;
             st.wheel_comp[3] = impact_comp;
-            st.pitch_vel -= clampf(st.landed_impact_speed * 0.065, 0.10, 0.58);
+            st.pitch_vel -= clampf(st.landed_impact_speed * 0.048, 0.08, 0.42);
         }
     }
 
-    // 5. 4-Corner Independent Curb/Bump Suspension + Under-Damped Spring-Damper Chassis Pitch & Roll
-    let dh0 = clampf(inp.wheel_ground_h[0] - ground_y, -0.14, 0.14); // FL
-    let dh1 = clampf(inp.wheel_ground_h[1] - ground_y, -0.14, 0.14); // FR
-    let dh2 = clampf(inp.wheel_ground_h[2] - ground_y, -0.14, 0.14); // RL
-    let dh3 = clampf(inp.wheel_ground_h[3] - ground_y, -0.14, 0.14); // RR
-    let curb_roll = ((dh1 + dh3) - (dh0 + dh2)) * 0.24;
-    let curb_pitch = ((dh0 + dh1) - (dh2 + dh3)) * 0.12;
-    let road_ripple = sinf(st.pos_x * 0.72 + st.pos_z * 0.58) * 0.007 * clampf(abs_fwd / 26.0, 0.0, 1.0);
+    // 5. True 4-Wheel Contact Plane Pitch/Roll + Critically-Damped Luxury Suspension (ZERO double-counting or wobble!)
+    let front_h = 0.5 * (inp.wheel_ground_h[0] + inp.wheel_ground_h[1]);
+    let rear_h = 0.5 * (inp.wheel_ground_h[2] + inp.wheel_ground_h[3]);
+    let left_h = 0.5 * (inp.wheel_ground_h[0] + inp.wheel_ground_h[2]);
+    let right_h = 0.5 * (inp.wheel_ground_h[1] + inp.wheel_ground_h[3]);
+    let wheelbase = maxf(1.4, sp.half_length * 1.26);
+    let track_w = maxf(1.1, sp.half_width * 1.72);
+    // Exact road plane pitch (+nose up on uphill) & cross-slope roll, cleanly blended with lookahead slope (no double count!)
+    let wheel_pitch = clampf((front_h - rear_h) / wheelbase, -0.24, 0.24);
+    let road_pitch = wheel_pitch * 0.55 + clampf(inp.ramp_slope_pitch, -0.24, 0.24) * 0.45;
+    let road_roll = clampf((right_h - left_h) / track_w, -0.14, 0.14) * 0.65;
+
+    let dh0 = clampf(inp.wheel_ground_h[0] - ground_y, -0.09, 0.09); // FL
+    let dh1 = clampf(inp.wheel_ground_h[1] - ground_y, -0.09, 0.09); // FR
+    let dh2 = clampf(inp.wheel_ground_h[2] - ground_y, -0.09, 0.09); // RL
+    let dh3 = clampf(inp.wheel_ground_h[3] - ground_y, -0.09, 0.09); // RR
     let lat_g = clampf(forward_spd * applied_yaw_rate, -24.0, 24.0);
 
     // Renderer bodyPitch convention: +bodyPitch (+Z rotation) = NOSE UP / REAR SQUAT, -bodyPitch = NOSE DIVE!
     let brake_pitch = if st.braking_visual != 0 {
-        if prev_fwd_spd >= 0.0 { -0.044 } else { 0.036 }
+        if prev_fwd_spd >= 0.0 { -0.038 } else { 0.030 }
     } else {
         0.0
     };
     let target_pitch = if st.airborne != 0 {
-        clampf(st.vel_y * 0.022, -0.22, 0.22)
+        clampf(st.vel_y * 0.020, -0.22, 0.22)
     } else {
-        inp.ramp_slope_pitch
-            + curb_pitch
+        road_pitch
             + clampf(
-                long_accel * 0.0028 + throttle * 0.024 + st.wheel_slip * 0.018 + brake_pitch,
-                -0.11,
-                0.11,
+                long_accel * 0.0024 + throttle * 0.020 + st.wheel_slip * 0.014 + brake_pitch,
+                -0.095,
+                0.095,
             )
     };
     let target_roll = if st.airborne != 0 {
         clampf(steer * 0.08, -0.16, 0.16)
     } else {
-        clampf(-lat_g * 0.0046 - lateral_spd * 0.012 + curb_roll, -0.14, 0.14)
+        clampf(-lat_g * 0.0042 - lateral_spd * 0.010 + road_roll, -0.13, 0.13)
     };
 
-    let spring_k = 60.0;
-    let damper_c = 11.2;
+    // Critically-damped spring-damper (zeta ~ 1.04): responsive dynamic weight transfer with ZERO pogo bounce!
+    let spring_k = 42.0;
+    let damper_c = 13.5;
     let pitch_acc = (target_pitch - st.body_pitch) * spring_k - st.pitch_vel * damper_c;
     let roll_acc = (target_roll - st.body_roll) * spring_k - st.roll_vel * damper_c;
     st.pitch_vel += pitch_acc * dt;
     st.roll_vel += roll_acc * dt;
-    st.body_pitch = clampf(st.body_pitch + st.pitch_vel * dt, -0.28, 0.28);
-    st.body_roll = clampf(st.body_roll + st.roll_vel * dt, -0.24, 0.24);
+    st.body_pitch = clampf(st.body_pitch + st.pitch_vel * dt, -0.26, 0.26);
+    st.body_roll = clampf(st.body_roll + st.roll_vel * dt, -0.22, 0.22);
 
-    // Individual 4-wheel strut deflection (FL=0, FR=1, RL=2, RR=3) combining pitch, roll, curb bump & road texture
-    // Nose up (+body_pitch) extends front struts (-p_def) and compresses rear struts (+p_def)!
+    // Individual 4-wheel strut deflection (FL=0, FR=1, RL=2, RR=3) absorbing road contour smoothly
     if st.airborne != 0 {
         for i in 0..4 {
-            st.wheel_comp[i] = lerpf(st.wheel_comp[i], -0.058, dt * 8.0);
+            st.wheel_comp[i] = lerpf(st.wheel_comp[i], -0.055, dt * 8.0);
         }
     } else {
-        let p_def = st.body_pitch * 0.68;
-        let r_def = st.body_roll * 0.68;
+        let p_def = st.body_pitch * 0.58;
+        let r_def = st.body_roll * 0.58;
         let targets = [
-            clampf(-p_def - r_def + dh0 * 0.65 + road_ripple, -0.075, 0.13), // FL
-            clampf(-p_def + r_def + dh1 * 0.65 - road_ripple, -0.075, 0.13), // FR
-            clampf( p_def - r_def + dh2 * 0.65 - road_ripple, -0.075, 0.13), // RL
-            clampf( p_def + r_def + dh3 * 0.65 + road_ripple, -0.075, 0.13), // RR
+            clampf(-p_def - r_def + dh0 * 0.50, -0.065, 0.11), // FL
+            clampf(-p_def + r_def + dh1 * 0.50, -0.065, 0.11), // FR
+            clampf( p_def - r_def + dh2 * 0.50, -0.065, 0.11), // RL
+            clampf( p_def + r_def + dh3 * 0.50, -0.065, 0.11), // RR
         ];
         for i in 0..4 {
-            st.wheel_comp[i] = lerpf(st.wheel_comp[i], targets[i], dt * 15.0);
+            st.wheel_comp[i] = lerpf(st.wheel_comp[i], targets[i], dt * 14.0);
         }
     }
 

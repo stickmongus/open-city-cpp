@@ -329,16 +329,18 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
 
     const float prevY = st->pos_y;
     const float groundY = inp->ground_height;
+    const float invDt = 1.0f / std::max(dt, 0.004f);
     if (st->airborne == 0) {
-        if (groundY > prevY + 0.002f && forwardSpd > 2.5f) {
-            const float climbRate = (groundY - prevY) / std::max(dt, 0.004f);
-            st->vel_y = std::max(st->vel_y, std::min(climbRate, 12.0f));
-        }
-        if (prevY > groundY + 0.48f && st->vel_y > 1.0f) {
+        const float rawClimb = clampf((groundY - prevY) * invDt, -10.0f, 10.0f);
+        const float targetVy = (rawClimb > 0.15f && forwardSpd > 3.0f) ? rawClimb : 0.0f;
+        st->vel_y = lerpf(st->vel_y, targetVy, clampf(dt * 14.0f, 0.0f, 1.0f));
+        if ((prevY > groundY + 0.65f && st->vel_y > 1.8f) || (prevY > groundY + 1.35f)) {
             st->airborne = 1;
             st->air_time = 0.0f;
         } else {
-            st->pos_y = groundY;
+            const float heaveT = 1.0f - std::exp(-24.0f * dt);
+            const float nextY = lerpf(prevY, groundY, heaveT);
+            st->pos_y = clampf(nextY, groundY - 0.12f, groundY + 0.12f);
             if (st->vel_y < 0.0f) st->vel_y = 0.0f;
         }
     }
@@ -354,47 +356,54 @@ inline void oc_rs_step_vehicle_dynamics(float dt,
             st->vel_y = 0.0f;
             st->airborne = 0;
             st->air_time = 0.0f;
-            const float comp = clampf(st->landed_impact_speed * 0.017f, 0.04f, 0.14f);
+            const float comp = clampf(st->landed_impact_speed * 0.015f, 0.03f, 0.12f);
             for (int i = 0; i < 4; ++i) st->wheel_comp[i] = comp;
-            st->pitch_vel -= clampf(st->landed_impact_speed * 0.065f, 0.10f, 0.58f);
+            st->pitch_vel -= clampf(st->landed_impact_speed * 0.048f, 0.08f, 0.42f);
         }
     }
 
-    const float dh0 = clampf(inp->wheel_ground_h[0] - groundY, -0.14f, 0.14f);
-    const float dh1 = clampf(inp->wheel_ground_h[1] - groundY, -0.14f, 0.14f);
-    const float dh2 = clampf(inp->wheel_ground_h[2] - groundY, -0.14f, 0.14f);
-    const float dh3 = clampf(inp->wheel_ground_h[3] - groundY, -0.14f, 0.14f);
-    const float curbRoll = ((dh1 + dh3) - (dh0 + dh2)) * 0.24f;
-    const float curbPitch = ((dh0 + dh1) - (dh2 + dh3)) * 0.12f;
-    const float roadRipple = std::sin(st->pos_x * 0.72f + st->pos_z * 0.58f) * 0.007f * clampf(absFwd / 26.0f, 0.0f, 1.0f);
+    const float frontH = 0.5f * (inp->wheel_ground_h[0] + inp->wheel_ground_h[1]);
+    const float rearH  = 0.5f * (inp->wheel_ground_h[2] + inp->wheel_ground_h[3]);
+    const float leftH  = 0.5f * (inp->wheel_ground_h[0] + inp->wheel_ground_h[2]);
+    const float rightH = 0.5f * (inp->wheel_ground_h[1] + inp->wheel_ground_h[3]);
+    const float wheelbase = std::max(1.4f, sp->half_length * 1.26f);
+    const float trackW = std::max(1.1f, sp->half_width * 1.72f);
+    const float wheelPitch = clampf((frontH - rearH) / wheelbase, -0.24f, 0.24f);
+    const float roadPitch = wheelPitch * 0.55f + clampf(inp->ramp_slope_pitch, -0.24f, 0.24f) * 0.45f;
+    const float roadRoll = clampf((rightH - leftH) / trackW, -0.14f, 0.14f) * 0.65f;
+
+    const float dh0 = clampf(inp->wheel_ground_h[0] - groundY, -0.09f, 0.09f);
+    const float dh1 = clampf(inp->wheel_ground_h[1] - groundY, -0.09f, 0.09f);
+    const float dh2 = clampf(inp->wheel_ground_h[2] - groundY, -0.09f, 0.09f);
+    const float dh3 = clampf(inp->wheel_ground_h[3] - groundY, -0.09f, 0.09f);
     const float latG = clampf(forwardSpd * appliedYawRate, -24.0f, 24.0f);
 
     // +body_pitch (+Z rotation) = NOSE UP / REAR SQUAT on accel; -body_pitch = NOSE DIVE on braking!
-    const float brakePitch = (st->braking_visual != 0) ? ((prevFwdSpd >= 0.0f) ? -0.044f : 0.036f) : 0.0f;
+    const float brakePitch = (st->braking_visual != 0) ? ((prevFwdSpd >= 0.0f) ? -0.038f : 0.030f) : 0.0f;
     const float targetPitch = (st->airborne != 0)
-        ? clampf(st->vel_y * 0.022f, -0.22f, 0.22f)
-        : (inp->ramp_slope_pitch + curbPitch +
-           clampf(longAccel * 0.0028f + throttle * 0.024f + st->wheel_slip * 0.018f + brakePitch, -0.11f, 0.11f));
+        ? clampf(st->vel_y * 0.020f, -0.22f, 0.22f)
+        : (roadPitch +
+           clampf(longAccel * 0.0024f + throttle * 0.020f + st->wheel_slip * 0.014f + brakePitch, -0.095f, 0.095f));
     const float targetRoll = (st->airborne != 0)
         ? clampf(steer * 0.08f, -0.16f, 0.16f)
-        : clampf(-latG * 0.0046f - lateralSpd * 0.012f + curbRoll, -0.14f, 0.14f);
+        : clampf(-latG * 0.0042f - lateralSpd * 0.010f + roadRoll, -0.13f, 0.13f);
 
-    st->pitch_vel += ((targetPitch - st->body_pitch) * 60.0f - st->pitch_vel * 11.2f) * dt;
-    st->roll_vel  += ((targetRoll  - st->body_roll)  * 60.0f - st->roll_vel  * 11.2f) * dt;
-    st->body_pitch = clampf(st->body_pitch + st->pitch_vel * dt, -0.28f, 0.28f);
-    st->body_roll  = clampf(st->body_roll  + st->roll_vel  * dt, -0.24f, 0.24f);
+    st->pitch_vel += ((targetPitch - st->body_pitch) * 42.0f - st->pitch_vel * 13.5f) * dt;
+    st->roll_vel  += ((targetRoll  - st->body_roll)  * 42.0f - st->roll_vel  * 13.5f) * dt;
+    st->body_pitch = clampf(st->body_pitch + st->pitch_vel * dt, -0.26f, 0.26f);
+    st->body_roll  = clampf(st->body_roll  + st->roll_vel  * dt, -0.22f, 0.22f);
 
     if (st->airborne != 0) {
-        for (int i = 0; i < 4; ++i) st->wheel_comp[i] = lerpf(st->wheel_comp[i], -0.058f, dt * 8.0f);
+        for (int i = 0; i < 4; ++i) st->wheel_comp[i] = lerpf(st->wheel_comp[i], -0.055f, dt * 8.0f);
     } else {
-        const float pDef = st->body_pitch * 0.68f, rDef = st->body_roll * 0.68f;
+        const float pDef = st->body_pitch * 0.58f, rDef = st->body_roll * 0.58f;
         const float targets[4] = {
-            clampf(-pDef - rDef + dh0 * 0.65f + roadRipple, -0.075f, 0.13f),
-            clampf(-pDef + rDef + dh1 * 0.65f - roadRipple, -0.075f, 0.13f),
-            clampf( pDef - rDef + dh2 * 0.65f - roadRipple, -0.075f, 0.13f),
-            clampf( pDef + rDef + dh3 * 0.65f + roadRipple, -0.075f, 0.13f)
+            clampf(-pDef - rDef + dh0 * 0.50f, -0.065f, 0.11f),
+            clampf(-pDef + rDef + dh1 * 0.50f, -0.065f, 0.11f),
+            clampf( pDef - rDef + dh2 * 0.50f, -0.065f, 0.11f),
+            clampf( pDef + rDef + dh3 * 0.50f, -0.065f, 0.11f)
         };
-        for (int i = 0; i < 4; ++i) st->wheel_comp[i] = lerpf(st->wheel_comp[i], targets[i], dt * 15.0f);
+        for (int i = 0; i < 4; ++i) st->wheel_comp[i] = lerpf(st->wheel_comp[i], targets[i], dt * 14.0f);
     }
 
     const float speed = std::sqrt(st->vel_x * st->vel_x + st->vel_z * st->vel_z);

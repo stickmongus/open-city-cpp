@@ -1427,7 +1427,7 @@ void HudRenderer::drawHelpOverlay(Vulkan2D& ui, const GameWorld& world, int scre
     const float w = 316.0f, h = 172.0f;
     ui.drawRoundedRect(18.0f, 16.0f, w, h, 10.0f, {10, 14, 22, 198});
     ui.drawRoundedRectOutline(18.0f, 16.0f, w, h, 10.0f, 1.2f, accent);
-    ui.drawText(pickText("OPEN CITY SEOUL v4.1 (VULKAN)", "오픈 시티 서울 v4.1 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
+    ui.drawText(pickText("OPEN CITY SEOUL v5.0 (VULKAN)", "오픈 시티 서울 v5.0 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
     const char* lines[7] = {
         "WASD: 이동/운전 | Space: 점프/핸드브레이크",
         "Shift: 달리기/니트로 | F/E: 차량 탑승/상점",

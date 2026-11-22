@@ -36,7 +36,10 @@ public:
     void init(VulkanContext& vk, const CityMap& city,
               const std::vector<std::uint8_t>& fontBytes = {},
               const std::vector<std::uint8_t>& pbrAlbedoPng = {},
-              const std::vector<std::uint8_t>& pbrNormalRoughPng = {});
+              const std::vector<std::uint8_t>& pbrNormalRoughPng = {},
+              const std::vector<std::uint8_t>& streetAlbedoPng = {},
+              const std::vector<std::uint8_t>& streetNormalRoughPng = {},
+              const std::vector<std::uint8_t>& signs4kPng = {});
     void shutdown(VulkanContext& vk);
 
     GraphicsQuality quality() const { return quality_; }
@@ -169,6 +172,7 @@ private:
                                 const CameraState& camera, float adsBlend);
 
     bool initialized_ = false;
+    bool signAtlas4k_ = false;
     GraphicsQuality quality_ = GraphicsQuality::Ultra;
     std::uint64_t frameCounter_ = 0;
 

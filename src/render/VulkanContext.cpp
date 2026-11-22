@@ -101,10 +101,12 @@ struct VulkanContext::Impl {
     AllocatedImage uiMapImage{};
     VkSampler fontSampler = VK_NULL_HANDLE;
 
-    // 3D Seoul Hangul Sign Atlas (binding=2) & 2048x2048 Mipmapped PBR Atlases (bindings 3 & 4)
+    // 3D Seoul Hangul Sign Atlas (binding=2), Architectural PBR (3,4) & Dedicated Street PBR Atlases (5,6)
     AllocatedImage signAtlasImage{};
     AllocatedImage pbrAlbedoImage{};
     AllocatedImage pbrNormalRoughImage{};
+    AllocatedImage streetAlbedoImage{};
+    AllocatedImage streetNormalRoughImage{};
     VkSampler pbrSampler = VK_NULL_HANDLE;
     bool anisotropyEnabled = false;
 
@@ -1114,61 +1116,11 @@ struct VulkanContext::Impl {
     }
 
     bool uploadSignRGBA8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h) {
-        if (!device || !pixels || w == 0 || h == 0) return false;
-        vkDeviceWaitIdle(device);
-        destroyImage(signAtlasImage);
-
-        if (!createImage(w, h, VK_FORMAT_R8G8B8A8_UNORM, VK_SAMPLE_COUNT_1_BIT,
-                         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                         VK_IMAGE_ASPECT_COLOR_BIT, signAtlasImage)) {
-            return false;
-        }
-
-        const VkDeviceSize byteSize = static_cast<VkDeviceSize>(w) * static_cast<VkDeviceSize>(h) * 4u;
-        AllocatedBuffer staging{};
-        if (!createBuffer(byteSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                          staging, true)) {
-            return false;
-        }
-        std::memcpy(staging.mapped, pixels, static_cast<std::size_t>(byteSize));
-
-        VkCommandBuffer cmd = beginSingleTimeCommands();
-        VkImageMemoryBarrier toTransfer{};
-        toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toTransfer.image = signAtlasImage.image;
-        toTransfer.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             0, 0, nullptr, 0, nullptr, 1, &toTransfer);
-
-        VkBufferImageCopy region{};
-        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        region.imageExtent = {w, h, 1};
-        vkCmdCopyBufferToImage(cmd, staging.buffer, signAtlasImage.image,
-                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-        VkImageMemoryBarrier toShader{};
-        toShader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        toShader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toShader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        toShader.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toShader.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toShader.image = signAtlasImage.image;
-        toShader.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        toShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                             0, 0, nullptr, 0, nullptr, 1, &toShader);
-        endSingleTimeCommands(cmd);
-        destroyBuffer(staging);
+        // Cap 4x16 sign atlas at 6 mip levels so 256px-tall rows never cross-bleed at grazing distances!
+        if (!uploadMipmappedRGBA8(pixels, w, h, signAtlasImage, true, 6u)) return false;
 
         VkDescriptorImageInfo ii{};
-        ii.sampler = linearClampSampler;
+        ii.sampler = pbrSampler;
         ii.imageView = signAtlasImage.view;
         ii.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         for (int i = 0; i < kMaxFramesInFlight; ++i) {
@@ -1185,7 +1137,7 @@ struct VulkanContext::Impl {
     }
 
     bool uploadMipmappedRGBA8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h,
-                              AllocatedImage& dstImage, bool generateMips) {
+                              AllocatedImage& dstImage, bool generateMips, std::uint32_t maxMipLevels = 8u) {
         if (!device || !pixels || w == 0 || h == 0) return false;
         vkDeviceWaitIdle(device);
         destroyImage(dstImage);
@@ -1198,11 +1150,11 @@ struct VulkanContext::Impl {
             if ((fp.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0u &&
                 (fp.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) != 0u &&
                 (fp.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0u) {
-                // Limit to 8 mips so 4x4 512px tiles never cross-bleed into adjacent tiles at coarse mips!
+                // Limit mips so 4x4 1024px tiles / 4x16 256px sign rows never cross-bleed at coarse mips!
                 const std::uint32_t maxDim = std::max(w, h);
                 std::uint32_t lv = 1;
                 std::uint32_t d = maxDim;
-                while (d > 1 && lv < 8) { d >>= 1; ++lv; }
+                while (d > 1 && lv < maxMipLevels) { d >>= 1; ++lv; }
                 mipLevels = lv;
             }
         }
@@ -1309,6 +1261,33 @@ struct VulkanContext::Impl {
             wds[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             wds[1].dstSet = sceneDescSets[i];
             wds[1].dstBinding = 4;
+            wds[1].descriptorCount = 1;
+            wds[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            wds[1].pImageInfo = &ii1;
+            vkUpdateDescriptorSets(device, 2, wds.data(), 0, nullptr);
+        }
+        return true;
+    }
+
+    bool uploadStreetPbrRGBA8(const std::uint8_t* albedoPixels, std::uint32_t w, std::uint32_t h,
+                              const std::uint8_t* normalRoughPixels, std::uint32_t nw, std::uint32_t nh) {
+        if (!uploadMipmappedRGBA8(albedoPixels, w, h, streetAlbedoImage, true)) return false;
+        if (!uploadMipmappedRGBA8(normalRoughPixels, nw, nh, streetNormalRoughImage, true)) return false;
+
+        VkDescriptorImageInfo ii0{pbrSampler, streetAlbedoImage.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo ii1{pbrSampler, streetNormalRoughImage.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        for (int i = 0; i < kMaxFramesInFlight; ++i) {
+            std::array<VkWriteDescriptorSet, 2> wds{};
+            wds[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            wds[0].dstSet = sceneDescSets[i];
+            wds[0].dstBinding = 5;
+            wds[0].descriptorCount = 1;
+            wds[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            wds[0].pImageInfo = &ii0;
+
+            wds[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            wds[1].dstSet = sceneDescSets[i];
+            wds[1].dstBinding = 6;
             wds[1].descriptorCount = 1;
             wds[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             wds[1].pImageInfo = &ii1;
@@ -1494,7 +1473,9 @@ bool VulkanContext::init(const PlatformApp& app) {
     VkPhysicalDeviceFeatures availFeatures{};
     vkGetPhysicalDeviceFeatures(impl_->physicalDevice, &availFeatures);
     VkPhysicalDeviceFeatures enabledFeatures{};
-    if (availFeatures.samplerAnisotropy) {
+    // Keep 8x anisotropic filtering on all real hardware GPUs (Android Adreno/Mali/Xclipse, NVIDIA/AMD/Intel);
+    // avoid software CPU rasterizer (Mesa 22.x Lavapipe) lp_build_sample_aniso extreme-tap stall on 4K atlases.
+    if (availFeatures.samplerAnisotropy && devProps.deviceType != VK_PHYSICAL_DEVICE_TYPE_CPU) {
         enabledFeatures.samplerAnisotropy = VK_TRUE;
         impl_->anisotropyEnabled = true;
     }
@@ -1546,7 +1527,7 @@ bool VulkanContext::init(const PlatformApp& app) {
 
     // Descriptor layouts
     {
-        std::array<VkDescriptorSetLayoutBinding, 5> sb{};
+        std::array<VkDescriptorSetLayoutBinding, 7> sb{};
         sb[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
                  VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
         sb[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
@@ -1556,6 +1537,10 @@ bool VulkanContext::init(const PlatformApp& app) {
         sb[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                  VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
         sb[4] = {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                 VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+        sb[5] = {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                 VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+        sb[6] = {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                  VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
         VkDescriptorSetLayoutCreateInfo lci{};
         lci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -1581,7 +1566,7 @@ bool VulkanContext::init(const PlatformApp& app) {
     {
         std::array<VkDescriptorPoolSize, 2> ps{};
         ps[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<std::uint32_t>(kMaxFramesInFlight)};
-        ps[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<std::uint32_t>(kMaxFramesInFlight * 4 + 3)};
+        ps[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<std::uint32_t>(kMaxFramesInFlight * 6 + 3)};
         VkDescriptorPoolCreateInfo dpci{};
         dpci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         dpci.maxSets = static_cast<std::uint32_t>(kMaxFramesInFlight + 2);
@@ -1688,6 +1673,7 @@ bool VulkanContext::init(const PlatformApp& app) {
         128, 128, 175, 255, 128, 128, 175, 255
     };
     impl_->uploadPbrRGBA8(dummySignRGBA, 2, 2, dummyNormRoughRGBA, 2, 2);
+    impl_->uploadStreetPbrRGBA8(dummySignRGBA, 2, 2, dummyNormRoughRGBA, 2, 2);
     const std::uint8_t dummyMapRGBA[16] = {
         28, 34, 44, 255, 28, 34, 44, 255,
         28, 34, 44, 255, 28, 34, 44, 255
@@ -1719,6 +1705,8 @@ void VulkanContext::shutdown() {
         impl_->destroyImage(impl_->signAtlasImage);
         impl_->destroyImage(impl_->pbrAlbedoImage);
         impl_->destroyImage(impl_->pbrNormalRoughImage);
+        impl_->destroyImage(impl_->streetAlbedoImage);
+        impl_->destroyImage(impl_->streetNormalRoughImage);
 
         for (int i = 0; i < kMaxFramesInFlight; ++i) {
             impl_->destroyBuffer(impl_->sceneUboBufs[i]);
@@ -1846,6 +1834,11 @@ bool VulkanContext::uploadSignAtlasRGBA8(const std::uint8_t* pixels, std::uint32
 bool VulkanContext::uploadPbrTexturesRGBA8(const std::uint8_t* albedoPixels, std::uint32_t w, std::uint32_t h,
                                            const std::uint8_t* normalRoughPixels, std::uint32_t nw, std::uint32_t nh) {
     return impl_->uploadPbrRGBA8(albedoPixels, w, h, normalRoughPixels, nw, nh);
+}
+
+bool VulkanContext::uploadStreetPbrTexturesRGBA8(const std::uint8_t* albedoPixels, std::uint32_t w, std::uint32_t h,
+                                                 const std::uint8_t* normalRoughPixels, std::uint32_t nw, std::uint32_t nh) {
+    return impl_->uploadStreetPbrRGBA8(albedoPixels, w, h, normalRoughPixels, nw, nh);
 }
 
 bool VulkanContext::uploadUiMapRGBA8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h) {

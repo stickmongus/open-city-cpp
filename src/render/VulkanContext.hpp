@@ -118,10 +118,13 @@ public:
     bool uploadFontAtlasR8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h);
     // 3D Seoul Hangul Sign Atlas upload (RGBA8_UNORM texture sampled at set=0, binding=2)
     bool uploadSignAtlasRGBA8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h);
-    // 2048x2048 Mipmapped PBR Albedo (binding=3) & Normal/Roughness/AO (binding=4) Atlases (v3.0.0)
+    // 4096x4096 Mipmapped Architectural PBR Albedo (binding=3) & Normal/Roughness/AO (binding=4) Atlases
     bool uploadPbrTexturesRGBA8(const std::uint8_t* albedoPixels, std::uint32_t w, std::uint32_t h,
                                 const std::uint8_t* normalRoughPixels, std::uint32_t nw, std::uint32_t nh);
-    // 2048x1312 Real OpenStreetMap Seoul 2D Cartographic Map Texture for UI Minimap & Full Map (ui set=0, binding=1)
+    // 4096x4096 Mipmapped Dedicated Seoul Street/Road/Sidewalk PBR Albedo (binding=5) & Normal/Roughness/AO (binding=6) Atlases (v5.0.0)
+    bool uploadStreetPbrTexturesRGBA8(const std::uint8_t* albedoPixels, std::uint32_t w, std::uint32_t h,
+                                      const std::uint8_t* normalRoughPixels, std::uint32_t nw, std::uint32_t nh);
+    // 4096x2624 Real Seoul 2D Cartographic Map Texture for UI Minimap & Full Map (ui set=0, binding=1)
     bool uploadUiMapRGBA8(const std::uint8_t* pixels, std::uint32_t w, std::uint32_t h);
 
     // Frame lifecycle

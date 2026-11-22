@@ -233,13 +233,19 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         world.clearBanner();
     }
 
-    const auto fontBytes           = app.loadAssetOrSystemFont();
-    const auto pbrAlbedoBytes      = app.loadAssetBytes("textures/pbr_albedo.png");
-    const auto pbrNormalRoughBytes = app.loadAssetBytes("textures/pbr_normal_rough.png");
-    const auto map2dBytes          = app.loadAssetBytes("maps/seoul_map_2d.png");
+    const auto fontBytes              = app.loadAssetOrSystemFont();
+    const auto pbrAlbedoBytes         = app.loadAssetBytes("textures/pbr_albedo.png");
+    const auto pbrNormalRoughBytes    = app.loadAssetBytes("textures/pbr_normal_rough.png");
+    const auto streetAlbedoBytes      = app.loadAssetBytes("textures/street_albedo.png");
+    const auto streetNormalRoughBytes = app.loadAssetBytes("textures/street_normal_rough.png");
+    const auto signs4kBytes           = app.loadAssetBytes("textures/seoul_signs_4k.png");
+    const auto map2dBytes             = app.loadAssetBytes("maps/seoul_map_2d.png");
 
     Renderer3D renderer;
-    renderer.init(vk, world.city(), fontBytes, pbrAlbedoBytes, pbrNormalRoughBytes);
+    renderer.init(vk, world.city(), fontBytes,
+                  pbrAlbedoBytes, pbrNormalRoughBytes,
+                  streetAlbedoBytes, streetNormalRoughBytes,
+                  signs4kBytes);
 
     Vulkan2D ui2d;
     const bool hasFont = ui2d.init(vk, fontBytes);
@@ -269,6 +275,10 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
     bool firstPerson = cli.firstPerson;
     float adsBlend = cli.forceAim ? 1.0f : 0.0f;
     float smoothCamArmScale = 1.0f; // Smooth 3rd-person spring-arm building collision pull-in!
+    float smoothCamY = 0.0f;        // Critically-smoothed vertical camera tracking (zero vertical jolt!)
+    bool smoothCamYInit = false;
+    Vec2 lastCamFocusXZ{};
+    bool lastCamDriving = false;
     float smoothKeySteer = 0.0f;
     float smoothKeyThrottle = 0.0f;
     int screenshotWarmupFrames = cli.screenshotPath.empty() ? 0 : 3;
@@ -512,6 +522,30 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         } else {
             const auto& pl = world.player();
             const Vehicle* pCar = world.playerVehicle();
+            const bool drivingNow = (pCar != nullptr);
+            const Vec2 curFocusXZ = drivingNow ? pCar->pos : pl.pos;
+            const float rawSurfY = drivingNow
+                ? world.city().surfaceHeightAt(pCar->pos, pCar->posY)
+                : world.city().surfaceHeightAt(pl.pos, pl.posY);
+            const float rawGy = drivingNow
+                ? std::max(rawSurfY - 0.12f, pCar->posY)
+                : std::max(rawSurfY, pl.posY);
+
+            // Critically-smoothed vertical camera tracking eliminates any remaining micro-jolt
+            // over grades, bridge joints & intersections while snapping cleanly on spawn/teleport!
+            if (!smoothCamYInit || drivingNow != lastCamDriving ||
+                (curFocusXZ - lastCamFocusXZ).lengthSq() > 64.0f) {
+                smoothCamY = rawGy;
+                smoothCamYInit = true;
+            } else {
+                const float trackRate = drivingNow ? 13.5f : 18.0f;
+                smoothCamY += (rawGy - smoothCamY) * std::min(1.0f, dt * trackRate);
+                smoothCamY = clampf(smoothCamY, rawGy - 0.34f, rawGy + 0.34f);
+            }
+            lastCamFocusXZ = curFocusXZ;
+            lastCamDriving = drivingNow;
+            const float gy = smoothCamY;
+
             if (pCar) {
                 // Smooth auto-follow yaw behind driving car when moving
                 if (pCar->speed() > 3.5f && std::abs(pi.mouseDeltaX) < 0.5f && std::abs(tr.lookDeltaX) < 0.5f && !cli.hasYaw) {
@@ -519,7 +553,6 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
                     camYaw += diff * std::min(1.0f, dt * 3.6f);
                 }
                 const float viewYaw = lookBack ? (camYaw + kPi) : camYaw;
-                const float gy = std::max(world.city().surfaceHeightAt(pCar->pos, pCar->posY), pCar->posY);
                 if (firstPerson && !lookBack) {
                     const Vec3 eyeLoc = driverSeatEyeLocal(pCar->kind);
                     const float ch = std::cos(pCar->heading), shH = std::sin(pCar->heading);
@@ -543,7 +576,6 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
                     applySpringArmCollision({pCar->pos.x, gy + spec.chassisHeight * 0.78f, pCar->pos.z}, cam.position, 2.2f);
                 }
             } else {
-                const float gy = std::max(world.city().surfaceHeightAt(pl.pos, pl.posY), pl.posY);
                 if (firstPerson) {
                     cam.position = {pl.pos.x, gy + 1.66f, pl.pos.z};
                     cam.target = cam.position + Vec3{std::cos(camYaw) * std::cos(camPitch),
@@ -637,7 +669,7 @@ extern "C" void android_main(struct android_app* state) {
 int main(int argc, char** argv) {
     const oc::CliOptions cli = oc::parseArgs(argc, argv);
     oc::PlatformApp app;
-    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v4.1 — Real 3D Seoul Roads & Bridges (Native Vulkan)")) {
+    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v5.0 — Ultra-Smooth Real Seoul 4K (Native Vulkan)")) {
         return 1;
     }
     const int rc = oc::runApplication(app, cli);

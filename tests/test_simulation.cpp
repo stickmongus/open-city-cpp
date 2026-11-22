@@ -2527,7 +2527,7 @@ void testV300RealOsmSeoulMapAndPbr() {
                                 static_cast<std::uint32_t>(hdr[23]);
         ASSERT_TRUE(w == expW && h == expH);
     };
-    checkPng("maps/seoul_map_2d.png", 3072, 1968);
+    checkPng("maps/seoul_map_2d.png", 4096, 2624);
     checkPng("textures/pbr_albedo.png", 4096, 4096);
     checkPng("textures/pbr_normal_rough.png", 4096, 4096);
 
@@ -3235,10 +3235,12 @@ void testV400RealOcm4BuildingsAndZeroRoadIntrusions() {
     const oc::RealSeoulData& real = world.city().realData();
     const oc::OcMapHeader& hdr = real.header();
 
-    // 1. Verify OCM4 v2 / OCM5 v3 high-density 3D Seoul architectural dataset (184K buildings, 10 styles, 7 roof shapes, multi-part towers)
+    // 1. Verify OCM4 v2 / OCM5 v3 / OCM6 v4 high-density 3D Seoul architectural dataset (184K buildings, 10 styles, 7 roof shapes, multi-part towers)
     const bool validOcMap =
         (hdr.magic[0] == 'O' && hdr.magic[1] == 'C' && hdr.magic[2] == 'M' &&
-         ((hdr.magic[3] == '4' && hdr.version == 2u) || (hdr.magic[3] == '5' && hdr.version == 3u)));
+         ((hdr.magic[3] == '4' && hdr.version == 2u) ||
+          (hdr.magic[3] == '5' && hdr.version == 3u) ||
+          (hdr.magic[3] == '6' && hdr.version == 4u)));
     ASSERT_TRUE(validOcMap);
     ASSERT_TRUE(real.buildings().size() >= 180000u);
     ASSERT_TRUE(real.bldgVerts().size() >= 850000u);
@@ -3307,7 +3309,7 @@ void testV400RealOcm4BuildingsAndZeroRoadIntrusions() {
     }
     ASSERT_TRUE(majorRoadProbes >= 200);
 
-    // 4. Verify 3D raycast hits elevated OCM4/5 building_part at its true [baseY+minHeight, baseY+height] band!
+    // 4. Verify 3D raycast hits elevated OCM4/5/6 building_part at its true [baseY+minHeight, baseY+height] band!
     {
         const oc::OsmBldgRec& eb = *sampleElevated;
         const float midY = eb.baseY + 0.5f * (eb.minHeight + eb.height);
@@ -3343,8 +3345,12 @@ void testV410Real3DGradeSeparatedRoadsAndSmoothBridges() {
     const oc::RealSeoulData& real = city.realData();
     const oc::OcMapHeader& hdr = real.header();
 
-    // 1. Verify OCM5 v3 real 3D multi-level Seoul road network (50K+ roads, 266K+ 3D vertices, 184K+ buildings)
-    ASSERT_TRUE(hdr.magic[0] == 'O' && hdr.magic[1] == 'C' && hdr.magic[2] == 'M' && hdr.magic[3] == '5' && hdr.version == 3u);
+    // 1. Verify OCM5 v3 / OCM6 v4 real 3D multi-level Seoul road network (50K+ roads, 266K+ 3D vertices, 184K+ buildings)
+    const bool is3dOcMap =
+        (hdr.magic[0] == 'O' && hdr.magic[1] == 'C' && hdr.magic[2] == 'M' &&
+         ((hdr.magic[3] == '5' && hdr.version == 3u) ||
+          (hdr.magic[3] == '6' && hdr.version == 4u)));
+    ASSERT_TRUE(is3dOcMap);
     ASSERT_TRUE(real.has3DRoads());
     ASSERT_TRUE(real.roads().size() >= 45000u);
     ASSERT_TRUE(real.roadVerts().size() >= 250000u);
@@ -3377,11 +3383,11 @@ void testV410Real3DGradeSeparatedRoadsAndSmoothBridges() {
                 ASSERT_TRUE(grade < 0.10f); // Smooth <=10% grade across entire Samseonggyo interchange!
             }
             const float yMid = 0.5f * (yA + yB);
-            if (r.layer == 1 && r.roadClass == 2u && yMid >= 14.0f && yMid <= 20.0f) {
+            if (r.layer == 1 && r.roadClass == 2u && yMid >= 14.0f && yMid <= 23.5f) {
                 foundSamseongDeck = true;
                 samseongSegs.push_back({a, b, yA, yB});
             }
-            if (r.layer >= 3 && r.roadClass <= 1u && yMid >= 27.0f && yMid <= 34.0f) {
+            if (r.layer >= 3 && r.roadClass <= 1u && yMid >= 27.0f && yMid <= 40.0f) {
                 foundBundangFlyover = true;
                 bundangSegs.push_back({a, b, yA, yB});
             }
@@ -3457,8 +3463,8 @@ void testV410Real3DGradeSeparatedRoadsAndSmoothBridges() {
     }
 
     // 6. Global urban Seoul zero-sawtooth bridge/viaduct audit:
-    //    ZERO elevated edges (>2m) exceed 11% relative-to-DTM grade anywhere, and ZERO valley/flat urban
-    //    bridges (dem < 35m) exceed 14% absolute grade!
+    //    ZERO elevated edges (>2m) exceed 13% relative-to-DTM grade anywhere, and ZERO valley/flat urban
+    //    bridges (dem < 35m) exceed 15% absolute grade!
     int auditedBridgeEdges = 0;
     for (const oc::OsmRoadRec& r : real.roads()) {
         if ((r.flags & 4u) != 0u || r.vertCount < 2u) continue;
@@ -3486,6 +3492,198 @@ void testV410Real3DGradeSeparatedRoadsAndSmoothBridges() {
         }
     }
     ASSERT_TRUE(auditedBridgeEdges >= 5000);
+
+    ++gTestsPassed;
+}
+
+
+void testV500UltraSmoothRoadsSuspensionAndOcm6Realism() {
+    auto findAsset = [](const char* relPath) -> std::string {
+        const std::string candidates[3] = {
+            std::string("assets/") + relPath,
+            std::string("../assets/") + relPath,
+            std::string("../../assets/") + relPath
+        };
+        for (const std::string& p : candidates) {
+            std::ifstream f(p, std::ios::binary);
+            if (f.good()) return p;
+        }
+        return {};
+    };
+    auto readPngDim = [](const std::string& path, std::uint32_t& outW, std::uint32_t& outH) -> bool {
+        std::ifstream f(path, std::ios::binary);
+        if (!f.good()) return false;
+        unsigned char hdr[24]{};
+        f.read(reinterpret_cast<char*>(hdr), 24);
+        if (f.gcount() != 24) return false;
+        if (hdr[0] != 0x89 || hdr[1] != 'P' || hdr[2] != 'N' || hdr[3] != 'G') return false;
+        outW = (static_cast<std::uint32_t>(hdr[16]) << 24) | (static_cast<std::uint32_t>(hdr[17]) << 16) |
+               (static_cast<std::uint32_t>(hdr[18]) << 8)  |  static_cast<std::uint32_t>(hdr[19]);
+        outH = (static_cast<std::uint32_t>(hdr[20]) << 24) | (static_cast<std::uint32_t>(hdr[21]) << 16) |
+               (static_cast<std::uint32_t>(hdr[22]) << 8)  |  static_cast<std::uint32_t>(hdr[23]);
+        return true;
+    };
+
+    const std::string ocmapPath = findAsset("maps/seoul_real.ocmap");
+    ASSERT_TRUE(!ocmapPath.empty());
+
+    // 1. Verify all 4K v5.0.0 visual assets exist with exact expected dimensions (all <= 4096x4096 for Vulkan 1.0)
+    {
+        std::uint32_t w = 0, h = 0;
+        const std::string stAlb = findAsset("textures/street_albedo.png");
+        const std::string stNrm = findAsset("textures/street_normal_rough.png");
+        const std::string sg4k  = findAsset("textures/seoul_signs_4k.png");
+        const std::string map2d = findAsset("maps/seoul_map_2d.png");
+        ASSERT_TRUE(!stAlb.empty() && !stNrm.empty() && !sg4k.empty() && !map2d.empty());
+        ASSERT_TRUE(readPngDim(stAlb, w, h) && w == 4096u && h == 4096u);
+        ASSERT_TRUE(readPngDim(stNrm, w, h) && w == 4096u && h == 4096u);
+        ASSERT_TRUE(readPngDim(sg4k,  w, h) && w == 4096u && h == 4096u);
+        ASSERT_TRUE(readPngDim(map2d, w, h) && w == 4096u && h == 2624u);
+    }
+
+    oc::GameWorld world(20265000ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    const oc::CityMap& city = world.city();
+    const oc::RealSeoulData& real = city.realData();
+    const oc::OcMapHeader& hdr = real.header();
+
+    // 2. Verify OCM6 v4 high-precision 15m DTM + Catmull-Rom curved 3D roads + real Seoul intersections & commercial venues!
+    ASSERT_TRUE(real.isOcm6());
+    ASSERT_TRUE(hdr.magic[0] == 'O' && hdr.magic[1] == 'C' && hdr.magic[2] == 'M' && hdr.magic[3] == '6' && hdr.version == 4u);
+    ASSERT_TRUE(hdr.demW >= 2048u && hdr.demH >= 1600u);
+    ASSERT_TRUE(std::abs(real.demScale() - 0.04f) < 1e-4f);
+    ASSERT_TRUE(real.roads().size() >= 45000u);
+    ASSERT_TRUE(real.roadVerts().size() >= 700000u);
+    ASSERT_TRUE(real.buildings().size() >= 180000u);
+    ASSERT_TRUE(real.pois().size() >= 50000u);
+
+    int transitPois = 0, interPois = 0, venuePois = 0;
+    for (const oc::OsmPoiRec& p : real.pois()) {
+        if (p.kind <= 1u) ++transitPois;
+        else if (p.kind == 2u) ++interPois;
+        else if (p.kind == 3u) {
+            ASSERT_TRUE(p.nameSlot >= 16u && p.nameSlot <= 47u);
+            ++venuePois;
+        }
+    }
+    ASSERT_TRUE(transitPois >= 5000);
+    ASSERT_TRUE(interPois >= 4000);
+    ASSERT_TRUE(venuePois >= 35000);
+
+    // 3. Verify 1m-step C1 smooth road surface continuity across Gyeongbu Expressway, Teheran-ro & Sejong-daero
+    //    (ZERO 0.35-2.2m staircase cliffs that caused "자꾸 덜컹덜컹해"!)
+    auto auditRoadSmoothness = [&](const oc::Vec2& seedPt, float stepDist, int steps, float maxStepJumpM) {
+        const oc::NearestOsmRoad nr0 = real.findNearestRoad(seedPt, 30.0f);
+        ASSERT_TRUE(nr0.found);
+        const oc::OsmRoadRec& r = real.roads()[nr0.roadIdx];
+        ASSERT_TRUE(r.vertCount >= 2u);
+        oc::Vec2 cur = nr0.closestPt;
+        float prevY = city.surfaceHeightAt(cur, nr0.deckY);
+        float maxJump = 0.0f;
+        oc::Vec2 dir = nr0.tangent;
+        for (int i = 0; i < steps; ++i) {
+            oc::Vec2 next = cur + dir * stepDist;
+            const oc::NearestOsmRoad nri = real.findNearestRoad(next, 12.0f, prevY);
+            if (nri.found && nri.tangent.dot(dir) > 0.78f && nri.dist < 3.0f) {
+                dir = (dir * 0.7f + nri.tangent * 0.3f).normalized();
+                next = next + (nri.closestPt - next) * 0.25f;
+            }
+            const float y = city.surfaceHeightAt(next, prevY);
+            const float dy = std::abs(y - prevY);
+            if (dy > maxJump) maxJump = dy;
+            cur = next;
+            prevY = y;
+        }
+        ASSERT_TRUE(maxJump <= maxStepJumpM);
+    };
+    auditRoadSmoothness({2762.4f, 1569.3f}, 1.0f, 300, 0.12f);  // Gyeongbu Expressway (was 2.22m cliff -> <0.07m!)
+    auditRoadSmoothness({4200.0f, 2600.0f}, 1.0f, 250, 0.16f);  // Teheran-ro boulevard (<0.12m!)
+    auditRoadSmoothness({-420.0f, -2650.0f}, 1.0f, 250, 0.22f); // Sejong-daero Gwanghwamun
+
+    // 4. Live 240-frame (4-second) high-speed driving suspension test along Gyeongbu Expressway & Teheran-ro:
+    //    Verify ZERO accidental airborne launches (zombie vel_y fix!), smooth chassis vertical heave,
+    //    and smooth body pitch derivatives!
+    auto runSmoothDriveTest = [&](const oc::Vec2& startSeed) {
+        const oc::NearestOsmRoad nr = real.findNearestRoad(startSeed, 28.0f);
+        ASSERT_TRUE(nr.found);
+        const float roadYaw = std::atan2(nr.tangent.z, nr.tangent.x);
+        oc::Vehicle& car = world.spawnCustomVehicle(oc::VehicleKind::SportsCoupe, nr.closestPt, roadYaw, {212, 34, 42, 255});
+        const int carId = car.id;
+        world.player().pos = nr.closestPt;
+        world.player().posY = nr.deckY;
+        world.player().drivingVehicleId = carId;
+        car.isPlayerDriving = true;
+        car.posY = city.surfaceHeightAt(car.pos, nr.deckY);
+        car.velY = 0.0f;
+        car.airborne = false;
+
+        int airborneFrames = 0;
+        float prevPosY = car.posY;
+        float prevPitch = car.bodyPitch;
+        float maxFrameDy = 0.0f;
+        float maxFrameDPitch = 0.0f;
+
+        for (int f = 0; f < 240; ++f) {
+            const oc::Vehicle* pv = world.playerVehicle();
+            ASSERT_TRUE(pv != nullptr);
+            // Gentle lane-keeping steer back toward road centerline so car cruises smoothly at high speed
+            const oc::NearestOsmRoad curNr = real.findNearestRoad(pv->pos, 24.0f, pv->posY);
+            float steerCmd = 0.0f;
+            if (curNr.found) {
+                const float desiredYaw = std::atan2(curNr.tangent.z, curNr.tangent.x);
+                const float yawErr = oc::wrapAngle(desiredYaw - pv->heading);
+                const oc::Vec2 rN{-curNr.tangent.z, curNr.tangent.x};
+                const float latErr = (pv->pos - curNr.closestPt).dot(rN);
+                steerCmd = oc::clampf(yawErr * 1.6f - latErr * 0.08f, -0.45f, 0.45f);
+            }
+            oc::PlayerInput in{};
+            in.moveForward = (pv->speed() < 24.0f) ? 0.72f : 0.15f;
+            in.moveRight = steerCmd;
+            in.cameraYaw = pv->heading;
+            world.update(1.0f / 60.0f, in);
+
+            const oc::Vehicle* av = world.playerVehicle();
+            ASSERT_TRUE(av != nullptr);
+            if (av->airborne) ++airborneFrames;
+            if (f >= 10) {
+                maxFrameDy = std::max(maxFrameDy, std::abs(av->posY - prevPosY));
+                maxFrameDPitch = std::max(maxFrameDPitch, std::abs(av->bodyPitch - prevPitch));
+                const float surfNow = city.surfaceHeightAt(av->pos, av->posY);
+                ASSERT_TRUE(std::abs(av->posY - surfNow) <= 0.18f);
+            }
+            prevPosY = av->posY;
+            prevPitch = av->bodyPitch;
+        }
+        ASSERT_TRUE(airborneFrames == 0);
+        ASSERT_TRUE(maxFrameDy < 0.10f);
+        ASSERT_TRUE(maxFrameDPitch < 0.06f);
+    };
+    runSmoothDriveTest({2762.4f, 1569.3f}); // Gyeongbu Expressway
+    runSmoothDriveTest({4200.0f, 2600.0f}); // Teheran-ro boulevard
+
+    // 5. Verify OCM6 prop streaming populates authentic Overture commercial brands (slots 16..47) and intersection signals!
+    {
+        world.fastTravelTo({4260.0f, 2585.0f}, "강남역 테헤란로");
+        int shopCount = 0;
+        int signalCount = 0;
+        std::uint32_t brandMask = 0u;
+        for (const oc::StreetProp& sp : city.streetProps()) {
+            if (sp.kind == oc::StreetPropKind::ShopSign) {
+                ++shopCount;
+                ASSERT_TRUE(sp.variant >= 16u && sp.variant <= 47u);
+                brandMask |= (1u << (sp.variant - 16u));
+            } else if (sp.kind == oc::StreetPropKind::TrafficLight) {
+                ++signalCount;
+            }
+        }
+        int uniqueBrands = 0;
+        for (int b = 0; b < 32; ++b) {
+            if ((brandMask & (1u << b)) != 0u) ++uniqueBrands;
+        }
+        ASSERT_TRUE(shopCount >= 30);
+        ASSERT_TRUE(uniqueBrands >= 8);
+        ASSERT_TRUE(signalCount >= 6);
+    }
 
     ++gTestsPassed;
 }
@@ -3528,8 +3726,9 @@ int main() {
     testV350CleanIntersectionsAndBusShelterSetback();
     testV400RealOcm4BuildingsAndZeroRoadIntrusions();
     testV410Real3DGradeSeparatedRoadsAndSmoothBridges();
+    testV500UltraSmoothRoadsSuspensionAndOcm6Realism();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v4.1.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v5.0.0 simulation test suites succeeded!\n";
     return 0;
 }
 

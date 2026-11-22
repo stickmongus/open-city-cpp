@@ -438,8 +438,8 @@ void GameWorld::reset() {
     player_.onGround = true;
 
     spawnInitialWorld();
-    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL 3D ROADS & CITY v4.1" : "WELCOME TO SEOUL (VULKAN)",
-               city_.hasRealSeoulMap() ? "실제 서울 입체도로·고속도로 v4.1에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
+    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL ULTRA-SMOOTH 4K v5.0" : "WELCOME TO SEOUL (VULKAN)",
+               city_.hasRealSeoulMap() ? "실제 서울 초정밀 도로·거리 4K v5.0에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
 #if defined(__ANDROID__)
                "Tap Minimap: Full Seoul Map  |  Top Bar: Custom · Weather · Camera",
                "미니맵 터치: 서울 전체 지도 · 상단 버튼: 커스텀 · 날씨 · 시점 전환",

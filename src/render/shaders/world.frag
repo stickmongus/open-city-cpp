@@ -26,6 +26,8 @@ layout(set = 0, binding = 1) uniform sampler2D shadowMap;
 layout(set = 0, binding = 2) uniform sampler2D signAtlasTex;
 layout(set = 0, binding = 3) uniform sampler2D pbrAlbedoTex;
 layout(set = 0, binding = 4) uniform sampler2D pbrNormalRoughTex;
+layout(set = 0, binding = 5) uniform sampler2D streetAlbedoTex;
+layout(set = 0, binding = 6) uniform sampler2D streetNormalRoughTex;
 
 layout(push_constant) uniform DrawPush {
     mat4 model;
@@ -70,12 +72,16 @@ float aaBand(float distFromCenter, float halfWidth) {
     return 1.0 - smoothstep(halfWidth - fw, halfWidth + fw, distFromCenter);
 }
 
-// Seam-free 4x4 4096x4096 PBR Texture Atlas Sampling using explicit tile-scaled gradients (ZERO mip bleeding!)
+// Seam-free 4x4 4096x4096 Architectural PBR Texture Atlas Sampling using explicit tile-scaled gradients (ZERO mip bleeding!)
 void samplePbrTile(int tileId, vec2 uv, out vec3 outAlbedoLin, out vec2 outNormXY, out float outRough, out float outAO) {
     vec2 tileOrigin = vec2(float(tileId & 3), float(tileId >> 2)) * 0.25;
     vec2 ddx = clamp(dFdx(uv) * 0.25, vec2(-0.08), vec2(0.08));
     vec2 ddy = clamp(dFdy(uv) * 0.25, vec2(-0.08), vec2(0.08));
-    vec2 local = (clamp(fract(uv), 0.0012, 0.9988)) * 0.25;
+    // Trilinear-safe >=1.15-texel inset guarantees adjacent 4x4 atlas tiles NEVER bleed at any mip level (0..7)!
+    float rho = max(length(ddx), length(ddy)) * 4096.0;
+    float mipLod = clamp(log2(max(rho, 1.0)), 0.0, 7.0);
+    float pad = clamp(1.15 * exp2(ceil(mipLod)) / 1024.0, 0.0025, 0.16);
+    vec2 local = mix(vec2(pad), vec2(1.0 - pad), fract(uv)) * 0.25;
     vec2 atlasUv = tileOrigin + local;
     vec3 texAlb = textureGrad(pbrAlbedoTex, atlasUv, ddx, ddy).rgb;
     vec4 texNR  = textureGrad(pbrNormalRoughTex, atlasUv, ddx, ddy);
@@ -85,12 +91,33 @@ void samplePbrTile(int tileId, vec2 uv, out vec3 outAlbedoLin, out vec2 outNormX
     outAO = clamp(texNR.a, 0.25, 1.0);
 }
 
-// Automatic Screen-Space Cotangent-Frame Tangent-Space Normal Perturbation
-vec3 perturbNormal(vec3 N, vec3 pos, vec2 uv, vec2 normalXY, float strength) {
-    vec3 dp1 = dFdx(pos);
-    vec3 dp2 = dFdy(pos);
-    vec2 duv1 = dFdx(uv);
-    vec2 duv2 = dFdy(uv);
+// Seam-free 4x4 4096x4096 Dedicated Seoul Street/Road/Sidewalk PBR Atlas Sampling (v5.0.0)
+// Explicit-gradient variant keeps dFdx/dFdy strictly in uniform control flow (zero edge-seam UB on Adreno/Mali/Desktop/Lavapipe!)
+void sampleStreetTileGrad(int tileId, vec2 uv, vec2 uvDdx, vec2 uvDdy,
+                          out vec3 outAlbedoLin, out vec2 outNormXY, out float outRough, out float outAO) {
+    vec2 tileOrigin = vec2(float(tileId & 3), float(tileId >> 2)) * 0.25;
+    vec2 ddx = clamp(uvDdx * 0.25, vec2(-0.08), vec2(0.08));
+    vec2 ddy = clamp(uvDdy * 0.25, vec2(-0.08), vec2(0.08));
+    // Trilinear-safe >=1.15-texel inset eliminates 100% of cross-tile color bleeding (e.g., yellow Tile 5 into dark highway Tile 1!)
+    float rho = max(length(ddx), length(ddy)) * 4096.0;
+    float mipLod = clamp(log2(max(rho, 1.0)), 0.0, 7.0);
+    float pad = clamp(1.15 * exp2(ceil(mipLod)) / 1024.0, 0.0025, 0.16);
+    vec2 local = mix(vec2(pad), vec2(1.0 - pad), fract(uv)) * 0.25;
+    vec2 atlasUv = tileOrigin + local;
+    vec3 texAlb = textureGrad(streetAlbedoTex, atlasUv, ddx, ddy).rgb;
+    vec4 texNR  = textureGrad(streetNormalRoughTex, atlasUv, ddx, ddy);
+    outAlbedoLin = pow(clamp(texAlb, 0.0, 1.0), vec3(2.2));
+    outNormXY = texNR.xy * 2.0 - 1.0;
+    outRough = clamp(texNR.b, 0.03, 0.98);
+    outAO = clamp(texNR.a, 0.25, 1.0);
+}
+
+void sampleStreetTile(int tileId, vec2 uv, out vec3 outAlbedoLin, out vec2 outNormXY, out float outRough, out float outAO) {
+    sampleStreetTileGrad(tileId, uv, dFdx(uv), dFdy(uv), outAlbedoLin, outNormXY, outRough, outAO);
+}
+
+// Automatic Screen-Space Cotangent-Frame Tangent-Space Normal Perturbation (explicit-gradient variant)
+vec3 perturbNormalGrad(vec3 N, vec3 dp1, vec3 dp2, vec2 duv1, vec2 duv2, vec2 normalXY, float strength) {
     vec3 dp2perp = cross(dp2, N);
     vec3 dp1perp = cross(N, dp1);
     vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
@@ -101,6 +128,10 @@ vec3 perturbNormal(vec3 N, vec3 pos, vec2 uv, vec2 normalXY, float strength) {
     vec2 nxy = clamp(normalXY * strength, vec2(-0.85), vec2(0.85));
     float nz = sqrt(max(0.08, 1.0 - dot(nxy, nxy)));
     return normalize(T * (nxy.x * invmax) + B * (nxy.y * invmax) + N * nz);
+}
+
+vec3 perturbNormal(vec3 N, vec3 pos, vec2 uv, vec2 normalXY, float strength) {
+    return perturbNormalGrad(N, dFdx(pos), dFdy(pos), dFdx(uv), dFdy(uv), normalXY, strength);
 }
 
 // 16-Tap Rotated Poisson Disk Soft PCF Shadows in Vulkan [0, 1] NDC depth space
@@ -232,117 +263,190 @@ void main() {
     // 2048x2048 Mipmapped, 8x Anisotropic, Tangent-Space Normal-Mapped PBR!
     // -----------------------------------------------------------------------
     if (matId == 1) {
-        // MAT 1: Seoul Asphalt (Tile 0) + Real Curved OSM Lane Markings OR Legacy Grid Markings + Wet Puddles
+        // MAT 1: Dedicated 4K Seoul Street PBR Atlas (Urban Asphalt / Expressway SMA / Intersection / Bridge Joint / Alley Cobble)
+        //        + Real Curved Korean Lane Markings, Stop Bars, Directional Arrows, Manholes & Gutter Drains!
         vec2 p = fragPosition.xz;
-        vec2 asphUv = p * 0.16;
+        vec3 dp1 = dFdx(fragPosition);
+        vec3 dp2 = dFdy(fragPosition);
+        vec2 dPdx = dFdx(p);
+        vec2 dPdy = dFdy(p);
+        vec2 dUvDx = dFdx(fragUv);
+        vec2 dUvDy = dFdy(fragUv);
+        vec2 asphUv = p * 0.20;
         vec3 pAlb; vec2 pNxy; float pR; float pAO;
-        samplePbrTile(0, asphUv, pAlb, pNxy, pR, pAO);
 
-        float patchVar = fbm2(p * 0.18);
-        albedo = pAlb * mix(0.84, 1.18, patchVar);
-        roughness = mix(pR, 0.58, 0.25);
+        bool isRealRibbon = (fragUv.y > 0.5);
+        float xM = fragUv.x;
+        float sM = fragUv.y;
+        float hwM = max(2.4, srgbBase.r * 25.5);
+        int gByte = int(floor(srgbBase.g * 255.0 + 0.5));
+        float totalLanes = float(gByte >> 4);
+        int roadFlags = gByte & 15;
+        bool suppressLeftEdge  = ((roadFlags & 1) != 0);
+        bool suppressRightEdge = ((roadFlags & 2) != 0);
+        bool isInterCrosswalk  = ((roadFlags & 4) != 0);
+        bool isCleanInterBox   = ((roadFlags & 8) != 0);
+        float styleByte = floor(srgbBase.b * 255.0 + 0.5);
+        float axM = abs(xM);
+
+        bool isAlley   = isRealRibbon && ((totalLanes < 0.5) || (styleByte < 24.0));
+        bool isOneway  = isRealRibbon && (styleByte >= 96.0);
+        bool isHighway = isRealRibbon && (styleByte >= 152.0 && styleByte < 188.0);
+        bool isBridge  = isRealRibbon && (styleByte >= 188.0 && styleByte < 216.0);
+        bool hasBusLn  = isRealRibbon && (styleByte >= 220.0);
+
+        int streetTile = 0; // Tile 0: Urban Seoul Fine-Aggregate Asphalt
+        vec2 roadPbrUv = asphUv;
+        vec2 roadDdx = dPdx * 0.20;
+        vec2 roadDdy = dPdy * 0.20;
+        if (isCleanInterBox) {
+            streetTile = 2; // Tile 2: Worn multi-directional intersection asphalt
+        } else if (isHighway) {
+            streetTile = 1; // Tile 1: Smooth Dark Korean Expressway SMA
+            roadPbrUv = vec2(xM * 0.22, sM * 0.22);
+            roadDdx = dUvDx * 0.22;
+            roadDdy = dUvDy * 0.22;
+        } else if (isAlley) {
+            streetTile = 14; // Tile 14: Seoul residential brick/cobble alley blend
+            roadPbrUv = p * 0.34;
+            roadDdx = dPdx * 0.34;
+            roadDdy = dPdy * 0.34;
+        }
+        sampleStreetTileGrad(streetTile, roadPbrUv, roadDdx, roadDdy, pAlb, pNxy, pR, pAO);
+
+        if (isAlley) {
+            // Subtle weathered asphalt-cobble blend typical of Seongsu/Bukchon/Itaewon back streets
+            vec3 aAlb; vec2 aNxy; float aR; float aAO;
+            sampleStreetTileGrad(0, asphUv, dPdx * 0.20, dPdy * 0.20, aAlb, aNxy, aR, aAO);
+            float alleyMix = smoothstep(0.35, 0.72, fbm2(p * 0.04));
+            pAlb = mix(aAlb * 1.06, pAlb * 0.62, alleyMix * 0.55);
+            pNxy = mix(aNxy, pNxy, alleyMix * 0.55);
+            pR   = mix(aR, pR, alleyMix * 0.55);
+            pAO  = mix(aAO, pAO, alleyMix * 0.55);
+        }
+
+        float patchVar = fbm2(p * 0.14);
+        albedo = pAlb * mix(0.88, 1.14, patchVar);
+        roughness = mix(pR, 0.56, 0.20);
         surfaceAO = pAO;
-        N = perturbNormal(N, fragPosition, asphUv, pNxy, 0.65 * detailFade);
+        N = perturbNormalGrad(N, dp1, dp2, roadDdx, roadDdy, pNxy, 0.78 * detailFade);
 
-        vec3 yellowPaint = pow(vec3(0.88, 0.68, 0.16), vec3(2.2));
-        vec3 whitePaint  = pow(vec3(0.82, 0.84, 0.86), vec3(2.2));
-        vec3 busBlue     = pow(vec3(0.18, 0.48, 0.88), vec3(2.2));
-        float paintWear  = mix(0.82, 1.0, smoothstep(0.15, 0.72, valueNoise(p * 3.5)));
+        // Bridge Metallic Steel Finger Expansion Joints (교량 신축이음쇠) every 38m on Han River bridges & viaducts!
+        if (isBridge && !isCleanInterBox) {
+            float jointMod = abs(fract(sM / 38.0) - 0.5) * 38.0;
+            if (jointMod < 0.45) {
+                vec3 jAlb; vec2 jNxy; float jR; float jAO;
+                vec2 jUv = vec2(xM * 0.65, 0.5 + (fract(sM / 38.0) - 0.5) * (38.0 / 0.90) * 0.12);
+                vec2 jDdx = vec2(dUvDx.x * 0.65, dUvDx.y * (0.12 / 0.90));
+                vec2 jDdy = vec2(dUvDy.x * 0.65, dUvDy.y * (0.12 / 0.90));
+                sampleStreetTileGrad(8, jUv, jDdx, jDdy, jAlb, jNxy, jR, jAO);
+                float jBlend = smoothstep(0.45, 0.22, jointMod);
+                albedo = mix(albedo, jAlb * 1.08, jBlend);
+                roughness = mix(roughness, jR, jBlend);
+                metallic = mix(metallic, 0.42, jBlend * smoothstep(0.28, 0.08, jointMod));
+                surfaceAO = mix(surfaceAO, jAO, jBlend);
+                N = perturbNormalGrad(N, dp1, dp2, jDdx, jDdy, jNxy, 0.85 * detailFade * jBlend);
+            }
+        }
+
+        // Realistic Cast-Iron Seoul Manhole Covers (서울시 맨홀) & Curb Gutter Drain Grates (빗물받이)!
+        if (isRealRibbon && !isHighway && !isBridge && !isAlley && !isCleanInterBox && detailFade > 0.05) {
+            // Cast-iron manhole medallion embedded along right-side lane every 44m
+            float mhS = (fract(sM / 44.0) - 0.5) * 44.0;
+            float mhX = xM - (hwM - 2.15);
+            if (abs(mhS) < 0.46 && abs(mhX) < 0.46 && !suppressRightEdge) {
+                vec2 mhUv = vec2(mhX, mhS) / 0.92 + 0.5;
+                float rDist = length(mhUv - 0.5);
+                if (rDist < 0.46) {
+                    vec3 mAlb; vec2 mNxy; float mR; float mAO;
+                    vec2 mDdx = dUvDx / 0.92;
+                    vec2 mDdy = dUvDy / 0.92;
+                    sampleStreetTileGrad(7, mhUv, mDdx, mDdy, mAlb, mNxy, mR, mAO);
+                    float mBlend = smoothstep(0.46, 0.41, rDist) * detailFade;
+                    albedo = mix(albedo, mAlb, mBlend);
+                    roughness = mix(roughness, mR, mBlend);
+                    metallic = mix(metallic, 0.55, mBlend);
+                    surfaceAO = mix(surfaceAO, mAO, mBlend);
+                    N = perturbNormalGrad(N, dp1, dp2, mDdx, mDdy, mNxy, 0.90 * mBlend);
+                }
+            }
+            // Curb gutter stormwater drain grates every 18m along non-suppressed outer curb!
+            float drS = abs(fract(sM / 18.0) - 0.5) * 18.0;
+            bool onOuterEdge = ((xM > hwM - 0.56) && !suppressRightEdge) || ((xM < -hwM + 0.56) && !suppressLeftEdge && !isOneway);
+            if (onOuterEdge && drS < 0.34) {
+                float slot = step(0.42, fract(sM * 16.0));
+                float grateMask = smoothstep(0.34, 0.24, drS) * detailFade;
+                vec3 grateCol = mix(vec3(0.015, 0.018, 0.022), vec3(0.18, 0.20, 0.23), slot);
+                albedo = mix(albedo, grateCol, grateMask * 0.92);
+                roughness = mix(roughness, mix(0.95, 0.36, slot), grateMask);
+                metallic = mix(metallic, slot * 0.65, grateMask);
+            }
+        }
+
+        vec3 yellowPaint = pow(vec3(0.90, 0.70, 0.16), vec3(2.2));
+        vec3 whitePaint  = pow(vec3(0.84, 0.86, 0.88), vec3(2.2));
+        vec3 busBlue     = pow(vec3(0.16, 0.48, 0.90), vec3(2.2));
+        float paintWear  = mix(0.84, 1.0, smoothstep(0.15, 0.72, valueNoise(p * 3.8)));
         float yellowMask = 0.0;
         float whiteMask  = 0.0;
         float blueMask   = 0.0;
 
-        if (fragUv.y > 0.5) {
-            // REAL OPENSTREETMAP CURVED SEOUL ROAD RIBBON — TRUE KOREAN ROAD HIERARCHY & CLEAN INTERSECTIONS!
-            // fragUv.x = signed lateral distance from road centerline in METERS [-hwM .. +hwM]
-            // fragUv.y = longitudinal distance along road in METERS (> 10.0)
-            // srgbBase.r = hwM / 25.5
-            // srgbBase.g = ((totalLanes << 4) | roadFlags) / 255
-            //   roadFlags bit0(1)=suppressLeftEdge, bit1(2)=suppressRightEdge,
-            //             bit2(4)=isInterCrosswalk, bit3(8)=isCleanInterBox
-            // srgbBase.b = styleByte / 255 (0=alley, 64=city 2-way, 128=city 1-way, 176=Expressway, 204=Bridge, 240=Bus-Lane Blvd)
-            float xM = fragUv.x;
-            float sM = fragUv.y;
-            float hwM = max(2.4, srgbBase.r * 25.5);
-            int gByte = int(floor(srgbBase.g * 255.0 + 0.5));
-            float totalLanes = float(gByte >> 4);
-            int roadFlags = gByte & 15;
-            bool suppressLeftEdge  = ((roadFlags & 1) != 0);
-            bool suppressRightEdge = ((roadFlags & 2) != 0);
-            bool isInterCrosswalk  = ((roadFlags & 4) != 0);
-            bool isCleanInterBox   = ((roadFlags & 8) != 0);
-
-            float styleByte = floor(srgbBase.b * 255.0 + 0.5);
-            float axM = abs(xM);
-
-            bool isAlley   = (totalLanes < 0.5) || (styleByte < 24.0);
-            bool isOneway  = (styleByte >= 96.0);
-            bool isHighway = (styleByte >= 152.0 && styleByte < 188.0);
-            bool isBridge  = (styleByte >= 188.0 && styleByte < 216.0);
-            bool hasBusLn  = (styleByte >= 220.0);
-
-            // Subtle asphalt gutter darkening near non-suppressed curb edges (0.65m strip)
+        if (isRealRibbon) {
+            // Subtle asphalt gutter darkening near non-suppressed curb edges (0.62m strip)
             if (!isCleanInterBox) {
                 bool onLeft = (xM < 0.0);
                 if ((onLeft && !suppressLeftEdge) || (!onLeft && !suppressRightEdge)) {
-                    albedo *= (1.0 - 0.16 * smoothstep(hwM - 0.65, hwM, axM));
+                    albedo *= (1.0 - 0.14 * smoothstep(hwM - 0.62, hwM, axM));
                 }
             }
 
             if (isCleanInterBox) {
-                // CLEAN REAL-WORLD INTERSECTION BOX: pure dark Seoul asphalt with zero overlapping lane/edge lines!
-                albedo *= 0.94;
-                roughness = mix(roughness, 0.50, 0.22);
+                // CLEAN REAL-WORLD INTERSECTION BOX: flush dark Seoul asphalt with zero overlapping lane/edge lines!
+                albedo *= 0.96;
+                roughness = mix(roughness, 0.48, 0.22);
             } else if (isHighway) {
-                // KOREAN EXPRESSWAY / URBAN MOTORWAY (경부고속도로 · 올림픽대로 · 강변북로 · 내부순환로):
-                // Smoother dark SMA highway asphalt, wide paved emergency shoulders (갓길),
-                // crisp SOLID WHITE right shoulder line + SOLID YELLOW left median line,
-                // authentic Korean highway 8m dash / 12m gap (20m cycle), reflective cat's-eye studs, ZERO crosswalks!
-                albedo *= 0.88;
-                roughness = mix(roughness, 0.44, 0.25);
+                // KOREAN EXPRESSWAY / URBAN MOTORWAY (경부고속도로 · 올림픽대로 · 강변북로 · 내부순환로 · 분당수서로):
+                albedo *= 0.94;
+                roughness = mix(roughness, 0.44, 0.24);
 
-                float shR = (hwM >= 7.0) ? 1.15 : 0.55; // Outer emergency shoulder (right)
-                float shL = (hwM >= 7.0) ? 0.58 : 0.32; // Inner median shoulder (left)
+                float shR = (hwM >= 7.0) ? 1.15 : 0.55;
+                float shL = (hwM >= 7.0) ? 0.58 : 0.32;
                 float driveLeft  = -hwM + shL;
                 float driveRight =  hwM - shR;
                 float driveSpan  = max(2.6, driveRight - driveLeft);
                 float hwLaneW    = driveSpan / max(1.0, totalLanes);
 
-                // Subtle rumble-strip darkening inside outer emergency shoulder (갓길) when not merging
                 if (!suppressRightEdge && xM > driveRight + 0.12) {
                     float rumble = 0.5 + 0.5 * sin(sM * 14.0);
                     albedo *= mix(0.88, 0.96, rumble);
                 }
 
-                // Dual tire-wear polishing per highway lane
                 if (xM >= driveLeft && xM <= driveRight) {
                     float laneU = fract((xM - driveLeft) / max(2.4, hwLaneW));
                     float trackL = exp(-pow((laneU - 0.27) / 0.11, 2.0));
                     float trackR = exp(-pow((laneU - 0.73) / 0.11, 2.0));
                     float tireWear = clamp(trackL + trackR, 0.0, 1.0);
-                    albedo *= (1.0 - 0.11 * tireWear);
-                    roughness = mix(roughness, 0.33, tireWear * 0.45);
+                    albedo *= (1.0 - 0.10 * tireWear);
+                    roughness = mix(roughness, 0.32, tireWear * 0.45);
                 }
 
-                // Crisp 0.18m SOLID WHITE right outer shoulder line & SOLID YELLOW left median shoulder line
-                // (Automatically suppressed cleanly where highway on-ramps / off-ramps merge!)
                 if (!suppressRightEdge) {
-                    whiteMask = max(whiteMask, aaBand(abs(xM - driveRight), 0.090) * 0.96);
+                    whiteMask = max(whiteMask, aaBand(abs(xM - driveRight), 0.092) * 0.96);
                 }
                 if (!suppressLeftEdge) {
-                    yellowMask = max(yellowMask, aaBand(abs(xM - driveLeft), 0.090) * 0.96);
+                    yellowMask = max(yellowMask, aaBand(abs(xM - driveLeft), 0.092) * 0.96);
                 }
 
-                // Authentic Korean Highway 8.0m white dash / 12.0m gap (20.0m cycle — distinct from 8m city streets!)
+                // Authentic Korean Highway 8.0m white dash / 12.0m gap (20.0m cycle)
                 float hwDashOn = (fract(sM / 20.0) < 0.40) ? 1.0 : 0.0;
                 float relX = xM - driveLeft;
                 if (totalLanes > 1.5 && hwDashOn > 0.5 && relX > hwLaneW * 0.45 && relX < (driveSpan - hwLaneW * 0.45)) {
                     float laneIdxF = floor(relX / hwLaneW + 0.5);
                     float divDist = abs(relX - laneIdxF * hwLaneW);
-                    whiteMask = max(whiteMask, aaBand(divDist, 0.082) * 0.94);
+                    whiteMask = max(whiteMask, aaBand(divDist, 0.084) * 0.94);
                 }
 
-                // Reflective Highway Cat's-Eye Road Studs (표지병) every 12m along non-suppressed shoulders!
+                // Reflective Highway Cat's-Eye Road Studs (표지병) every 12m along shoulders!
                 float studS = abs(fract(sM / 12.0) - 0.5) * 12.0;
                 if (studS < 0.16) {
                     float studR = suppressRightEdge ? 0.0 : aaBand(abs(xM - (driveRight + 0.14)), 0.085);
@@ -351,48 +455,45 @@ void main() {
                     if (studMask > 0.05) {
                         vec3 studCol = (studL > studR) ? vec3(1.0, 0.68, 0.12) : vec3(0.92, 0.97, 1.0);
                         emissiveColor = mix(emissiveColor, studCol, studMask);
-                        emissive = max(emissive, studMask * (0.28 + nightFactor * 1.45));
+                        emissive = max(emissive, studMask * (0.30 + nightFactor * 1.55));
                     }
                 }
             } else if (!isAlley) {
                 float usableHalf = max(1.8, hwM - 0.34);
                 float laneW = (2.0 * usableHalf) / max(1.0, totalLanes);
 
-                // Realistic per-lane dual wheel-track asphalt polishing (every ~3.25m lane!)
+                // Realistic per-lane dual wheel-track asphalt polishing
                 float laneU = fract((xM + usableHalf) / max(2.2, laneW));
                 float trackL = exp(-pow((laneU - 0.27) / 0.11, 2.0));
                 float trackR = exp(-pow((laneU - 0.73) / 0.11, 2.0));
                 float tireWear = clamp(trackL + trackR, 0.0, 1.0);
-                albedo *= (1.0 - 0.12 * tireWear);
-                roughness = mix(roughness, 0.35, tireWear * 0.42);
+                albedo *= (1.0 - 0.11 * tireWear);
+                roughness = mix(roughness, 0.34, tireWear * 0.42);
 
-                // Crisp edge lines ONLY along non-overlapping edges (never slices across adjacent/merging lanes!)
                 if (!suppressLeftEdge && xM < 0.0) {
-                    float leftBand = aaBand(abs(xM - (-hwM + 0.26)), 0.072);
+                    float leftBand = aaBand(abs(xM - (-hwM + 0.26)), 0.074);
                     if (isBridge) {
-                        whiteMask = max(whiteMask, leftBand * 0.88);
+                        whiteMask = max(whiteMask, leftBand * 0.90);
                     } else if (isOneway) {
-                        // Inner median yellow line on divided one-way Seoul boulevards
-                        yellowMask = max(yellowMask, leftBand * 0.90);
+                        yellowMask = max(yellowMask, leftBand * 0.92);
                     } else {
-                        // Outer curbside line on two-way city streets
-                        yellowMask = max(yellowMask, leftBand * 0.72);
+                        yellowMask = max(yellowMask, leftBand * 0.74);
                     }
                 }
                 if (!suppressRightEdge && xM > 0.0) {
-                    float rightBand = aaBand(abs(xM - (hwM - 0.26)), 0.072);
+                    float rightBand = aaBand(abs(xM - (hwM - 0.26)), 0.074);
                     if (isBridge) {
-                        whiteMask = max(whiteMask, rightBand * 0.88);
+                        whiteMask = max(whiteMask, rightBand * 0.90);
                     } else {
-                        yellowMask = max(yellowMask, rightBand * 0.76);
+                        yellowMask = max(yellowMask, rightBand * 0.78);
                     }
                 }
 
-                // Authentic Real-Intersection Korean Zebra Crosswalk (4.2m bars @ 0.90m lateral pitch)!
+                // Authentic Real-Intersection Korean Zebra Crosswalk + Stop Bar (횡단보도 & 정지선)!
                 if (isInterCrosswalk && !isBridge && totalLanes >= 2.0) {
-                    if (axM < (hwM - 0.55)) {
-                        float barDist = abs(fract(xM / 0.90) - 0.5) * 0.90;
-                        whiteMask = max(whiteMask, aaBand(barDist, 0.215) * 0.92);
+                    if (axM < (hwM - 0.52)) {
+                        float barDist = abs(fract(xM / 0.88) - 0.5) * 0.88;
+                        whiteMask = max(whiteMask, aaBand(barDist, 0.215) * 0.94);
                     }
                 } else {
                     // Korean city standard 3.0m white dash / 5.0m gap (8.0m cycle)
@@ -411,23 +512,57 @@ void main() {
                             }
                         }
                     } else {
-                        // One-way multi-lane city boulevard / bridge carriageway (exact 3.1-3.4m lanes!)
-                        float relX = xM + usableHalf; // [0 .. 2*usableHalf] from left edge to right edge
+                        // One-way multi-lane city boulevard / bridge carriageway
+                        float relX = xM + usableHalf;
                         if (totalLanes > 1.5 && relX > laneW * 0.45 && relX < (2.0 * usableHalf - laneW * 0.45)) {
                             float laneIdxF = floor(relX / laneW + 0.5);
                             float divDist = abs(relX - laneIdxF * laneW);
                             bool isBusDiv = hasBusLn && (abs(laneIdxF - (totalLanes - 1.0)) < 0.25);
                             if (isBusDiv) {
                                 // Iconic Seoul Blue Bus-Only Lane divider (파란색 버스전용차로!)
-                                blueMask = max(blueMask, aaBand(divDist, 0.080) * 0.95);
+                                blueMask = max(blueMask, aaBand(divDist, 0.084) * 0.96);
                             } else if (dashOn > 0.5) {
-                                whiteMask = max(whiteMask, aaBand(divDist, 0.072));
+                                whiteMask = max(whiteMask, aaBand(divDist, 0.074));
+                            }
+                        }
+
+                        // Crisp Korean Painted White Lane Directional Arrows (직진/좌·우회전 노면표시) & Crosswalk Diamonds (◇)!
+                        if (!isBridge && totalLanes >= 2.0 && relX > 0.2 && relX < (2.0 * usableHalf - 0.2)) {
+                            float laneIdx = floor(relX / laneW);
+                            float lx = (relX - (laneIdx + 0.5) * laneW); // Centered in lane [-laneW/2 .. +laneW/2]
+                            float symMod = fract(sM / 40.0) * 40.0;
+                            // Painted Straight / Left-Turn / Right-Turn Arrow @ symMod in [14..18.2m]
+                            if (symMod > 14.0 && symMod < 18.2 && abs(lx) < 0.85) {
+                                float sy = symMod - 16.0; // [-2.0 .. +2.2] along travel direction
+                                float shaft = aaBand(abs(lx), 0.11) * step(-1.85, sy) * step(sy, 0.70);
+                                // Forward arrowhead triangle (sy in [0.55..1.85], widens linearly toward base)
+                                float tipT = clamp((1.85 - sy) / 1.30, 0.0, 1.0);
+                                float head = aaBand(abs(lx), tipT * 0.44) * step(0.55, sy) * step(sy, 1.85);
+                                float arrowM = max(shaft, head);
+                                // Leftmost lane adds subtle left-turn wing; rightmost non-bus lane adds right-turn wing!
+                                if (laneIdx < 0.5 && totalLanes >= 3.0) {
+                                    float lArm = aaBand(abs(sy - 0.10), 0.11) * step(-0.56, lx) * step(lx, 0.0);
+                                    float lTip = aaBand(abs(sy - 0.10), clamp((lx + 0.78) / 0.34, 0.0, 1.0) * 0.26) * step(-0.78, lx) * step(lx, -0.44);
+                                    arrowM = max(arrowM, max(lArm, lTip));
+                                } else if (laneIdx > totalLanes - 1.5 && totalLanes >= 3.0 && !hasBusLn) {
+                                    float rArm = aaBand(abs(sy - 0.10), 0.11) * step(0.0, lx) * step(lx, 0.56);
+                                    float rTip = aaBand(abs(sy - 0.10), clamp((0.78 - lx) / 0.34, 0.0, 1.0) * 0.26) * step(0.44, lx) * step(lx, 0.78);
+                                    arrowM = max(arrowM, max(rArm, rTip));
+                                }
+                                whiteMask = max(whiteMask, arrowM * 0.78);
+                            }
+                            // Korean Crosswalk-Ahead Warning Diamond (◇ 횡단보도 예고표시) @ symMod in [30..33.6m]
+                            if (symMod > 30.2 && symMod < 33.8 && abs(lx) < 0.65) {
+                                float dy = abs(symMod - 32.0) / 1.55;
+                                float dx = abs(lx) / 0.52;
+                                float dRing = abs((dx + dy) - 1.0);
+                                float diam = aaBand(dRing, 0.14) * step(dx + dy, 1.16);
+                                whiteMask = max(whiteMask, diam * 0.76);
                             }
                         }
                     }
                 }
             } else {
-                // Narrow Korean residential back-alley / slip-lane: clean dark asphalt, ZERO stray bright edge lines!
                 albedo *= 0.96;
             }
         } else {
@@ -468,13 +603,13 @@ void main() {
             }
         }
 
-        float wPaintA = clamp(whiteMask, 0.0, 1.0) * 0.86 * paintWear;
-        float yPaintA = clamp(yellowMask, 0.0, 1.0) * 0.90 * paintWear;
-        float bPaintA = clamp(blueMask, 0.0, 1.0) * 0.88 * paintWear;
+        float wPaintA = clamp(whiteMask, 0.0, 1.0) * 0.88 * paintWear;
+        float yPaintA = clamp(yellowMask, 0.0, 1.0) * 0.92 * paintWear;
+        float bPaintA = clamp(blueMask, 0.0, 1.0) * 0.90 * paintWear;
         albedo = mix(albedo, whitePaint, wPaintA);
         albedo = mix(albedo, yellowPaint, yPaintA);
         albedo = mix(albedo, busBlue, bPaintA);
-        roughness = mix(roughness, 0.52, max(max(wPaintA, yPaintA), bPaintA) * 0.55);
+        roughness = mix(roughness, 0.50, max(max(wPaintA, yPaintA), bPaintA) * 0.55);
 
         float wetAmt = clamp(wetRoadFactor + nightFactor * 0.16, 0.0, 1.0);
         wetRoadSurface = wetAmt;
@@ -499,39 +634,61 @@ void main() {
         }
     }
     else if (matId == 5) {
-        // MAT 5: Authentic Seoul Sidewalk Interlocking Pavers (Tile 1) + Normal Map + Tactile Paving (Tile 15)
+        // MAT 5: Dedicated 4K Seoul Sidewalks (Tile 3 Interlocking Pavers, Tile 4 Granite Flagstones,
+        //        Tile 5 Yellow Tactile Braille Guide Ribs, Tile 6 Dressed Granite Curbstones!)
         vec2 p = fragPosition.xz;
+        vec3 dp1 = dFdx(fragPosition);
+        vec3 dp2 = dFdy(fragPosition);
+        vec2 dPdx = dFdx(p);
+        vec2 dPdy = dFdy(p);
+        vec2 dUvDx = dFdx(fragUv);
+        vec2 dUvDy = dFdy(fragUv);
         bool isSidewalkStrip = (fragUv.y > 0.5);
-        vec2 pvUv = p * (isSidewalkStrip ? 0.28 : 0.46);
         vec3 pAlb; vec2 pNxy; float pR; float pAO;
-        samplePbrTile(1, pvUv, pAlb, pNxy, pR, pAO);
-        if (isSidewalkStrip) {
-            albedo = mix(pAlb, pAlb * (albedo * 1.35 + vec3(0.15)), 0.35);
-        } else {
-            // Subtle smooth Seoul granite plaza / courtyard paving without harsh macro tile seams
-            float plazaVar = fbm2(p * 0.08);
-            vec3 granBase = mix(vec3(0.24, 0.25, 0.27), pAlb * 0.88, 0.52);
-            albedo = granBase * mix(0.88, 1.10, plazaVar);
-        }
-        roughness = mix(pR, 0.55, wetRoadFactor * 0.65);
-        surfaceAO = pAO;
-        N = perturbNormal(N, fragPosition, pvUv, pNxy, (isSidewalkStrip ? 0.75 : 0.48) * detailFade);
 
-        // If Real-OSM sidewalk strip (fragUv.y > 0.5, fragUv.x in [0..1] from curb to building edge)
         if (isSidewalkStrip) {
-            if (fragUv.x < 0.14) {
-                // Korean granite curbstone edge
-                float curbJoint = smoothstep(0.92, 0.98, abs(sin(fragUv.y * 3.14)));
-                albedo = mix(vec3(0.46, 0.47, 0.49), vec3(0.28, 0.29, 0.31), curbJoint);
-                roughness = 0.60;
-            } else if (fragUv.x > 0.34 && fragUv.x < 0.50) {
-                // Iconic Korean yellow tactile paving line (노란 점자블록)
-                vec3 tAlb; vec2 tNxy; float tR; float tAO;
-                samplePbrTile(15, vec2(fragUv.x * 6.0, fragUv.y * 1.4), tAlb, tNxy, tR, tAO);
-                albedo = tAlb;
-                roughness = tR;
-                N = perturbNormal(N, fragPosition, vec2(fragUv.x * 6.0, fragUv.y * 1.4), tNxy, 0.8 * detailFade);
+            if (fragUv.x < 0.13) {
+                // Tile 6: Authentic 1m Chisel-Dressed Pocheon Granite Curbstone (화강석 경계석)!
+                vec2 cUv = vec2(clamp(fragUv.x / 0.13, 0.0, 1.0), fragUv.y * 0.25);
+                vec2 cDdx = vec2(dUvDx.x / 0.13, dUvDx.y * 0.25);
+                vec2 cDdy = vec2(dUvDy.x / 0.13, dUvDy.y * 0.25);
+                sampleStreetTileGrad(6, cUv, cDdx, cDdy, pAlb, pNxy, pR, pAO);
+                albedo = pAlb;
+                roughness = mix(pR, 0.50, wetRoadFactor * 0.60);
+                surfaceAO = pAO;
+                N = perturbNormalGrad(N, dp1, dp2, cDdx, cDdy, pNxy, 0.85 * detailFade);
+            } else if (fragUv.x > 0.30 && fragUv.x < 0.46) {
+                // Tile 5: Crisp Raised Korean Yellow Tactile Braille Guide Paving (노란 점자블록)!
+                vec2 tUv = vec2((fragUv.x - 0.30) / 0.16, fragUv.y * 1.55);
+                vec2 tDdx = vec2(dUvDx.x / 0.16, dUvDx.y * 1.55);
+                vec2 tDdy = vec2(dUvDy.x / 0.16, dUvDy.y * 1.55);
+                sampleStreetTileGrad(5, tUv, tDdx, tDdy, pAlb, pNxy, pR, pAO);
+                albedo = pAlb;
+                roughness = mix(pR, 0.42, wetRoadFactor * 0.55);
+                surfaceAO = pAO;
+                N = perturbNormalGrad(N, dp1, dp2, tDdx, tDdy, pNxy, 0.95 * detailFade);
+            } else {
+                // Wide Seoul boulevard sidewalks blend interlocking granite pavers (Tile 3) with honed flagstones (Tile 4)!
+                vec2 pvUv = vec2(fragUv.x * 1.65, fragUv.y * 0.46);
+                vec2 pvDdx = vec2(dUvDx.x * 1.65, dUvDx.y * 0.46);
+                vec2 pvDdy = vec2(dUvDy.x * 1.65, dUvDy.y * 0.46);
+                sampleStreetTileGrad(3, pvUv, pvDdx, pvDdy, pAlb, pNxy, pR, pAO);
+                albedo = mix(pAlb, pAlb * (albedo * 1.25 + vec3(0.18)), 0.25);
+                roughness = mix(pR, 0.52, wetRoadFactor * 0.65);
+                surfaceAO = pAO;
+                N = perturbNormalGrad(N, dp1, dp2, pvDdx, pvDdy, pNxy, 0.82 * detailFade);
             }
+        } else {
+            // Urban sidewalk-to-building plaza subbase: Tile 4 Large Honed Seoul Granite Flagstones!
+            vec2 plUv = p * 0.32;
+            vec2 plDdx = dPdx * 0.32;
+            vec2 plDdy = dPdy * 0.32;
+            sampleStreetTileGrad(4, plUv, plDdx, plDdy, pAlb, pNxy, pR, pAO);
+            float plazaVar = fbm2(p * 0.07);
+            albedo = pAlb * mix(0.74, 0.96, plazaVar);
+            roughness = mix(pR, 0.54, wetRoadFactor * 0.65);
+            surfaceAO = pAO;
+            N = perturbNormalGrad(N, dp1, dp2, plDdx, plDdy, pNxy, 0.62 * detailFade);
         }
         puddleMask = wetRoadFactor * smoothstep(0.45, 0.78, fbm2(p * 0.22)) * 0.40;
         albedo *= (1.0 - wetRoadFactor * 0.18 - puddleMask * 0.16);
@@ -840,7 +997,9 @@ void main() {
     }
     else if (matId == 17) {
         // MAT 17: Real Hangul 3D Seoul Sign Atlas (Gantries, Shopfronts, Subway, BIS, Apt Panels, Bus LED, Plates)
-        vec4 tex = texture(signAtlasTex, fragUv);
+        vec2 sDdx = clamp(dFdx(fragUv), vec2(-0.04), vec2(0.04));
+        vec2 sDdy = clamp(dFdy(fragUv), vec2(-0.04), vec2(0.04));
+        vec4 tex = textureGrad(signAtlasTex, fragUv, sDdx, sDdy);
         vec3 signLin = pow(clamp(tex.rgb, 0.0, 1.0), vec3(2.2));
         albedo = signLin * albedo;
         alphaOut *= tex.a;
@@ -859,14 +1018,31 @@ void main() {
         N = perturbNormal(N, fragPosition, rUv, pNxy, 0.70 * detailFade);
     }
     else if (matId == 20) {
-        // MAT 20: Cast-in-Place Bridge & Retaining Concrete (Tile 12 + Normal Map!)
-        vec2 cUv = vec2(fragPosition.x + fragPosition.z, fragPosition.y) * 0.18;
+        // MAT 20: Dedicated 4K Street PBR — Poured Formwork Viaduct/Pier Concrete (Tile 9) OR Translucent Acoustic Sound Barrier (Tile 11)!
+        vec3 dp1 = dFdx(fragPosition);
+        vec3 dp2 = dFdy(fragPosition);
+        vec2 baseU = vec2(fragPosition.x + fragPosition.z, fragPosition.y);
+        vec2 dUdx = dFdx(baseU);
+        vec2 dUdy = dFdy(baseU);
+        bool isSoundGlass = (srgbBase.b > srgbBase.r + 0.10) && (srgbBase.b > 0.62);
+        float cScale = isSoundGlass ? 0.36 : 0.22;
+        vec2 cUv = baseU * cScale;
+        vec2 cDdx = dUdx * cScale;
+        vec2 cDdy = dUdy * cScale;
         vec3 pAlb; vec2 pNxy; float pR; float pAO;
-        samplePbrTile(12, cUv, pAlb, pNxy, pR, pAO);
-        albedo = pAlb * mix(vec3(1.0), albedo * 1.4, 0.35);
-        roughness = pR;
-        surfaceAO = pAO;
-        N = perturbNormal(N, fragPosition, cUv, pNxy, 0.80 * detailFade);
+        sampleStreetTileGrad(isSoundGlass ? 11 : 9, cUv, cDdx, cDdy, pAlb, pNxy, pR, pAO);
+        if (isSoundGlass) {
+            albedo = pAlb * 1.05;
+            roughness = pR;
+            metallic = (pR < 0.20) ? 0.18 : 0.65;
+            surfaceAO = pAO;
+            N = perturbNormalGrad(N, dp1, dp2, cDdx, cDdy, pNxy, 0.75 * detailFade);
+        } else {
+            albedo = pAlb * mix(vec3(1.0), albedo * 1.38, 0.36);
+            roughness = pR;
+            surfaceAO = pAO;
+            N = perturbNormalGrad(N, dp1, dp2, cDdx, cDdy, pNxy, 0.85 * detailFade);
+        }
     }
     else if (matId == 21) {
         // MAT 21: Organic Dappled Tree Foliage Canopy (Tile 14 Leaves + Normal Map + Sunlit Translucency!)

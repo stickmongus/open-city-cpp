@@ -92,7 +92,10 @@ Renderer3D::~Renderer3D() = default;
 void Renderer3D::init(VulkanContext& vk, const CityMap& city,
                       const std::vector<std::uint8_t>& fontBytes,
                       const std::vector<std::uint8_t>& pbrAlbedoPng,
-                      const std::vector<std::uint8_t>& pbrNormalRoughPng) {
+                      const std::vector<std::uint8_t>& pbrNormalRoughPng,
+                      const std::vector<std::uint8_t>& streetAlbedoPng,
+                      const std::vector<std::uint8_t>& streetNormalRoughPng,
+                      const std::vector<std::uint8_t>& signs4kPng) {
     if (initialized_) return;
     if (!pbrAlbedoPng.empty() && !pbrNormalRoughPng.empty()) {
         int aw = 0, ah = 0, ac = 0;
@@ -106,8 +109,33 @@ void Renderer3D::init(VulkanContext& vk, const CityMap& city,
         if (albPx) stbi_image_free(albPx);
         if (nrmPx) stbi_image_free(nrmPx);
     }
+    if (!streetAlbedoPng.empty() && !streetNormalRoughPng.empty()) {
+        int aw = 0, ah = 0, ac = 0;
+        int nw = 0, nh = 0, nc = 0;
+        stbi_uc* sAlb = stbi_load_from_memory(streetAlbedoPng.data(), static_cast<int>(streetAlbedoPng.size()), &aw, &ah, &ac, 4);
+        stbi_uc* sNrm = stbi_load_from_memory(streetNormalRoughPng.data(), static_cast<int>(streetNormalRoughPng.size()), &nw, &nh, &nc, 4);
+        if (sAlb && sNrm && aw > 0 && ah > 0 && nw > 0 && nh > 0) {
+            vk.uploadStreetPbrTexturesRGBA8(sAlb, static_cast<std::uint32_t>(aw), static_cast<std::uint32_t>(ah),
+                                            sNrm, static_cast<std::uint32_t>(nw), static_cast<std::uint32_t>(nh));
+        }
+        if (sAlb) stbi_image_free(sAlb);
+        if (sNrm) stbi_image_free(sNrm);
+    }
     buildStaticPrimitives(vk);
-    buildSeoulSignAtlas(vk, fontBytes);
+    signAtlas4k_ = false;
+    if (!signs4kPng.empty()) {
+        int sw = 0, sh = 0, sc = 0;
+        stbi_uc* sPx = stbi_load_from_memory(signs4kPng.data(), static_cast<int>(signs4kPng.size()), &sw, &sh, &sc, 4);
+        if (sPx && sw >= 2048 && sh >= 2048) {
+            if (vk.uploadSignAtlasRGBA8(sPx, static_cast<std::uint32_t>(sw), static_cast<std::uint32_t>(sh))) {
+                signAtlas4k_ = true;
+            }
+        }
+        if (sPx) stbi_image_free(sPx);
+    }
+    if (!signAtlas4k_) {
+        buildSeoulSignAtlas(vk, fontBytes);
+    }
     cars_.init(vk);
     buildSeoulMacroMeshes(vk, city);
     initialized_ = true;
@@ -1820,7 +1848,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
 
     std::vector<Vertex3D> groundV, roadsV, sidewalksV, piersV;
     std::vector<Vertex3D> aptV, glassV, graniteV, brickV, stuccoV, hanokV, roofV;
-    groundV.reserve(16 * 16 * 6);
+    groundV.reserve(24 * 24 * 6);
     roadsV.reserve(3072);
     sidewalksV.reserve(2560);
     piersV.reserve(512);
@@ -1832,13 +1860,14 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     roofV.reserve(2048);
 
     // ------------------------------------------------------------------------
-    // 0. HIGH-RESOLUTION 16m URBAN GROUND SUBBASE FOR THIS CHUNK (ZERO terrain-above-road poke-through!)
+    // 0. HIGH-RESOLUTION 10.7m URBAN GROUND SUBBASE FOR THIS CHUNK (ZERO terrain-above-road poke-through!)
     // ------------------------------------------------------------------------
     {
-        constexpr int kGn = 16; // 256m / 16 = 16m precision everywhere inside active 5x5 chunk window!
+        constexpr int kGn = 24; // 256m / 24 = 10.67m precision matching 15m OCM6 road-carved DTM!
         const float gx0 = hdr.minX + static_cast<float>(cx) * hdr.chunkSize;
         const float gz0 = hdr.minZ + static_cast<float>(cz) * hdr.chunkSize;
         const float step = hdr.chunkSize / static_cast<float>(kGn);
+        const float subBaseDrop = real.isOcm6() ? 0.16f : 0.14f;
         struct LocalGNode { Vec3 pos; Vec3 norm; float rawH; bool inWater; };
         LocalGNode lg[(kGn + 1) * (kGn + 1)];
         for (int iz = 0; iz <= kGn; ++iz) {
@@ -1848,12 +1877,12 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 const Vec2 wp{wx, wz};
                 const float h = real.sampleDem(wp);
                 const bool wtr = real.isInWater(wp);
-                const float y = wtr ? (h - 2.2f) : (h - 0.14f);
-                const float hL = real.sampleDem({wx - 12.0f, wz});
-                const float hR = real.sampleDem({wx + 12.0f, wz});
-                const float hD = real.sampleDem({wx, wz - 12.0f});
-                const float hU = real.sampleDem({wx, wz + 12.0f});
-                lg[iz * (kGn + 1) + ix] = {{wx, y, wz}, Vec3{hL - hR, 24.0f, hD - hU}.normalized(), h, wtr};
+                const float y = wtr ? (h - 2.2f) : (h - subBaseDrop);
+                const float hL = real.sampleDem({wx - 10.0f, wz});
+                const float hR = real.sampleDem({wx + 10.0f, wz});
+                const float hD = real.sampleDem({wx, wz - 10.0f});
+                const float hU = real.sampleDem({wx, wz + 10.0f});
+                lg[iz * (kGn + 1) + ix] = {{wx, y, wz}, Vec3{hL - hR, 20.0f, hD - hU}.normalized(), h, wtr};
             }
         }
         const ColorRGBA kGroundCol{162, 164, 168, 255};
@@ -1993,17 +2022,25 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
         const float hw = std::max(2.6f, r.halfWidth);
         const RoadLaneLayout laneLayout = RealSeoulData::computeRoadLaneLayout(r);
 
-        // Exact road-class lift + deterministic per-road micro-tiebreaker (0..18mm) to eliminate
+        // Exact road-class lift + deterministic per-road micro-tiebreaker to eliminate
         // 100% of same-class intersection Z-fighting speckles without affecting tire physics!
-        const float slipBias = (hw < 3.2f) ? -0.005f : 0.0f;
-        const float roadTieBias = static_cast<float>(ri % 23u) * 0.0008f;
-        const float classLift = RealSeoulData::roadClassLift(r.roadClass) + slipBias + roadTieBias;
+        // On OCM6 v4, roadVertY is already globally C2-smoothed & transversely flush-coupled with
+        // the road-carved 15m DTM, so ONLY a tiny <18mm render-only Z-bias is applied (ZERO step!).
+        const bool isOcm6 = real.isOcm6();
+        const float slipBias = (hw < 3.2f) ? (isOcm6 ? -0.002f : -0.005f) : 0.0f;
+        const float roadTieBias = static_cast<float>(ri % 19u) * (isOcm6 ? 0.0003f : 0.0008f);
+        const float classLift = isOcm6
+            ? (static_cast<float>(r.roadClass < 6u ? (6u - r.roadClass) : 0u) * 0.0020f + slipBias + roadTieBias)
+            : (RealSeoulData::roadClassLift(r.roadClass) + slipBias + roadTieBias);
 
         // Smooth C0-continuous corner elevation:
-        // - Elevated decks (yBase > demCenter + 0.85m): razor-flat horizontally (ZERO sawtooth or tilted bridge quads!)
-        // - Ground roads (yBase ~ demCenter): gently hug cross-slope DEM clamped within +/-0.35m of centerline yBase
-        // - Approach abutments (+0.15m..+0.85m): smooth continuous blend between the two, identical across shared edges!
+        // - OCM6 v4: razor-flush planar cross-section directly on globally C2-smoothed 3D centerline!
+        //   (Eliminates all intersection step cracks & cross-slope mismatches between meeting boulevards!)
+        // - Legacy OCM5/OCM4: elevated decks stay flat; ground roads hug coarse DEM cross-slope.
         auto evalCornerY = [&](const Vec2& pCenter, const Vec2& pCorner, float yBase) -> float {
+            if (isOcm6) {
+                return yBase + classLift;
+            }
             if (!has3DRoads) {
                 float y = real.sampleDem(pCorner) + classLift;
                 if (isBridge) {
@@ -2347,7 +2384,9 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             const float yMid = 0.5f * (y0 + y1);
             const float demMid = real.sampleDem(mid);
             const float clearMid = yMid - demMid;
-            const bool isElevatedDeck = isBridge || (has3DRoads && clearMid > 0.85f);
+            // On OCM6 v4, normal hillside Seoul streets smoothly graded up to ~2.2m over local terrain dips
+            // keep authentic sidewalks & downward granite retaining curbs instead of bridge parapet walls!
+            const bool isElevatedDeck = isBridge || (has3DRoads && clearMid > (isOcm6 ? 2.25f : 0.85f));
 
             const float effHw = 0.5f * (ss.hwL + ss.hwR);
             const float uL = -effHw;
@@ -2368,10 +2407,13 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             pushQuadV3(roadsV, aL, aR, bR, bL, {0, 1, 0},
                        uL, v0, uR, v0, uR, v1, uL, v1, roadMeta);
 
-            // Flanking raised Korean granite-curb + tactile-paving sidewalks ONLY on ground-level City Streets!
-            if (!isExpressway && !isElevatedDeck && !isLink && !ss.inInter && r.roadClass <= 4u) {
-                const float swW = (r.roadClass <= 2u) ? 3.0f : 2.2f;
-                const float curbH = 0.08f;
+            // Flanking raised Korean granite-curb + yellow-tactile-strip sidewalks on ground-level City Streets,
+            // plus flush downward granite retaining aprons on hilly ground streets so roads/sidewalks never float!
+            if (!isExpressway && !isElevatedDeck && !ss.inInter) {
+                const bool allowSidewalk = (!isLink && r.roadClass <= 4u);
+                const float swW = (r.roadClass <= 2u) ? 3.45f : 2.45f;
+                // Authentic Korean 11cm dressed granite curbstone, lowered to 2.5cm wheelchair ramp (턱낮춤) at crosswalks!
+                const float curbH = ss.isInterCrosswalk ? 0.025f : 0.11f;
                 const float swV0 = 10.0f + dist0;
                 const float swV1 = 10.0f + dist1;
                 const Vec2 nMid = (n0 + n1).normalized();
@@ -2384,35 +2426,72 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                     const Vec2 s0 = n0 * side;
                     const Vec2 s1 = n1 * side;
                     const Vec2 sM = nMid * side;
-                    const float probeOff = sideHwM + swW * 0.52f;
-                    const Vec2 swP0 = p0 + s0 * probeOff;
-                    const Vec2 swPM = mid + sM * probeOff;
-                    const Vec2 swP1 = p1 + s1 * probeOff;
-                    if (real.isInWater(swPM) ||
-                        hasSameLevelRoadAt(swP0, y0, 0.9f) ||
-                        hasSameLevelRoadAt(swPM, yMid, 0.9f) ||
-                        hasSameLevelRoadAt(swP1, y1, 0.9f)) {
-                        continue;
+
+                    bool emittedSw = false;
+                    if (allowSidewalk) {
+                        const float probeOff = sideHwM + swW * 0.52f;
+                        const Vec2 swP0 = p0 + s0 * probeOff;
+                        const Vec2 swPM = mid + sM * probeOff;
+                        const Vec2 swP1 = p1 + s1 * probeOff;
+                        if (!real.isInWater(swPM) &&
+                            !hasSameLevelRoadAt(swP0, y0, 0.9f) &&
+                            !hasSameLevelRoadAt(swPM, yMid, 0.9f) &&
+                            !hasSameLevelRoadAt(swP1, y1, 0.9f)) {
+                            const Vec2 c0P{p0.x + s0.x * sideHw0, p0.z + s0.z * sideHw0};
+                            const Vec2 c1P{p1.x + s1.x * sideHw1, p1.z + s1.z * sideHw1};
+                            const Vec2 o0P{p0.x + s0.x * (sideHw0 + swW), p0.z + s0.z * (sideHw0 + swW)};
+                            const Vec2 o1P{p1.x + s1.x * (sideHw1 + swW), p1.z + s1.z * (sideHw1 + swW)};
+                            const float yc0 = evalCornerY(p0, c0P, ss.y0);
+                            const float yc1 = evalCornerY(p1, c1P, ss.y1);
+                            const float demO0 = real.sampleDem(o0P);
+                            const float demO1 = real.sampleDem(o1P);
+                            const float yo0 = isOcm6
+                                ? (yc0 + clampf((demO0 - yc0) * 0.30f, -0.10f, 0.12f))
+                                : evalCornerY(p0, o0P, ss.y0);
+                            const float yo1 = isOcm6
+                                ? (yc1 + clampf((demO1 - yc1) * 0.30f, -0.10f, 0.12f))
+                                : evalCornerY(p1, o1P, ss.y1);
+                            const Vec3 c0Bot{c0P.x, yc0 - 0.02f, c0P.z};
+                            const Vec3 c1Bot{c1P.x, yc1 - 0.02f, c1P.z};
+                            const Vec3 c0Top{p0.x + s0.x * (sideHw0 + 0.11f), yc0 + curbH, p0.z + s0.z * (sideHw0 + 0.11f)};
+                            const Vec3 c1Top{p1.x + s1.x * (sideHw1 + 0.11f), yc1 + curbH, p1.z + s1.z * (sideHw1 + 0.11f)};
+                            const Vec3 o0Top{o0P.x, yo0 + curbH, o0P.z};
+                            const Vec3 o1Top{o1P.x, yo1 + curbH, o1P.z};
+                            const Vec3 curbN{-s0.x, 0.25f, -s0.z};
+                            pushQuadV3(sidewalksV, c0Bot, c1Bot, c1Top, c0Top, curbN.normalized(),
+                                       0.02f, swV0, 0.02f, swV1, 0.06f, swV1, 0.06f, swV0, kSwTint);
+                            pushQuadV3(sidewalksV, c0Top, c1Top, o1Top, o0Top, {0, 1, 0},
+                                       0.0f, swV0, 0.0f, swV1, 1.0f, swV1, 1.0f, swV0, kSwTint);
+                            // Downward granite outer plinth skirt whenever a hillside sidewalk rises above the adjacent plaza
+                            if (isOcm6 && ((yo0 + curbH - demO0) > 0.16f || (yo1 + curbH - demO1) > 0.16f)) {
+                                const Vec3 o0Bot{o0P.x, std::min(yo0 - 0.14f, demO0 - 0.45f), o0P.z};
+                                const Vec3 o1Bot{o1P.x, std::min(yo1 - 0.14f, demO1 - 0.45f), o1P.z};
+                                const Vec3 outN = Vec3{s0.x, 0.0f, s0.z}.normalized();
+                                pushQuadV3(sidewalksV, o0Bot, o1Bot, o1Top, o0Top, outN,
+                                           0.02f, swV0, 0.02f, swV1, 0.10f, swV1, 0.10f, swV0, kSwTint);
+                            }
+                            emittedSw = true;
+                        }
                     }
-                    const Vec2 c0P{p0.x + s0.x * sideHw0, p0.z + s0.z * sideHw0};
-                    const Vec2 c1P{p1.x + s1.x * sideHw1, p1.z + s1.z * sideHw1};
-                    const Vec2 o0P{p0.x + s0.x * (sideHw0 + swW), p0.z + s0.z * (sideHw0 + swW)};
-                    const Vec2 o1P{p1.x + s1.x * (sideHw1 + swW), p1.z + s1.z * (sideHw1 + swW)};
-                    const float yc0 = evalCornerY(p0, c0P, ss.y0);
-                    const float yc1 = evalCornerY(p1, c1P, ss.y1);
-                    const float yo0 = evalCornerY(p0, o0P, ss.y0);
-                    const float yo1 = evalCornerY(p1, o1P, ss.y1);
-                    const Vec3 c0Bot{c0P.x, yc0 - 0.02f, c0P.z};
-                    const Vec3 c1Bot{c1P.x, yc1 - 0.02f, c1P.z};
-                    const Vec3 c0Top{p0.x + s0.x * (sideHw0 + 0.08f), yc0 + curbH, p0.z + s0.z * (sideHw0 + 0.08f)};
-                    const Vec3 c1Top{p1.x + s1.x * (sideHw1 + 0.08f), yc1 + curbH, p1.z + s1.z * (sideHw1 + 0.08f)};
-                    const Vec3 o0Top{o0P.x, yo0 + curbH, o0P.z};
-                    const Vec3 o1Top{o1P.x, yo1 + curbH, o1P.z};
-                    const Vec3 curbN{-s0.x, 0.25f, -s0.z};
-                    pushQuadV3(sidewalksV, c0Bot, c1Bot, c1Top, c0Top, curbN.normalized(),
-                               0.04f, swV0, 0.04f, swV1, 0.08f, swV1, 0.08f, swV0, kSwTint);
-                    pushQuadV3(sidewalksV, c0Top, c1Top, o1Top, o0Top, {0, 1, 0},
-                               0.0f, swV0, 0.0f, swV1, 1.0f, swV1, 1.0f, swV0, kSwTint);
+
+                    // For hillside residential streets/alleys without sidewalks, emit a flush downward granite retaining apron
+                    // (ZERO bridge wall sticking above road surface -> storefronts remain 100% open & unobstructed!)
+                    if (!emittedSw && isOcm6 && clearMid > 0.22f &&
+                        !hasSameLevelRoadAt(mid + sM * (sideHwM + 0.65f), yMid, 0.35f)) {
+                        const Vec2 c0P{p0.x + s0.x * sideHw0, p0.z + s0.z * sideHw0};
+                        const Vec2 c1P{p1.x + s1.x * sideHw1, p1.z + s1.z * sideHw1};
+                        const float yc0 = evalCornerY(p0, c0P, ss.y0);
+                        const float yc1 = evalCornerY(p1, c1P, ss.y1);
+                        const float demC0 = real.sampleDem(c0P);
+                        const float demC1 = real.sampleDem(c1P);
+                        const Vec3 top0{c0P.x, yc0 + 0.03f, c0P.z};
+                        const Vec3 top1{c1P.x, yc1 + 0.03f, c1P.z};
+                        const Vec3 bot0{c0P.x, std::min(yc0 - 0.15f, demC0 - 0.45f), c0P.z};
+                        const Vec3 bot1{c1P.x, std::min(yc1 - 0.15f, demC1 - 0.45f), c1P.z};
+                        const Vec3 outN = Vec3{s0.x, 0.0f, s0.z}.normalized();
+                        pushQuadV3(sidewalksV, bot0, bot1, top1, top0, outN,
+                                   0.02f, swV0, 0.02f, swV1, 0.10f, swV1, 0.10f, swV0, kSwTint);
+                    }
                 }
             }
 
@@ -3463,13 +3542,34 @@ void Renderer3D::drawBox(VulkanContext& vk, const Vec3& center, const Vec3& size
 void Renderer3D::drawSignQuad(VulkanContext& vk, const Vec3& center, const Vec3& outNormal,
                               const Vec3& upAxis, float width, float height, int atlasSlot,
                               float emissive, ColorRGBA tint) {
-    const int slot = std::clamp(atlasSlot, 0, 31);
-    const int col = slot % 4;
-    const int row = slot / 4;
-    const float u0 = (static_cast<float>(col) * 256.0f + 2.5f) / 1024.0f;
-    const float u1 = (static_cast<float>(col + 1) * 256.0f - 2.5f) / 1024.0f;
-    const float v0 = (static_cast<float>(row) * 128.0f + 2.5f) / 1024.0f;
-    const float v1 = (static_cast<float>(row + 1) * 128.0f - 2.5f) / 1024.0f;
+    float u0 = 0.0f, u1 = 1.0f, v0 = 0.0f, v1 = 1.0f;
+    if (signAtlas4k_) {
+        const int slot = std::clamp(atlasSlot, 0, 63);
+        const int col = slot % 4;
+        const int row = slot / 4;
+        u0 = (static_cast<float>(col) * 1024.0f + 6.0f) / 4096.0f;
+        u1 = (static_cast<float>(col + 1) * 1024.0f - 6.0f) / 4096.0f;
+        v0 = (static_cast<float>(row) * 256.0f + 4.0f) / 4096.0f;
+        v1 = (static_cast<float>(row + 1) * 256.0f - 4.0f) / 4096.0f;
+    } else {
+        int s = std::clamp(atlasSlot, 0, 63);
+        if (s <= 7)       s = s & 3;                     // Expressway gantries 0..3
+        else if (s <= 15) s = 4 + ((s - 8) & 3);         // City boulevard gantries 4..7
+        else if (s <= 47) s = 8 + ((s - 16) % 12);       // Korean shopfronts 8..19
+        else if (s <= 55) s = 20 + ((s - 48) & 3);       // Seoul Metro canopies 20..23
+        else if (s == 56) s = 24;                        // Bus BIS
+        else if (s == 57) s = 25;                        // Apt emblem
+        else if (s <= 59) s = 27 + (s - 58);             // Bus LED
+        else if (s == 60) s = 29;                        // Korean license plate
+        else if (s == 61) s = 31;                        // Police panel
+        else              s = 4;                         // Fallback road sign
+        const int col = s % 4;
+        const int row = s / 4;
+        u0 = (static_cast<float>(col) * 256.0f + 2.5f) / 1024.0f;
+        u1 = (static_cast<float>(col + 1) * 256.0f - 2.5f) / 1024.0f;
+        v0 = (static_cast<float>(row) * 128.0f + 2.5f) / 1024.0f;
+        v1 = (static_cast<float>(row + 1) * 128.0f - 2.5f) / 1024.0f;
+    }
 
     const Vec3 n = outNormal.normalized();
     const Vec3 up = upAxis.normalized();
@@ -3782,7 +3882,7 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
                         drawSignQuad(vk, {c.x + sx * (sz.x * 0.5f + 0.24f), roofY - 5.2f, c.z},
                                      {sx, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f},
                                      std::min(sz.z * 0.44f, 6.2f), 3.45f,
-                                     25 + (b.facadeVariant & 1), nightMode ? 0.34f : 0.04f);
+                                     57, nightMode ? 0.34f : 0.04f);
                     }
                 }
             } else {
@@ -3841,8 +3941,8 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
                     if (drawTextSigns) {
                         const Vec3 outN = alongZ ? Vec3{outSign, 0.0f, 0.0f} : Vec3{0.0f, 0.0f, outSign};
                         const float facePush = 0.20f;
-                        const int slot1 = 8 + ((seedIdx + edgeOrd * 2) % 12);
-                        const int slot2 = 8 + ((seedIdx + edgeOrd * 2 + 5) % 12);
+                        const int slot1 = 16 + ((seedIdx + edgeOrd * 2) % 32);
+                        const int slot2 = 16 + ((seedIdx + edgeOrd * 2 + 11) % 32);
                         drawSignQuad(vk, {ox1 + outN.x * facePush, signY, oz1 + outN.z * facePush},
                                      outN, {0.0f, 1.0f, 0.0f}, signW1 * 0.96f, signH1 * 0.94f, slot1, hangulEm);
                         drawSignQuad(vk, {ox2 + outN.x * facePush, signY, oz2 + outN.z * facePush},
@@ -3859,7 +3959,7 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
                         drawBox(vk, {ox2, b.baseY + 7.45f, oz2}, s2F, 0.0f, shop2F, 0.36f, 0.10f, signEm * 0.35f, MatId::Standard, false);
                         if (drawTextSigns) {
                             const Vec3 outN = alongZ ? Vec3{outSign, 0.0f, 0.0f} : Vec3{0.0f, 0.0f, outSign};
-                            const int slot2F = 16 + ((seedIdx + edgeOrd) & 3);
+                            const int slot2F = 16 + ((seedIdx + edgeOrd + 19) % 32);
                             drawSignQuad(vk, {ox2 + outN.x * 0.175f, b.baseY + 7.45f, oz2 + outN.z * 0.175f},
                                          outN, {0.0f, 1.0f, 0.0f}, signW2 * 0.96f, signH2 * 0.94f, slot2F, hangulEm);
                         }
@@ -3920,11 +4020,13 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
         const float y0 = t.baseY;
 
         if (t.inPlanter && !shadowPass) {
-            // Crisp Korean granite tree curb surround + dark mulch soil bed
-            drawBox(vk, {t.pos.x, y0 + 0.16f, t.pos.z}, {1.85f, 0.28f, 1.85f}, 0.0f,
-                    {142, 144, 148, 255}, 0.82f, 0.0f, 0.0f, MatId::SidewalkPavers, false);
-            drawBox(vk, {t.pos.x, y0 + 0.24f, t.pos.z}, {1.45f, 0.16f, 1.45f}, 0.0f,
-                    {68, 54, 42, 255}, 0.94f, 0.0f, 0.0f, MatId::Standard, false);
+            // Authentic Seoul sidewalk flush granite tree-well frame + dark cast-iron slotted grate!
+            drawBox(vk, {t.pos.x, y0 + 0.045f, t.pos.z}, {1.92f, 0.09f, 1.92f}, 0.0f,
+                    {154, 156, 160, 255}, 0.78f, 0.04f, 0.0f, MatId::BridgeConcrete, false);
+            drawBox(vk, {t.pos.x, y0 + 0.062f, t.pos.z}, {1.62f, 0.06f, 1.62f}, 0.0f,
+                    {54, 58, 64, 255}, 0.42f, 0.68f, 0.0f, MatId::Standard, false);
+            drawBox(vk, {t.pos.x, y0 + 0.072f, t.pos.z}, {0.62f, 0.05f, 0.62f}, 0.0f,
+                    {64, 52, 42, 255}, 0.94f, 0.0f, 0.0f, MatId::Standard, false);
         }
         // Multi-branch flared bark trunk with natural yaw variation per tree
         const float treeYaw = std::fmod(std::abs(t.pos.x * 0.17f + t.pos.z * 0.31f), kTwoPi);
@@ -4068,28 +4170,45 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                     drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.65f, 1.35f, 0.15f) * Mat4::scale(0.64f, 2.70f, 0.24f),
                              {38, 44, 54, 255}, 0.34f, 0.65f, 0.0f, MatId::Standard, false);
                     drawLocalSign({2.65f, 1.96f, 0.285f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f},
-                                  0.60f, 0.42f, 24, nightMode ? 0.62f : 0.28f);
+                                  0.60f, 0.42f, 56, nightMode ? 0.62f : 0.28f);
                     drawLocalSign({2.65f, 1.96f, 0.015f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f},
-                                  0.60f, 0.42f, 24, nightMode ? 0.62f : 0.28f);
+                                  0.60f, 0.42f, 56, nightMode ? 0.62f : 0.28f);
                 }
                 break;
             }
             case StreetPropKind::SubwayEntrance: {
-                // Authentic Seoul Metro Glass-Canopy Subway Entrance + Hangul Station Signboards + Line Pole Sign!
+                // Authentic Seoul Metro Glass-Canopy Subway Entrance + District-Matched 4K Hangul Station Signboards!
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.55f, 0.0f) * Mat4::scale(5.4f, 0.20f, 2.6f),
                          {52, 58, 68, 255}, 0.30f, 0.74f, 0.0f, MatId::Standard, shadowPass);
-                static constexpr ColorRGBA kMetroLines[4] = {
-                    { 42, 168,  78, 255}, // 20: Line 2 Green (2호선 강남역)
-                    {192, 162,  66, 255}, // 21: Line 9 Gold (9호선 고속터미널)
-                    {236, 118,  28, 255}, // 22: Line 3 Orange (3호선 경복궁역)
-                    { 36,  98, 198, 255}  // 23: Line 1 Navy Blue (1호선 시청역)
+                static constexpr ColorRGBA kMetroLines[8] = {
+                    { 42, 168,  78, 255}, // 48: Line 2 Green (강남역)
+                    { 42, 168,  78, 255}, // 49: Line 2 Green (삼성역)
+                    { 42, 168,  78, 255}, // 50: Line 2 Green (잠실역)
+                    {192, 162,  66, 255}, // 51: Line 9 Gold  (고속터미널)
+                    {236, 118,  28, 255}, // 52: Line 3 Orange (경복궁역)
+                    { 36,  98, 198, 255}, // 53: Line 1 Navy  (시청역)
+                    {146,  72, 178, 255}, // 54: Line 5 Purple (여의도역)
+                    { 42, 168,  78, 255}  // 55: Line 2 Green (홍대입구역)
                 };
-                const unsigned metroIdx = static_cast<unsigned>(std::abs(static_cast<int>(p.pos.x + p.pos.z))) & 3u;
+                unsigned metroIdx = 0u;
+                switch (city.districtAtWorld(p.pos)) {
+                    case DistrictType::GangnamTeheran:     metroIdx = (p.pos.x > 4700.0f) ? 1u : 0u; break;
+                    case DistrictType::JamsilSongpa:       metroIdx = 2u; break;
+                    case DistrictType::SeochoBanpo:        metroIdx = 3u; break;
+                    case DistrictType::GwanghwamunPalace:  metroIdx = 4u; break;
+                    case DistrictType::MyeongdongCityHall:
+                    case DistrictType::JongnoCheonggye:    metroIdx = 5u; break;
+                    case DistrictType::YeouidoFinance:     metroIdx = 6u; break;
+                    case DistrictType::HongdaeMapo:        metroIdx = 7u; break;
+                    default:
+                        metroIdx = static_cast<unsigned>(std::abs(static_cast<int>(p.pos.x + p.pos.z))) & 7u;
+                        break;
+                }
                 const ColorRGBA lineCol = kMetroLines[metroIdx];
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.86f, 0.0f) * Mat4::scale(5.5f, 0.56f, 2.7f),
                          lineCol, 0.24f, 0.18f, nightMode ? 0.45f : 0.06f, MatId::Standard, false);
                 if (!shadowPass && distSq < 160.0f * 160.0f) {
-                    const int metroSlot = 20 + static_cast<int>(metroIdx);
+                    const int metroSlot = 48 + static_cast<int>(metroIdx);
                     const float mEm = nightMode ? 0.55f : 0.10f;
                     drawLocalSign({0.0f, 2.86f,  1.38f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.72f, metroSlot, mEm);
                     drawLocalSign({0.0f, 2.86f, -1.38f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.72f, metroSlot, mEm);
@@ -4150,32 +4269,33 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                     }
                 }
 
-                int slotL = 4, slotR = 5;
+                int slotL = 8, slotR = 9;
                 if (isExpresswayGantry) {
-                    // GREEN Korean Expressway signs (Slots 0..3) matched to real Seoul expressway corridors!
+                    // GREEN Korean Expressway 4K signs (Slots 0..7) matched to real Seoul expressway corridors!
                     if (p.pos.x > 2100.0f && p.pos.x < 3300.0f && p.pos.z > 600.0f) {
-                        slotL = 1; slotR = 0; // 경부고속도로 (1) + 올림픽대로 (88)
+                        slotL = 1; slotR = 7; // 경부고속도로 (1) + 반포IC·서초IC (1)
+                    } else if (p.pos.x > 4600.0f && p.pos.z > 200.0f) {
+                        slotL = 4; slotR = 5; // 분당수서로 (61) + 동부간선로 (61)
                     } else if (p.pos.z > 150.0f) {
-                        slotL = 0; slotR = 1; // 올림픽대로 (88) + 경부고속도로 (1)
+                        slotL = 0; slotR = 6; // 올림픽대로 잠실·여의도 (88) + 반포·공항 (88)
                     } else if (p.pos.z > -1600.0f) {
                         slotL = 2; slotR = 3; // 강변북로 (70) + 내부순환로 (30)
                     } else {
-                        slotL = 3; slotR = 2; // 내부순환로 · 동부간선 (30) + 강변북로 (70)
+                        slotL = 3; slotR = 5; // 내부순환로 (30) + 동부간선로 (61)
                     }
                 } else {
-                    // ROYAL-BLUE Korean City Boulevard signs (Slots 4..7) matched to Seoul districts!
+                    // ROYAL-BLUE Korean City Boulevard 4K signs (Slots 8..15) matched to real Seoul districts!
                     switch (city.districtAtWorld(p.pos)) {
-                        case DistrictType::GangnamTeheran:     slotL = 4; slotR = 7; break;
-                        case DistrictType::SeochoBanpo:        slotL = 6; slotR = 4; break;
+                        case DistrictType::GangnamTeheran:     slotL =  8; slotR = 13; break; // 테헤란로 + 강남대로
+                        case DistrictType::SeochoBanpo:        slotL = 10; slotR = 13; break; // 반포대로 + 강남대로
                         case DistrictType::GwanghwamunPalace:
-                        case DistrictType::MyeongdongCityHall:
-                        case DistrictType::JongnoCheonggye:    slotL = 5; slotR = 6; break;
-                        case DistrictType::YeouidoFinance:
-                        case DistrictType::HongdaeMapo:        slotL = 6; slotR = 5; break;
-                        case DistrictType::JamsilSongpa:
-                        case DistrictType::SeongsuKonkuk:
-                        case DistrictType::GuroGwanak:         slotL = 7; slotR = 4; break;
-                        default:                               slotL = 4; slotR = 5; break;
+                        case DistrictType::MyeongdongCityHall: slotL =  9; slotR = 14; break; // 세종대로 + 종로·을지로
+                        case DistrictType::JongnoCheonggye:    slotL = 14; slotR =  9; break; // 종로·을지로 + 세종대로
+                        case DistrictType::YeouidoFinance:     slotL = 12; slotR = 10; break; // 여의대로 + 반포대로
+                        case DistrictType::HongdaeMapo:
+                        case DistrictType::SeongsuKonkuk:      slotL = 15; slotR = 14; break; // 양화로·성수 + 종로·을지로
+                        case DistrictType::JamsilSongpa:       slotL = 11; slotR =  8; break; // 올림픽로 + 테헤란로
+                        default:                               slotL =  8; slotR =  9; break;
                     }
                 }
                 const float gEm = nightMode ? 0.42f : 0.08f;
@@ -4214,13 +4334,15 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 break;
             }
             case StreetPropKind::ShopSign: {
-                // Illuminated 3D Korean 1F-2F Commercial Fascia Signboard + Projecting Architectural Storefront Canopy!
-                const int signSlot = std::clamp(static_cast<int>(p.variant), 8, 19);
+                // Illuminated 3D Korean 1F-2F Commercial Fascia Signboard (32 real brands in slots 16..47) + Storefront Canopy!
+                const int signSlot = (p.variant >= 16u && p.variant <= 47u)
+                    ? static_cast<int>(p.variant)
+                    : (16 + (static_cast<int>(p.variant) % 32));
                 const float sEm = nightMode ? 0.65f : 0.10f;
                 // Sleek brushed dark-aluminum sign housing mounted at 3.85m (above 1F glass storefront)
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.85f, 0.14f) * Mat4::scale(4.45f, 1.02f, 0.26f),
                          {38, 42, 48, 255}, 0.36f, 0.68f, 0.0f, MatId::Standard, shadowPass);
-                if (!shadowPass && distSq < 155.0f * 155.0f) {
+                if (!shadowPass && distSq < 165.0f * 165.0f) {
                     drawLocalSign({0.0f, 3.85f, 0.295f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, 4.30f, 0.90f, signSlot, sEm);
                 }
                 // Architectural projecting 1F entrance canopy / awning directly beneath the signboard
@@ -4234,7 +4356,7 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                     {48, 92, 168, 255}, {36, 128, 86, 255}, {176, 68, 48, 255},
                     {192, 124, 38, 255}, {76, 56, 138, 255}, {38, 118, 136, 255}
                 };
-                const ColorRGBA bladeCol = kBladeCols[(signSlot - 8) % 6];
+                const ColorRGBA bladeCol = kBladeCols[(signSlot - 16) % 6];
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.38f, 4.18f, 0.38f) * Mat4::scale(0.14f, 1.24f, 0.50f),
                          {40, 44, 52, 255}, 0.38f, 0.66f, 0.0f, MatId::Standard, false);
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.38f, 4.18f, 0.40f) * Mat4::scale(0.17f, 1.10f, 0.40f),
@@ -4410,15 +4532,18 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
     else if (v.stanceStyle == 2) stanceOffsetY = -0.075f;
     else if (v.stanceStyle == 3) stanceOffsetY = +0.085f;
 
-    const float baseH = std::max(groundY, v.posY) + stanceOffsetY;
-    const Mat4 rootPos = Mat4::translation(v.pos.x, baseH, v.pos.z) *
+    const float wheelBaseH = std::max(groundY, v.posY) + stanceOffsetY;
+    const float bodyBaseH  = std::max(groundY - 0.12f, v.posY) + stanceOffsetY;
+    const Mat4 rootPos = Mat4::translation(v.pos.x, wheelBaseH, v.pos.z) *
                          Mat4::rotationAxis({0, 1, 0}, -v.heading);
+    const Mat4 bodyRootPos = Mat4::translation(v.pos.x, bodyBaseH, v.pos.z) *
+                             Mat4::rotationAxis({0, 1, 0}, -v.heading);
 
     // Body pitch (nose up = +Z rot) & cornering roll (lean right = +X rot)
     const float avgComp = 0.25f * (v.wheelCompression[0] + v.wheelCompression[1] +
                                    v.wheelCompression[2] + v.wheelCompression[3]);
-    const Mat4 bodyMat = rootPos *
-                         Mat4::translation(0.0f, -avgComp * 0.65f, 0.0f) *
+    const Mat4 bodyMat = bodyRootPos *
+                         Mat4::translation(0.0f, -avgComp * 0.55f, 0.0f) *
                          Mat4::rotationAxis({0, 0, 1}, v.bodyPitch) *
                          Mat4::rotationAxis({1, 0, 0}, v.bodyRoll);
 
@@ -4598,24 +4723,23 @@ void Renderer3D::drawVehicle(VulkanContext& vk, const Vehicle& v, float groundY,
         const float tlEm = v.brakingVisual ? 2.65f : (nightMode ? 1.35f : 0.28f);
         drawMesh(vk, cm.lampsTail, bodyMat, {255, 42, 48, 255}, 0.08f, 0.10f, tlEm, MatId::EmissiveGlow, false);
 
-        // Authentic Korean Hangul License Plates (123가 4568 / 서울 34바 8247 / 경찰 112)
+        // Authentic 4K Korean Hangul License Plates (123가 4567 / 경찰 POLICE 112)
         auto drawVehSign = [&](const Vec3& locPos, const Vec3& locNorm, float w, float h, int slot, float em) {
             const Vec3 wc = bodyMat.transformPoint(locPos);
             const Vec3 wn = (bodyMat.transformPoint(locPos + locNorm) - wc).normalized();
             const Vec3 wu = (bodyMat.transformPoint(locPos + Vec3{0.0f, 1.0f, 0.0f}) - wc).normalized();
             drawSignQuad(vk, wc, wn, wu, w, h, slot, em);
         };
-        const int plateSlot = (v.isPolice || v.kind == VehicleKind::PoliceCruiser) ? 31
-                            : ((v.kind == VehicleKind::Taxi || v.kind == VehicleKind::SeoulBus) ? 30 : 29);
+        const int plateSlot = (v.isPolice || v.kind == VehicleKind::PoliceCruiser) ? 61 : 60;
         const float plateW = (v.kind == VehicleKind::SeoulBus || v.kind == VehicleKind::FireTruck) ? 0.50f : 0.41f;
         const float plateH = (v.kind == VehicleKind::SeoulBus || v.kind == VehicleKind::FireTruck) ? 0.15f : 0.11f;
         const float plateEm = nightMode ? 0.14f : 0.02f;
         drawVehSign(cm.frontPlateLocal + Vec3{0.008f, 0.0f, 0.0f}, { 1.0f, 0.0f, 0.0f}, plateW, plateH, plateSlot, plateEm);
         drawVehSign(cm.rearPlateLocal  - Vec3{0.008f, 0.0f, 0.0f}, {-1.0f, 0.0f, 0.0f}, plateW, plateH, plateSlot, plateEm);
 
-        // Seoul City Bus Front LED Destination Matrix (서울 간선 472 / 서울 지선 5511)!
+        // Seoul City Bus Front LED Destination Matrix (472 강남역·신사·시청 / 146 삼성역·잠실·테헤란로)!
         if (v.kind == VehicleKind::SeoulBus) {
-            const int busSlot = (v.paintColor.b >= v.paintColor.g) ? 27 : 28;
+            const int busSlot = (v.paintColor.b >= v.paintColor.g) ? 58 : 59;
             drawVehSign(cm.busSignLocal, {1.0f, 0.0f, 0.0f}, 1.66f, 0.31f, busSlot, nightMode ? 0.92f : 0.42f);
         }
     }

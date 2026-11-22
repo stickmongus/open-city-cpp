@@ -73,7 +73,7 @@ static_assert(sizeof(OsmTri2D) == 24, "OsmTri2D must be 24 bytes");
 
 struct OsmPoiRec {
     float x, z;
-    std::uint16_t kind;     // 0=SubwayEntrance, 1=BusStop
+    std::uint16_t kind;     // 0=SubwayEntrance, 1=BusStop, 2=SignalizedIntersection, 3=CommercialVenue(nameSlot=signSlot)
     std::uint16_t nameSlot;
 };
 static_assert(sizeof(OsmPoiRec) == 12, "OsmPoiRec must be 12 bytes");
@@ -136,9 +136,11 @@ public:
 
     bool isLoaded() const { return loaded_; }
     bool has3DRoads() const { return has3DRoads_; }
+    bool isOcm6() const { return isOcm6_; }
+    float demScale() const { return demScale_; }
     const OcMapHeader& header() const { return hdr_; }
 
-    // Real SRTM 30m DEM terrain elevation anywhere across Greater Seoul (30.7km x 24.5km)
+    // Real bare-earth Seoul DTM elevation anywhere across Greater Seoul (30.7km x 24.5km, smooth Catmull-Rom bicubic)
     float sampleDem(const Vec2& p) const;
 
     bool isInCoreBounds(const Vec2& p) const {
@@ -254,6 +256,8 @@ public:
 private:
     bool loaded_ = false;
     bool has3DRoads_ = false;
+    bool isOcm6_ = false;
+    float demScale_ = 0.1f;
     OcMapHeader hdr_{};
     std::vector<std::int16_t> demDecimeters_;
     std::vector<OsmRoadRec> roads_;

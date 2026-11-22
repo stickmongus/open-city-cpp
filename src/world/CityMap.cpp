@@ -325,9 +325,9 @@ float CityMap::surfaceHeightAt(const Vec2& p, float refY) const {
         const float demY = realData_.sampleDem(p);
         if (realData_.isInCoreBounds(p)) {
             if (realData_.has3DRoads()) {
-                const RoadSurfaceHit hit = realData_.findRoadSurfaceAt(p, refY, 0.85f);
+                const RoadSurfaceHit hit = realData_.findRoadSurfaceAt(p, refY, 0.90f);
                 if (hit.found) {
-                    return std::max(demY, hit.y);
+                    return realData_.isOcm6() ? hit.y : std::max(demY, hit.y);
                 }
                 return demY;
             }
@@ -1487,14 +1487,35 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
         return false;
     };
 
-    // 1) Stream authentic real-world Seoul Metro entrances & Bus Stops from OSM POI table!
-    //    Snap each POI safely off asphalt onto the clear outer sidewalk + add adjacent Ddareungi bike dock / trash bin!
+    // 1) Stream authentic real-world Seoul Metro entrances & Bus Stops from OSM/OCM6 POI table,
+    //    while harvesting real graph-verified signalized intersections (kind==2) and Overture commercial venues (kind==3)!
+    struct LocalVenuePoi { Vec2 pos; std::uint16_t nameSlot; };
+    std::vector<LocalVenuePoi> localVenues;
+    std::vector<Vec2> localIntersections;
     std::vector<std::uint32_t> poiIds;
     realData_.queryChunkPois(focus, 340.0f, poiIds);
+    localVenues.reserve(256);
+    localIntersections.reserve(128);
+
     for (std::uint32_t pid : poiIds) {
         const OsmPoiRec& pr = realData_.pois()[pid];
         Vec2 pp{pr.x, pr.z};
         if ((pp - focus).lengthSq() > 340.0f * 340.0f) continue;
+
+        if (pr.kind == 2u) {
+            // Real graph-verified signalized Seoul intersection (OCM6 v4)
+            localIntersections.push_back(pp);
+            continue;
+        }
+        if (pr.kind == 3u) {
+            // Real Overture Seoul commercial venue carrying authentic Korean storefront atlas slot (16..47)
+            if ((pp - focus).lengthSq() <= 235.0f * 235.0f && pr.nameSlot >= 16u && pr.nameSlot <= 47u) {
+                localVenues.push_back({pp, pr.nameSlot});
+            }
+            continue;
+        }
+        if (pr.kind > 1u) continue;
+
         if (realData_.isInWater(pp)) continue;
         const float poiDemY = realData_.sampleDem(pp);
         const NearestOsmRoad nr = realData_.findNearestRoad(pp, 36.0f, poiDemY);
@@ -1506,8 +1527,8 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
 
         // Enforce full 4-corner oriented footprint road-clearance so neither SubwayEntrance (5.5m x 2.7m)
         // nor BusShelter (4.8m x 1.7m) ever overhangs a curb or perpendicular intersection corner!
-        const float halfLen   = (pr.kind == 0) ? 2.80f : 2.70f;
-        const float halfDepth = (pr.kind == 0) ? 1.40f : 0.95f;
+        const float halfLen   = (pr.kind == 0u) ? 2.80f : 2.70f;
+        const float halfDepth = (pr.kind == 0u) ? 1.40f : 0.95f;
         auto footprintClear = [&](const Vec2& center, const Vec2& dirAway) -> bool {
             if (realData_.isInWater(center)) return false;
             if (realData_.isOnRoad(center, halfDepth + 0.50f)) return false;
@@ -1541,22 +1562,29 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
         const Vec2 toRoad = awayRoad * -1.0f;
         const float faceRoadYaw = std::atan2(-toRoad.x, toRoad.z);
         const std::uint8_t var = static_cast<std::uint8_t>(pid & 0xFFu);
-        const float ppY = realData_.sampleDem(pp);
-        if (pr.kind == 0) {
+        const float rawPpY = realData_.sampleDem(pp);
+        const float ppY = realData_.isOcm6()
+            ? clampf(nr.deckY + 0.10f, rawPpY - 0.30f, rawPpY + 0.45f)
+            : rawPpY;
+        if (pr.kind == 0u) {
             streetProps_.push_back(StreetProp{pp, StreetPropKind::SubwayEntrance, faceRoadYaw, false, {}, 0.0f, pp, 0,0,0,0,0,0, var, ppY});
             // Iconic Seoul Ddareungi public bike-share rack next to subway exits!
             const Vec2 bikeP = pp + nr.tangent * 5.2f;
             Vec2 bChk = bikeP;
             if (!realData_.isInWater(bikeP) && !realData_.isOnRoad(bikeP, 1.25f) &&
                 !realData_.resolveCircleBuildings(bChk, 1.0f) && !hasPropNearby(bikeP, 3.0f)) {
-                streetProps_.push_back(StreetProp{bikeP, StreetPropKind::DdareungiRack, faceRoadYaw, false, {}, 0.0f, bikeP, 0,0,0,0,0,0, var, realData_.sampleDem(bikeP)});
+                const float rawBY = realData_.sampleDem(bikeP);
+                const float bikeY = realData_.isOcm6() ? clampf(nr.deckY + 0.10f, rawBY - 0.30f, rawBY + 0.45f) : rawBY;
+                streetProps_.push_back(StreetProp{bikeP, StreetPropKind::DdareungiRack, faceRoadYaw, false, {}, 0.0f, bikeP, 0,0,0,0,0,0, var, bikeY});
             }
         } else {
             streetProps_.push_back(StreetProp{pp, StreetPropKind::BusShelter, faceRoadYaw, false, {}, 0.0f, pp, 0,0,0,0,0,0, var, ppY});
             const Vec2 binP = pp - nr.tangent * 3.8f;
             Vec2 bChk = binP;
             if (!realData_.isInWater(binP) && !realData_.isOnRoad(binP, 1.0f) && !realData_.resolveCircleBuildings(bChk, 0.6f)) {
-                streetProps_.push_back(StreetProp{binP, StreetPropKind::TrashBin, faceRoadYaw, false, {}, 0.0f, binP, 0,0,0,0,0,0, var, realData_.sampleDem(binP)});
+                const float rawBinY = realData_.sampleDem(binP);
+                const float binY = realData_.isOcm6() ? clampf(nr.deckY + 0.10f, rawBinY - 0.30f, rawBinY + 0.45f) : rawBinY;
+                streetProps_.push_back(StreetProp{binP, StreetPropKind::TrashBin, faceRoadYaw, false, {}, 0.0f, binP, 0,0,0,0,0,0, var, binY});
             }
         }
     }
@@ -1574,7 +1602,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
 
     int gantryCount = 0;
     std::vector<Vec2> signalPositions;
-    signalPositions.reserve(64);
+    signalPositions.reserve(96);
     auto hasSignalNear = [&](const Vec2& p, float r) -> bool {
         const float r2 = r * r;
         for (const Vec2& sp : signalPositions) {
@@ -1591,6 +1619,56 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
         }
         return false;
     };
+
+    // 2A) Place Korean 4-Aspect Cantilevered Traffic Signals, Corner Bollards & KEPCO Signal Cabinets
+    //     at REAL OCM6 graph-verified Seoul intersections first (authentic intersection geometry)!
+    for (const Vec2& ixPt : localIntersections) {
+        if ((ixPt - focus).lengthSq() > 250.0f * 250.0f || realData_.isInWater(ixPt)) continue;
+        if (hasSignalNear(ixPt, 28.0f)) continue;
+        const float demIx = realData_.sampleDem(ixPt);
+        const NearestOsmRoad nr = realData_.findNearestRoad(ixPt, 18.0f, demIx);
+        if (!nr.found || nr.roadClass <= 1u || nr.roadClass > 3u || nr.isBridge || nr.layer >= 1) continue;
+        if (realData_.has3DRoads() && (nr.deckY - demIx) > 1.1f) continue;
+
+        const float hwIx = std::max(3.2f, nr.halfWidth);
+        const Vec2 tang = nr.tangent;
+        const Vec2 rightN{-tang.z, tang.x};
+        const float swBaseY = realData_.isOcm6() ? (nr.deckY + 0.10f) : demIx;
+        int placedCorners = 0;
+        for (float alongSign : {-1.0f, 1.0f}) {
+            if (placedCorners >= 2) break;
+            for (float side : {1.0f, -1.0f}) {
+                const Vec2 sigPos = nr.closestPt + tang * (alongSign * (hwIx + 4.5f)) + rightN * (side * (hwIx + 1.15f));
+                Vec2 test = sigPos;
+                if (!realData_.isInWater(sigPos) && !realData_.isOnRoad(sigPos, 0.55f) &&
+                    !realData_.resolveCircleBuildings(test, 0.75f) && !hasPropNearby(sigPos, 3.2f)) {
+                    const Vec2 armDir = rightN * (-side);
+                    const float armYaw = std::atan2(armDir.z, armDir.x);
+                    const float sy = realData_.isOcm6() ? clampf(swBaseY, realData_.sampleDem(sigPos) - 0.25f, realData_.sampleDem(sigPos) + 0.45f)
+                                                        : realData_.sampleDem(sigPos);
+                    streetProps_.push_back(StreetProp{sigPos, StreetPropKind::TrafficLight, armYaw, false, {}, 0.0f, sigPos, 0,0,0,0,0,0, 0u, sy});
+                    signalPositions.push_back(sigPos);
+                    ++placedCorners;
+                    for (int bi : {-1, 1}) {
+                        const Vec2 bp = sigPos + tang * (static_cast<float>(bi) * 1.45f) - rightN * (side * 0.30f);
+                        Vec2 bChk = bp;
+                        if (!realData_.isOnRoad(bp, 0.30f) && !realData_.resolveCircleBuildings(bChk, 0.35f)) {
+                            streetProps_.push_back(StreetProp{bp, StreetPropKind::Bollard, armYaw, false, {}, 0.0f, bp, 0,0,0,0,0,0, 0u, sy});
+                        }
+                    }
+                    if (placedCorners == 1) {
+                        const Vec2 uPos = sigPos + rightN * (side * 1.15f) + tang * (alongSign * 2.4f);
+                        Vec2 uChk = uPos;
+                        if (!realData_.isOnRoad(uPos, 1.10f) && !realData_.resolveCircleBuildings(uChk, 0.65f) &&
+                            !hasPropNearby(uPos, 2.0f)) {
+                            streetProps_.push_back(StreetProp{uPos, StreetPropKind::UtilityBox, armYaw, false, {}, 0.0f, uPos, 0,0,0,0,0,0, 0u, sy});
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
 
     for (std::uint32_t ri : roadIds) {
         const OsmRoadRec& r = realData_.roads()[ri];
@@ -1626,10 +1704,21 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
             const Vec2 rightN{-tang.z, tang.x};
             const float segEndDist = distAccum + segLen;
             auto evalDeckY = [&](float t, const Vec2& pt) -> float {
+                if (realData_.isOcm6()) {
+                    return lerpf(yA, yB, t);
+                }
                 if (realData_.has3DRoads()) {
                     return lerpf(yA, yB, t) + RealSeoulData::roadClassLift(r.roadClass);
                 }
                 return surfaceHeightAt(pt);
+            };
+            auto evalSidewalkY = [&](float t, const Vec2& pt) -> float {
+                const float rawDem = realData_.sampleDem(pt);
+                if (realData_.isOcm6()) {
+                    const float deckY = lerpf(yA, yB, t);
+                    return clampf(deckY + 0.10f, rawDem - 0.20f, rawDem + 0.42f);
+                }
+                return rawDem;
             };
             auto hasSameLevelRoadAt = [&](const Vec2& pt, float refDeckY, float margin) -> bool {
                 if (realData_.has3DRoads()) {
@@ -1751,7 +1840,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
             }
 
             // C) Crosswalk & Intersection 4-Aspect Korean Traffic Signals + Corner Bollards + KEPCO Signal Cabinets!
-            auto tryPlaceSignalAt = [&](const Vec2& jPt, float minSignalSep) {
+            auto tryPlaceSignalAt = [&](const Vec2& jPt, float tSeg, float minSignalSep) {
                 if ((jPt - focus).lengthSq() >= 250.0f * 250.0f || hasSignalNear(jPt, minSignalSep)) return;
                 for (float side : {1.0f, -1.0f}) {
                     const Vec2 sigPos = jPt + rightN * (side * (hw + 1.15f));
@@ -1760,7 +1849,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         !realData_.resolveCircleBuildings(test, 0.75f)) {
                         const Vec2 armDir = rightN * (-side);
                         const float armYaw = std::atan2(armDir.z, armDir.x);
-                        const float sy = realData_.sampleDem(sigPos);
+                        const float sy = evalSidewalkY(tSeg, sigPos);
                         streetProps_.push_back(StreetProp{sigPos, StreetPropKind::TrafficLight, armYaw, false, {}, 0.0f, sigPos, 0,0,0,0,0,0, 0u, sy});
                         signalPositions.push_back(sigPos);
 
@@ -1769,7 +1858,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                             const Vec2 bp = sigPos + tang * (static_cast<float>(bi) * 1.45f) - rightN * (side * 0.30f);
                             Vec2 bChk = bp;
                             if (!realData_.isOnRoad(bp, 0.30f) && !realData_.resolveCircleBuildings(bChk, 0.35f)) {
-                                streetProps_.push_back(StreetProp{bp, StreetPropKind::Bollard, armYaw, false, {}, 0.0f, bp, 0,0,0,0,0,0, 0u, realData_.sampleDem(bp)});
+                                streetProps_.push_back(StreetProp{bp, StreetPropKind::Bollard, armYaw, false, {}, 0.0f, bp, 0,0,0,0,0,0, 0u, evalSidewalkY(tSeg, bp)});
                             }
                         }
                         // KEPCO traffic signal / power control cabinet neatly set back on outer sidewalk!
@@ -1777,7 +1866,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         Vec2 uChk = uPos;
                         if (!realData_.isOnRoad(uPos, 1.10f) && !realData_.resolveCircleBuildings(uChk, 0.65f) &&
                             !hasPropNearby(uPos, 2.0f)) {
-                            streetProps_.push_back(StreetProp{uPos, StreetPropKind::UtilityBox, armYaw, false, {}, 0.0f, uPos, 0,0,0,0,0,0, 0u, realData_.sampleDem(uPos)});
+                            streetProps_.push_back(StreetProp{uPos, StreetPropKind::UtilityBox, armYaw, false, {}, 0.0f, uPos, 0,0,0,0,0,0, 0u, evalSidewalkY(tSeg, uPos)});
                         }
                         break;
                     }
@@ -1789,7 +1878,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                 advanceToWindow(nextSignal, 145.0f);
                 while (nextSignal < walkMax) {
                     const float t = clampf((nextSignal - distAccum) / segLen, 0.0f, 1.0f);
-                    tryPlaceSignalAt(a + e * t, 40.0f);
+                    tryPlaceSignalAt(a + e * t, t, 40.0f);
                     nextSignal += 145.0f;
                 }
             }
@@ -1797,7 +1886,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
             if (r.roadClass <= 3 && (s == 0 || s + 2 == r.vertCount)) {
                 const float backOff = std::min(15.5f, segLen * 0.36f);
                 const Vec2 jPt = (s == 0) ? (a + tang * backOff) : (b - tang * backOff);
-                tryPlaceSignalAt(jPt, 38.0f);
+                tryPlaceSignalAt(jPt, (s == 0) ? (backOff / segLen) : (1.0f - backOff / segLen), 38.0f);
             }
 
             // D) Dense Seoul LED Streetlamps on BOTH outer sidewalks (every 24m on boulevards, 30m on collectors)!
@@ -1817,7 +1906,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         const float armYaw = std::atan2(armDir.z, armDir.x);
                         // Major boulevards get decorative Korean street banner flags (variant = 2)!
                         const std::uint8_t lVar = (r.roadClass <= 2) ? 2u : 0u;
-                        streetProps_.push_back(StreetProp{lp, StreetPropKind::StreetLight, armYaw, false, {}, 0.0f, lp, 0,0,0,0,0,0, lVar, realData_.sampleDem(lp)});
+                        streetProps_.push_back(StreetProp{lp, StreetPropKind::StreetLight, armYaw, false, {}, 0.0f, lp, 0,0,0,0,0,0, lVar, evalSidewalkY(t, lp)});
                     }
                 }
                 nextLamp += lampStep;
@@ -1835,7 +1924,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                     if (!realData_.isInWater(medPos) && !realData_.isOnRoad(medPos, 0.15f) &&
                         realData_.isOnRoad(oppProbe, 1.2f) && !hasPropNearby(medPos, 6.2f)) {
                         const float mYaw = std::atan2(tang.z, tang.x);
-                        streetProps_.push_back(StreetProp{medPos, StreetPropKind::MedianBarrier, mYaw, false, {}, 0.0f, medPos, 0,0,0,0,0,0, 0u, realData_.sampleDem(medPos)});
+                        streetProps_.push_back(StreetProp{medPos, StreetPropKind::MedianBarrier, mYaw, false, {}, 0.0f, medPos, 0,0,0,0,0,0, 0u, evalDeckY(t, medPos)});
                     }
                     nextMedian += 9.0f;
                 }
@@ -1862,7 +1951,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                                 !realData_.resolveCircleBuildings(tG, 0.55f) &&
                                 !hasPropNearby(gp, 4.2f)) {
                                 const float gYaw = std::atan2(tang.z, tang.x);
-                                streetProps_.push_back(StreetProp{gp, StreetPropKind::PedGuardrail, gYaw, false, {}, 0.0f, gp, 0,0,0,0,0,0, 0u, realData_.sampleDem(gp)});
+                                streetProps_.push_back(StreetProp{gp, StreetPropKind::PedGuardrail, gYaw, false, {}, 0.0f, gp, 0,0,0,0,0,0, 0u, evalSidewalkY(t, gp)});
                             }
                         }
                     }
@@ -1885,7 +1974,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         !realData_.resolveCircleBuildings(test, 1.05f) &&
                         !hasTreeNearby(tp, 8.5f) &&
                         !hasPropNearby(tp, 2.4f)) {
-                        const float gy = realData_.sampleDem(tp);
+                        const float gy = evalSidewalkY(t, tp);
                         const float hScale = 2.85f + static_cast<float>((ri + s + static_cast<std::uint32_t>(nextTree)) % 5u) * 0.24f;
                         trees_.push_back(TreeProp{tp, gy, hScale, 2.25f, true, streetSpecies});
                     }
@@ -1926,7 +2015,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                             case 5: fKind = StreetPropKind::CafeTable; break;
                             default: fKind = StreetPropKind::UtilityBox; break;
                         }
-                        streetProps_.push_back(StreetProp{fp, fKind, faceYaw, false, {}, 0.0f, fp, 0,0,0,0,0,0, static_cast<std::uint8_t>(slot & 0xFF), realData_.sampleDem(fp)});
+                        streetProps_.push_back(StreetProp{fp, fKind, faceYaw, false, {}, 0.0f, fp, 0,0,0,0,0,0, static_cast<std::uint8_t>(slot & 0xFF), evalSidewalkY(t, fp)});
                     }
                 }
                 nextFurn += furnStep;
@@ -1937,16 +2026,16 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
     }
 
     // 3) Mount Real Illuminated 3D Korean Commercial Shopfront Signboards & Awnings directly onto
-    //    ALL street-facing walls of nearby Real OSM buildings (Pass 0: major boulevards first, Pass 1: side streets)!
+    //    ALL street-facing walls of nearby Real OSM buildings, matching REAL Overture Seoul commercial venues (slots 16..47)!
     {
         std::vector<std::uint32_t> bldgIds;
         realData_.queryChunkBuildings(focus, 195.0f, bldgIds);
         int signCount = 0;
-        for (int pass = 0; pass < 2 && signCount < 180; ++pass) {
+        for (int pass = 0; pass < 2 && signCount < 192; ++pass) {
             const std::uint8_t maxRoadCls = (pass == 0) ? 3u : 5u;
             const float maxEdgeClear = (pass == 0) ? 28.0f : 16.0f;
             for (std::uint32_t bi : bldgIds) {
-                if (signCount >= 180) break;
+                if (signCount >= 192) break;
                 const OsmBldgRec& b = realData_.buildings()[bi];
                 if (b.vertCount < 3 || b.style == 6u || b.minHeight > 1.0f || b.height < 5.5f) continue; // Skip Hanoks, elevated parts & tiny sheds
                 if ((Vec2{b.cx, b.cz} - focus).lengthSq() > 190.0f * 190.0f) continue;
@@ -1961,7 +2050,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                 const float windSign = (signed2 >= 0.0f) ? 1.0f : -1.0f;
 
                 int wallsMounted = 0;
-                for (std::uint16_t i = 0; i < b.vertCount && wallsMounted < 2 && signCount < 180; ++i) {
+                for (std::uint16_t i = 0; i < b.vertCount && wallsMounted < 2 && signCount < 192; ++i) {
                     const Vec2 pA = realData_.bldgWorldVert(b, i);
                     const Vec2 pB = realData_.bldgWorldVert(b, static_cast<std::uint16_t>((i + 1) % b.vertCount));
                     const Vec2 edge = pB - pA;
@@ -1981,13 +2070,23 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                     const float signYaw = std::atan2(-outN.x, outN.z);
                     const int numMounts = (eLen >= 34.0f) ? 3 : ((eLen >= 18.0f) ? 2 : 1);
                     bool placedOnWall = false;
-                    for (int mi = 0; mi < numMounts && signCount < 180; ++mi) {
+                    for (int mi = 0; mi < numMounts && signCount < 192; ++mi) {
                         const float frac = (static_cast<float>(mi) + 0.5f) / static_cast<float>(numMounts);
                         const Vec2 wallPt = pA + edge * frac;
                         const Vec2 mountPos = wallPt + outN * 0.28f;
                         if (!realData_.isOnRoad(mountPos, 0.25f) && !hasPropNearby(mountPos, 4.6f)) {
-                            const std::uint8_t shopSlot = static_cast<std::uint8_t>(
-                                8u + ((bi + static_cast<std::uint32_t>(i) * 3u + static_cast<std::uint32_t>(mi) * 5u) % 12u));
+                            std::uint8_t shopSlot = static_cast<std::uint8_t>(
+                                16u + ((bi + static_cast<std::uint32_t>(i) * 3u + static_cast<std::uint32_t>(mi) * 7u) % 32u));
+                            // Match nearest real Overture Seoul commercial venue within 26m so Gangnam/Seongsu/Hongdae
+                            // display authentic local Korean brands at their true street locations!
+                            float bestVDist2 = 26.0f * 26.0f;
+                            for (const auto& lv : localVenues) {
+                                const float d2 = (lv.pos - mountPos).lengthSq();
+                                if (d2 < bestVDist2) {
+                                    bestVDist2 = d2;
+                                    shopSlot = static_cast<std::uint8_t>(lv.nameSlot);
+                                }
+                            }
                             streetProps_.push_back(StreetProp{mountPos, StreetPropKind::ShopSign, signYaw, false, {}, 0.0f, mountPos, 0,0,0,0,0,0, shopSlot, realData_.sampleDem(mountPos)});
                             ++signCount;
                             placedOnWall = true;
