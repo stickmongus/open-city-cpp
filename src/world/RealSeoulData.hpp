@@ -229,10 +229,10 @@ public:
     bool isOnBridge(const Vec2& p, float extraMargin = 0.0f) const;
     bool isInWater(const Vec2& p) const;
 
-    // Connected road-graph junction lookup for smooth real-road AI traffic & police (respects 3D elevation!)
+    // Connected road-graph junction lookup for smooth real-road AI traffic & police (respects 3D elevation & vehicle width!)
     bool findConnectingRoadAt(const Vec2& junctionPt, std::uint32_t excludeRoadIdx,
                               std::uint32_t& outRoadIdx, std::uint32_t& outVertIdx, int& outDir,
-                              float curY = -1e9f) const;
+                              float curY = -1e9f, std::uint8_t maxRoadClass = 4u, float minHalfWidth = 0.0f) const;
 
     // Direct read-only accessors for 3D Vulkan chunk mesh streaming
     const std::vector<OsmRoadRec>& roads() const { return roads_; }

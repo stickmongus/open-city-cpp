@@ -1101,7 +1101,7 @@ bool RealSeoulData::isInWater(const Vec2& p) const {
 
 bool RealSeoulData::findConnectingRoadAt(const Vec2& junctionPt, std::uint32_t excludeRoadIdx,
                                          std::uint32_t& outRoadIdx, std::uint32_t& outVertIdx, int& outDir,
-                                         float curY) const {
+                                         float curY, std::uint8_t maxRoadClass, float minHalfWidth) const {
     if (!loaded_ || !isInCoreBounds(junctionPt)) return false;
     const bool checkY = has3DRoads_ && (curY > -1e8f);
     const int cx = std::clamp(static_cast<int>(std::floor((junctionPt.x - hdr_.minX) / hdr_.chunkSize)), 0, static_cast<int>(hdr_.chunksX) - 1);
@@ -1114,7 +1114,7 @@ bool RealSeoulData::findConnectingRoadAt(const Vec2& junctionPt, std::uint32_t e
         const std::uint32_t ri = flatChunkRoads_[ch.roadStart + k];
         if (ri == excludeRoadIdx) continue;
         const OsmRoadRec& r = roads_[ri];
-        if (r.roadClass > 4 || (r.flags & 4u) != 0u) continue; // Keep traffic smoothly on drivable arterial/collector roads!
+        if (r.roadClass > maxRoadClass || r.halfWidth < minHalfWidth || (r.flags & 4u) != 0u) continue; // Keep traffic & buses strictly on appropriately wide roads!
         if (junctionPt.x < r.minX - 15.0f || junctionPt.x > r.maxX + 15.0f ||
             junctionPt.z < r.minZ - 15.0f || junctionPt.z > r.maxZ + 15.0f) continue;
         for (std::uint16_t vi = 0; vi < r.vertCount; ++vi) {

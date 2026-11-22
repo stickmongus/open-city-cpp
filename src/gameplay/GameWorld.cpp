@@ -438,8 +438,8 @@ void GameWorld::reset() {
     player_.onGround = true;
 
     spawnInitialWorld();
-    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL ULTRA-SMOOTH 4K v5.0" : "WELCOME TO SEOUL (VULKAN)",
-               city_.hasRealSeoulMap() ? "실제 서울 초정밀 도로·거리 4K v5.0에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
+    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL ULTRA-SMOOTH 4K v5.1" : "WELCOME TO SEOUL (VULKAN)",
+               city_.hasRealSeoulMap() ? "실제 서울 초정밀 도로·거리 4K v5.1에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
 #if defined(__ANDROID__)
                "Tap Minimap: Full Seoul Map  |  Top Bar: Custom · Weather · Camera",
                "미니맵 터치: 서울 전체 지도 · 상단 버튼: 커스텀 · 날씨 · 시점 전환",
@@ -1130,10 +1130,14 @@ void GameWorld::maintainTrafficPopulation() {
         std::uint32_t osmRi = UINT32_MAX;
         std::uint32_t osmVi = 0;
         int osmD = 1;
+        std::uint8_t spawnRoadClass = 2u;
+        float spawnRoadHw = 7.0f;
 
         if (!osmRoadPool.empty()) {
             osmRi = osmRoadPool[static_cast<std::size_t>(rng_.rangeInt(0, static_cast<int>(osmRoadPool.size()) - 1))];
             const OsmRoadRec& r = city_.realData().roads()[osmRi];
+            spawnRoadClass = r.roadClass;
+            spawnRoadHw = r.halfWidth;
             const std::uint32_t seg = static_cast<std::uint32_t>(rng_.rangeInt(0, static_cast<int>(r.vertCount) - 2));
             const Vec2 a = city_.realData().roadVerts()[r.firstVert + seg];
             const Vec2 b = city_.realData().roadVerts()[r.firstVert + seg + 1];
@@ -1198,6 +1202,15 @@ void GameWorld::maintainTrafficPopulation() {
                 break;
             }
         }
+        if (!tooClose) {
+            for (const auto& npc : npcs_) {
+                if (npc.alive && (npc.pos - spawnPos).lengthSq() < 7.0f * 7.0f &&
+                    std::abs(surfaceHeightAt(npc.pos) - resolvedSpawnY) < 2.2f) {
+                    tooClose = true;
+                    break;
+                }
+            }
+        }
         if (tooClose) continue;
 
         // Weighted realistic city traffic distribution across all civilian, performance & emergency classes
@@ -1215,7 +1228,12 @@ void GameWorld::maintainTrafficPopulation() {
             VehicleKind::Ambulance,       VehicleKind::FireTruck,
             VehicleKind::SeoulBus,        VehicleKind::SeoulBus
         }};
-        const VehicleKind kind = kTrafficPool[static_cast<std::size_t>(rng_.rangeInt(0, static_cast<int>(kTrafficPool.size()) - 1))];
+        VehicleKind kind = kTrafficPool[static_cast<std::size_t>(rng_.rangeInt(0, static_cast<int>(kTrafficPool.size()) - 1))];
+        // Keep 9.1m Seoul City Buses & FireTrucks strictly on wide arterials / expressways (never cramped side streets!)
+        if ((kind == VehicleKind::SeoulBus || kind == VehicleKind::FireTruck) &&
+            (spawnRoadClass > 2u || spawnRoadHw < 5.2f)) {
+            kind = rng_.chance(0.5f) ? VehicleKind::Taxi : VehicleKind::Compact;
+        }
         const auto& spec = getVehicleSpec(kind);
         Vehicle v{};
         v.id = nextVehicleId_++;
@@ -1319,9 +1337,19 @@ void GameWorld::maintainCivilianPopulation() {
 
             bool foundClearSide = false;
             for (float trySide : {firstSide, -firstSide}) {
+                // Keep pedestrians strictly on outer sidewalks — never stranded on twin-carriageway central medians!
+                if ((r.flags & 1u) != 0u &&
+                    city_.realData().isOnRoad(a + e * tPick + rightN * (trySide * (hw + 6.5f)), 3.2f)) {
+                    continue;
+                }
                 const Vec2 cand = a + e * tPick + rightN * (trySide * (hw + 2.05f));
                 Vec2 chk = cand;
-                if (!city_.realData().isInWater(cand) &&
+                bool nearVeh = false;
+                for (const auto& veh : vehicles_) {
+                    if ((veh.pos - cand).lengthSq() < 6.0f * 6.0f) { nearVeh = true; break; }
+                }
+                if (!nearVeh &&
+                    !city_.realData().isInWater(cand) &&
                     !city_.realData().isOnRoad(cand, 0.85f) &&
                     !city_.realData().resolveCircleBuildings(chk, 0.65f)) {
                     p = cand;
@@ -4370,7 +4398,9 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
                 } else {
                     std::uint32_t connR = 0, connV = 0;
                     int connD = 1;
-                    if (rd.findConnectingRoadAt(b, v.osmRoadIdx, connR, connV, connD, v.posY)) {
+                    const bool isLargeVehicle = (v.kind == VehicleKind::SeoulBus || v.kind == VehicleKind::FireTruck);
+                    if (rd.findConnectingRoadAt(b, v.osmRoadIdx, connR, connV, connD, v.posY,
+                                                isLargeVehicle ? 2u : 4u, isLargeVehicle ? 5.2f : 0.0f)) {
                         v.osmRoadIdx = connR;
                         v.osmVertIdx = connV;
                         v.osmDir = connD;

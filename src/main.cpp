@@ -669,7 +669,7 @@ extern "C" void android_main(struct android_app* state) {
 int main(int argc, char** argv) {
     const oc::CliOptions cli = oc::parseArgs(argc, argv);
     oc::PlatformApp app;
-    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v5.0 — Ultra-Smooth Real Seoul 4K (Native Vulkan)")) {
+    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v5.1 — Ultra-Smooth Real Seoul 4K (Native Vulkan)")) {
         return 1;
     }
     const int rc = oc::runApplication(app, cli);

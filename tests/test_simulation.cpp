@@ -3689,6 +3689,113 @@ void testV500UltraSmoothRoadsSuspensionAndOcm6Realism() {
 }
 
 
+void testV510ZeroGroundPokeThroughAndLevelTwinBoulevards() {
+    std::string ocmapPath;
+    for (const char* p : {"assets/maps/seoul_real.ocmap", "../assets/maps/seoul_real.ocmap", "../../assets/maps/seoul_real.ocmap"}) {
+        std::ifstream f(p, std::ios::binary);
+        if (f.good()) { ocmapPath = p; break; }
+    }
+    ASSERT_TRUE(!ocmapPath.empty());
+
+    oc::GameWorld world(20260510ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    const oc::CityMap& city = world.city();
+    const oc::RealSeoulData& real = city.realData();
+    ASSERT_TRUE(city.hasRealSeoulMap() && real.isOcm6());
+
+    // 1. Verify Teheran-ro EB vs WB twin carriageways are cleanly leveled across the entire 1.4km corridor
+    //    including Yeoksam hill (x=4650), eliminating the old 1.0-4.3m vertical median cliff!
+    std::vector<float> twinDiffs;
+    float maxTwinDiff = 0.0f;
+    for (int tx = 3800; tx <= 5200; tx += 50) {
+        const float tz = 2820.0f - static_cast<float>(tx - 3800) * 0.375f;
+        const oc::Vec2 probe{static_cast<float>(tx), tz};
+        std::vector<std::uint32_t> nearRoads;
+        real.queryChunkRoads(probe, 45.0f, nearRoads);
+        bool hasEb = false, hasWb = false;
+        float ebDist2 = 1e9f, wbDist2 = 1e9f;
+        float ebY = 0.0f, wbY = 0.0f;
+        for (std::uint32_t ri : nearRoads) {
+            const oc::OsmRoadRec& r = real.roads()[ri];
+            if (r.roadClass != 2u || r.halfWidth < 5.5f || r.vertCount < 2u || (r.flags & 6u) != 0u) continue;
+            for (std::uint16_t k = 0; k + 1 < r.vertCount; ++k) {
+                const oc::Vec2 a = real.roadVerts()[r.firstVert + k];
+                const oc::Vec2 b = real.roadVerts()[r.firstVert + k + 1];
+                const oc::Vec2 e = b - a;
+                const float l2 = e.lengthSq();
+                if (l2 < 1e-3f) continue;
+                const float t = oc::clampf((probe - a).dot(e) / l2, 0.0f, 1.0f);
+                const oc::Vec2 cp = a + e * t;
+                const float d2 = (cp - probe).lengthSq();
+                if (d2 > 36.0f * 36.0f) continue;
+                const float y = oc::lerpf(real.roadVertY(r.firstVert + k), real.roadVertY(r.firstVert + k + 1), t);
+                const float yawDeg = std::atan2(e.z, e.x) * (180.0f / 3.14159265f);
+                if (std::abs(yawDeg) < 40.0f && d2 < ebDist2) {
+                    ebDist2 = d2; ebY = y; hasEb = true;
+                } else if (std::abs(yawDeg) > 140.0f && d2 < wbDist2) {
+                    wbDist2 = d2; wbY = y; hasWb = true;
+                }
+            }
+        }
+        if (hasEb && hasWb) {
+            const float dy = std::abs(ebY - wbY);
+            twinDiffs.push_back(dy);
+            maxTwinDiff = std::max(maxTwinDiff, dy);
+        }
+    }
+    ASSERT_TRUE(twinDiffs.size() >= 18u);
+    std::sort(twinDiffs.begin(), twinDiffs.end());
+    const float medianTwinDiff = twinDiffs[twinDiffs.size() / 2u];
+    ASSERT_TRUE(medianTwinDiff <= 0.12f);
+    ASSERT_TRUE(maxTwinDiff <= 0.45f);
+
+    // 2. Verify unobstructed 4K overhead gantries along Teheran-ro:
+    //    NO streetlamp within 17.5m, NO median barrier within 9.0m, NO street tree within 13.5m of any gantry!
+    world.fastTravelTo({4220.0f, 2600.0f}, "강남 테헤란로");
+    std::vector<oc::Vec2> gantries;
+    for (const oc::StreetProp& p : city.streetProps()) {
+        if (p.kind == oc::StreetPropKind::RoadGantry) {
+            gantries.push_back(p.pos);
+        }
+    }
+    ASSERT_TRUE(!gantries.empty());
+    for (const oc::StreetProp& p : city.streetProps()) {
+        for (const oc::Vec2& g : gantries) {
+            const float d = (p.pos - g).length();
+            if (p.kind == oc::StreetPropKind::StreetLight) {
+                ASSERT_TRUE(d >= 17.5f);
+            } else if (p.kind == oc::StreetPropKind::MedianBarrier) {
+                ASSERT_TRUE(d >= 9.0f);
+            } else if (p.kind == oc::StreetPropKind::PedGuardrail) {
+                ASSERT_TRUE(d >= 7.0f);
+            }
+        }
+    }
+    for (const oc::TreeProp& t : city.trees()) {
+        for (const oc::Vec2& g : gantries) {
+            ASSERT_TRUE((t.pos - g).length() >= 13.5f);
+        }
+    }
+
+    // 3. Verify 9.1m SeoulBus & FireTruck traffic ONLY spawn on wide arterials/expressways (never cramped side alleys!)
+    oc::PlayerInput idleIn{};
+    for (int f = 0; f < 90; ++f) {
+        world.update(1.0f / 60.0f, idleIn);
+    }
+    for (const oc::Vehicle& v : world.vehicles()) {
+        if (!v.hasNpcDriver) continue;
+        if (v.kind == oc::VehicleKind::SeoulBus || v.kind == oc::VehicleKind::FireTruck) {
+            if (v.osmRoadIdx < real.roads().size()) {
+                const oc::OsmRoadRec& r = real.roads()[v.osmRoadIdx];
+                ASSERT_TRUE(r.roadClass <= 2u && r.halfWidth >= 5.2f);
+            }
+        }
+    }
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -3727,8 +3834,9 @@ int main() {
     testV400RealOcm4BuildingsAndZeroRoadIntrusions();
     testV410Real3DGradeSeparatedRoadsAndSmoothBridges();
     testV500UltraSmoothRoadsSuspensionAndOcm6Realism();
+    testV510ZeroGroundPokeThroughAndLevelTwinBoulevards();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v5.0.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v5.1.0 simulation test suites succeeded!\n";
     return 0;
 }
 

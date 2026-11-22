@@ -326,7 +326,15 @@ void main() {
         }
 
         float patchVar = fbm2(p * 0.14);
-        albedo = pAlb * mix(0.88, 1.14, patchVar);
+        if (isHighway) {
+            // Sleek dark Korean expressway SMA (textured deep charcoal, clearly distinct from urban streets)
+            albedo = (pAlb * 2.15 + vec3(0.010, 0.011, 0.013)) * mix(0.90, 1.12, patchVar);
+        } else if (!isAlley) {
+            // Authentic sunlit weathered Seoul urban granite-aggregate asphalt (silky aggregate & wheel tracks!)
+            albedo = (pAlb * 2.05 + vec3(0.021, 0.022, 0.025)) * mix(0.90, 1.12, patchVar);
+        } else {
+            albedo = (pAlb * 1.45 + vec3(0.010, 0.010, 0.011)) * mix(0.88, 1.14, patchVar);
+        }
         roughness = mix(pR, 0.56, 0.20);
         surfaceAO = pAO;
         N = perturbNormalGrad(N, dp1, dp2, roadDdx, roadDdy, pNxy, 0.78 * detailFade);
@@ -470,32 +478,31 @@ void main() {
                 albedo *= (1.0 - 0.11 * tireWear);
                 roughness = mix(roughness, 0.34, tireWear * 0.42);
 
-                if (!suppressLeftEdge && xM < 0.0) {
-                    float leftBand = aaBand(abs(xM - (-hwM + 0.26)), 0.074);
-                    if (isBridge) {
-                        whiteMask = max(whiteMask, leftBand * 0.90);
-                    } else if (isOneway) {
-                        yellowMask = max(yellowMask, leftBand * 0.92);
-                    } else {
-                        yellowMask = max(yellowMask, leftBand * 0.74);
-                    }
-                }
-                if (!suppressRightEdge && xM > 0.0) {
-                    float rightBand = aaBand(abs(xM - (hwM - 0.26)), 0.074);
-                    if (isBridge) {
-                        whiteMask = max(whiteMask, rightBand * 0.90);
-                    } else {
-                        yellowMask = max(yellowMask, rightBand * 0.78);
-                    }
-                }
-
-                // Authentic Real-Intersection Korean Zebra Crosswalk + Stop Bar (횡단보도 & 정지선)!
+                // Authentic Real-Intersection Korean Zebra Crosswalk (횡단보도) — break yellow/blue lines cleanly!
                 if (isInterCrosswalk && !isBridge && totalLanes >= 2.0) {
                     if (axM < (hwM - 0.52)) {
                         float barDist = abs(fract(xM / 0.88) - 0.5) * 0.88;
                         whiteMask = max(whiteMask, aaBand(barDist, 0.215) * 0.94);
                     }
                 } else {
+                    if (!suppressLeftEdge && xM < 0.0) {
+                        float leftBand = aaBand(abs(xM - (-hwM + 0.26)), 0.074);
+                        if (isBridge) {
+                            whiteMask = max(whiteMask, leftBand * 0.90);
+                        } else if (isOneway) {
+                            yellowMask = max(yellowMask, leftBand * 0.92);
+                        } else {
+                            yellowMask = max(yellowMask, leftBand * 0.74);
+                        }
+                    }
+                    if (!suppressRightEdge && xM > 0.0) {
+                        float rightBand = aaBand(abs(xM - (hwM - 0.26)), 0.074);
+                        if (isBridge) {
+                            whiteMask = max(whiteMask, rightBand * 0.90);
+                        } else {
+                            yellowMask = max(yellowMask, rightBand * 0.78);
+                        }
+                    }
                     // Korean city standard 3.0m white dash / 5.0m gap (8.0m cycle)
                     float dashOn = (fract(sM / 8.0) < 0.375) ? 1.0 : 0.0;
 
