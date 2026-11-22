@@ -78,7 +78,8 @@ private:
         StuccoCommercial = 18,
         RooftopConcrete = 19,
         BridgeConcrete = 20,
-        FoliageCanopy = 21
+        FoliageCanopy = 21,
+        LandmarkStone = 22
     };
 
     struct RealChunkGpu {
@@ -95,6 +96,7 @@ private:
         GpuMesh bldgBrickMesh{};
         GpuMesh bldgStuccoMesh{};
         GpuMesh bldgHanokMesh{};
+        GpuMesh bldgHeritageMesh{};
         GpuMesh bldgRoofMesh{};
     };
 

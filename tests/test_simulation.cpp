@@ -3796,6 +3796,160 @@ void testV510ZeroGroundPokeThroughAndLevelTwinBoulevards() {
 }
 
 
+void testV520ExpresswayParityGradeLimitsAndOsmSignalDiscipline() {
+    std::string ocmapPath;
+    for (const char* p : {"assets/maps/seoul_real.ocmap", "../assets/maps/seoul_real.ocmap", "../../assets/maps/seoul_real.ocmap"}) {
+        std::ifstream f(p, std::ios::binary);
+        if (f.good()) { ocmapPath = p; break; }
+    }
+    ASSERT_TRUE(!ocmapPath.empty());
+
+    oc::GameWorld world(20260520ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    const oc::CityMap& city = world.city();
+    const oc::RealSeoulData& real = city.realData();
+    ASSERT_TRUE(city.hasRealSeoulMap() && real.isOcm6());
+
+    // 1. Universal Max-Grade Enforcement across ALL 50,253 Seoul roads (zero 142.9% mountain bridge walls!)
+    float maxBridgeOrExpGrade = 0.0f;
+    float maxArterialGrade = 0.0f;
+    const auto& roads = real.roads();
+    const auto& verts = real.roadVerts();
+    for (std::uint32_t ri = 0; ri < roads.size(); ++ri) {
+        const oc::OsmRoadRec& r = roads[ri];
+        if (r.vertCount < 2u || (r.flags & 4u) != 0u) continue;
+        const bool isBrOrExp = ((r.flags & 2u) != 0u) || (r.layer >= 1) || ((r.flags2 & 4u) != 0u) || (r.roadClass <= 1u);
+        if (!isBrOrExp && r.roadClass > 3u) continue;
+        for (std::uint16_t k = 0; k + 1 < r.vertCount; ++k) {
+            const oc::Vec2 a = verts[r.firstVert + k];
+            const oc::Vec2 b = verts[r.firstVert + k + 1];
+            const float len = (b - a).length();
+            if (len < 1.0f) continue;
+            const float g = std::abs(real.roadVertY(r.firstVert + k + 1) - real.roadVertY(r.firstVert + k)) / len;
+            if (isBrOrExp) maxBridgeOrExpGrade = std::max(maxBridgeOrExpGrade, g);
+            else maxArterialGrade = std::max(maxArterialGrade, g);
+        }
+    }
+    ASSERT_TRUE(maxBridgeOrExpGrade <= 0.115f);
+    ASSERT_TRUE(maxArterialGrade <= 0.125f);
+
+    // 2. Gyeongbu Expressway NB (ri=39840) vs SB (ri=39825) near (2762.4, 1569.3) leveled within <=0.35m (was 2.01m!)
+    ASSERT_TRUE(roads.size() > 39840u);
+    auto nearestYOnRoad = [&](std::uint32_t ri, oc::Vec2 p) -> float {
+        const oc::OsmRoadRec& r = roads[ri];
+        float bestD2 = 1e18f, bestY = 0.0f;
+        for (std::uint16_t k = 0; k < r.vertCount; ++k) {
+            const float d2 = (verts[r.firstVert + k] - p).lengthSq();
+            if (d2 < bestD2) {
+                bestD2 = d2;
+                bestY = real.roadVertY(r.firstVert + k);
+            }
+        }
+        return bestY;
+    };
+    const float yGyeongbuSB = nearestYOnRoad(39825u, {2762.4f, 1569.3f});
+    const float yGyeongbuNB = nearestYOnRoad(39840u, {2762.4f, 1569.3f});
+    ASSERT_TRUE(std::abs(yGyeongbuNB - yGyeongbuSB) <= 0.35f);
+
+    // 3. Hill Sidewalk Prop 3D Flushness (Yeoksam Hill PedGuardrails) + StreetLight Setback clear of yellow tactile strip
+    world.fastTravelTo({4520.0f, 2558.0f}, "강남 역삼 언덕");
+    int checkedGuardrails = 0;
+    int checkedOuterLamps = 0;
+    int clearOuterLamps = 0;
+    for (const oc::StreetProp& p : city.streetProps()) {
+        if (p.kind == oc::StreetPropKind::PedGuardrail && p.baseY > -1e8f) {
+            const oc::NearestOsmRoad nr = real.findNearestRoad(p.pos, 14.0f, p.baseY);
+            if (nr.found && !nr.isBridge) {
+                ++checkedGuardrails;
+                ASSERT_TRUE(std::abs(p.baseY - (nr.deckY + 0.11f)) <= 0.25f);
+            }
+        } else if (p.kind == oc::StreetPropKind::StreetLight && p.baseY > -1e8f) {
+            const oc::NearestOsmRoad nr = real.findNearestRoad(p.pos, 18.0f, p.baseY);
+            if (nr.found && nr.roadClass == 2u && !nr.isBridge) {
+                const float offsetFromCurb = nr.dist - std::max(2.6f, roads[nr.roadIdx].halfWidth);
+                if (offsetFromCurb > 0.15f && offsetFromCurb < 2.2f) {
+                    ++checkedOuterLamps;
+                    // Must stand near curb (hw + 0.48m), NOT on yellow tactile braille strip (hw + 1.03..1.58m)!
+                    if (offsetFromCurb < 0.92f) {
+                        ++clearOuterLamps;
+                    }
+                }
+            }
+        }
+    }
+    ASSERT_TRUE(checkedGuardrails >= 5);
+    ASSERT_TRUE(checkedOuterLamps >= 5 && clearOuterLamps * 10 >= checkedOuterLamps * 8);
+
+    // 4. Real Seoul OSM Viaduct Vertical Separation + Red Signal Discipline
+    //    Place an AI sedan on Teheran-ro EB (ground) with another sedan +6.5m directly overhead (viaduct):
+    //    ground sedan must accelerate smoothly instead of phantom-braking!
+    world.fastTravelTo({4356.8f, 2620.6f}, "강남 테헤란로");
+    oc::PlayerInput idleIn{};
+    world.update(1.0f / 60.0f, idleIn);
+    oc::Vehicle* testCar = nullptr;
+    for (oc::Vehicle& v : world.vehicles()) {
+        if (v.hasNpcDriver && !v.isPolice && v.osmRoadIdx < roads.size() &&
+            roads[v.osmRoadIdx].roadClass == 2u) {
+            testCar = &v;
+            break;
+        }
+    }
+    ASSERT_TRUE(testCar != nullptr);
+    const int testCarId = testCar->id;
+    // Clear other same-level cars near testCar, then park a dummy blocker 6.5m vertically above testCar's path
+    const oc::Vec2 fwd = oc::forwardFromHeading(testCar->heading);
+    oc::Vehicle* overheadCar = nullptr;
+    for (oc::Vehicle& v : world.vehicles()) {
+        if (v.id == testCarId) continue;
+        if (!overheadCar && v.hasNpcDriver && !v.isPolice) {
+            overheadCar = &v;
+            v.pos = testCar->pos + fwd * 8.0f;
+            v.posY = testCar->posY + 6.5f;
+            v.velocity = {0.0f, 0.0f};
+            v.hasNpcDriver = false;
+        } else if ((v.pos - testCar->pos).lengthSq() < 45.0f * 45.0f) {
+            v.pos = testCar->pos - fwd * 120.0f;
+        }
+    }
+    ASSERT_TRUE(overheadCar != nullptr);
+    const int overheadCarId = overheadCar->id;
+    testCar->velocity = fwd * 3.0f;
+    // Advance and confirm ground sedan accelerates smoothly past overhead viaduct car without phantom braking
+    float peakSpeed = 0.0f;
+    for (int f = 0; f < 180; ++f) {
+        oc::Vec2 tcPos{};
+        float tcY = 0.0f;
+        oc::Vec2 tcFwd = fwd;
+        for (const oc::Vehicle& v : world.vehicles()) {
+            if (v.id == testCarId) {
+                tcPos = v.pos;
+                tcY = v.posY;
+                tcFwd = oc::forwardFromHeading(v.heading);
+                break;
+            }
+        }
+        for (oc::Vehicle& v : world.vehicles()) {
+            if (v.id == overheadCarId) {
+                v.pos = tcPos + tcFwd * 7.0f;
+                v.posY = tcY + 6.5f;
+                v.velocity = {0.0f, 0.0f};
+                break;
+            }
+        }
+        world.update(1.0f / 60.0f, idleIn);
+        for (const oc::Vehicle& v : world.vehicles()) {
+            if (v.id == testCarId) {
+                peakSpeed = std::max(peakSpeed, v.speed());
+                break;
+            }
+        }
+    }
+    ASSERT_TRUE(peakSpeed > 6.5f);
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -3835,8 +3989,9 @@ int main() {
     testV410Real3DGradeSeparatedRoadsAndSmoothBridges();
     testV500UltraSmoothRoadsSuspensionAndOcm6Realism();
     testV510ZeroGroundPokeThroughAndLevelTwinBoulevards();
+    testV520ExpresswayParityGradeLimitsAndOsmSignalDiscipline();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v5.1.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v5.2.0 simulation test suites succeeded!\n";
     return 0;
 }
 

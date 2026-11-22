@@ -1713,12 +1713,10 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                 return surfaceHeightAt(pt);
             };
             auto evalSidewalkY = [&](float t, const Vec2& pt) -> float {
-                const float rawDem = realData_.sampleDem(pt);
                 if (realData_.isOcm6()) {
-                    const float deckY = lerpf(yA, yB, t);
-                    return clampf(deckY + 0.10f, rawDem - 0.20f, rawDem + 0.42f);
+                    return lerpf(yA, yB, t) + 0.11f;
                 }
-                return rawDem;
+                return realData_.sampleDem(pt);
             };
             auto hasSameLevelRoadAt = [&](const Vec2& pt, float refDeckY, float margin) -> bool {
                 if (realData_.has3DRoads()) {
@@ -1777,7 +1775,11 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         if ((gp - focus).lengthSq() < 285.0f * 285.0f && !hasGantryNear(gp, 55.0f)) {
                             const float deckY = evalDeckY(t, gp);
                             const float gYaw = std::atan2(rightN.z, rightN.x);
-                            const std::uint8_t spanDm = static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround((hw + 0.6f) * 10.0f)), 60, 118));
+                            // Keep gantry pillar cleanly perched on central Jersey median (never encroaching into opposing highway lane!)
+                            const bool tightMedianL = hasSameLevelRoadAt(gp - rightN * (hw + 1.45f), deckY, 0.35f);
+                            const bool tightMedianR = hasSameLevelRoadAt(gp + rightN * (hw + 1.45f), deckY, 0.35f);
+                            const float padEdge = (tightMedianL || tightMedianR) ? 0.18f : 0.60f;
+                            const std::uint8_t spanDm = static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround((hw + padEdge) * 10.0f)), 60, 118));
                             // Bit 7 (0x80) flags an authentic Korean GREEN Expressway Truss Gantry!
                             streetProps_.push_back(StreetProp{gp, StreetPropKind::RoadGantry, gYaw, false, {}, 0.0f, gp, 0,0,0,0,0,0, static_cast<std::uint8_t>(spanDm | 0x80u), deckY});
                             gantryPositions.push_back(gp);
@@ -1889,7 +1891,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                 tryPlaceSignalAt(jPt, (s == 0) ? (backOff / segLen) : (1.0f - backOff / segLen), 38.0f);
             }
 
-            // D) Dense Seoul LED Streetlamps on outer sidewalks (unobstructed >=18m clear of 4K overhead gantries!)
+            // D) Dense Seoul LED Streetlamps neatly aligned behind granite curbs (unobstructed >=18m clear of gantries & clear of yellow tactile strip!)
             const float lampStep = (r.roadClass <= 2) ? 24.0f : 30.0f;
             advanceToWindow(nextLamp, lampStep);
             while (nextLamp < walkMax) {
@@ -1901,9 +1903,10 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                     if (r.roadClass >= 3 && (((lampOrdinal & 1) == 0) != (side > 0.0f))) continue;
                     const bool isInnerMedianSide = isOneway &&
                         realData_.isOnRoad(cPt + rightN * (side * (hw + 6.5f)), 3.2f);
-                    const Vec2 lp = cPt + rightN * (side * (hw + 0.95f));
+                    const float lampSetback = isInnerMedianSide ? 0.90f : 0.48f;
+                    const Vec2 lp = cPt + rightN * (side * (hw + lampSetback));
                     Vec2 test = lp;
-                    if (!realData_.isInWater(lp) && !realData_.isOnRoad(lp, 0.60f) &&
+                    if (!realData_.isInWater(lp) && !realData_.isOnRoad(lp, 0.40f) &&
                         !realData_.resolveCircleBuildings(test, 0.65f) &&
                         !hasGantryNear(lp, 18.0f) && !hasPropNearby(lp, 4.8f)) {
                         const Vec2 armDir = rightN * (-side);

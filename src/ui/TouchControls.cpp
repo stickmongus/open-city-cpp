@@ -106,13 +106,13 @@ TouchControls::Layout TouchControls::computeLayout(int screenW, int screenH) {
     const float rightBound = std::max(leftBound + 380.0f, w - 258.0f);
     const float corridorW = rightBound - leftBound;
     const float gap = 6.0f * s;
-    const float btnW = clampf((corridorW - gap * 6.0f) / 7.0f, 52.0f, 76.0f * s);
-    const float btnH = 34.0f * s;
+    const float btnW = clampf((corridorW - gap * 6.0f) / 7.0f, 52.0f, 74.0f * s);
+    const float btnH = 29.0f * s;
     const float totalW = btnW * 7.0f + gap * 6.0f;
     const float startX = leftBound + (corridorW - totalW) * 0.5f;
     for (int i = 0; i < 7; ++i) {
         l.topButtons[static_cast<std::size_t>(i)] = {
-            startX + static_cast<float>(i) * (btnW + gap), 12.0f, btnW, btnH
+            startX + static_cast<float>(i) * (btnW + gap), 8.0f, btnW, btnH
         };
     }
     return l;

@@ -101,29 +101,40 @@ def make_nr(h, rough_f, ao_f, strength=4.0):
 
 
 def tile_0_urban_asphalt():
-    """Photorealistic Urban Seoul Fine-Aggregate Asphalt (crushed granite/basalt + pores + subtle tar seam)."""
+    """Photorealistic Urban Seoul Fine-Aggregate Asphalt (crushed Pocheon granite/basalt flecks, subtle micro-wear, ZERO cartoon squiggle loops!)."""
     macro = tileable_fbm(TILE, octaves=5, base_freq=6, seed=1001)
     mid = tileable_fbm(TILE, octaves=5, base_freq=28, seed=1002)
     agg = tileable_fbm(TILE, octaves=4, base_freq=128, seed=1003)
+    fine_agg = tileable_fbm(TILE, octaves=3, base_freq=256, seed=1006)
     micro = high_freq_grain(TILE, seed=1004)
-    # Very subtle hairline tar-sealed crack
-    crack_f = np.abs(tileable_fbm(TILE, octaves=4, base_freq=5, seed=1005) - 0.5)
-    tar_seam = np.clip(1.0 - crack_f * 95.0, 0.0, 1.0)
+    # Ultra-sparse, hair-thin natural weathered micro-fracture (masked by low-freq gate so it NEVER forms closed rings!)
+    crack_gate = np.clip((tileable_fbm(TILE, octaves=3, base_freq=4, seed=1007) - 0.62) * 4.5, 0.0, 1.0)
+    crack_f = np.abs(tileable_fbm(TILE, octaves=4, base_freq=10, seed=1005) - 0.5)
+    hairline = np.clip(1.0 - crack_f * 145.0, 0.0, 1.0) * crack_gate
 
-    # Fine crushed aggregate light quartz flecks + dark basalt matrix
-    quartz = np.clip((micro - 0.72) * 3.5, 0.0, 1.0) * 0.085
-    basalt = np.clip((0.26 - micro) * 3.5, 0.0, 1.0) * 0.055
-    lum = 0.168 + (macro - 0.5) * 0.040 + (mid - 0.5) * 0.036 + (agg - 0.5) * 0.052 + quartz - basalt - tar_seam * 0.068
-    lum = np.clip(lum, 0.055, 0.34)
-    rgb = np.stack([lum * 0.98, lum * 0.99, lum * 1.035], axis=-1)
-    h = mid * 0.25 + agg * 0.45 + micro * 0.30 - tar_seam * 0.18
-    rough = np.clip(0.84 - tar_seam * 0.38 + (macro - 0.5) * 0.10 - quartz * 1.1, 0.36, 0.96)
-    ao = np.clip(1.0 - tar_seam * 0.25 - (1.0 - agg) * 0.16 - basalt * 1.4, 0.45, 1.0)
-    return make_rgba(rgb), make_nr(h, rough, ao, strength=6.2)
+    # Authentic crushed Pocheon granite quartz specks + dark basalt binder at realistic sunlit Seoul charcoal albedo (sRGB ~64-78)
+    quartz = np.clip((micro - 0.68) * 3.2, 0.0, 1.0) * 0.088
+    basalt = np.clip((0.28 - micro) * 3.2, 0.0, 1.0) * 0.056
+    lum = (
+        0.258
+        + (macro - 0.5) * 0.038
+        + (mid - 0.5) * 0.032
+        + (agg - 0.5) * 0.048
+        + (fine_agg - 0.5) * 0.034
+        + quartz
+        - basalt
+        - hairline * 0.022
+    )
+    lum = np.clip(lum, 0.13, 0.42)
+    rgb = np.stack([lum * 0.985, lum * 0.995, lum * 1.032], axis=-1)
+    h = mid * 0.22 + agg * 0.40 + fine_agg * 0.20 + micro * 0.18 - hairline * 0.08
+    rough = np.clip(0.84 - hairline * 0.18 + (macro - 0.5) * 0.09 - quartz * 0.95, 0.44, 0.96)
+    ao = np.clip(1.0 - hairline * 0.14 - (1.0 - agg) * 0.14 - basalt * 1.15, 0.55, 1.0)
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=5.6)
 
 
 def tile_1_expressway_sma():
-    """Korean Expressway Dark Stone-Mastic Asphalt (SMA): smoother, richer dark slate highway surface."""
+    """Korean Expressway Dark Stone-Mastic Asphalt (SMA): sleek, rich dark-slate high-speed highway pavement."""
     macro = tileable_fbm(TILE, octaves=5, base_freq=6, seed=1101)
     mid = tileable_fbm(TILE, octaves=4, base_freq=32, seed=1102)
     agg = tileable_fbm(TILE, octaves=3, base_freq=160, seed=1103)
@@ -132,31 +143,32 @@ def tile_1_expressway_sma():
     y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32) / TILE
     paver_sheen = 0.5 + 0.5 * np.sin(x * math.pi * 6.0 + macro * 1.2)
 
-    quartz = np.clip((micro - 0.78) * 4.0, 0.0, 1.0) * 0.055
-    lum = 0.132 + (macro - 0.5) * 0.026 + (mid - 0.5) * 0.024 + (agg - 0.5) * 0.036 + quartz - paver_sheen * 0.010
-    lum = np.clip(lum, 0.05, 0.26)
-    rgb = np.stack([lum * 0.96, lum * 0.99, lum * 1.06], axis=-1)
+    quartz = np.clip((micro - 0.74) * 3.8, 0.0, 1.0) * 0.056
+    lum = 0.186 + (macro - 0.5) * 0.024 + (mid - 0.5) * 0.022 + (agg - 0.5) * 0.034 + quartz - paver_sheen * 0.010
+    lum = np.clip(lum, 0.09, 0.32)
+    rgb = np.stack([lum * 0.96, lum * 0.99, lum * 1.055], axis=-1)
     h = mid * 0.20 + agg * 0.45 + micro * 0.35
     rough = np.clip(0.76 - paver_sheen * 0.10 + (macro - 0.5) * 0.08, 0.44, 0.92)
-    ao = np.clip(1.0 - (1.0 - agg) * 0.14, 0.65, 1.0)
-    return make_rgba(rgb), make_nr(h, rough, ao, strength=5.0)
+    ao = np.clip(1.0 - (1.0 - agg) * 0.13, 0.68, 1.0)
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=4.8)
 
 
 def tile_2_intersection_asphalt():
-    """Intersection Worn Asphalt: multi-directional polished mineral aggregate."""
+    """Intersection Worn Asphalt: multi-directional polished mineral aggregate matching urban sunlit charcoal."""
     macro = tileable_fbm(TILE, octaves=5, base_freq=8, seed=1201)
     mid = tileable_fbm(TILE, octaves=5, base_freq=24, seed=1202)
     agg = tileable_fbm(TILE, octaves=4, base_freq=128, seed=1203)
     micro = high_freq_grain(TILE, seed=1204)
     polish = tileable_fbm(TILE, octaves=3, base_freq=4, seed=1205)
 
-    lum = 0.158 + (macro - 0.5) * 0.042 + (mid - 0.5) * 0.030 + (agg - 0.5) * 0.044 + (polish - 0.5) * 0.025
-    lum = np.clip(lum, 0.06, 0.30)
-    rgb = np.stack([lum * 0.99, lum * 0.99, lum * 1.03], axis=-1)
+    quartz = np.clip((micro - 0.70) * 3.2, 0.0, 1.0) * 0.072
+    lum = 0.246 + (macro - 0.5) * 0.036 + (mid - 0.5) * 0.028 + (agg - 0.5) * 0.042 + (polish - 0.5) * 0.022 + quartz
+    lum = np.clip(lum, 0.12, 0.38)
+    rgb = np.stack([lum * 0.99, lum * 0.995, lum * 1.03], axis=-1)
     h = mid * 0.22 + agg * 0.48 + micro * 0.30
     rough = np.clip(0.74 - polish * 0.18 + (macro - 0.5) * 0.10, 0.38, 0.92)
-    ao = np.clip(1.0 - (1.0 - agg) * 0.15, 0.60, 1.0)
-    return make_rgba(rgb), make_nr(h, rough, ao, strength=5.2)
+    ao = np.clip(1.0 - (1.0 - agg) * 0.14, 0.62, 1.0)
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=5.0)
 
 
 def tile_3_seoul_sidewalk_pavers():

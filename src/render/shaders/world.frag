@@ -272,7 +272,7 @@ void main() {
         vec2 dPdy = dFdy(p);
         vec2 dUvDx = dFdx(fragUv);
         vec2 dUvDy = dFdy(fragUv);
-        vec2 asphUv = p * 0.20;
+        vec2 asphUv = p * 0.26;
         vec3 pAlb; vec2 pNxy; float pR; float pAO;
 
         bool isRealRibbon = (fragUv.y > 0.5);
@@ -297,15 +297,15 @@ void main() {
 
         int streetTile = 0; // Tile 0: Urban Seoul Fine-Aggregate Asphalt
         vec2 roadPbrUv = asphUv;
-        vec2 roadDdx = dPdx * 0.20;
-        vec2 roadDdy = dPdy * 0.20;
+        vec2 roadDdx = dPdx * 0.26;
+        vec2 roadDdy = dPdy * 0.26;
         if (isCleanInterBox) {
             streetTile = 2; // Tile 2: Worn multi-directional intersection asphalt
         } else if (isHighway) {
             streetTile = 1; // Tile 1: Smooth Dark Korean Expressway SMA
-            roadPbrUv = vec2(xM * 0.22, sM * 0.22);
-            roadDdx = dUvDx * 0.22;
-            roadDdy = dUvDy * 0.22;
+            roadPbrUv = vec2(xM * 0.24, sM * 0.24);
+            roadDdx = dUvDx * 0.24;
+            roadDdy = dUvDy * 0.24;
         } else if (isAlley) {
             streetTile = 14; // Tile 14: Seoul residential brick/cobble alley blend
             roadPbrUv = p * 0.34;
@@ -317,23 +317,23 @@ void main() {
         if (isAlley) {
             // Subtle weathered asphalt-cobble blend typical of Seongsu/Bukchon/Itaewon back streets
             vec3 aAlb; vec2 aNxy; float aR; float aAO;
-            sampleStreetTileGrad(0, asphUv, dPdx * 0.20, dPdy * 0.20, aAlb, aNxy, aR, aAO);
+            sampleStreetTileGrad(0, asphUv, dPdx * 0.26, dPdy * 0.26, aAlb, aNxy, aR, aAO);
             float alleyMix = smoothstep(0.35, 0.72, fbm2(p * 0.04));
-            pAlb = mix(aAlb * 1.06, pAlb * 0.62, alleyMix * 0.55);
+            pAlb = mix(aAlb * 0.96, pAlb * 0.58, alleyMix * 0.55);
             pNxy = mix(aNxy, pNxy, alleyMix * 0.55);
             pR   = mix(aR, pR, alleyMix * 0.55);
             pAO  = mix(aAO, pAO, alleyMix * 0.55);
         }
 
-        float patchVar = fbm2(p * 0.14);
+        float macroPatina = fbm2(p * 0.045) * 0.55 + fbm2(p * 0.14) * 0.45;
         if (isHighway) {
-            // Sleek dark Korean expressway SMA (textured deep charcoal, clearly distinct from urban streets)
-            albedo = (pAlb * 2.15 + vec3(0.010, 0.011, 0.013)) * mix(0.90, 1.12, patchVar);
+            // Sleek dark Korean expressway SMA (textured deep slate-charcoal, distinct from urban boulevards)
+            albedo = (pAlb * 1.12 + vec3(0.004, 0.004, 0.005)) * mix(0.90, 1.12, macroPatina);
         } else if (!isAlley) {
-            // Authentic sunlit weathered Seoul urban granite-aggregate asphalt (silky aggregate & wheel tracks!)
-            albedo = (pAlb * 2.05 + vec3(0.021, 0.022, 0.025)) * mix(0.90, 1.12, patchVar);
+            // Authentic sunlit weathered Seoul urban granite-aggregate asphalt (zero squiggle artifacts!)
+            albedo = (pAlb * 1.08 + vec3(0.007, 0.007, 0.009)) * mix(0.88, 1.14, macroPatina);
         } else {
-            albedo = (pAlb * 1.45 + vec3(0.010, 0.010, 0.011)) * mix(0.88, 1.14, patchVar);
+            albedo = (pAlb * 1.05 + vec3(0.006, 0.006, 0.007)) * mix(0.88, 1.14, macroPatina);
         }
         roughness = mix(pR, 0.56, 0.20);
         surfaceAO = pAO;
@@ -627,16 +627,41 @@ void main() {
             albedo *= (1.0 - wetAmt * 0.24 - puddleMask * 0.22);
             roughness = mix(roughness, 0.22, wetAmt * 0.48);
             roughness = mix(roughness, 0.04, puddleMask);
-            if (puddleMask > 0.12 && wetRoadFactor > 0.05) {
-                vec2 rCell = floor(p * 1.65);
-                vec2 rLocal = fract(p * 1.65) - 0.5;
-                float rSeed = hash12(rCell);
-                float rAge = fract(animTime * 1.45 + rSeed * 7.3);
-                float ringD = abs(length(rLocal) - rAge * 0.45);
-                float ripple = exp(-ringD * 34.0) * (1.0 - rAge);
-                vec2 rDir = normalize(rLocal + vec2(0.0001));
-                float ripBlend = smoothstep(0.14, 0.58, puddleMask) * smoothstep(0.05, 0.35, wetRoadFactor) * detailFade;
-                N = normalize(mix(N, vec3(rDir.x * ripple * 0.16, 1.0, rDir.y * ripple * 0.16), ripBlend));
+            // Organic 2-layer rotated & jittered Voronoi raindrop ripples ONLY inside deep puddles (ZERO polka-dot grid!)
+            if (puddleMask > 0.26 && wetRoadFactor > 0.12 && detailFade > 0.05) {
+                vec2 ripN = vec2(0.0);
+                // Layer 1 (prime scale 1.73m^-1)
+                vec2 uv1 = p * 1.73;
+                vec2 c1 = floor(uv1);
+                vec2 f1 = fract(uv1) - 0.5;
+                vec2 j1 = (vec2(hash12(c1 + 3.1), hash12(c1 + 19.7)) - 0.5) * 0.64;
+                vec2 d1 = f1 - j1;
+                float s1 = hash12(c1 + 41.3);
+                if (s1 > 0.42) {
+                    float age1 = fract(animTime * 1.35 + s1 * 11.7);
+                    float dist1 = length(d1);
+                    float wave1 = sin((dist1 - age1 * 0.34) * 52.0) * exp(-abs(dist1 - age1 * 0.34) * 28.0);
+                    float env1 = smoothstep(0.0, 0.08, age1) * (1.0 - age1) * (1.0 - smoothstep(0.18, 0.36, dist1));
+                    ripN += normalize(d1 + vec2(1e-4)) * (wave1 * env1);
+                }
+                // Layer 2 (rotated 37 deg, prime scale 2.81m^-1)
+                vec2 pRot = vec2(p.x * 0.7986 - p.y * 0.6018, p.x * 0.6018 + p.y * 0.7986);
+                vec2 uv2 = pRot * 2.81 + vec2(13.4, 7.9);
+                vec2 c2 = floor(uv2);
+                vec2 f2 = fract(uv2) - 0.5;
+                vec2 j2 = (vec2(hash12(c2 + 7.3), hash12(c2 + 29.1)) - 0.5) * 0.64;
+                vec2 d2 = f2 - j2;
+                float s2 = hash12(c2 + 67.9);
+                if (s2 > 0.48) {
+                    float age2 = fract(animTime * 1.65 + s2 * 13.1);
+                    float dist2 = length(d2);
+                    float wave2 = sin((dist2 - age2 * 0.32) * 56.0) * exp(-abs(dist2 - age2 * 0.32) * 32.0);
+                    float env2 = smoothstep(0.0, 0.08, age2) * (1.0 - age2) * (1.0 - smoothstep(0.16, 0.34, dist2));
+                    vec2 n2Rot = normalize(d2 + vec2(1e-4)) * (wave2 * env2 * 0.75);
+                    ripN += vec2(n2Rot.x * 0.7986 + n2Rot.y * 0.6018, -n2Rot.x * 0.6018 + n2Rot.y * 0.7986);
+                }
+                float ripBlend = smoothstep(0.28, 0.72, puddleMask) * smoothstep(0.12, 0.45, wetRoadFactor) * detailFade;
+                N = normalize(mix(N, normalize(vec3(ripN.x * 0.055, 1.0, ripN.y * 0.055)), ripBlend));
             }
         }
     }
@@ -1032,6 +1057,7 @@ void main() {
         vec2 dUdx = dFdx(baseU);
         vec2 dUdy = dFdy(baseU);
         bool isSoundGlass = (srgbBase.b > srgbBase.r + 0.10) && (srgbBase.b > 0.62);
+        bool isAntiGlare = (srgbBase.g > srgbBase.r + 0.18) && (srgbBase.g > srgbBase.b + 0.08);
         float cScale = isSoundGlass ? 0.36 : 0.22;
         vec2 cUv = baseU * cScale;
         vec2 cDdx = dUdx * cScale;
@@ -1044,6 +1070,11 @@ void main() {
             metallic = (pR < 0.20) ? 0.18 : 0.65;
             surfaceAO = pAO;
             N = perturbNormalGrad(N, dp1, dp2, cDdx, cDdy, pNxy, 0.75 * detailFade);
+        } else if (isAntiGlare) {
+            albedo = albedo * mix(0.84, 1.10, pAO);
+            roughness = 0.56;
+            metallic = 0.08;
+            surfaceAO = pAO;
         } else {
             albedo = pAlb * mix(vec3(1.0), albedo * 1.38, 0.36);
             roughness = pR;
@@ -1063,6 +1094,23 @@ void main() {
         surfaceAO = pAO;
         N = perturbNormal(N, fragPosition, lUv, pNxy, 0.90 * detailFade);
         metallic = 0.0;
+    }
+    else if (matId == 22) {
+        // MAT 22: Traditional Korean Heritage Stone / Dancheong Timber / Monument Pedestals (Tile 4 Pocheon Granite)
+        // Explicit uniform-flow derivatives + 100% vertex color preservation -> ZERO modern office windows on palaces/gates/statues!
+        vec3 dp1 = dFdx(fragPosition);
+        vec3 dp2 = dFdy(fragPosition);
+        vec2 baseU = vec2(fragPosition.x + fragPosition.z, fragPosition.y) * 0.28;
+        vec2 dUdx = dFdx(baseU);
+        vec2 dUdy = dFdy(baseU);
+        vec3 pAlb; vec2 pNxy; float pR; float pAO;
+        sampleStreetTileGrad(4, baseU, dUdx, dUdy, pAlb, pNxy, pR, pAO);
+        float stoneLuma = dot(pAlb, vec3(0.30, 0.59, 0.11));
+        albedo = albedo * mix(0.84, 1.14, clamp(stoneLuma * 2.2, 0.0, 1.0));
+        roughness = clamp(pR * 0.95 + 0.06, 0.42, 0.86);
+        metallic = 0.02;
+        surfaceAO = mix(1.0, pAO, 0.65);
+        N = perturbNormalGrad(N, dp1, dp2, dUdx, dUdy, pNxy, 0.65 * detailFade);
     }
 
     // -----------------------------------------------------------------------

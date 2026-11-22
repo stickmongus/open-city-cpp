@@ -438,8 +438,8 @@ void GameWorld::reset() {
     player_.onGround = true;
 
     spawnInitialWorld();
-    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL ULTRA-SMOOTH 4K v5.1" : "WELCOME TO SEOUL (VULKAN)",
-               city_.hasRealSeoulMap() ? "실제 서울 초정밀 도로·거리 4K v5.1에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
+    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL ULTRA-REAL 4K v5.2" : "WELCOME TO SEOUL (VULKAN)",
+               city_.hasRealSeoulMap() ? "실제 서울 초정밀 랜드마크·도로·교통 4K v5.2에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
 #if defined(__ANDROID__)
                "Tap Minimap: Full Seoul Map  |  Top Bar: Custom · Weather · Camera",
                "미니맵 터치: 서울 전체 지도 · 상단 버튼: 커스텀 · 날씨 · 시점 전환",
@@ -1197,7 +1197,7 @@ void GameWorld::maintainTrafficPopulation() {
         const float resolvedSpawnY = (spawnY > -1e8f) ? spawnY : surfaceHeightAt(spawnPos);
         bool tooClose = false;
         for (const auto& other : vehicles_) {
-            if (std::abs(other.posY - resolvedSpawnY) < 2.2f && (other.pos - spawnPos).length() < 11.5f) {
+            if (std::abs(other.posY - resolvedSpawnY) < 2.2f && (other.pos - spawnPos).length() < 19.5f) {
                 tooClose = true;
                 break;
             }
@@ -1241,7 +1241,8 @@ void GameWorld::maintainTrafficPopulation() {
         v.pos = spawnPos;
         v.posY = resolvedSpawnY;
         v.heading = heading;
-        v.velocity = forwardFromHeading(heading) * 14.5f;
+        const float initSpd = (spawnRoadClass <= 1u) ? 16.0f : 7.5f;
+        v.velocity = forwardFromHeading(heading) * initSpd;
         v.health = spec.maxHealth;
         v.maxHealth = spec.maxHealth;
         v.paintColor = randomTrafficPaint(rng_, kind);
@@ -4480,14 +4481,38 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
     const Vec2 fwd = forwardFromHeading(v.heading);
     const Vec2 right = rightFromHeading(v.heading);
 
-    // Obey red traffic signal unless the driver is fleeing in panic!
-    if (!v.driverPanicked && !useOsmNav) {
-        const float aheadInter = (interCenter - v.pos).dot(fwd);
-        const float sideInter = std::abs((interCenter - v.pos).dot(right));
-        if (aheadInter >= 10.2f && aheadInter <= 17.5f && sideInter < 8.5f) {
-            const bool greenForAxis = v.aiHorizontalRoad ? isTrafficGreenForHorizontal() : isTrafficGreenForVertical();
-            if (!greenForAxis) {
-                obstacleAhead = true;
+    // Obey red traffic signals on BOTH real Seoul OSM city roads AND grid roads (never stop on expressways!)
+    if (!v.driverPanicked) {
+        if (!useOsmNav) {
+            const float aheadInter = (interCenter - v.pos).dot(fwd);
+            const float sideInter = std::abs((interCenter - v.pos).dot(right));
+            if (aheadInter >= 10.2f && aheadInter <= 17.5f && sideInter < 8.5f) {
+                const bool greenForAxis = v.aiHorizontalRoad ? isTrafficGreenForHorizontal() : isTrafficGreenForVertical();
+                if (!greenForAxis) {
+                    obstacleAhead = true;
+                }
+            }
+        } else if (v.osmRoadIdx < city_.realData().roads().size() &&
+                   city_.realData().roads()[v.osmRoadIdx].roadClass >= 2u) {
+            // Synchronize 1:1 with Renderer3D symmetric 18s Korean 4-aspect signal cycle (N/S vs E/W alternating: 7s green, 2s amber, 9s red)
+            const int sigPhase = static_cast<int>(std::fmod(elapsedTime_, 18.0f));
+            const bool isNsAxis = (std::abs(fwd.z) >= std::abs(fwd.x));
+            const int localPhase = isNsAxis ? sigPhase : ((sigPhase + 9) % 18);
+            const bool axisRed = (localPhase >= 7);
+            if (axisRed) {
+                for (const StreetProp& sp : city_.streetProps()) {
+                    if (sp.kind != StreetPropKind::TrafficLight || sp.broken) continue;
+                    const float sigY = (sp.baseY > -1e8f) ? sp.baseY : v.posY;
+                    if (std::abs(sigY - v.posY) > 2.6f) continue;
+                    const Vec2 d = sp.pos - v.pos;
+                    if (d.lengthSq() > 24.0f * 24.0f) continue;
+                    const float ahead = d.dot(fwd);
+                    const float side = std::abs(d.dot(right));
+                    if (ahead >= 4.2f && ahead <= 17.5f && side <= 11.5f) {
+                        obstacleAhead = true;
+                        break;
+                    }
+                }
             }
         }
     }
@@ -4497,9 +4522,11 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
     const float stopGap = v.driverPanicked ? 4.2f : (5.8f + vSpd * 0.52f);
     for (const auto& other : vehicles_) {
         if (other.id == v.id) continue;
+        // Strictly ignore vehicles on vertically separated bridge/viaduct decks (prevents viaduct phantom braking!)
+        if (std::abs(other.posY - v.posY) > 2.4f) continue;
         const auto& oSpec = getVehicleSpec(other.kind);
         const Vec2 delta = other.pos - v.pos;
-        const float maxR = stopGap + vSpec.halfLength + oSpec.halfLength + 6.0f;
+        const float maxR = stopGap + vSpec.halfLength + oSpec.halfLength + 12.0f;
         if (delta.lengthSq() > maxR * maxR) continue;
 
         const Vec2 oFwd = forwardFromHeading(other.heading);
@@ -4522,31 +4549,35 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
             break;
         }
 
-        // Predictive cross-traffic yield: brake smoothly before entering a crossing bus/car's path!
-        if (!v.driverPanicked && std::abs(fwd.dot(oFwd)) < 0.45f && other.speed() > 1.4f) {
-            const Vec2 futureOther = other.pos + other.velocity * 0.85f;
-            const Vec2 fDelta = futureOther - v.pos;
-            const float fAhead = fDelta.dot(fwd) - oProjFwd - vSpec.halfLength;
-            const float fSide = std::abs(fDelta.dot(right));
-            if (fAhead > 0.4f && fAhead < stopGap + 3.5f && fSide < lateralBound + 0.6f) {
-                // Only yield if the other vehicle is already closer to the crossing point than we are
-                const float otherAheadUs = (v.pos - other.pos).dot(oFwd);
-                if (ahead > otherAheadUs + 1.0f || v.id > other.id) {
-                    obstacleAhead = true;
-                    break;
+        // Analytic Time-To-Collision (TTC) cross-traffic yield: smoothly brake BEFORE T-boning inside intersections!
+        if (!v.driverPanicked && std::abs(fwd.dot(oFwd)) < 0.55f && (vSpd > 1.2f || other.speed() > 1.2f)) {
+            const Vec2 relV = other.velocity - v.velocity;
+            const float relV2 = relV.lengthSq();
+            if (relV2 > 0.25f) {
+                const float tStar = clampf(-delta.dot(relV) / relV2, 0.0f, 1.85f);
+                const Vec2 sepAtT = delta + relV * tStar;
+                const float safeSep = vSpec.halfLength + oSpec.halfLength + 1.8f;
+                if (tStar > 0.05f && sepAtT.lengthSq() < safeSep * safeSep && ahead > 0.5f) {
+                    const float otherAheadUs = (v.pos - other.pos).dot(oFwd);
+                    if (ahead > otherAheadUs + 0.8f || v.id > other.id) {
+                        obstacleAhead = true;
+                        break;
+                    }
                 }
             }
         }
     }
 
-    // Yield to alive pedestrians crossing in front of the vehicle (calm drivers only)
+    // Yield to alive pedestrians crossing in front of the vehicle on the same elevation (calm drivers only)
     if (!obstacleAhead && !v.driverPanicked) {
         for (const auto& npc : npcs_) {
             if (!npc.alive) continue;
             const Vec2 delta = npc.pos - v.pos;
+            if (delta.lengthSq() > 18.0f * 18.0f) continue;
             const float ahead = delta.dot(fwd);
             const float side = std::abs(delta.dot(right));
-            if (ahead > 0.8f && ahead < 14.0f && side < 3.4f) {
+            if (ahead > 0.6f && ahead < 16.5f && side < 4.2f &&
+                std::abs(surfaceHeightAt(npc.pos) - v.posY) < 2.2f) {
                 obstacleAhead = true;
                 break;
             }
@@ -4557,7 +4588,8 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
         const Vec2 delta = player_.pos - v.pos;
         const float ahead = delta.dot(fwd);
         const float side = std::abs(delta.dot(right));
-        if (ahead > 1.0f && ahead < 11.0f && side < 2.4f) {
+        if (ahead > 1.0f && ahead < 11.0f && side < 2.4f &&
+            std::abs(player_.posY - v.posY) < 2.2f) {
             obstacleAhead = true;
             if (v.hornCooldown <= 0.0f && rng_.chance(0.04f)) {
                 v.hornCooldown = 2.5f;
@@ -5235,10 +5267,11 @@ void GameWorld::updateNpcs(float dt) {
             const Vec2 fromCar = npc.pos - v.pos;
             const float dSq = fromCar.lengthSq();
             if (dSq > 135.0f) continue;
-            if (v.posY - surfaceHeightAt(npc.pos) > 1.75f) continue;
+            if (std::abs(v.posY - surfaceHeightAt(npc.pos)) > 2.2f) continue;
 
-            // Early danger dodge: if a fast vehicle is barreling right toward a calm civilian, dive sideways!
-            if (npc.role == NpcRole::Civilian && npc.dodgeCooldown <= 0.0f && dSq > 4.0f && dSq < 121.0f) {
+            // Early danger dodge: if a fast/player/panicked vehicle is barreling right toward a calm civilian, dive sideways!
+            if (npc.role == NpcRole::Civilian && npc.dodgeCooldown <= 0.0f &&
+                (vSpd > 9.5f || v.isPlayerDriving || v.driverPanicked) && dSq > 4.0f && dSq < 121.0f) {
                 const Vec2 vDir = v.velocity / vSpd;
                 const float ahead = fromCar.dot(vDir);
                 const float lat = fromCar.dot(Vec2{-vDir.z, vDir.x});

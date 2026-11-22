@@ -419,6 +419,7 @@ void Renderer3D::destroyRealChunkGpu(VulkanContext& vk, RealChunkGpu& ch) {
     vk.destroyMesh(ch.bldgBrickMesh);
     vk.destroyMesh(ch.bldgStuccoMesh);
     vk.destroyMesh(ch.bldgHanokMesh);
+    vk.destroyMesh(ch.bldgHeritageMesh);
     vk.destroyMesh(ch.bldgRoofMesh);
 }
 
@@ -1848,7 +1849,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     const auto& flatBldgs = real.flatChunkBldgs();
 
     std::vector<Vertex3D> groundV, roadsV, sidewalksV, piersV;
-    std::vector<Vertex3D> aptV, glassV, graniteV, brickV, stuccoV, hanokV, roofV;
+    std::vector<Vertex3D> aptV, glassV, graniteV, brickV, stuccoV, hanokV, heritageV, roofV;
     groundV.reserve(32 * 32 * 6);
     roadsV.reserve(3072);
     sidewalksV.reserve(2560);
@@ -1967,7 +1968,6 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                                 if (segVisit[segId] == curStamp) continue;
                                 segVisit[segId] = curStamp;
                                 const LocalRoadSeg& ls = localSegs[segId];
-                                if (ls.isBridge || ls.layer >= 1) continue;
                                 const float maxCheck = ls.ohw + 8.5f;
                                 if (wx < ls.minX - maxCheck || wx > ls.maxX + maxCheck ||
                                     wz < ls.minZ - maxCheck || wz > ls.maxZ + maxCheck) {
@@ -1978,8 +1978,9 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                                 const float d2 = (wp - cp).lengthSq();
                                 if (d2 > maxCheck * maxCheck) continue;
                                 const float lsY = lerpf(ls.yA, ls.yB, tm);
-                                // Only depress ground beneath ground-level roads (ignore high elevated non-bridge decks!)
-                                if (lsY - h > 2.25f) continue;
+                                // Only skip genuinely elevated bridges/viaducts (>1.85m above ground) — low bridge approaches &
+                                // leveled twin expressways (e.g. Gyeongbu ri=39840) MUST depress ground beneath them!
+                                if ((ls.isBridge || ls.layer >= 1) ? (lsY - h > 1.85f) : (lsY - h > 2.25f)) continue;
                                 const float d = std::sqrt(d2);
                                 if (d <= std::max(0.5f, ls.ohw - 0.25f)) {
                                     insideRoad = true;
@@ -2571,6 +2572,13 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 }
             }
 
+            auto isRoadElevatedAt = [&](std::uint32_t otherRi, const Vec2& pt, float otherY) -> bool {
+                if (otherRi >= roads.size()) return false;
+                const OsmRoadRec& orr = roads[otherRi];
+                const bool ob = ((orr.flags & 2u) != 0u) || (orr.layer >= 1) || ((orr.flags2 & 4u) != 0u);
+                return ob || (has3DRoads && (otherY - real.sampleDem(pt)) > (isOcm6 ? 2.25f : 0.85f));
+            };
+
             // Continuous 3D Korean Highway Concrete New Jersey Barriers, Anti-Glare Medians & Urban Soundproof Walls!
             // (Ground-level expressways: 경부고속도로, 올림픽대로, 강변북로!)
             if (isExpressway && !isElevatedDeck && !ss.inInter) {
@@ -2605,7 +2613,9 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                                                hasSameLevelRoadAt(rampProbeM, yMid, 0.25f) ||
                                                hasSameLevelRoadAt(rampProbe1, y1, 0.25f);
                     if (tightTouching) {
-                        if (!isOppParallelExp || ri > oppNr.roadIdx) continue;
+                        if (!isOppParallelExp) continue;
+                        const bool oppIsElev = isRoadElevatedAt(oppNr.roadIdx, mid + sM * (sideHwM + 4.5f), oppNr.deckY);
+                        if (oppIsElev || (ri > oppNr.roadIdx && std::abs(oppNr.deckY - yMid) < 0.55f)) continue;
                     }
 
                     const bool isMedianSide = isOppParallelExp || (side < 0.0f ? ss.isMedianEdgeL : ss.isMedianEdgeR) ||
@@ -2728,7 +2738,11 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                     // On twin opposing bridge/viaduct carriageways sharing a flush median:
                     // only emit ONE sleek central Jersey median + green anti-glare outside intersections!
                     if (isMedianEdge) {
-                        if (ss.inInter || (oppIdx != 0xFFFFFFFFu && ri > oppIdx)) continue;
+                        if (ss.inInter) continue;
+                        if (oppIdx != 0xFFFFFFFFu && oppIdx < roads.size()) {
+                            const bool oppIsElev = isRoadElevatedAt(oppIdx, mid + sM * (sideHwM + 2.0f), yMid);
+                            if (oppIsElev && ri > oppIdx) continue;
+                        }
                         const float medH = isExpressway ? 0.92f : 0.42f;
                         const Vec3 mIn0B{p0.x + s0.x * (sideHw0 - 0.16f), y0 - 0.02f, p0.z + s0.z * (sideHw0 - 0.16f)};
                         const Vec3 mIn1B{p1.x + s1.x * (sideHw1 - 0.16f), y1 - 0.02f, p1.z + s1.z * (sideHw1 - 0.16f)};
@@ -2916,25 +2930,33 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
         const ColorRGBA wallCol{b.facadeR, b.facadeG, b.facadeB, varAlpha};
         const ColorRGBA roofCol{b.facadeR, b.facadeG, b.facadeB, varAlpha};
 
+        const bool isRoyalPalacePrecinct =
+            (b.cx >= -915.0f && b.cx <= -585.0f && b.cz >= -6360.0f && b.cz <= -5805.0f && b.height <= 26.0f);
         std::vector<Vertex3D>* wallDst = &graniteV;
         std::vector<Vertex3D>* roofDst = &roofV;
         std::vector<Vertex3D>* slopedDst = &graniteV;
-        switch (b.style) {
-            case 0: wallDst = &aptV;     roofDst = &roofV;  slopedDst = &graniteV; break; // Korean High-Rise Apartment
-            case 1: wallDst = &glassV;   roofDst = &roofV;  slopedDst = &glassV;   break; // Blue/Teal Glass Skyscraper
-            case 2: wallDst = &glassV;   roofDst = &roofV;  slopedDst = &glassV;   break; // Dark Charcoal/Bronze Metallic Tower
-            case 3: wallDst = &graniteV; roofDst = &roofV;  slopedDst = &graniteV; break; // Honed Granite Corporate Office
-            case 4: wallDst = &brickV;   roofDst = &brickV; slopedDst = &brickV;   break; // Brick Commercial (green flat / slate-terra sloped)
-            case 5: wallDst = &stuccoV;  roofDst = &roofV;  slopedDst = &stuccoV;  break; // Modern Limestone/Stucco Commercial
-            case 6: wallDst = &graniteV; roofDst = &hanokV; slopedDst = &hanokV;   break; // Traditional Korean Hanok (Giwa Roof!)
-            case 7: wallDst = &graniteV; roofDst = &roofV;  slopedDst = &graniteV; break; // School / Hospital / Civic
-            case 8: wallDst = &stuccoV;  roofDst = &roofV;  slopedDst = &stuccoV;  break; // Industrial / Stadium / Station Hall
-            case 9:
-            default:
-                wallDst = ((b.variantSeed & 1u) != 0u) ? &brickV : &stuccoV;
-                roofDst = &brickV;
-                slopedDst = &brickV;
-                break; // Korean Multi-Family Villa / House
+        if (isRoyalPalacePrecinct) {
+            wallDst = &heritageV;
+            roofDst = &hanokV;
+            slopedDst = &hanokV;
+        } else {
+            switch (b.style) {
+                case 0: wallDst = &aptV;      roofDst = &roofV;  slopedDst = &graniteV; break; // Korean High-Rise Apartment
+                case 1: wallDst = &glassV;    roofDst = &roofV;  slopedDst = &glassV;   break; // Blue/Teal Glass Skyscraper
+                case 2: wallDst = &glassV;    roofDst = &roofV;  slopedDst = &glassV;   break; // Dark Charcoal/Bronze Metallic Tower
+                case 3: wallDst = &graniteV;  roofDst = &roofV;  slopedDst = &graniteV; break; // Honed Granite Corporate Office
+                case 4: wallDst = &brickV;    roofDst = &brickV; slopedDst = &brickV;   break; // Brick Commercial (green flat / slate-terra sloped)
+                case 5: wallDst = &stuccoV;   roofDst = &roofV;  slopedDst = &stuccoV;  break; // Modern Limestone/Stucco Commercial
+                case 6: wallDst = &heritageV; roofDst = &hanokV; slopedDst = &hanokV;   break; // Traditional Korean Hanok (Pocheon Granite/Plaster + Giwa Roof!)
+                case 7: wallDst = &graniteV;  roofDst = &roofV;  slopedDst = &graniteV; break; // School / Hospital / Civic
+                case 8: wallDst = &stuccoV;   roofDst = &roofV;  slopedDst = &stuccoV;  break; // Industrial / Stadium / Station Hall
+                case 9:
+                default:
+                    wallDst = ((b.variantSeed & 1u) != 0u) ? &brickV : &stuccoV;
+                    roofDst = &brickV;
+                    slopedDst = &brickV;
+                    break; // Korean Multi-Family Villa / House
+            }
         }
 
         // True minHeight extrusion for 3D multi-part stepped skyscrapers & skybridges; deep (-3.5m) foundation otherwise!
@@ -2947,7 +2969,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
         // Check if footprint is cleanly star-shaped around centroid (safe for ridged/pyramidal/stepped roofs)
         bool starConvex = true;
         float accumU = 0.0f;
-        const bool emitPodiumCornice = ((b.flags & 4u) != 0u) && !isElevated && (b.height >= 11.5f) && (polyPts.size() <= 20u);
+        const bool emitPodiumCornice = !isRoyalPalacePrecinct && (b.style != 6u) &&
+            ((b.flags & 4u) != 0u) && !isElevated && (b.height >= 11.5f) && (polyPts.size() <= 20u);
         const ColorRGBA podiumCol{
             static_cast<std::uint8_t>(std::max(44, static_cast<int>(b.facadeR) * 65 / 100)),
             static_cast<std::uint8_t>(std::max(46, static_cast<int>(b.facadeG) * 65 / 100)),
@@ -3199,7 +3222,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             }
 
             // Baked Architectural Rooftop Superstructures (elevator penthouse, HVAC chillers, helipad & telecom masts!)
-            if (b.style != 6u && b.height >= 12.0f && b.halfX >= 5.5f && b.halfZ >= 5.5f) {
+            if (!isRoyalPalacePrecinct && b.style != 6u && b.height >= 12.0f && b.halfX >= 5.5f && b.halfZ >= 5.5f) {
                 const float phW = std::min(b.halfX * 0.68f, 9.5f);
                 const float phD = std::min(b.halfZ * 0.68f, 9.5f);
                 const float phH = (b.height >= 42.0f) ? 4.4f : 2.8f;
@@ -3229,17 +3252,18 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
         }
     }
 
-    if (!groundV.empty())    out.groundMesh      = vk.createMesh(groundV);
-    if (!roadsV.empty())     out.roadsMesh       = vk.createMesh(roadsV);
-    if (!sidewalksV.empty()) out.sidewalksMesh   = vk.createMesh(sidewalksV);
-    if (!piersV.empty())     out.bridgePiersMesh = vk.createMesh(piersV);
-    if (!aptV.empty())       out.bldgAptMesh     = vk.createMesh(aptV);
-    if (!glassV.empty())     out.bldgGlassMesh   = vk.createMesh(glassV);
-    if (!graniteV.empty())   out.bldgGraniteMesh = vk.createMesh(graniteV);
-    if (!brickV.empty())     out.bldgBrickMesh   = vk.createMesh(brickV);
-    if (!stuccoV.empty())    out.bldgStuccoMesh  = vk.createMesh(stuccoV);
-    if (!hanokV.empty())     out.bldgHanokMesh   = vk.createMesh(hanokV);
-    if (!roofV.empty())      out.bldgRoofMesh    = vk.createMesh(roofV);
+    if (!groundV.empty())    out.groundMesh       = vk.createMesh(groundV);
+    if (!roadsV.empty())     out.roadsMesh        = vk.createMesh(roadsV);
+    if (!sidewalksV.empty()) out.sidewalksMesh    = vk.createMesh(sidewalksV);
+    if (!piersV.empty())     out.bridgePiersMesh  = vk.createMesh(piersV);
+    if (!aptV.empty())       out.bldgAptMesh      = vk.createMesh(aptV);
+    if (!glassV.empty())     out.bldgGlassMesh    = vk.createMesh(glassV);
+    if (!graniteV.empty())   out.bldgGraniteMesh  = vk.createMesh(graniteV);
+    if (!brickV.empty())     out.bldgBrickMesh    = vk.createMesh(brickV);
+    if (!stuccoV.empty())    out.bldgStuccoMesh   = vk.createMesh(stuccoV);
+    if (!hanokV.empty())     out.bldgHanokMesh    = vk.createMesh(hanokV);
+    if (!heritageV.empty())  out.bldgHeritageMesh = vk.createMesh(heritageV);
+    if (!roofV.empty())      out.bldgRoofMesh     = vk.createMesh(roofV);
 }
 
 void Renderer3D::prepareRealSeoulChunks(VulkanContext& vk, const CityMap& city, const Vec2& focus) {
@@ -3342,7 +3366,8 @@ void Renderer3D::updateAndDrawRealSeoulChunks(VulkanContext& vk, const CityMap& 
             drawMesh(vk, ch.bldgGraniteMesh, id, kWhite, 0.54f, 0.12f, 0.0f, MatId::ModernConcrete,       shadowPass);
             drawMesh(vk, ch.bldgBrickMesh,   id, kWhite, 0.80f, 0.04f, 0.0f, MatId::KoreanApartmentBrick, shadowPass);
             drawMesh(vk, ch.bldgStuccoMesh,  id, kWhite, 0.82f, 0.02f, 0.0f, MatId::StuccoCommercial,     shadowPass);
-            drawMesh(vk, ch.bldgHanokMesh,   id, kWhite, 0.56f, 0.08f, 0.0f, MatId::HanokGiwaRoof,        shadowPass);
+            drawMesh(vk, ch.bldgHanokMesh,    id, kWhite, 0.56f, 0.08f, 0.0f, MatId::HanokGiwaRoof,        shadowPass);
+            drawMesh(vk, ch.bldgHeritageMesh, id, kWhite, 0.72f, 0.04f, 0.0f, MatId::LandmarkStone,        shadowPass);
             if (!shadowPass) {
                 drawMesh(vk, ch.bldgRoofMesh, id, kWhite, 0.82f, 0.03f, 0.0f, MatId::RooftopConcrete, false);
             }
@@ -3833,7 +3858,7 @@ void Renderer3D::drawBuildingsAndParks(VulkanContext& vk, const GameWorld& world
     drawMesh(vk, landmarkGlassMesh_, Mat4::identity(), {255, 255, 255, 255},
              0.10f, 0.32f, 0.0f, MatId::GlassSkyscraper, shadowPass);
     drawMesh(vk, landmarkStoneMesh_, Mat4::identity(), {255, 255, 255, 255},
-             0.72f, 0.06f, 0.0f, MatId::ModernConcrete, shadowPass);
+             0.72f, 0.06f, 0.0f, MatId::LandmarkStone, shadowPass);
     drawMesh(vk, landmarkMetalMesh_, Mat4::identity(), {255, 255, 255, 255},
              0.28f, 0.78f, 0.0f, MatId::Standard, shadowPass);
     drawMesh(vk, landmarkGiwaMesh_,  Mat4::identity(), {255, 255, 255, 255},
@@ -4215,9 +4240,11 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(3.5f, 5.65f, 0.0f) * Mat4::scale(1.92f, 0.52f, 0.36f),
                          {24, 26, 30, 255}, 0.42f, 0.25f, 0.0f, MatId::Standard, shadowPass);
                 if (!shadowPass) {
-                    const bool isGreen = (sigPhase < 9);
-                    const bool isAmber = (sigPhase >= 9 && sigPhase < 11);
-                    const bool isRed   = (sigPhase >= 11);
+                    const bool controlsNsRoad = (std::abs(std::cos(p.yaw)) >= std::abs(std::sin(p.yaw)));
+                    const int localPhase = controlsNsRoad ? sigPhase : ((sigPhase + 9) % 18);
+                    const bool isGreen = (localPhase < 7);
+                    const bool isAmber = (localPhase >= 7 && localPhase < 9);
+                    const bool isRed   = (localPhase >= 9);
                     drawMesh(vk, sphereMesh_, baseM * Mat4::translation(2.85f, 5.65f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.38f),
                              isRed ? ColorRGBA{255, 48, 48, 255} : ColorRGBA{58, 20, 20, 255},
                              0.15f, 0.0f, isRed ? 2.6f : 0.0f, isRed ? MatId::EmissiveGlow : MatId::Standard, false);

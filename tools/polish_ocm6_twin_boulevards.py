@@ -194,10 +194,15 @@ def main():
     v_clear = vy - dtm_at_v
     v_ground = (~v_bridge) & (~v_tunnel) & (v_layer <= 0) & (v_clear < 3.2)
 
-    # 1. TWIN-CARRIAGEWAY LEVELING SPRINGS (up to 28m span across opposite-direction boulevards/expressways!)
+    # 1. TWIN-CARRIAGEWAY LEVELING SPRINGS (up to 28m span across opposite-direction boulevards & expressways!)
     #    Use query_pairs(r=28.0) instead of k=12 because dense 3m-spaced Catmull-Rom polylines fill k=12
     #    entirely with same-road neighbors before reaching an opposing carriageway 20-26m across the median!
-    twin_idx = np.where(v_ground & (v_cls <= 3) & (v_hw >= 4.0))[0]
+    #    Include BOTH ground boulevards AND parallel twin expressway carriageways (e.g. Gyeongbu NB/SB where
+    #    one side was flagged bridge=True causing a 2.01m vertical median cliff, while keeping genuine double-deck
+    #    split bridges like Banpo/Jamsu |dY|>=4.2m untouched!).
+    twin_cand_mask = ((v_ground & (v_cls <= 3) & (v_hw >= 4.0)) |
+                      ((~v_tunnel) & (v_cls <= 1) & (v_hw >= 4.8)))
+    twin_idx = np.where(twin_cand_mask)[0]
     pts_twin = np.column_stack([vx[twin_idx], vz[twin_idx]])
     tree_twin = cKDTree(pts_twin)
     pairs_t = tree_twin.query_pairs(r=28.0, output_type="ndarray")
@@ -216,25 +221,30 @@ def main():
     along_v = np.abs(rel_x * v_tx[v_l] + rel_z * v_tz[v_l])
     lat_u = np.abs(-rel_x * v_tz[u_l] + rel_z * v_tx[u_l])
     max_lat = v_hw[u_l] + v_hw[v_l] + 10.0
+    both_ground = v_ground[u_l] & v_ground[v_l]
+    both_exp = (v_cls[u_l] <= 1) & (v_cls[v_l] <= 1) & (np.abs(v_layer[u_l] - v_layer[v_l]) <= 1)
 
     ok = (
         (d_l > 2.5)
-        & (dot_dir < -0.75)
+        & (dot_dir < -0.78)
         & (np.abs(v_cls[u_l] - v_cls[v_l]) <= 1)
         & (along_u < 5.5)
         & (along_v < 5.5)
         & (lat_u <= max_lat)
-        & (np.abs(vy[u_l] - vy[v_l]) < 4.5)
+        & (
+            (both_ground & (np.abs(vy[u_l] - vy[v_l]) < 4.5))
+            | (both_exp & (np.abs(vy[u_l] - vy[v_l]) < 3.6))
+        )
     )
     tu = u_l[ok].astype(np.int32)
     tv = v_l[ok].astype(np.int32)
     d_ok = d_l[ok]
     tw = (140.0 / np.maximum(4.0, d_ok)).astype(np.float64)
 
-    # Record median centerlines between opposite twin carriageways (1 per close pair)
+    # Record median centerlines between opposite twin ground carriageways for DTM carving
     med_x_list, med_z_list, med_u_list, med_v_list = [], [], [], []
     if len(tu) > 0:
-        near_perp = (along_u[ok] < 2.2)
+        near_perp = (along_u[ok] < 2.2) & v_ground[tu] & v_ground[tv]
         if near_perp.any():
             mu_s = tu[near_perp]
             mv_s = tv[near_perp]
@@ -243,7 +253,7 @@ def main():
             med_u_list.append(mu_s)
             med_v_list.append(mv_s)
 
-    print(f"   Added {len(tu):,} twin-carriageway leveling springs (query_pairs r<=28m) + {len(wu):,} endpoint welds")
+    print(f"   Added {len(tu):,} twin-carriageway leveling springs (ground+expressway r<=28m) + {len(wu):,} endpoint welds")
 
     # Also couple crossing/touching ground side streets within 14m so feeders climb smoothly onto leveled boulevards!
     gnd_idx = np.where(v_ground)[0]
@@ -269,20 +279,20 @@ def main():
     gw = np.concatenate(g_w_list).astype(np.float64)
     print(f"   Added {len(gu):,} local cross-street / slip-lane flush springs")
 
-    # Assemble CSR stiffness matrix (pin bridges/viaducts strongly so we NEVER disturb verified bridge clearances!)
+    # Assemble CSR stiffness matrix (pin standalone high bridges/viaducts, while allowing twin expressway
+    # carriageways to level smoothly to their shared mean deck elevation without losing river clearance!)
     rows = np.concatenate([eu, ev, wu, wv, tu, tv, gu, gv])
     cols = np.concatenate([ev, eu, wv, wu, tv, tu, gv, gu])
     vals = np.concatenate([ew, ew, ww, ww, tw, tw, gw, gw])
     W_mat = csr_matrix((vals, (rows, cols)), shape=(nRV, nRV))
     deg_w = np.asarray(W_mat.sum(axis=1)).ravel()
 
-    # Bridges/viaducts stay tightly anchored to their verified OCM6 3D heights;
-    # ground twin-boulevards relax smoothly to a single shared level elevation!
-    is_pinned_elev = v_bridge | (v_layer >= 1) | (v_clear >= 3.2)
     is_twin_node = np.zeros(nRV, dtype=bool)
     is_twin_node[tu] = True
     is_twin_node[tv] = True
-    w_anc = np.where(is_pinned_elev, 45.0, np.where(is_twin_node, 0.12, 1.0))
+    is_twin_exp = is_twin_node & (v_cls <= 1)
+    is_pinned_elev = (v_bridge | (v_layer >= 1) | (v_clear >= 3.2)) & (~is_twin_exp)
+    w_anc = np.where(is_pinned_elev, 45.0, np.where(is_twin_exp, 0.35, np.where(is_twin_node, 0.12, 1.0)))
     w_anc = np.where(deg_w < 1e-6, 1.0, w_anc)
     inv_den = 1.0 / (w_anc + deg_w + 1e-12)
 
@@ -329,12 +339,97 @@ def main():
     check_teheran(vy, "BEFORE")
     check_teheran(y_new, "AFTER ")
 
+    # 1b. Exact Symmetric Lipschitz Max-Grade Projection + Endpoint-Weld Coupling (ALL altitudes!):
+    #     For any polyline, averaging exact forward-clamped and backward-clamped envelopes guarantees
+    #     |dy|/len <= max_g in ONE pass while preserving mean deck height! Coupling shared endpoints
+    #     (wu, wv) over 24 passes spreads steep ramps smoothly into adjoining segments with 0.00m seam step!
+    grade_roads = [
+        (ri, 0.106 if (m[8] or m[5] >= 1 or m[2] <= 1) else 0.118)
+        for ri, m in enumerate(roads_meta)
+        if (not m[9]) and (m[8] or m[5] >= 1 or m[2] <= 3)
+    ]
+    # Build per-road segment lengths once
+    grade_segs = []
+    for ri, max_g in grade_roads:
+        fv, vc = roads_meta[ri][0], roads_meta[ri][1]
+        if vc < 2:
+            continue
+        lens = np.hypot(np.diff(vx[fv:fv+vc]), np.diff(vz[fv:fv+vc]))
+        lims = np.where(lens >= 0.8, max_g * lens, 1e9)
+        grade_segs.append((fv, vc, lims))
+
+    # Build endpoint weld adjacency for fast exact projection averaging
+    weld_adj = {}
+    for a_i, b_i in zip(wu.tolist(), wv.tolist()):
+        weld_adj.setdefault(a_i, []).append(b_i)
+        weld_adj.setdefault(b_i, []).append(a_i)
+    weld_groups = []
+    seen_w = set()
+    for node in weld_adj:
+        if node in seen_w:
+            continue
+        comp = []
+        stk = [node]
+        seen_w.add(node)
+        while stk:
+            cur = stk.pop()
+            comp.append(cur)
+            for nb in weld_adj[cur]:
+                if nb not in seen_w:
+                    seen_w.add(nb)
+                    stk.append(nb)
+        if len(comp) > 1:
+            weld_groups.append(comp)
+
+    def project_grades_once(y_arr):
+        any_fix = False
+        for fv, vc, lims in grade_segs:
+            sl = y_arr[fv:fv+vc]
+            diffs = np.abs(np.diff(sl))
+            if not np.any(diffs > lims):
+                continue
+            any_fix = True
+            yf = sl.copy()
+            yb = sl.copy()
+            for k in range(vc - 1):
+                lim = lims[k]
+                lo = yf[k] - lim
+                hi = yf[k] + lim
+                if yf[k + 1] < lo:
+                    yf[k + 1] = lo
+                elif yf[k + 1] > hi:
+                    yf[k + 1] = hi
+            for k in range(vc - 2, -1, -1):
+                lim = lims[k]
+                lo = yb[k + 1] - lim
+                hi = yb[k + 1] + lim
+                if yb[k] < lo:
+                    yb[k] = lo
+                elif yb[k] > hi:
+                    yb[k] = hi
+            y_arr[fv:fv+vc] = 0.5 * (yf + yb)
+        return any_fix
+
+    for it in range(28):
+        fixed = project_grades_once(y_new)
+        if not fixed:
+            break
+        if it < 27:
+            # Re-average welded junction endpoints so connected roads transition smoothly
+            for comp in weld_groups:
+                if abs(max(y_new[c] for c in comp) - min(y_new[c] for c in comp)) > 1e-4:
+                    avg_y = sum(y_new[c] for c in comp) / len(comp)
+                    for c in comp:
+                        y_new[c] = avg_y
+    # Final guaranteed hard pass so zero segments exceed max_g
+    project_grades_once(y_new)
+
     # 2. FULL-WIDTH BOULEVARD + MEDIAN DTM DELTA-CARVING!
     #    Carve across centerline, left/right shoulders (+/-0.65*hw), AND twin-carriageway median centers!
     print("Carving full-width leveled boulevards & medians cleanly into 2048x1638 15m DTM...")
     invX = (dW - 1) / (demMaxX - demMinX)
     invZ = (dH - 1) / (demMaxZ - demMinZ)
-    gnd_mask = v_ground & (y_new < 130.0) & (~water_mask[
+    gnd_mask = (v_ground | ((v_cls <= 1) & (~v_tunnel) & ((y_new - dtm_at_v) < 2.2))) & (y_new < 130.0) & (~water_mask[
         np.clip(np.round((vz - demMinZ) * invZ).astype(np.int32), 0, dH - 1),
         np.clip(np.round((vx - demMinX) * invX).astype(np.int32), 0, dW - 1),
     ])
@@ -402,44 +497,7 @@ def main():
         np.minimum.at(dem_q_new, (gz_s[over], gx_s[over]), target_q)
         dtm_q_m = dem_q_new.astype(np.float64) * DEM_SCALE_M
 
-    # 3. Exact Step 6B Catmull-Rom bicubic Gauss-Seidel bridge grade polish (0% violations!)
-    dtm_cr_nodes = sample_grid_cr(dtm_q_m, demMinX, demMaxX, demMinZ, demMaxZ, vx, vz)
-    elev_roads = [ri for ri, m in enumerate(roads_meta) if m[8] or m[5] >= 1]
-    for _ in range(32):
-        changed = False
-        for ri in elev_roads:
-            fv, vc = roads_meta[ri][0], roads_meta[ri][1]
-            if vc < 2:
-                continue
-            for rng in (range(vc - 1), range(vc - 2, -1, -1)):
-                for k in rng:
-                    u_i, v_i = fv + k, fv + k + 1
-                    ln = math.hypot(vx[v_i] - vx[u_i], vz[v_i] - vz[u_i])
-                    if ln < 1.5:
-                        continue
-                    d_u, d_v = dtm_cr_nodes[u_i], dtm_cr_nodes[v_i]
-                    dy = y_new[v_i] - y_new[u_i]
-                    if max(d_u, d_v) < 36.5:
-                        lim = 0.110 * ln
-                        if abs(dy) > lim:
-                            excess = abs(dy) - lim
-                            s_dir = 1.0 if dy > 0.0 else -1.0
-                            y_new[u_i] += s_dir * excess * 0.5
-                            y_new[v_i] -= s_dir * excess * 0.5
-                            changed = True
-                    else:
-                        dh = (y_new[v_i] - d_v) - (y_new[u_i] - d_u)
-                        lim = 0.105 * ln
-                        if abs(dy) > lim and abs(dh) > lim:
-                            excess = abs(dh) - lim
-                            s_dir = 1.0 if dh > 0.0 else -1.0
-                            y_new[u_i] += s_dir * excess * 0.5
-                            y_new[v_i] -= s_dir * excess * 0.5
-                            changed = True
-        if not changed:
-            break
-
-    # 4. Re-snap all 184,254 building baseY values cleanly to newly carved DTM!
+    # 3. Re-snap all 184,254 building baseY values cleanly to newly carved DTM!
     b_cx = np.empty(nB, dtype=np.float64)
     b_cz = np.empty(nB, dtype=np.float64)
     for bi in range(nB):
