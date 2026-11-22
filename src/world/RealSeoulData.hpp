@@ -175,10 +175,9 @@ public:
         const bool isLink = (r.flags2 & 1u) != 0u;
         const bool isExpressway = (r.roadClass <= 1u) || ((r.flags2 & 2u) != 0u);
         if (isExpressway && isOneway && hw >= 2.8f) {
-            // Exact match with world.frag isHighway (styleByte == 176):
-            // Inner median shoulder (shL) + outer emergency shoulder 갓길 (shR) + ~3.45m Korean highway lanes!
-            const float shR = (hw >= 7.0f) ? 1.15f : 0.55f;
-            const float shL = (hw >= 7.0f) ? 0.58f : 0.32f;
+            // Exact match with SUMO-synced 3.50m Korean expressway lanes (8cm curb-line inset -> 3.47m lanes)!
+            const float shR = 0.08f;
+            const float shL = 0.06f;
             out.driveLeft = -hw + shL;
             out.driveRight = hw - shR;
             const float driveSpan = std::max(2.4f, out.driveRight - out.driveLeft);

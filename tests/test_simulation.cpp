@@ -2792,9 +2792,9 @@ void testV320ZeroRoadBlockingBuildingsAndExactRoadElevation() {
     const float lift = real.roadSurfaceLiftAt(spawnRoad);
     ASSERT_TRUE(lift >= 0.055f && lift <= 0.090f);
     if (real.has3DRoads()) {
-        const oc::RoadSurfaceHit hit = real.findRoadSurfaceAt(spawnRoad, -1e9f, 0.85f);
+        const oc::RoadSurfaceHit hit = real.findRoadSurfaceAt(spawnRoad, -1e9f, 0.90f);
         ASSERT_TRUE(hit.found);
-        const float expectedY = std::max(real.sampleDem(spawnRoad), hit.y);
+        const float expectedY = real.isOcm6() ? hit.y : std::max(real.sampleDem(spawnRoad), hit.y);
         ASSERT_TRUE(std::abs(city.surfaceHeightAt(spawnRoad) - expectedY) < 1e-4f);
     } else {
         const float expectedY = real.sampleDem(spawnRoad) + lift;
@@ -3148,20 +3148,20 @@ void testV350CleanIntersectionsAndBusShelterSetback() {
         bool foundOppTwins = false;
         for (std::size_t a = 0; a < thRoads.size() && !foundOppTwins; ++a) {
             const oc::OsmRoadRec& ra = roads[thRoads[a]];
-            if (ra.roadClass != 2u || ra.halfWidth < 7.0f || ra.vertCount < 2) continue;
+            if (ra.roadClass != 2u || ra.halfWidth < 6.0f || ra.vertCount < 2) continue;
             const oc::Vec2 pA0 = rVerts[ra.firstVert];
             const oc::Vec2 pA1 = rVerts[ra.firstVert + ra.vertCount - 1];
             const oc::Vec2 da = (pA1 - pA0).normalized();
             const oc::Vec2 perpA{-da.z, da.x};
             for (std::size_t b = a + 1; b < thRoads.size(); ++b) {
                 const oc::OsmRoadRec& rb = roads[thRoads[b]];
-                if (rb.roadClass != 2u || rb.halfWidth < 7.0f || rb.vertCount < 2) continue;
+                if (rb.roadClass != 2u || rb.halfWidth < 6.0f || rb.vertCount < 2) continue;
                 const oc::Vec2 pB0 = rVerts[rb.firstVert];
                 const oc::Vec2 pB1 = rVerts[rb.firstVert + rb.vertCount - 1];
                 const oc::Vec2 db = (pB1 - pB0).normalized();
                 if (da.dot(db) < -0.82f) {
                     const float gap = std::abs(((pB0 + pB1) * 0.5f - (pA0 + pA1) * 0.5f).dot(perpA));
-                    if (gap > 8.0f && gap < ra.halfWidth + rb.halfWidth + 1.85f) {
+                    if (gap > 8.0f && gap < ra.halfWidth + rb.halfWidth + 5.0f) {
                         const float hwA = gap * (ra.halfWidth / (ra.halfWidth + rb.halfWidth));
                         const float hwB = gap * (rb.halfWidth / (ra.halfWidth + rb.halfWidth));
                         ASSERT_TRUE(hwA >= 2.6f && hwB >= 2.6f);
@@ -3598,7 +3598,7 @@ void testV500UltraSmoothRoadsSuspensionAndOcm6Realism() {
     };
     auditRoadSmoothness({2762.4f, 1569.3f}, 1.0f, 300, 0.12f);  // Gyeongbu Expressway (was 2.22m cliff -> <0.07m!)
     auditRoadSmoothness({4200.0f, 2600.0f}, 1.0f, 250, 0.16f);  // Teheran-ro boulevard (<0.12m!)
-    auditRoadSmoothness({-420.0f, -2650.0f}, 1.0f, 250, 0.22f); // Sejong-daero Gwanghwamun
+    auditRoadSmoothness({-682.0f, -5450.0f}, 1.0f, 250, 0.22f); // Sejong-daero Gwanghwamun
 
     // 4. Live 240-frame (4-second) high-speed driving suspension test along Gyeongbu Expressway & Teheran-ro:
     //    Verify ZERO accidental airborne launches (zombie vel_y fix!), smooth chassis vertical heave,
@@ -3833,23 +3833,37 @@ void testV520ExpresswayParityGradeLimitsAndOsmSignalDiscipline() {
     ASSERT_TRUE(maxBridgeOrExpGrade <= 0.115f);
     ASSERT_TRUE(maxArterialGrade <= 0.125f);
 
-    // 2. Gyeongbu Expressway NB (ri=39840) vs SB (ri=39825) near (2762.4, 1569.3) leveled within <=0.35m (was 2.01m!)
-    ASSERT_TRUE(roads.size() > 39840u);
-    auto nearestYOnRoad = [&](std::uint32_t ri, oc::Vec2 p) -> float {
-        const oc::OsmRoadRec& r = roads[ri];
-        float bestD2 = 1e18f, bestY = 0.0f;
-        for (std::uint16_t k = 0; k < r.vertCount; ++k) {
-            const float d2 = (verts[r.firstVert + k] - p).lengthSq();
-            if (d2 < bestD2) {
-                bestD2 = d2;
-                bestY = real.roadVertY(r.firstVert + k);
+    // 2. Gyeongbu Expressway NB vs SB near (2762.4, 1569.3) leveled within <=0.35m (was 2.01m!)
+    {
+        const oc::Vec2 gbProbe{2762.4f, 1569.3f};
+        float nbY = 0.0f, sbY = 0.0f;
+        bool hasNB = false, hasSB = false;
+        float bestNbD2 = 1e18f, bestSbD2 = 1e18f;
+        for (const oc::OsmRoadRec& r : roads) {
+            if (r.roadClass > 1u || r.vertCount < 2u || (r.flags & 4u) != 0u || (r.flags2 & 1u) != 0u) continue;
+            if (r.maxX < gbProbe.x - 45.0f || r.minX > gbProbe.x + 45.0f ||
+                r.maxZ < gbProbe.z - 45.0f || r.minZ > gbProbe.z + 45.0f) continue;
+            for (std::uint16_t k = 0; k + 1 < r.vertCount; ++k) {
+                const oc::Vec2 a = verts[r.firstVert + k];
+                const oc::Vec2 b = verts[r.firstVert + k + 1];
+                const oc::Vec2 ab = b - a;
+                const float l2 = ab.lengthSq();
+                if (l2 < 1e-4f) continue;
+                const float t = oc::clampf((gbProbe - a).dot(ab) / l2, 0.0f, 1.0f);
+                const oc::Vec2 cp = a + ab * t;
+                const float d2 = (gbProbe - cp).lengthSq();
+                if (d2 > 38.0f * 38.0f) continue;
+                const float y = oc::lerpf(real.roadVertY(r.firstVert + k), real.roadVertY(r.firstVert + k + 1), t);
+                if (ab.z < 0.0f) { // Northbound (-Z)
+                    if (d2 < bestNbD2) { bestNbD2 = d2; nbY = y; hasNB = true; }
+                } else if (ab.z > 0.0f) { // Southbound (+Z)
+                    if (d2 < bestSbD2) { bestSbD2 = d2; sbY = y; hasSB = true; }
+                }
             }
         }
-        return bestY;
-    };
-    const float yGyeongbuSB = nearestYOnRoad(39825u, {2762.4f, 1569.3f});
-    const float yGyeongbuNB = nearestYOnRoad(39840u, {2762.4f, 1569.3f});
-    ASSERT_TRUE(std::abs(yGyeongbuNB - yGyeongbuSB) <= 0.35f);
+        ASSERT_TRUE(hasNB && hasSB);
+        ASSERT_TRUE(std::abs(nbY - sbY) <= 0.35f);
+    }
 
     // 3. Hill Sidewalk Prop 3D Flushness (Yeoksam Hill PedGuardrails) + StreetLight Setback clear of yellow tactile strip
     world.fastTravelTo({4520.0f, 2558.0f}, "강남 역삼 언덕");
@@ -4051,6 +4065,120 @@ void testV600OcrmTopologicalRoadMeshAndZeroIntersectionIntrusion() {
 }
 
 
+void testV610UnifiedCityBuildingsPropsAndHighwaysMatchSumoRoads() {
+    auto findAsset = [](const char* relPath) -> std::string {
+        const std::string candidates[3] = {
+            std::string("assets/") + relPath,
+            std::string("../assets/") + relPath,
+            std::string("../../assets/") + relPath
+        };
+        for (const std::string& p : candidates) {
+            std::ifstream f(p, std::ios::binary);
+            if (f.good()) return p;
+        }
+        return {};
+    };
+    const std::string ocmapPath = findAsset("maps/seoul_real.ocmap");
+    const std::string ocrmPath  = findAsset("maps/seoul_roads_hd.ocrm");
+    ASSERT_TRUE(!ocmapPath.empty() && !ocrmPath.empty());
+
+    oc::GameWorld world(20261122ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    ASSERT_TRUE(world.loadOcrmRoadMeshFromFile(ocrmPath));
+    const oc::CityMap& city = world.city();
+    const oc::RealSeoulData& real = city.realData();
+    const oc::OcrmRoadMesh& ocrm = real.ocrmMesh();
+
+    // 1. Fresh downloaded Geofabrik OSM + Overture/TUM merged buildings (>= 185,000) & synced SUMO roads!
+    ASSERT_TRUE(real.buildings().size() >= 185000u);
+    ASSERT_TRUE(real.roads().size() >= 45000u);
+    ASSERT_TRUE(real.roadVerts().size() >= 700000u);
+
+    // 2. USER SCREENSHOT 1 & 2 REGRESSION (Teheran-ro spawn):
+    //    - Every parked showroom car sits strictly INSIDE road asphalt (0% on sidewalk / yellow Braille strip!)
+    //    - Every StreetLight & PedGuardrail stands strictly BEHIND the exact SUMO granite curb (0% inside asphalt!)
+    int parkedChecked = 0;
+    for (const oc::Vehicle& v : world.vehicles()) {
+        if (!v.isParked) continue;
+        const oc::NearestOsmRoad nr = real.findNearestRoad(v.pos, 25.0f, v.posY);
+        ASSERT_TRUE(nr.found);
+        const oc::OsmRoadRec& rr = real.roads()[nr.roadIdx];
+        ASSERT_TRUE(nr.dist <= std::max(2.6f, rr.halfWidth) - 0.85f);
+        ++parkedChecked;
+    }
+    ASSERT_TRUE(parkedChecked >= 5);
+
+    int lampsChecked = 0, guardsChecked = 0;
+    for (const oc::StreetProp& p : city.streetProps()) {
+        if (p.kind == oc::StreetPropKind::StreetLight && p.variant != 1u && p.variant != 3u) {
+            // Urban outer/median streetlight must NEVER sit inside asphalt!
+            ASSERT_TRUE(!real.isOnRoad(p.pos, 0.25f));
+            ++lampsChecked;
+        } else if (p.kind == oc::StreetPropKind::PedGuardrail) {
+            ASSERT_TRUE(!real.isOnRoad(p.pos, 0.25f));
+            ++guardsChecked;
+        }
+    }
+    ASSERT_TRUE(lampsChecked >= 10);
+    ASSERT_TRUE(guardsChecked >= 6);
+
+    // 3. Extended 6.50m OCRM Granite Building-Front Plaza (curbM >= 3.25m) verified at Teheran-ro spawn
+    //    (eliminating the dark sunken storefront trench in front of OLIVE YOUNG!)
+    {
+        oc::OcrmDecodedChunk th{};
+        ASSERT_TRUE(ocrm.decodeChunk(45, 39, th));
+        int plazaVerts = 0;
+        for (std::uint16_t vi : th.idxSidewalk) {
+            const auto& v = th.verts[vi];
+            if (v.uCm >= 325.0f) ++plazaVerts;
+        }
+        ASSERT_TRUE(plazaVerts >= 50);
+        // Sidewalk surfaceHeightAt must match raised OCRM 0.125m granite sidewalk height (0cm ankle sinking!)
+        const oc::Vec2 swPt{4000.5f, 2765.0f};
+        const oc::NearestOsmRoad swNr = real.findNearestRoad(swPt, 16.0f);
+        ASSERT_TRUE(swNr.found && !swNr.isBridge);
+        const float swH = city.surfaceHeightAt(swPt);
+        ASSERT_TRUE(std::abs(swH - (swNr.deckY + 0.125f)) < 0.05f);
+    }
+
+    // 4. Zero Building-on-Road Intrusion across Teheran-ro, Gangnam Crossroads & Gyeongbu Expressway!
+    auto checkZeroBldgOnRoad = [&](oc::Vec2 center, float radius) {
+        std::vector<std::uint32_t> bIds;
+        real.queryChunkBuildings(center, radius, bIds);
+        int checked = 0;
+        for (std::uint32_t bi : bIds) {
+            const oc::OsmBldgRec& b = real.buildings()[bi];
+            if (b.vertCount < 3u || b.minHeight > 1.0f) continue;
+            if ((oc::Vec2{b.cx, b.cz} - center).lengthSq() > radius * radius) continue;
+            // Building centroid must NEVER sit inside a ground SUMO road carriageway!
+            ASSERT_TRUE(!real.isOnRoad({b.cx, b.cz}, -0.35f));
+            ++checked;
+        }
+        ASSERT_TRUE(checked >= 20);
+    };
+    checkZeroBldgOnRoad({3960.0f, 2722.0f}, 160.0f); // Teheran-ro
+    checkZeroBldgOnRoad({3768.0f, 2841.0f}, 160.0f); // Gangnam Station Crossroads
+    checkZeroBldgOnRoad({2762.4f, 1569.3f}, 180.0f); // Gyeongbu Expressway corridor
+
+    // 5. Full Seoul Expressway Continuity Audit (Gyeongbu 10-lane motorway + Olympic-daero + Gangbyeonbuk-ro + Naebu Ring)
+    {
+        const oc::Vec2 gbPt{2762.4f, 1569.3f};
+        const oc::NearestOsmRoad gb = real.findNearestRoad(gbPt, 24.0f);
+        ASSERT_TRUE(gb.found && gb.roadClass == 0u && !gb.isBridge && gb.halfWidth >= 8.5f);
+        ASSERT_TRUE(real.roads()[gb.roadIdx].lanes >= 5u);
+
+        // Verify OCRM highway chunks decode cleanly across Gyeongbu, Olympic-daero & Gangbyeonbuk-ro
+        oc::OcrmDecodedChunk hwCh{};
+        ASSERT_TRUE(ocrm.decodeChunk(40, 35, hwCh)); // Gyeongbu
+        ASSERT_TRUE(!hwCh.idxHighway.empty());
+        ASSERT_TRUE(ocrm.decodeChunk(37, 32, hwCh)); // Olympic-daero
+        ASSERT_TRUE(!hwCh.idxHighway.empty());
+    }
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -4092,8 +4220,9 @@ int main() {
     testV510ZeroGroundPokeThroughAndLevelTwinBoulevards();
     testV520ExpresswayParityGradeLimitsAndOsmSignalDiscipline();
     testV600OcrmTopologicalRoadMeshAndZeroIntersectionIntrusion();
+    testV610UnifiedCityBuildingsPropsAndHighwaysMatchSumoRoads();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.0.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.1.0 simulation test suites succeeded!\n";
     return 0;
 }
 

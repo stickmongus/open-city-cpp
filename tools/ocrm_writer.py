@@ -86,8 +86,9 @@ class Ocm6ElevationField:
         self.dtm = dem_q.astype(np.float64) * 0.04
         rv3 = np.frombuffer(raw, dtype=np.float32, count=nRV * 3, offset=off_rverts).reshape(nRV, 3)
 
-        # Separate ground vs elevated road vertices from OCM6 v4
+        # Separate ground vs elevated road vertices from OCM6 v4 (stratified into expressway vs urban bridges)
         is_elev = np.zeros(nRV, dtype=bool)
+        is_elev_hw = np.zeros(nRV, dtype=bool)
         is_tun = np.zeros(nRV, dtype=bool)
         for ri in range(nR):
             fv, vc, rc, ln, fl, ns, lay, fl2, hw, *_ = struct.unpack_from("<IHBBBBbBfffff", raw, off_roads + ri * 32)
@@ -98,6 +99,8 @@ class Ocm6ElevationField:
                 is_tun[sl] = True
             elif ((fl & 2) != 0) or (lay >= 1) or ((fl2 & 4) != 0):
                 is_elev[sl] = True
+                if rc <= 1 or ((fl2 & 2) != 0):
+                    is_elev_hw[sl] = True
 
         vx = rv3[:, 0].astype(np.float64)
         vy = rv3[:, 1].astype(np.float64)
@@ -105,9 +108,11 @@ class Ocm6ElevationField:
         dtm_v = self.sample_dtm(vx, vz)
         v_clear = vy - dtm_v
 
-        # Ground roads include low-clearance leveled expressway decks (< 2.0m clear, e.g. Gyeongbu ri=39840)
+        # Ground roads include low-clearance leveled expressway decks (< 2.0m clear, e.g. Gyeongbu)
         gnd_mask = (~is_tun) & ((~is_elev) | (v_clear < 2.0))
         elev_mask = (~is_tun) & is_elev & (v_clear >= 1.6)
+        elev_hw_mask = elev_mask & is_elev_hw
+        elev_urb_mask = elev_mask & (~is_elev_hw)
 
         self.gnd_xy = np.column_stack([vx[gnd_mask], vz[gnd_mask]])
         self.gnd_y = vy[gnd_mask]
@@ -117,24 +122,40 @@ class Ocm6ElevationField:
         self.elev_y = vy[elev_mask]
         self.elev_tree = cKDTree(self.elev_xy) if len(self.elev_y) > 0 else None
 
-        # Building bboxes per chunk for crisp sidewalk-vs-building clipping
+        self.elev_hw_xy = np.column_stack([vx[elev_hw_mask], vz[elev_hw_mask]])
+        self.elev_hw_y = vy[elev_hw_mask]
+        self.elev_hw_tree = cKDTree(self.elev_hw_xy) if len(self.elev_hw_y) > 0 else None
+
+        self.elev_urb_xy = np.column_stack([vx[elev_urb_mask], vz[elev_urb_mask]])
+        self.elev_urb_y = vy[elev_urb_mask]
+        self.elev_urb_tree = cKDTree(self.elev_urb_xy) if len(self.elev_urb_y) > 0 else None
+
+        # Exact building footprint polygons (plus bboxes) per chunk for razor-tight sidewalk/plaza-to-building fit!
+        off_bverts = off_bldgs + nB * 44
+        bv_raw = np.frombuffer(raw, dtype="<i2", count=nBV * 2, offset=off_bverts).reshape(nBV, 2)
         self.bldg_boxes_by_chunk: Dict[Tuple[int, int], List[Tuple[float, float, float, float]]] = {}
+        self.bldg_polys_by_chunk: Dict[Tuple[int, int], List[Polygon]] = {}
         for bi in range(nB):
-            _, _, _, _, _, _, _, _, _, _, _, cx_b, cz_b, _, mh, h, hx, hz = struct.unpack_from(
+            fv_b, vc_b, _, _, _, _, _, _, _, _, _, cx_b, cz_b, _, mh, h, hx, hz = struct.unpack_from(
                 "<IHBBBBBBBBHfffffff", raw, off_bldgs + bi * 44
             )
-            if mh > 1.5 or h < 2.0:
+            if mh > 1.5 or h < 2.0 or vc_b < 3:
                 continue
             x0, x1 = cx_b - hx, cx_b + hx
             z0, z1 = cz_b - hz, cz_b + hz
-            c0x = max(0, min(self.cX - 1, int(math.floor((x0 - self.minX) / self.chunkSz))))
-            c1x = max(0, min(self.cX - 1, int(math.floor((x1 - self.minX) / self.chunkSz))))
-            c0z = max(0, min(self.cZ - 1, int(math.floor((z0 - self.minZ) / self.chunkSz))))
-            c1z = max(0, min(self.cZ - 1, int(math.floor((z1 - self.minZ) / self.chunkSz))))
+            c0x = max(0, min(self.cX - 1, int(math.floor((x0 - 8.0 - self.minX) / self.chunkSz))))
+            c1x = max(0, min(self.cX - 1, int(math.floor((x1 + 8.0 - self.minX) / self.chunkSz))))
+            c0z = max(0, min(self.cZ - 1, int(math.floor((z0 - 8.0 - self.minZ) / self.chunkSz))))
+            c1z = max(0, min(self.cZ - 1, int(math.floor((z1 + 8.0 - self.minZ) / self.chunkSz))))
             bb = (x0, z0, x1, z1)
+            pts_b = [(cx_b + float(bv_raw[fv_b + vi, 0]) * 0.05, cz_b + float(bv_raw[fv_b + vi, 1]) * 0.05) for vi in range(vc_b)]
+            bp = Polygon(pts_b).buffer(0)
+            if bp.is_empty or bp.area < 4.0:
+                bp = shp_box(x0, z0, x1, z1)
             for cz_i in range(c0z, c1z + 1):
                 for cx_i in range(c0x, c1x + 1):
                     self.bldg_boxes_by_chunk.setdefault((cx_i, cz_i), []).append(bb)
+                    self.bldg_polys_by_chunk.setdefault((cx_i, cz_i), []).append(bp)
 
     def sample_dtm(self, xs: np.ndarray, zs: np.ndarray) -> np.ndarray:
         xs = np.asarray(xs, dtype=np.float64)
@@ -174,24 +195,39 @@ class Ocm6ElevationField:
             y_road = y_road * (1.0 - blend) + dtm * blend
         return y_road
 
-    def eval_elev_y(self, xs: np.ndarray, zs: np.ndarray) -> np.ndarray:
-        """Smooth IDW interpolation of OCM6 elevated bridge/viaduct deck elevations."""
+    def _eval_elev_tree(self, xs: np.ndarray, zs: np.ndarray, tree, ys) -> np.ndarray:
         xs = np.asarray(xs, dtype=np.float64)
         zs = np.asarray(zs, dtype=np.float64)
         if xs.size == 0:
             return np.empty(0, dtype=np.float64)
-        if self.elev_tree is None:
+        if tree is None:
             return self.eval_ground_y(xs, zs) + 6.0
         pts = np.column_stack([xs, zs])
-        dists, idxs = self.elev_tree.query(pts, k=4)
+        k_q = min(4, len(ys))
+        dists, idxs = tree.query(pts, k=k_q)
+        if k_q == 1:
+            dists = dists[:, None]
+            idxs = idxs[:, None]
         w = 1.0 / np.maximum(dists, 0.35) ** 2
-        y_el = np.sum(w * self.elev_y[idxs], axis=1) / np.sum(w, axis=1)
+        y_el = np.sum(w * ys[idxs], axis=1) / np.sum(w, axis=1)
         d_min = dists[:, 0]
-        if np.any(d_min > 20.0):
-            y_g = self.eval_ground_y(xs, zs)
-            blend = np.clip((d_min - 20.0) / 20.0, 0.0, 1.0)
-            y_el = y_el * (1.0 - blend) + (y_g + 4.5) * blend
+        if np.any(d_min > 24.0):
+            y_fb = self.eval_elev_y(xs, zs) if (tree is not self.elev_tree and self.elev_tree is not None) else (self.eval_ground_y(xs, zs) + 4.5)
+            blend = np.clip((d_min - 24.0) / 18.0, 0.0, 1.0)
+            y_el = y_el * (1.0 - blend) + y_fb * blend
         return y_el
+
+    def eval_elev_y(self, xs: np.ndarray, zs: np.ndarray) -> np.ndarray:
+        """Smooth IDW interpolation of OCM6 elevated bridge/viaduct deck elevations."""
+        return self._eval_elev_tree(xs, zs, self.elev_tree, self.elev_y)
+
+    def eval_elev_hw_y(self, xs: np.ndarray, zs: np.ndarray) -> np.ndarray:
+        """Smooth IDW interpolation of OCM6 elevated expressway/viaduct decks (e.g. Naebu Ring, Bundang-Suseo)."""
+        return self._eval_elev_tree(xs, zs, self.elev_hw_tree or self.elev_tree, self.elev_hw_y if self.elev_hw_tree is not None else self.elev_y)
+
+    def eval_elev_urb_y(self, xs: np.ndarray, zs: np.ndarray) -> np.ndarray:
+        """Smooth IDW interpolation of OCM6 elevated urban bridges (e.g. Banpo Bridge, Samseonggyo)."""
+        return self._eval_elev_tree(xs, zs, self.elev_urb_tree or self.elev_tree, self.elev_urb_y if self.elev_urb_tree is not None else self.elev_y)
 
 
 def iter_polygons(geom) -> List[Polygon]:

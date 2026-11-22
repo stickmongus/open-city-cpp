@@ -342,7 +342,7 @@ public:
     float raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDist) const;
     float raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const;
 
-    // Real-World OpenStreetMap + SRTM 15m DTM + Eclipse SUMO OCRM v1 Seoul GIS Loader (v6.0.0)
+    // Real-World OpenStreetMap + Overture + TUM + 15m DTM + 1:1 Synced Eclipse SUMO OCRM v1 Seoul GIS Loader (v6.1.0)
     bool loadRealSeoulMap(const std::uint8_t* bytes, std::size_t size);
     bool loadRealSeoulMapFromFile(const std::string& path);
     bool loadOcrmRoadMesh(const std::uint8_t* bytes, std::size_t size);

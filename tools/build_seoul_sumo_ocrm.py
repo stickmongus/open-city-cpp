@@ -62,9 +62,9 @@ MAJOR_URBAN_TYPES = {
 }
 
 KOREA_TYPES_XML = """<types>
-    <type id="highway.motorway"       priority="14" numLanes="3" speed="27.78" width="3.50" oneway="1"/>
+    <type id="highway.motorway"       priority="14" numLanes="4" speed="27.78" width="3.50" oneway="1"/>
     <type id="highway.motorway_link"  priority="13" numLanes="1" speed="16.67" width="3.50" oneway="1"/>
-    <type id="highway.trunk"          priority="13" numLanes="3" speed="22.22" width="3.40" oneway="1"/>
+    <type id="highway.trunk"          priority="13" numLanes="3" speed="22.22" width="3.45" oneway="1"/>
     <type id="highway.trunk_link"     priority="12" numLanes="1" speed="13.89" width="3.40" oneway="1"/>
     <type id="highway.primary"        priority="12" numLanes="3" speed="16.67" width="3.25"/>
     <type id="highway.primary_link"   priority="11" numLanes="1" speed="13.89" width="3.25" oneway="1"/>
@@ -77,9 +77,25 @@ KOREA_TYPES_XML = """<types>
     <type id="highway.living_street"  priority="2"  numLanes="1" speed="5.56"  width="2.60"/>
 </types>"""
 
+# Major named Seoul boulevards & expressways: fill realistic Korean lane counts ONLY when OSM way omits `lanes` tag!
+SEOUL_DEFAULT_LANES = (
+    ("경부고속도로", 4),
+    ("올림픽대로", 4),
+    ("강변북로", 4),
+    ("내부순환로", 3),
+    ("동부간선도로", 3),
+    ("서부간선도로", 3),
+    ("테헤란로", 4),
+    ("강남대로", 4),
+    ("세종대로", 4),
+    ("영동대로", 4),
+    ("반포대로", 4),
+    ("한강대로", 4),
+)
+
 
 def split_osm_ground_and_elevated(osm_in: str, elev: Ocm6ElevationField, out_gnd: str, out_elev: str) -> None:
-    """Split Seoul OSM roads into clean Ground vs True-Elevated (bridges/viaducts >=1.8m clear or over water), dropping tunnels."""
+    """Split Seoul OSM roads into clean Ground vs True-Elevated (Han River bridges & viaducts >=3.2m clear), dropping tunnels."""
     t0 = time.time()
     nodes: Dict[str, Tuple[float, float, bool]] = {}
     gnd_ways = []
@@ -102,12 +118,47 @@ def split_osm_ground_and_elevated(osm_in: str, elev: Ocm6ElevationField, out_gnd
             if hw in KEEP_HW and tun not in ("yes", "building_passage", "covered"):
                 nids = [c.attrib["ref"] for c in el if c.tag == "nd" and c.attrib["ref"] in nodes]
                 if len(nids) >= 2:
+                    # Sanitize & fill realistic Korean lane counts on Seoul boulevards & expressways:
+                    # 1. Many Korean OSM mappers tag total bidirectional lanes (6, 8, 10) on oneway=yes divided boulevards
+                    #    (e.g. 강남대로 lanes=8, 세종대로 lanes=8, 천호대로 lanes=10) or ramps (*_link lanes=8).
+                    # 2. Fill missing `lanes` on iconic named Seoul boulevards & expressways.
+                    road_name = tags.get("name", "")
+                    is_ow_way = (tags.get("oneway", "") == "yes") or (hw in ("motorway", "motorway_link", "trunk_link"))
+                    if "lanes" in tags and is_ow_way:
+                        try:
+                            raw_ln = int(tags["lanes"].split(";")[0].strip())
+                            if hw.endswith("_link"):
+                                if raw_ln > 2:
+                                    tags["lanes"] = "2"
+                            elif raw_ln >= 6:
+                                fixed_ln = min(5, max(3, raw_ln // 2))
+                                tags["lanes"] = str(fixed_ln)
+                        except ValueError:
+                            pass
+                    if "경부고속도로" in road_name and hw in ("trunk", "motorway"):
+                        tags["highway"] = "motorway"
+                        hw = "motorway"
+                        tags["oneway"] = "yes"
+                        try:
+                            cur_ln = int(tags.get("lanes", "5").split(";")[0].strip())
+                        except ValueError:
+                            cur_ln = 5
+                        if cur_ln < 5:
+                            tags["lanes"] = "5"
+                    if "lanes" not in tags and hw in ("motorway", "trunk", "primary") and is_ow_way:
+                        for kw, def_ln in SEOUL_DEFAULT_LANES:
+                            if kw in road_name:
+                                tags["lanes"] = str(def_ln)
+                                break
+
                     is_br_tag = (tags.get("bridge", "") not in ("", "no"))
                     try:
                         layer_val = int(tags.get("layer", "0").split(";")[0])
                     except ValueError:
                         layer_val = 0
-                    # Check true vertical clearance against OCM6 15m DTM + Han River water!
+                    # Check true vertical clearance against 15m bare-earth DTM + Han River water!
+                    # Keep ground-hugging expressways (경부고속도로/올림픽대로 culvert bridges < 3.2m clear)
+                    # in ONE continuous ground highway network so ZERO transverse parapet seams ever split expressways!
                     is_true_elev = False
                     if is_br_tag or layer_val >= 1:
                         wpts = [latlon_to_world(nodes[n][0], nodes[n][1]) for n in nids]
@@ -118,9 +169,8 @@ def split_osm_ground_and_elevated(osm_in: str, elev: Ocm6ElevationField, out_gnd
                             is_true_elev = True
                         else:
                             ey = elev.eval_elev_y(xs, zs)
-                            # Only treat as elevated viaduct if genuinely >= 1.8m above terrain!
-                            # Ground-hugging expressways tagged bridge=yes over culverts stay on ground layer!
-                            if float(np.percentile(ey - dtm, 75)) >= 1.85:
+                            clear_thresh = 3.25 if hw in ("motorway", "trunk", "motorway_link", "trunk_link") else 2.40
+                            if float(np.percentile(ey - dtm, 75)) >= clear_thresh:
                                 is_true_elev = True
                     rec = (el.attrib["id"], nids, tags)
                     if is_true_elev:
@@ -162,6 +212,8 @@ def run_sumo_netconvert(osm_path: str, out_net: str, typ_path: str, join_dist: i
         "--osm-files", osm_path,
         "--type-files", typ_path,
         "--output-file", out_net,
+        "--default.spreadtype", "center",
+        "--osm.oneway-spread-right", "false",
         "--geometry.remove", "true",
         "--junctions.join", "true",
         "--junctions.join-dist", str(join_dist),
@@ -178,7 +230,7 @@ def run_sumo_netconvert(osm_path: str, out_net: str, typ_path: str, join_dist: i
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         raise RuntimeError(f"netconvert failed on {osm_path}: {res.stderr[:800]}")
-    print(f"  SUMO netconvert -> {os.path.basename(out_net)} ({os.path.getsize(out_net)/1e6:.1f} MB) in {time.time()-t0:.1f}s")
+    print(f"  SUMO netconvert (centered) -> {os.path.basename(out_net)} ({os.path.getsize(out_net)/1e6:.1f} MB) in {time.time()-t0:.1f}s")
 
 
 def parse_sumo_net(net_path: str) -> Tuple[List[dict], List[dict]]:
@@ -437,6 +489,11 @@ def _build_one_chunk(args: Tuple[int, int, float, float, float]) -> Tuple[Tuple[
     g_junc_hw = [g for g in g_junc_hw if not g.is_empty]
     g_junc_urb = [g for g in g_junc_urb if not g.is_empty]
 
+    e_portals_pre = [p.intersection(halo_box) for p in cdata["e_portals"]]
+    e_portals_pre = [g for g in e_portals_pre if not g.is_empty]
+    portal_mask = unary_union(e_portals_pre) if e_portals_pre else Polygon()
+
+    ground_all = Polygon()
     all_g = g_hw_polys + g_urb_polys + g_junc_hw + g_junc_urb
     if all_g:
         # Morphological closing (+0.42m / -0.42m) seals micro-slivers between trimmed lanes & curved junctions!
@@ -466,41 +523,40 @@ def _build_one_chunk(args: Tuple[int, int, float, float, float]) -> Tuple[Tuple[
         for p in iter_polygons(inter_union.intersection(chunk_box)):
             cmb.add_polygon_surface(p, cmb.idx_inter, elev.eval_ground_y, 0.016, k_int_col, subdiv_step=32.0)
 
-        # MATHEMATICALLY DISJOINT SIDEWALKS, CURBS & ENCLOSED MEDIAN ISLANDS!
-        # In real Seoul, raised 3.15m granite sidewalks with yellow Braille strips border arterials,
-        # boulevards & multi-lane collectors (narrow back-alleys stay authentically flush!).
-        # SidewalkArea = (Buffer(major_roads, 3.15m) \ ground_all \ buildings) -> 0.00% intersection intrusion!
+        # MATHEMATICALLY DISJOINT SIDEWALKS, BUILDING-FRONT GRANITE PLAZAS & PURE GRANITE MEDIAN ISLANDS!
+        # Extending buffer to 6.50m (0..0.3m curb, 0.3..3.15m pavers+Braille, 3.15..6.50m Tile 4 building setback plaza)
+        # simultaneously eliminates sidewalk-to-building trenches AND merges wide boulevard medians into pure granite!
         sw_seeds = g_sw_src
         if sw_seeds:
             major_u = unary_union(sw_seeds).intersection(ground_all)
             if not hw_union.is_empty:
                 major_u = major_u.difference(hw_union.buffer(0.75))
-            raw_sw = major_u.buffer(3.15, join_style="round", quad_segs=2).difference(ground_all) if not major_u.is_empty else Polygon()
-            # Clip sidewalks cleanly against building footprints (shrunk 12cm so sidewalk kisses building walls)
-            b_boxes = elev.bldg_boxes_by_chunk.get((cx, cz), [])
-            if b_boxes and not raw_sw.is_empty:
-                b_polys = [shp_box(bx0 + 0.12, bz0 + 0.12, bx1 - 0.12, bz1 - 0.12)
-                           for (bx0, bz0, bx1, bz1) in b_boxes if (bx1 - bx0 > 0.5 and bz1 - bz0 > 0.5)]
-                if b_polys:
-                    raw_sw = raw_sw.difference(unary_union(b_polys))
+            raw_sw = major_u.buffer(6.50, join_style="round", quad_segs=2).difference(ground_all) if not major_u.is_empty else Polygon()
+            # Clip sidewalks/plazas cleanly against EXACT synced building polygons (shrunk 8cm so plaza kisses building walls!)
+            b_polys_exact = elev.bldg_polys_by_chunk.get((cx, cz), [])
+            if b_polys_exact and not raw_sw.is_empty:
+                clipped_bp = [bp.buffer(-0.08) for bp in b_polys_exact]
+                clipped_bp = [bp for bp in clipped_bp if not bp.is_empty and bp.area > 1.0]
+                if clipped_bp:
+                    raw_sw = raw_sw.difference(unary_union(clipped_bp))
             raw_sw = raw_sw.simplify(0.22, preserve_topology=True) if not raw_sw.is_empty else Polygon()
 
             # Identify ALL boulevard median islands (both enclosed holes AND continuous medians touching halo_box!)
-            # Theorem: An outer sidewalk touches road on ~45% of its perimeter, while a boulevard median island
-            # between EB & WB carriageways is surrounded by road on >= 68% of its non-halo perimeter!
             road_touch_zone = ground_all.buffer(0.45)
             halo_edge_zone = halo_box.boundary.buffer(0.65)
             median_polys = []
             for poly in iter_polygons(ground_all):
                 for hole in poly.interiors:
                     hp = Polygon(hole)
-                    if 58.0 <= hp.area <= 4200.0:
+                    if 58.0 <= hp.area <= 6500.0:
                         median_polys.append(hp)
             for sw_full in iter_polygons(raw_sw):
+                if sw_full.area > 4200.0:
+                    continue
                 non_halo_bnd = sw_full.boundary.difference(halo_edge_zone)
                 if non_halo_bnd.length > 2.0:
                     touch_len = non_halo_bnd.intersection(road_touch_zone).length
-                    if (touch_len / non_halo_bnd.length) >= 0.68:
+                    if (touch_len / non_halo_bnd.length) >= 0.72:
                         median_polys.append(sw_full)
             median_hole_union = unary_union(median_polys) if median_polys else Polygon()
 
@@ -531,8 +587,7 @@ def _build_one_chunk(args: Tuple[int, int, float, float, float]) -> Tuple[Tuple[
                     curb_tree=curb_tree, is_median_island=is_med, subdiv_step=36.0,
                 )
 
-            # Watertight 11cm vertical dressed granite curbs ONLY along road-facing curb edges & outer edges
-            # (never along 256m chunk_box cut seams or buried building wall cutouts!)
+            # Watertight 11cm vertical dressed granite curbs ONLY along road-facing curb edges
             if not raw_sw.is_empty:
                 road_curb_zone = ground_all.boundary.buffer(0.45)
                 sw_bnd = raw_sw.boundary.intersection(road_curb_zone).intersection(chunk_box)
@@ -559,10 +614,12 @@ def _build_one_chunk(args: Tuple[int, int, float, float, float]) -> Tuple[Tuple[
         # Ground Expressway Concrete New Jersey Barriers, Anti-Glare Medians & Acoustic Walls
         if not hw_union.is_empty:
             hw_bnd = hw_union.boundary.intersection(chunk_box)
-            # Exclude seams where highway merges into ground intersections/ramps
-            non_hw_touch = ground_all.difference(hw_union).buffer(0.95)
+            # Exclude seams where highway merges into ground intersections/ramps OR dead-end portals onto elevated bridges!
+            non_hw_touch = ground_all.difference(hw_union).buffer(1.10)
             if not non_hw_touch.is_empty:
                 hw_bnd = hw_bnd.difference(non_hw_touch)
+            if not portal_mask.is_empty:
+                hw_bnd = hw_bnd.difference(portal_mask)
             for bl in iter_lines(hw_bnd):
                 if bl.length < 2.5:
                     continue
@@ -576,7 +633,6 @@ def _build_one_chunk(args: Tuple[int, int, float, float, float]) -> Tuple[Tuple[
                 nx, nz = -dz / dl, dx / dl
                 out_sign = 1.0 if not hw_union.contains(Point(mp_pt.x + nx * 1.2, mp_pt.y + nz * 1.2)) else -1.0
                 ox_n, oz_n = nx * out_sign, nz * out_sign
-                # Multi-distance probe across 2.2..17.0m detects BOTH tight & wide twin expressway medians (e.g. Gyeongbu)!
                 is_med = any(
                     hw_union.contains(Point(mp_pt.x + ox_n * dist, mp_pt.y + oz_n * dist))
                     for dist in (2.2, 4.0, 6.5, 9.5, 13.0, 17.0)
@@ -620,37 +676,38 @@ def _build_one_chunk(args: Tuple[int, int, float, float, float]) -> Tuple[Tuple[
                     cmb.add_paint_polyline(seg, 0.45, k_white, elev.eval_ground_y, 0.040)
 
     # ------------------------------------------------------------------
-    # 2. ELEVATED LAYER: Bridges, Han River Crossings & Viaduct Decks!
+    # 2. ELEVATED LAYERS: Separate Expressway Flyovers vs Urban Bridges
+    #    (keeps Bundang-Suseo flying 13m cleanly above Samseonggyo!)
     # ------------------------------------------------------------------
-    e_hw_polys = [p.intersection(halo_box) for p in cdata["e_hw"]]
-    e_urb_polys = [p.intersection(halo_box) for p in cdata["e_urb"]]
-    e_junc_all = [p.intersection(halo_box) for p in cdata["e_junc"]]
-    e_hw_polys = [g for g in e_hw_polys if not g.is_empty]
-    e_urb_polys = [g for g in e_urb_polys if not g.is_empty]
-    e_junc_all = [g for g in e_junc_all if not g.is_empty]
+    k_hw_col = (48, 50, 54, 255)
+    k_urb_col = (128, 128, 132, 255)
+    k_soffit = (132, 136, 144, 255)
+    k_white = (238, 240, 244, 255)
+    k_yellow = (236, 184, 38, 255)
+    k_pier = (164, 168, 174, 255)
 
-    all_e = e_hw_polys + e_urb_polys + e_junc_all
-    if all_e:
-        elev_all = unary_union(all_e).buffer(0.32, join_style="mitre", mitre_limit=2.0).buffer(-0.32, join_style="mitre", mitre_limit=2.0).simplify(0.14, preserve_topology=True)
-        e_hw_u = unary_union(e_hw_polys).intersection(elev_all) if e_hw_polys else Polygon()
-        e_urb_u = elev_all.difference(e_hw_u)
+    def emit_elev_layer(poly_list, junc_list, marks_list, pier_list, is_hw_layer: bool):
+        ps = [p.intersection(halo_box) for p in (poly_list + junc_list)]
+        ps = [g for g in ps if not g.is_empty]
+        if not ps:
+            return
+        eval_fn = elev.eval_elev_hw_y if is_hw_layer else elev.eval_elev_urb_y
+        deck_u = unary_union(ps).buffer(0.30, join_style="mitre", mitre_limit=2.0).buffer(-0.30, join_style="mitre", mitre_limit=2.0).simplify(0.14, preserve_topology=True)
+        surf_idx = cmb.idx_highway if is_hw_layer else cmb.idx_urban
+        surf_col = k_hw_col if is_hw_layer else k_urb_col
+        soffit_dz = -1.35 if is_hw_layer else -1.18
 
-        k_hw_col = (48, 50, 54, 255)
-        k_urb_col = (128, 128, 132, 255)
-        k_soffit = (132, 136, 144, 255)
+        for p in iter_polygons(deck_u.intersection(chunk_box)):
+            cmb.add_polygon_surface(p, surf_idx, eval_fn, 0.02, surf_col, subdiv_step=36.0)
+            cmb.add_polygon_surface(p, cmb.idx_bridge, eval_fn, soffit_dz, k_soffit, subdiv_step=36.0, flip_down=True)
 
-        for p in iter_polygons(e_hw_u.intersection(chunk_box)):
-            cmb.add_polygon_surface(p, cmb.idx_highway, elev.eval_elev_y, 0.02, k_hw_col, subdiv_step=36.0)
-            cmb.add_polygon_surface(p, cmb.idx_bridge, elev.eval_elev_y, -1.35, k_soffit, subdiv_step=36.0, flip_down=True)
-        for p in iter_polygons(e_urb_u.intersection(chunk_box)):
-            cmb.add_polygon_surface(p, cmb.idx_urban, elev.eval_elev_y, 0.02, k_urb_col, subdiv_step=36.0)
-            cmb.add_polygon_surface(p, cmb.idx_bridge, elev.eval_elev_y, -1.18, k_soffit, subdiv_step=36.0, flip_down=True)
-
-        # Box-girder side fascia & concrete bridge parapets ONLY along true unclipped bridge edges
-        # (NEVER across 256m chunk_box seams!)
-        elev_bnd = elev_all.boundary.intersection(chunk_box)
+        # Side box-girder fascia & concrete bridge parapets along ALL true outer edges
+        # (ONLY suppress transverse end-caps inside exact dead-end portal_mask — NEVER over lower roads!)
+        elev_bnd = deck_u.boundary.intersection(chunk_box)
+        if not portal_mask.is_empty:
+            elev_bnd = elev_bnd.difference(portal_mask)
         for bl in iter_lines(elev_bnd):
-            if bl.length < 0.8:
+            if bl.length < 1.2:
                 continue
             mp_pt = bl.interpolate(0.5, normalized=True)
             p0_pt = bl.interpolate(max(0.0, bl.length * 0.5 - 0.5))
@@ -660,48 +717,47 @@ def _build_one_chunk(args: Tuple[int, int, float, float, float]) -> Tuple[Tuple[
             out_sign = 1.0
             if dl > 0.05:
                 nx, nz = -dz / dl, dx / dl
-                if elev_all.contains(Point(mp_pt.x + nx * 0.35, mp_pt.y + nz * 0.35)):
+                if deck_u.contains(Point(mp_pt.x + nx * 0.35, mp_pt.y + nz * 0.35)):
                     out_sign = -1.0
-            # Box-girder vertical side wall from soffit (-1.35m) to deck (+0.02m)
             cmb.add_curb_wall_along_ring(
                 np.asarray(bl.coords, dtype=np.float64),
-                elev.eval_elev_y, -1.35, 0.04, cmb.idx_bridge, k_soffit, outward_sign=out_sign, u_cm=0,
+                eval_fn, soffit_dz, 0.04, cmb.idx_bridge, k_soffit, outward_sign=out_sign, u_cm=0,
             )
-            # Solid 3D concrete bridge parapet wall along deck edge!
-            cmb.add_jersey_barrier_along_line(bl, elev.eval_elev_y, out_sign, is_median=False, with_sound_wall=False)
+            cmb.add_jersey_barrier_along_line(bl, eval_fn, out_sign, is_median=False, with_sound_wall=False)
 
-        # Elevated lane markings
-        k_white = (238, 240, 244, 255)
-        k_yellow = (236, 184, 38, 255)
-        for kind, line in cdata["e_marks"]:
+        for kind, line in marks_list:
             clipped = line.intersection(chunk_box)
             for seg in iter_lines(clipped):
                 if kind in ("dash", "hw_dash"):
-                    cmb.add_paint_polyline(seg, 0.15, k_white, elev.eval_elev_y, 0.040, dashed=(8.0, 12.0) if kind == "hw_dash" else (3.0, 5.0))
+                    cmb.add_paint_polyline(seg, 0.15, k_white, eval_fn, 0.040, dashed=(8.0, 12.0) if kind == "hw_dash" else (3.0, 5.0))
                 elif kind in ("yellow_center", "yellow_edge"):
-                    cmb.add_paint_polyline(seg, 0.15, k_yellow, elev.eval_elev_y, 0.040)
+                    cmb.add_paint_polyline(seg, 0.15, k_yellow, eval_fn, 0.040)
                 elif kind == "white_edge":
-                    cmb.add_paint_polyline(seg, 0.17, k_white, elev.eval_elev_y, 0.040)
+                    cmb.add_paint_polyline(seg, 0.17, k_white, eval_fn, 0.040)
 
-        # Vertical Korean Concrete Bridge Piers every ~32m along elevated centerlines (clearing lower roads!)
-        k_pier = (164, 168, 174, 255)
-        for p_line in cdata["e_pier_lines"]:
+        # Vertical Korean Concrete Bridge Piers every ~32m (strictly skipping lower road lanes!)
+        for p_line in pier_list:
             cl = p_line.intersection(chunk_box)
             for seg in iter_lines(cl):
                 s = 14.0
                 while s < seg.length - 6.0:
                     pt = seg.interpolate(s)
                     px, pz = float(pt.x), float(pt.y)
-                    top_y = float(elev.eval_elev_y(np.array([px]), np.array([pz]))[0]) - 1.25
+                    if not ground_all.is_empty and ground_all.contains(Point(px, pz)):
+                        s += 32.0
+                        continue
+                    top_y = float(eval_fn(np.array([px]), np.array([pz]))[0]) - 1.25
                     bot_y = float(elev.sample_dtm(np.array([px]), np.array([pz]))[0]) - 1.0
                     if top_y - bot_y > 2.2:
                         r = 0.85
-                        # 4-sided solid concrete pier column
                         cmb.add_quad(cmb.idx_bridge, (px - r, bot_y, pz - r), (px + r, bot_y, pz - r), (px + r, top_y, pz - r), (px - r, top_y, pz - r), (0, 0, -1), 0, 0, k_pier)
                         cmb.add_quad(cmb.idx_bridge, (px + r, bot_y, pz - r), (px + r, bot_y, pz + r), (px + r, top_y, pz + r), (px + r, top_y, pz - r), (1, 0, 0), 0, 0, k_pier)
                         cmb.add_quad(cmb.idx_bridge, (px + r, bot_y, pz + r), (px - r, bot_y, pz + r), (px - r, top_y, pz + r), (px + r, top_y, pz + r), (0, 0, 1), 0, 0, k_pier)
                         cmb.add_quad(cmb.idx_bridge, (px - r, bot_y, pz + r), (px - r, bot_y, pz - r), (px - r, top_y, pz - r), (px - r, top_y, pz + r), (-1, 0, 0), 0, 0, k_pier)
                     s += 32.0
+
+    emit_elev_layer(cdata["e_hw"], cdata["e_jhw"], cdata["e_marks_hw"], cdata["e_piers_hw"], is_hw_layer=True)
+    emit_elev_layer(cdata["e_urb"], cdata["e_jurb"], cdata["e_marks_urb"], cdata["e_piers_urb"], is_hw_layer=False)
 
     if cmb.is_empty():
         return (cx, cz), None
@@ -713,31 +769,40 @@ def _build_one_chunk(args: Tuple[int, int, float, float, float]) -> Tuple[Tuple[
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compile Seoul roads via Eclipse SUMO netconvert into OCRM v1")
-    parser.add_argument("--osm", default=os.path.join(WORK_DIR, "seoul_roads.osm"))
+    parser.add_argument("--work-dir", default=WORK_DIR)
+    parser.add_argument("--osm", default=None)
     parser.add_argument("--ocmap", default=OCMAP_PATH)
     parser.add_argument("--out", default=OUT_OCRM)
     parser.add_argument("--workers", type=int, default=max(1, os.cpu_count() or 2))
-    parser.add_argument("--reuse-sumo", action="store_true", help="Reuse cached SUMO .net.xml files in /tmp/seoul_osm")
+    parser.add_argument("--reuse-sumo", action="store_true", help="Reuse cached SUMO .net.xml files in work-dir")
+    parser.add_argument("--sumo-only", action="store_true", help="Only run SUMO netconvert and exit (before OCM6 sync)")
     args = parser.parse_args()
+
+    work_dir = args.work_dir
+    osm_in = args.osm or os.path.join(work_dir, "seoul_roads.osm")
 
     t_start = time.time()
     print(f"Loading OCM6 v4 elevation & building field from {args.ocmap} ...")
     elev = Ocm6ElevationField(args.ocmap)
 
-    os.makedirs(WORK_DIR, exist_ok=True)
-    typ_path = os.path.join(WORK_DIR, "korea_types.typ.xml")
+    os.makedirs(work_dir, exist_ok=True)
+    typ_path = os.path.join(work_dir, "korea_types.typ.xml")
     with open(typ_path, "w", encoding="utf-8") as f:
         f.write(KOREA_TYPES_XML)
 
-    gnd_osm = os.path.join(WORK_DIR, "seoul_ground.osm")
-    elev_osm = os.path.join(WORK_DIR, "seoul_elevated.osm")
-    gnd_net = os.path.join(WORK_DIR, "seoul_ground.net.xml")
-    elev_net = os.path.join(WORK_DIR, "seoul_elevated.net.xml")
+    gnd_osm = os.path.join(work_dir, "seoul_ground.osm")
+    elev_osm = os.path.join(work_dir, "seoul_elevated.osm")
+    gnd_net = os.path.join(work_dir, "seoul_ground.net.xml")
+    elev_net = os.path.join(work_dir, "seoul_elevated.net.xml")
 
     if not (args.reuse_sumo and os.path.isfile(gnd_net) and os.path.isfile(elev_net)):
-        split_osm_ground_and_elevated(args.osm, elev, gnd_osm, elev_osm)
+        split_osm_ground_and_elevated(osm_in, elev, gnd_osm, elev_osm)
         run_sumo_netconvert(gnd_osm, gnd_net, typ_path, join_dist=28, corner_detail=6)
         run_sumo_netconvert(elev_osm, elev_net, typ_path, join_dist=14, corner_detail=4)
+
+    if args.sumo_only:
+        print(f"SUMO-only pass complete in {time.time()-t_start:.1f}s: {gnd_net}, {elev_net}")
+        return
 
     g_edges, g_juncs = parse_sumo_net(gnd_net)
     e_edges, e_juncs = parse_sumo_net(elev_net)
@@ -749,8 +814,12 @@ def main() -> None:
     def get_cd(cx: int, cz: int) -> dict:
         d = chunks_data.get((cx, cz))
         if d is None:
-            d = {"g_hw": [], "g_urb": [], "g_sw_src": [], "g_jhw": [], "g_jurb": [], "g_marks": [],
-                 "e_hw": [], "e_urb": [], "e_junc": [], "e_marks": [], "e_pier_lines": []}
+            d = {
+                "g_hw": [], "g_urb": [], "g_sw_src": [], "g_jhw": [], "g_jurb": [], "g_marks": [],
+                "e_hw": [], "e_urb": [], "e_jhw": [], "e_jurb": [],
+                "e_marks_hw": [], "e_marks_urb": [], "e_piers_hw": [], "e_piers_urb": [],
+                "e_portals": [],
+            }
             chunks_data[(cx, cz)] = d
         return d
 
@@ -802,29 +871,53 @@ def main() -> None:
             if is_maj_j and key == "g_jurb":
                 cd["g_sw_src"].append(jp)
 
-    # Bin elevated edges & junctions
+    # Bin elevated edges & junctions separately into expressway flyovers vs urban bridges,
+    # and mark exact dead-end bridge entry/exit portals so ZERO transverse parapet caps ever form!
+    e_node_deg: Dict[str, int] = {}
+    e_hw_junc_ids = set()
+    for e in e_edges:
+        e_node_deg[e["from"]] = e_node_deg.get(e["from"], 0) + 1
+        e_node_deg[e["to"]] = e_node_deg.get(e["to"], 0) + 1
+        if e["type"] in HIGHWAY_TYPES:
+            e_hw_junc_ids.add(e["from"])
+            e_hw_junc_ids.add(e["to"])
+
     for e in e_edges:
         is_hw = e["type"] in HIGHWAY_TYPES
         poly, marks = build_edge_polygon_and_lines(e)
         if poly is None or poly.is_empty:
             continue
         key = "e_hw" if is_hw else "e_urb"
-        mid_ln = LineString(e["lanes"][len(e["lanes"]) // 2][0])
+        pier_key = "e_piers_hw" if is_hw else "e_piers_urb"
+        mark_key = "e_marks_hw" if is_hw else "e_marks_urb"
+        mid_pts = e["lanes"][len(e["lanes"]) // 2][0]
+        mid_ln = LineString(mid_pts)
+        tot_w = sum(lw for _, lw in e["lanes"])
         for cx, cz in bin_geom(poly.bounds):
             cd = get_cd(cx, cz)
             cd[key].append(poly)
-            cd["e_pier_lines"].append(mid_ln)
+            cd[pier_key].append(mid_ln)
         for kind, ln, _ in marks:
             if kind in ("dash", "hw_dash", "yellow_center", "yellow_edge", "white_edge"):
                 for cx, cz in bin_geom(ln.bounds, pad=2.0):
-                    get_cd(cx, cz)["e_marks"].append((kind, ln))
+                    get_cd(cx, cz)[mark_key].append((kind, ln))
+        # Exact dead-end portal circles where elevated bridge/viaduct meets ground approaches
+        if e_node_deg.get(e["from"], 0) <= 1:
+            pcap = Point(mid_pts[0]).buffer(tot_w * 0.5 + 2.8)
+            for cx, cz in bin_geom(pcap.bounds, pad=4.0):
+                get_cd(cx, cz)["e_portals"].append(pcap)
+        if e_node_deg.get(e["to"], 0) <= 1:
+            pcap = Point(mid_pts[-1]).buffer(tot_w * 0.5 + 2.8)
+            for cx, cz in bin_geom(pcap.bounds, pad=4.0):
+                get_cd(cx, cz)["e_portals"].append(pcap)
 
     for j in e_juncs:
         jp = Polygon(j["pts"]).buffer(0)
         if jp.is_empty or jp.area < 1.0:
             continue
+        jkey = "e_jhw" if j["id"] in e_hw_junc_ids else "e_jurb"
         for cx, cz in bin_geom(jp.bounds):
-            get_cd(cx, cz)["e_junc"].append(jp)
+            get_cd(cx, cz)[jkey].append(jp)
 
     print(f"Binned geometry across {len(chunks_data):,} active Seoul chunks in {time.time()-t_bin:.1f}s. Baking 3D meshes ...")
 

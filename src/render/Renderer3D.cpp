@@ -1942,14 +1942,29 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     std::uint32_t curStamp = 0u;
 
     // ------------------------------------------------------------------------
-    // 0. HIGH-RESOLUTION 8.0m ROAD-AWARE URBAN GROUND SUBBASE (MATHEMATICALLY 0% ROAD POKE-THROUGH!)
+    // 0. HIGH-RESOLUTION 4.0m ROAD & SIDEWALK-CONTOURED URBAN GROUND SUBBASE
+    //    Uses exact 2D point-to-triangle OCRM road & sidewalk distance:
+    //      - Inside road (<= 0.55m): buried -0.52m & culled -> 0% asphalt poke-through!
+    //      - Under OCRM sidewalk/plaza: tucked cleanly beneath sidewalk (+0.06m max) -> 0% z-fighting!
+    //      - Storefront/courtyard apron: flush at roadY + 0.05m -> 0% sunken pits/trenches!
     // ------------------------------------------------------------------------
     {
-        constexpr int kGn = 32; // 256m / 32 = 8.0m precision (< half of 15m OCM6 DTM!)
+        constexpr int kGn = 64; // 256m / 64 = 4.0m precision!
         const float step = hdr.chunkSize / static_cast<float>(kGn);
-        const float subBaseDrop = real.isOcm6() ? 0.16f : 0.14f;
-        struct LocalGNode { Vec3 pos; Vec3 norm; float rawH; bool inWater; bool insideRoad; };
-        LocalGNode lg[(kGn + 1) * (kGn + 1)];
+        const float subBaseDrop = real.isOcm6() ? 0.12f : 0.14f;
+        struct LocalGNode {
+            Vec3 pos;
+            Vec3 norm;
+            float rawH;
+            float minDistRoad;
+            float nearRoadMinY;
+            float nearRoadAvgY;
+            float swCapY;
+            bool inWater;
+            bool insideRoad;
+            bool underSidewalk;
+        };
+        std::vector<LocalGNode> lg(static_cast<std::size_t>((kGn + 1) * (kGn + 1)));
         for (int iz = 0; iz <= kGn; ++iz) {
             const float wz = gz0 + static_cast<float>(iz) * step;
             for (int ix = 0; ix <= kGn; ++ix) {
@@ -1960,7 +1975,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 float y = wtr ? (h - 2.2f) : (h - subBaseDrop);
                 bool insideRoad = false;
 
-                if (!wtr && !localSegs.empty()) {
+                // Legacy non-OCRM fallback road depression
+                if (!useOcrm && !wtr && !localSegs.empty()) {
                     ++curStamp;
                     constexpr float kQRad = 18.5f;
                     const int q0x = std::clamp(static_cast<int>(std::floor((wx - kQRad - gridMinX) * invCellSz)), 0, kGridN - 1);
@@ -1974,7 +1990,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                                 if (segVisit[segId] == curStamp) continue;
                                 segVisit[segId] = curStamp;
                                 const LocalRoadSeg& ls = localSegs[segId];
-                                const float maxCheck = ls.ohw + 8.5f;
+                                const float maxCheck = ls.ohw + 6.5f;
                                 if (wx < ls.minX - maxCheck || wx > ls.maxX + maxCheck ||
                                     wz < ls.minZ - maxCheck || wz > ls.maxZ + maxCheck) {
                                     continue;
@@ -1984,20 +2000,14 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                                 const float d2 = (wp - cp).lengthSq();
                                 if (d2 > maxCheck * maxCheck) continue;
                                 const float lsY = lerpf(ls.yA, ls.yB, tm);
-                                // Only skip genuinely elevated bridges/viaducts (>1.85m above ground) — low bridge approaches &
-                                // leveled twin expressways (e.g. Gyeongbu ri=39840) MUST depress ground beneath them!
                                 if ((ls.isBridge || ls.layer >= 1) ? (lsY - h > 1.85f) : (lsY - h > 2.25f)) continue;
                                 const float d = std::sqrt(d2);
-                                if (d <= std::max(0.5f, ls.ohw - 0.25f)) {
-                                    insideRoad = true;
-                                }
-                                if (d <= ls.ohw + 5.0f) {
-                                    yCap = std::min(yCap, lsY - 0.52f);
+                                if (d <= std::max(0.5f, ls.ohw - 0.25f)) insideRoad = true;
+                                if (d <= ls.ohw + 2.5f) {
+                                    yCap = std::min(yCap, lsY - 0.50f);
                                 } else {
-                                    // Smoothly ramp cap from -0.52m at ohw+5.0m to -0.06m at ohw+8.5m so even steep
-                                    // hillside 8m diagonal edges NEVER slice above ground road asphalt!
-                                    const float tApron = clampf((d - (ls.ohw + 5.0f)) / 3.5f, 0.0f, 1.0f);
-                                    yCap = std::min(yCap, lsY - lerpf(0.52f, 0.06f, tApron));
+                                    const float tApron = clampf((d - (ls.ohw + 2.5f)) / 4.0f, 0.0f, 1.0f);
+                                    yCap = std::min(yCap, lsY - lerpf(0.50f, 0.04f, tApron));
                                 }
                             }
                         }
@@ -2005,17 +2015,38 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                     if (yCap < y) y = yCap;
                 }
 
-                const float hL = real.sampleDem({wx - 8.0f, wz});
-                const float hR = real.sampleDem({wx + 8.0f, wz});
-                const float hD = real.sampleDem({wx, wz - 8.0f});
-                const float hU = real.sampleDem({wx, wz + 8.0f});
-                lg[iz * (kGn + 1) + ix] = {{wx, y, wz}, Vec3{hL - hR, 16.0f, hD - hU}.normalized(), h, wtr, insideRoad};
+                const float hL = real.sampleDem({wx - 6.0f, wz});
+                const float hR = real.sampleDem({wx + 6.0f, wz});
+                const float hD = real.sampleDem({wx, wz - 6.0f});
+                const float hU = real.sampleDem({wx, wz + 6.0f});
+                lg[static_cast<std::size_t>(iz * (kGn + 1) + ix)] = {
+                    {wx, y, wz}, Vec3{hL - hR, 12.0f, hD - hU}.normalized(),
+                    h, 1e9f, 1e9f, h, 1e9f, wtr, insideRoad, false
+                };
             }
         }
 
-        // Also depress 8m ground subbase beneath ALL OCRM ground road/junction polygons (e.g. wide curved SUMO junctions!)
+        // Exact 2D point-to-triangle distance contouring for OCRM ground roads & sidewalks
         if (useOcrm) {
-            const auto depressByOcrmList = [&](const std::vector<std::uint16_t>& idxList) {
+            auto ptSegDistSq2D = [](float px, float pz, float ax, float az, float bx, float bz) -> float {
+                const float ex = bx - ax, ez = bz - az;
+                const float l2 = ex * ex + ez * ez;
+                float t = (l2 > 1e-8f) ? clampf(((px - ax) * ex + (pz - az) * ez) / l2, 0.0f, 1.0f) : 0.0f;
+                const float dx = px - (ax + ex * t);
+                const float dz = pz - (az + ez * t);
+                return dx * dx + dz * dz;
+            };
+            auto ptInTri2D = [](float px, float pz, float ax, float az, float bx, float bz, float cx, float cz) -> bool {
+                const float s0 = (bx - ax) * (pz - az) - (bz - az) * (px - ax);
+                const float s1 = (cx - bx) * (pz - bz) - (cz - bz) * (px - bx);
+                const float s2 = (ax - cx) * (pz - cz) - (az - cz) * (px - cx);
+                return (s0 >= -1e-4f && s1 >= -1e-4f && s2 >= -1e-4f) ||
+                       (s0 <=  1e-4f && s1 <=  1e-4f && s2 <=  1e-4f);
+            };
+
+            const auto scanOcrmRoadList = [&](const std::vector<std::uint16_t>& idxList) {
+                constexpr float kPadM = 14.0f;
+                constexpr float kPadSq = kPadM * kPadM;
                 for (std::size_t k = 0; k + 2 < idxList.size(); k += 3) {
                     const OcrmDecodedVertex& v0 = ocrmCh.verts[idxList[k]];
                     const OcrmDecodedVertex& v1 = ocrmCh.verts[idxList[k + 1]];
@@ -2024,30 +2055,93 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                     const float czT = (v0.pz + v1.pz + v2.pz) * (1.0f / 3.0f);
                     const float minYT = std::min({v0.py, v1.py, v2.py});
                     const float avgYT = (v0.py + v1.py + v2.py) * (1.0f / 3.0f);
-                    if (avgYT - real.sampleDem({cxT, czT}) > 1.80f) continue; // Elevated bridge/viaduct deck!
+                    if (avgYT - real.sampleDem({cxT, czT}) > 1.80f) continue; // Elevated bridge/viaduct!
 
-                    const float tx0 = std::min({v0.px, v1.px, v2.px}) - 8.5f;
-                    const float tx1 = std::max({v0.px, v1.px, v2.px}) + 8.5f;
-                    const float tz0 = std::min({v0.pz, v1.pz, v2.pz}) - 8.5f;
-                    const float tz1 = std::max({v0.pz, v1.pz, v2.pz}) + 8.5f;
+                    const float tx0 = std::min({v0.px, v1.px, v2.px}) - kPadM;
+                    const float tx1 = std::max({v0.px, v1.px, v2.px}) + kPadM;
+                    const float tz0 = std::min({v0.pz, v1.pz, v2.pz}) - kPadM;
+                    const float tz1 = std::max({v0.pz, v1.pz, v2.pz}) + kPadM;
                     const int i0x = std::clamp(static_cast<int>(std::floor((tx0 - gx0) / step)), 0, kGn);
                     const int i1x = std::clamp(static_cast<int>(std::ceil((tx1 - gx0) / step)), 0, kGn);
                     const int i0z = std::clamp(static_cast<int>(std::floor((tz0 - gz0) / step)), 0, kGn);
                     const int i1z = std::clamp(static_cast<int>(std::ceil((tz1 - gz0) / step)), 0, kGn);
-                    const float capY = minYT - 0.48f;
                     for (int iz = i0z; iz <= i1z; ++iz) {
                         for (int ix = i0x; ix <= i1x; ++ix) {
-                            LocalGNode& nd = lg[iz * (kGn + 1) + ix];
-                            if (!nd.inWater && capY < nd.pos.y) {
-                                nd.pos.y = capY;
+                            LocalGNode& nd = lg[static_cast<std::size_t>(iz * (kGn + 1) + ix)];
+                            if (nd.inWater) continue;
+                            float d = 0.0f;
+                            if (!ptInTri2D(nd.pos.x, nd.pos.z, v0.px, v0.pz, v1.px, v1.pz, v2.px, v2.pz)) {
+                                const float d2 = std::min({
+                                    ptSegDistSq2D(nd.pos.x, nd.pos.z, v0.px, v0.pz, v1.px, v1.pz),
+                                    ptSegDistSq2D(nd.pos.x, nd.pos.z, v1.px, v1.pz, v2.px, v2.pz),
+                                    ptSegDistSq2D(nd.pos.x, nd.pos.z, v2.px, v2.pz, v0.px, v0.pz)
+                                });
+                                if (d2 > kPadSq) continue;
+                                d = std::sqrt(d2);
+                            }
+                            if (d <= 2.4f && minYT < nd.nearRoadMinY) {
+                                nd.nearRoadMinY = minYT;
+                            }
+                            if (d < nd.minDistRoad) {
+                                nd.minDistRoad = d;
+                                nd.nearRoadAvgY = avgYT;
+                                if (nd.nearRoadMinY > 1e8f) nd.nearRoadMinY = minYT;
                             }
                         }
                     }
                 }
             };
-            depressByOcrmList(ocrmCh.idxUrban);
-            depressByOcrmList(ocrmCh.idxHighway);
-            depressByOcrmList(ocrmCh.idxInter);
+            scanOcrmRoadList(ocrmCh.idxUrban);
+            scanOcrmRoadList(ocrmCh.idxHighway);
+            scanOcrmRoadList(ocrmCh.idxInter);
+
+            // Also detect nodes sitting beneath OCRM sidewalks/granite plazas so ground NEVER z-fights them!
+            for (std::size_t k = 0; k + 2 < ocrmCh.idxSidewalk.size(); k += 3) {
+                const OcrmDecodedVertex& v0 = ocrmCh.verts[ocrmCh.idxSidewalk[k]];
+                const OcrmDecodedVertex& v1 = ocrmCh.verts[ocrmCh.idxSidewalk[k + 1]];
+                const OcrmDecodedVertex& v2 = ocrmCh.verts[ocrmCh.idxSidewalk[k + 2]];
+                if (std::abs(v0.ny) < 0.5f && std::abs(v1.ny) < 0.5f && std::abs(v2.ny) < 0.5f) continue; // Skip vertical curbs
+                const float minYS = std::min({v0.py, v1.py, v2.py});
+                const float tx0 = std::min({v0.px, v1.px, v2.px}) - 0.8f;
+                const float tx1 = std::max({v0.px, v1.px, v2.px}) + 0.8f;
+                const float tz0 = std::min({v0.pz, v1.pz, v2.pz}) - 0.8f;
+                const float tz1 = std::max({v0.pz, v1.pz, v2.pz}) + 0.8f;
+                const int i0x = std::clamp(static_cast<int>(std::floor((tx0 - gx0) / step)), 0, kGn);
+                const int i1x = std::clamp(static_cast<int>(std::ceil((tx1 - gx0) / step)), 0, kGn);
+                const int i0z = std::clamp(static_cast<int>(std::floor((tz0 - gz0) / step)), 0, kGn);
+                const int i1z = std::clamp(static_cast<int>(std::ceil((tz1 - gz0) / step)), 0, kGn);
+                for (int iz = i0z; iz <= i1z; ++iz) {
+                    for (int ix = i0x; ix <= i1x; ++ix) {
+                        LocalGNode& nd = lg[static_cast<std::size_t>(iz * (kGn + 1) + ix)];
+                        if (nd.inWater) continue;
+                        if (ptInTri2D(nd.pos.x, nd.pos.z, v0.px, v0.pz, v1.px, v1.pz, v2.px, v2.pz)) {
+                            nd.underSidewalk = true;
+                            nd.swCapY = std::min(nd.swCapY, minYS - 0.08f);
+                        }
+                    }
+                }
+            }
+
+            // Apply smooth, watertight vertical contouring (ZERO road poke-through AND ZERO storefront trenches!)
+            for (LocalGNode& nd : lg) {
+                if (nd.inWater || nd.minDistRoad > 14.0f) continue;
+                const float rMin = (nd.nearRoadMinY < 1e8f) ? nd.nearRoadMinY : nd.nearRoadAvgY;
+                if (nd.minDistRoad <= 0.55f) {
+                    nd.pos.y = std::min(nd.pos.y, rMin - 0.52f);
+                    nd.insideRoad = true;
+                } else if (nd.underSidewalk) {
+                    const float tSw = clampf((nd.minDistRoad - 0.55f) / 4.2f, 0.0f, 1.0f);
+                    const float targetSw = std::min(nd.swCapY, nd.nearRoadAvgY + 0.05f);
+                    nd.pos.y = lerpf(rMin - 0.34f, targetSw, tSw);
+                } else if (nd.minDistRoad <= 4.5f) {
+                    // Narrow street without sidewalk OR immediate plaza outer apron: rise swiftly to flush!
+                    const float tAlley = clampf((nd.minDistRoad - 0.55f) / 2.2f, 0.0f, 1.0f);
+                    nd.pos.y = lerpf(rMin - 0.28f, nd.nearRoadAvgY + 0.04f, tAlley);
+                } else {
+                    const float tOut = clampf((nd.minDistRoad - 4.5f) / 9.5f, 0.0f, 1.0f);
+                    nd.pos.y = lerpf(nd.nearRoadAvgY + 0.04f, nd.rawH - subBaseDrop, tOut);
+                }
+            }
         }
 
         const ColorRGBA kGroundCol{162, 164, 168, 255};
@@ -2064,10 +2158,10 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
         };
         for (int iz = 0; iz < kGn; ++iz) {
             for (int ix = 0; ix < kGn; ++ix) {
-                const LocalGNode& n00 = lg[iz * (kGn + 1) + ix];
-                const LocalGNode& n10 = lg[iz * (kGn + 1) + (ix + 1)];
-                const LocalGNode& n11 = lg[(iz + 1) * (kGn + 1) + (ix + 1)];
-                const LocalGNode& n01 = lg[(iz + 1) * (kGn + 1) + ix];
+                const LocalGNode& n00 = lg[static_cast<std::size_t>(iz * (kGn + 1) + ix)];
+                const LocalGNode& n10 = lg[static_cast<std::size_t>(iz * (kGn + 1) + (ix + 1))];
+                const LocalGNode& n11 = lg[static_cast<std::size_t>((iz + 1) * (kGn + 1) + (ix + 1))];
+                const LocalGNode& n01 = lg[static_cast<std::size_t>((iz + 1) * (kGn + 1) + ix)];
                 if (n00.inWater && n10.inWater && n11.inWater && n01.inWater) continue;
                 if (n00.insideRoad && n10.insideRoad && n11.insideRoad && n01.insideRoad) continue;
                 const float avgH = 0.25f * (n00.rawH + n10.rawH + n11.rawH + n01.rawH);

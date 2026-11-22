@@ -744,6 +744,15 @@ void main() {
                 roughness = mix(pR, 0.42, wetRoadFactor * 0.55);
                 surfaceAO = pAO;
                 N = perturbNormalGrad(N, dp1, dp2, dPdx * 1.45, dPdy * 1.45, pNxy, 0.92 * detailFade);
+            } else if (curbM >= 3.25) {
+                // Tile 4 Large Honed Seoul Granite Building-Front Setback Plaza Flagstones (3.25..6.50m kissing storefronts!)
+                vec2 plUv = p * 0.34;
+                sampleStreetTileGrad(4, plUv, dPdx * 0.34, dPdy * 0.34, pAlb, pNxy, pR, pAO);
+                float plVar = fbm2(p * 0.07);
+                albedo = pAlb * mix(0.84, 1.02, plVar);
+                roughness = mix(pR, 0.50, wetRoadFactor * 0.65);
+                surfaceAO = pAO;
+                N = perturbNormalGrad(N, dp1, dp2, dPdx * 0.34, dPdy * 0.34, pNxy, 0.72 * detailFade);
             } else {
                 // Interlocking Seoul Granite Sidewalk Pavers (Tile 3) with natural urban variation!
                 vec2 pvUv = p * 0.52;

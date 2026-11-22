@@ -329,6 +329,17 @@ float CityMap::surfaceHeightAt(const Vec2& p, float refY) const {
                 if (hit.found) {
                     return realData_.isOcm6() ? hit.y : std::max(demY, hit.y);
                 }
+                // Match raised OCRM v1 sidewalks & 6.50m granite building-front plazas (0.125m above ground road)
+                // so player & pedestrian shoes stand flush on top of pavers with 0cm ankle sinking!
+                if (realData_.isOcm6() && realData_.hasOcrmMesh() && !realData_.isInWater(p)) {
+                    const NearestOsmRoad nr = realData_.findNearestRoad(p, 16.0f, refY);
+                    if (nr.found && !nr.isBridge && nr.layer == 0 && nr.roadClass >= 2u && nr.roadClass <= 4u) {
+                        const float curbDist = nr.dist - std::max(2.6f, nr.halfWidth);
+                        if (curbDist >= 0.0f && curbDist <= 6.55f) {
+                            return nr.deckY + 0.125f;
+                        }
+                    }
+                }
                 return demY;
             }
             if (realData_.isOnBridge(p, 1.5f)) {
@@ -928,7 +939,7 @@ void CityMap::buildRealSeoulMacroGeography() {
                 const Vec2 p1 = rVerts[r.firstVert + i + 1];
                 const Vec2 seg = p1 - p0;
                 const float segLen = seg.length();
-                if (segLen < 8.0f) continue;
+                if (segLen < 2.5f) continue;
                 const Vec2 dir = seg / segLen;
                 // On divided one-way Teheran-ro, pick the TRUE Eastbound carriageway (dir.x > 0) so the player
                 // never spawns facing oncoming traffic (and the blue Seoul bus-only lane sits properly on the RIGHT)!
@@ -940,12 +951,14 @@ void CityMap::buildRealSeoulMacroGeography() {
                 const Vec2 cand = mid + rightN * layout.laneCenterOffset(spawnLane);
                 Vec2 probe = cand;
                 if (realData_.isInWater(cand) || realData_.resolveCircleBuildings(probe, 4.5f)) continue;
+                const NearestOsmRoad chkNr = realData_.findNearestRoad(cand, 25.0f);
+                if (!chkNr.found || chkNr.roadIdx != ri) continue;
                 const float fwdClear = realData_.raycastBuildings2D(cand, lookDir, 55.0f);
                 const float bwdClear = realData_.raycastBuildings2D(cand, lookDir * -1.0f, 18.0f);
                 if (fwdClear >= 0.0f || bwdClear >= 0.0f) continue;
 
                 const float dAnchor = (cand - teheranAnchor).length();
-                const float score = dAnchor - segLen * 0.4f;
+                const float score = dAnchor - segLen * 0.15f;
                 if (score < bestScore) {
                     bestScore = score;
                     bestPos = cand;

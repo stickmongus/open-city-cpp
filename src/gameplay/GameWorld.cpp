@@ -481,35 +481,54 @@ void GameWorld::spawnParkedShowroomCars() {
     };
 
     if (city_.hasRealSeoulMap()) {
-        // Park curated starter & showroom cars cleanly centered inside the outer 3.25m curb lane on Teheran-ro!
+        // Park curated starter & showroom cars cleanly centered inside the outer rightmost asphalt curb lane
+        // following exact synced SUMO road curvature (0% on sidewalks/Braille, clear of crosswalks)!
         const NearestOsmRoad nr = city_.realData().findNearestRoad(player_.pos, 60.0f);
         if (nr.found) {
-            const OsmRoadRec& rr = city_.realData().roads()[nr.roadIdx];
-            const RoadLaneLayout layout = RealSeoulData::computeRoadLaneLayout(rr);
-            const float yaw = std::atan2(nr.tangent.z, nr.tangent.x);
-            const Vec2 fwd = nr.tangent;
-            const Vec2 rightN{-fwd.z, fwd.x};
-            const float rightCurbLaneOff = layout.laneCenterOffset(std::max(0, layout.lanesInDir - 1));
+            const Vec2 baseFwd = nr.tangent;
+            std::vector<std::uint32_t> nearPois;
+            city_.realData().queryChunkPois(nr.closestPt, 110.0f, nearPois);
+            auto nearSignalCrosswalk = [&](const Vec2& p) -> bool {
+                for (std::uint32_t pid : nearPois) {
+                    const OsmPoiRec& pr = city_.realData().pois()[pid];
+                    if (pr.kind == 2u && (Vec2{pr.x, pr.z} - p).lengthSq() < 15.0f * 15.0f) {
+                        return true;
+                    }
+                }
+                return false;
+            };
             struct CurbSlot { VehicleKind kind; float along; float side; ColorRGBA paint; int rims; bool police; };
             const CurbSlot kSlots[] = {
-                {VehicleKind::SportsCoupe,      12.0f,  1.0f, {168,  24,  34, 255}, 1, false},
-                {VehicleKind::Hypercar,         23.0f,  1.0f, { 26,  30,  38, 255}, 1, false},
-                {VehicleKind::LuxurySedan,      34.0f,  1.0f, { 34,  42,  54, 255}, 1, false},
-                {VehicleKind::Taxi,            -14.0f,  1.0f, {232, 114,  34, 255}, 0, false},
-                {VehicleKind::JdmTuner,        -26.0f,  1.0f, { 32,  76, 158, 255}, 1, false},
-                {VehicleKind::PoliceCruiser,    46.0f,  1.0f, {240, 244, 248, 255}, 2, true},
-                {VehicleKind::ClassicRoadster,  58.0f, -1.0f, {154,  28,  36, 255}, 0, false},
-                {VehicleKind::SUV,             -38.0f, -1.0f, { 54,  62,  72, 255}, 1, false},
-                {VehicleKind::Ambulance,        70.0f, -1.0f, {242, 244, 248, 255}, 0, false},
-                {VehicleKind::PoliceCruiser,   -50.0f, -1.0f, {240, 244, 248, 255}, 2, true}
+                {VehicleKind::SportsCoupe,      16.0f,  1.0f, {168,  24,  34, 255}, 1, false},
+                {VehicleKind::Hypercar,         27.0f,  1.0f, { 26,  30,  38, 255}, 1, false},
+                {VehicleKind::LuxurySedan,      38.0f,  1.0f, { 34,  42,  54, 255}, 1, false},
+                {VehicleKind::Taxi,            -16.0f,  1.0f, {232, 114,  34, 255}, 0, false},
+                {VehicleKind::JdmTuner,        -28.0f,  1.0f, { 32,  76, 158, 255}, 1, false},
+                {VehicleKind::PoliceCruiser,    49.0f,  1.0f, {240, 244, 248, 255}, 2, true},
+                {VehicleKind::ClassicRoadster,  61.0f, -1.0f, {154,  28,  36, 255}, 0, false},
+                {VehicleKind::SUV,             -40.0f, -1.0f, { 54,  62,  72, 255}, 1, false},
+                {VehicleKind::Ambulance,        73.0f, -1.0f, {242, 244, 248, 255}, 0, false},
+                {VehicleKind::PoliceCruiser,   -52.0f, -1.0f, {240, 244, 248, 255}, 2, true}
             };
             for (const auto& sl : kSlots) {
-                const bool useOppSide = (!nr.isOneway && sl.side < 0.0f);
-                const float latOff = useOppSide ? (-rightCurbLaneOff) : rightCurbLaneOff;
-                const float carYaw = useOppSide ? wrapAngle(yaw + kPi) : yaw;
-                Vec2 p = nr.closestPt + fwd * sl.along + rightN * latOff;
+                const Vec2 seedPt = nr.closestPt + baseFwd * sl.along;
+                const NearestOsmRoad loc = city_.realData().findNearestRoad(seedPt, 22.0f, nr.deckY);
+                if (!loc.found || loc.isBridge || loc.roadClass > 3u) continue;
+                const OsmRoadRec& lrr = city_.realData().roads()[loc.roadIdx];
+                const RoadLaneLayout layout = RealSeoulData::computeRoadLaneLayout(lrr);
+                const Vec2 lFwd = loc.tangent;
+                const Vec2 lRight{-lFwd.z, lFwd.x};
+                const float lYaw = std::atan2(lFwd.z, lFwd.x);
+                const float maxSafeLat = std::max(0.0f, lrr.halfWidth - 1.35f);
+                const float curbLaneOff = std::min(layout.laneCenterOffset(std::max(0, layout.lanesInDir - 1)), maxSafeLat);
+                const bool useOppSide = (!loc.isOneway && sl.side < 0.0f);
+                const float latOff = useOppSide ? (-curbLaneOff) : curbLaneOff;
+                const float carYaw = useOppSide ? wrapAngle(lYaw + kPi) : lYaw;
+                Vec2 p = loc.closestPt + lRight * latOff;
                 Vec2 test = p;
-                if (!city_.realData().isInWater(p) && !city_.realData().resolveCircleBuildings(test, 1.55f)) {
+                if (!city_.realData().isInWater(p) &&
+                    !nearSignalCrosswalk(p) &&
+                    !city_.realData().resolveCircleBuildings(test, 1.55f)) {
                     addParked(sl.kind, p, carYaw, sl.paint, 0, sl.rims);
                     if (sl.police) {
                         vehicles_.back().isPolice = true;

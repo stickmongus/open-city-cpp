@@ -109,7 +109,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
 
     GameWorld world(20261107ULL);
 
-    // Load Real-World OpenStreetMap Seoul GIS + SRTM 15m DTM + Eclipse SUMO OCRM v1 single-topology road mesh (v6.0.0)
+    // Load Real-World OpenStreetMap + Overture + TUM Seoul GIS + 15m DTM + 1:1 Synced Eclipse SUMO OCRM v1 (v6.1.0)
     const auto ocmapBytes = app.loadAssetBytes("maps/seoul_real.ocmap");
     if (!ocmapBytes.empty()) {
         world.loadRealSeoulMap(ocmapBytes.data(), ocmapBytes.size());
