@@ -410,6 +410,7 @@ void Renderer3D::buildSeoulSignAtlas(VulkanContext& vk, const std::vector<std::u
 
 void Renderer3D::destroyRealChunkGpu(VulkanContext& vk, RealChunkGpu& ch) {
     vk.destroyMesh(ch.groundMesh);
+    vk.destroyMesh(ch.hillsideMesh);
     vk.destroyMesh(ch.roadsMesh);
     vk.destroyMesh(ch.roadPaintMesh);
     vk.destroyMesh(ch.sidewalksMesh);
@@ -447,6 +448,19 @@ void Renderer3D::shutdown(VulkanContext& vk) {
     vk.destroyMesh(capsuleLimbMesh_);
     vk.destroyMesh(torsoMesh_);
 
+    vk.destroyMesh(ddareungiRackMesh_);
+    vk.destroyMesh(seoulLampMesh_);
+    vk.destroyMesh(koreanSignalMesh_);
+    vk.destroyMesh(busShelterFrameMesh_);
+    vk.destroyMesh(busShelterGlassMesh_);
+    vk.destroyMesh(subwayCanopyFrameMesh_);
+    vk.destroyMesh(subwayCanopyGlassMesh_);
+    vk.destroyMesh(pedGuardrailMesh_);
+    vk.destroyMesh(benchMesh_);
+    vk.destroyMesh(hydrantMesh_);
+    vk.destroyMesh(trashBinMesh_);
+    vk.destroyMesh(utilityBoxMesh_);
+
     vk.destroyMesh(realTerrainMesh_);
     vk.destroyMesh(realWaterMesh_);
     vk.destroyMesh(realParksMesh_);
@@ -469,27 +483,27 @@ void Renderer3D::shutdown(VulkanContext& vk) {
     initialized_ = false;
 }
 
+void Renderer3D::setSettings(const GraphicsSettings& s) {
+    settings_ = s;
+    settings_.clampAndSyncPreset();
+}
+
+void Renderer3D::setQuality(GraphicsQuality q) {
+    settings_.applyPreset(q);
+}
+
 void Renderer3D::cycleQuality() {
-    const int next = (static_cast<int>(quality_) + 1) % 3;
-    quality_ = static_cast<GraphicsQuality>(next);
+    const int cur = static_cast<int>(settings_.preset);
+    const int next = (cur >= 3) ? 0 : (cur + 1);
+    settings_.applyPreset(static_cast<GraphicsQuality>(next));
 }
 
 const char* Renderer3D::qualityNameEn() const {
-    switch (quality_) {
-        case GraphicsQuality::Ultra: return "ULTRA (Vulkan HDR + Shadows)";
-        case GraphicsQuality::High: return "HIGH (Vulkan Shadows)";
-        case GraphicsQuality::Performance: return "PERFORMANCE (Vulkan Fast)";
-    }
-    return "ULTRA";
+    return GraphicsSettings::presetNameEn(settings_.preset);
 }
 
 const char* Renderer3D::qualityNameKo() const {
-    switch (quality_) {
-        case GraphicsQuality::Ultra: return "최고 (Vulkan HDR+그림자)";
-        case GraphicsQuality::High: return "높음 (Vulkan 그림자)";
-        case GraphicsQuality::Performance: return "성능 우선 (Vulkan 고속)";
-    }
-    return "최고";
+    return GraphicsSettings::presetNameKo(settings_.preset);
 }
 
 void Renderer3D::buildStaticPrimitives(VulkanContext& vk) {
@@ -711,6 +725,465 @@ void Renderer3D::buildStaticPrimitives(VulkanContext& vk) {
         ringMesh_ = mb.upload(vk, 30.0f);
     }
     giwaRoofMesh_ = buildGiwaRoofMesh(vk);
+
+    // ========================================================================
+    // HIGH-DETAIL SCULPTED KOREAN STREET ARCHITECTURE MESHES (v6.2.0)
+    // Pre-baked once at init -> hyper-realistic silhouettes at 1 draw call each!
+    // ========================================================================
+    auto addTube = [](MeshBuilder3D& mb, const Vec3& a, const Vec3& b, float r0, float r1, int segs, ColorRGBA col) {
+        const Vec3 d = b - a;
+        const float len = d.length();
+        if (len < 1e-4f) return;
+        const Vec3 yAx = d / len;
+        const Vec3 ref = (std::abs(yAx.y) < 0.92f) ? Vec3{0, 1, 0} : Vec3{1, 0, 0};
+        const Vec3 xAx = Vec3{ref.y * yAx.z - ref.z * yAx.y, ref.z * yAx.x - ref.x * yAx.z, ref.x * yAx.y - ref.y * yAx.x}.normalized();
+        const Vec3 zAx = Vec3{yAx.y * xAx.z - yAx.z * xAx.y, yAx.z * xAx.x - yAx.x * xAx.z, yAx.x * xAx.y - yAx.y * xAx.x}.normalized();
+        for (int i = 0; i < segs; ++i) {
+            const float t0 = kTwoPi * static_cast<float>(i) / static_cast<float>(segs);
+            const float t1 = kTwoPi * static_cast<float>(i + 1) / static_cast<float>(segs);
+            const Vec3 o0 = xAx * std::cos(t0) + zAx * std::sin(t0);
+            const Vec3 o1 = xAx * std::cos(t1) + zAx * std::sin(t1);
+            mb.addQuad(a + o0 * r0, a + o1 * r0, b + o1 * r1, b + o0 * r1, col);
+        }
+    };
+    // Torus ring centered at `c` lying in the Y-Z plane (bicycle wheel tire & alloy rim!)
+    auto addWheelYZ = [&](MeshBuilder3D& mb, const Vec3& c, float R, float rTube, int majSegs, int minSegs, ColorRGBA col) {
+        for (int i = 0; i < majSegs; ++i) {
+            const float a0 = kTwoPi * static_cast<float>(i) / static_cast<float>(majSegs);
+            const float a1 = kTwoPi * static_cast<float>(i + 1) / static_cast<float>(majSegs);
+            const float ca0 = std::cos(a0), sa0 = std::sin(a0);
+            const float ca1 = std::cos(a1), sa1 = std::sin(a1);
+            for (int j = 0; j < minSegs; ++j) {
+                const float b0 = kTwoPi * static_cast<float>(j) / static_cast<float>(minSegs);
+                const float b1 = kTwoPi * static_cast<float>(j + 1) / static_cast<float>(minSegs);
+                auto pt = [&](float ca, float sa, float b) -> Vec3 {
+                    const float rr = R + rTube * std::cos(b);
+                    return {c.x + rTube * std::sin(b), c.y + rr * sa, c.z + rr * ca};
+                };
+                mb.addQuad(pt(ca0, sa0, b0), pt(ca1, sa1, b0), pt(ca1, sa1, b1), pt(ca0, sa0, b1), col);
+            }
+        }
+    };
+
+    // 1. Sculpted 따릉이 (Seoul Public Bike-Share Station): 4 real spoked step-through bikes + wheel cradles + QR kiosk!
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kEmerald{34, 178, 108, 255};
+        const ColorRGBA kEmeraldDark{22, 134, 82, 255};
+        const ColorRGBA kBikeWhite{242, 246, 250, 255};
+        const ColorRGBA kAlloy{192, 198, 206, 255};
+        const ColorRGBA kSteelDark{58, 64, 72, 255};
+        const ColorRGBA kTire{26, 28, 32, 255};
+        const ColorRGBA kSeat{40, 42, 48, 255};
+        const ColorRGBA kScreen{22, 34, 48, 255};
+
+        // Low beveled stainless ground rail + anchor base plates
+        mb.addBox({-0.10f, 0.035f, -0.52f}, {3.85f, 0.07f, 0.24f}, {176, 182, 190, 255});
+        mb.addBox({-0.10f, 0.075f, -0.52f}, {3.75f, 0.025f, 0.14f}, kSteelDark);
+
+        // Tall sleek white & emerald-green Seoul Bike QR Kiosk Totem (x = -2.18m)
+        mb.addBox({-2.18f, 0.06f, -0.45f}, {0.48f, 0.12f, 0.44f}, kSteelDark);
+        mb.addBox({-2.18f, 0.96f, -0.45f}, {0.36f, 1.72f, 0.24f}, kBikeWhite);
+        mb.addBox({-2.18f, 1.78f, -0.44f}, {0.38f, 0.22f, 0.28f}, kEmerald);
+        mb.addBox({-2.18f, 1.28f, -0.32f}, {0.26f, 0.38f, 0.03f}, kScreen); // Recessed LCD touchscreen
+        mb.addBox({-2.18f, 0.72f, -0.32f}, {0.24f, 0.32f, 0.02f}, kEmerald); // Seoul Bike logo stripe
+        mb.addBox({-2.18f, 1.88f, -0.42f}, {0.42f, 0.05f, 0.34f}, kSteelDark); // Top weather hood
+
+        // 4 Sculpted 따릉이 Bicycles docked neatly into individual steel U-cradles!
+        for (int bi = 0; bi < 4; ++bi) {
+            const float bx = -1.35f + static_cast<float>(bi) * 0.90f;
+            // Individual stainless docking cradle + green smart-lock pod
+            mb.addBox({bx, 0.30f, -0.52f}, {0.16f, 0.56f, 0.12f}, kAlloy);
+            mb.addBox({bx, 0.60f, -0.50f}, {0.18f, 0.12f, 0.16f}, kEmeraldDark);
+            addTube(mb, {bx - 0.07f, 0.06f, -0.48f}, {bx - 0.07f, 0.44f, -0.36f}, 0.016f, 0.016f, 6, kAlloy);
+            addTube(mb, {bx + 0.07f, 0.06f, -0.48f}, {bx + 0.07f, 0.44f, -0.36f}, 0.016f, 0.016f, 6, kAlloy);
+
+            const Vec3 fwC{bx, 0.31f, -0.26f}; // Front wheel center (docked in cradle)
+            const Vec3 rwC{bx, 0.31f,  0.74f}; // Rear wheel center
+            const Vec3 bbC{bx, 0.30f,  0.30f}; // Bottom bracket / crankset
+            const Vec3 htBot{bx, 0.62f, -0.14f};
+            const Vec3 htTop{bx, 0.80f, -0.10f};
+            const Vec3 stTop{bx, 0.78f,  0.40f};
+
+            // Front & Rear hollow tires + shiny alloy rims + hubs + 6 cross spokes!
+            for (const Vec3& wc : {fwC, rwC}) {
+                addWheelYZ(mb, wc, 0.285f, 0.026f, 14, 6, kTire);
+                addWheelYZ(mb, wc, 0.252f, 0.013f, 14, 5, kAlloy);
+                addTube(mb, {wc.x - 0.038f, wc.y, wc.z}, {wc.x + 0.038f, wc.y, wc.z}, 0.022f, 0.022f, 6, kSteelDark);
+                for (int sp = 0; sp < 6; ++sp) {
+                    const float ang = kPi * static_cast<float>(sp) / 6.0f;
+                    const float dy = std::sin(ang) * 0.25f;
+                    const float dz = std::cos(ang) * 0.25f;
+                    addTube(mb, {wc.x, wc.y - dy, wc.z - dz}, {wc.x, wc.y + dy, wc.z + dz}, 0.005f, 0.005f, 4, kAlloy);
+                }
+            }
+            // Curved step-through white Seoul Bike frame (double downtube, seat tube, fork, stays, chain guard!)
+            addTube(mb, htTop, htBot, 0.024f, 0.024f, 7, kBikeWhite);                       // Head tube
+            addTube(mb, htBot, {bx, 0.34f, 0.14f}, 0.022f, 0.022f, 7, kBikeWhite);          // Curved step-through downtube
+            addTube(mb, {bx, 0.34f, 0.14f}, bbC, 0.022f, 0.024f, 7, kBikeWhite);
+            addTube(mb, {bx, 0.66f, -0.12f}, {bx, 0.44f, 0.32f}, 0.016f, 0.016f, 6, kEmerald); // Iconic green accent brace
+            addTube(mb, bbC, stTop, 0.021f, 0.020f, 7, kBikeWhite);                         // Seat tube
+            for (float s : {-1.0f, 1.0f}) {
+                addTube(mb, htBot + Vec3{s * 0.035f, 0.0f, 0.0f}, fwC + Vec3{s * 0.042f, 0.0f, 0.0f}, 0.014f, 0.011f, 5, kBikeWhite); // Front fork
+                addTube(mb, bbC + Vec3{s * 0.030f, 0.0f, 0.0f}, rwC + Vec3{s * 0.045f, 0.0f, 0.0f}, 0.013f, 0.010f, 5, kBikeWhite);   // Chainstay
+                addTube(mb, stTop + Vec3{s * 0.026f, -0.05f, 0.0f}, rwC + Vec3{s * 0.045f, 0.0f, 0.0f}, 0.011f, 0.009f, 5, kBikeWhite); // Seatstay
+            }
+            // Chain guard & crank
+            mb.addBox({bx + 0.042f, 0.31f, 0.52f}, {0.024f, 0.10f, 0.44f}, kBikeWhite);
+            // Brushed mudguards curving over tops of front & rear tires
+            addTube(mb, {bx, 0.60f, -0.44f}, {bx, 0.62f, -0.08f}, 0.026f, 0.026f, 5, kSteelDark);
+            addTube(mb, {bx, 0.60f,  0.54f}, {bx, 0.60f,  0.94f}, 0.026f, 0.026f, 5, kSteelDark);
+            // Seatpost + sculpted dark ergonomic saddle
+            addTube(mb, stTop, {bx, 0.90f, 0.42f}, 0.015f, 0.014f, 6, kAlloy);
+            mb.addBox({bx, 0.92f, 0.43f}, {0.16f, 0.055f, 0.25f}, kSeat);
+            // Stem + swept-back chrome handlebars + black grips
+            addTube(mb, htTop, {bx, 0.96f, -0.06f}, 0.016f, 0.015f, 6, kAlloy);
+            addTube(mb, {bx - 0.16f, 0.97f, -0.05f}, {bx + 0.16f, 0.97f, -0.05f}, 0.013f, 0.013f, 6, kAlloy);
+            addTube(mb, {bx - 0.16f, 0.97f, -0.05f}, {bx - 0.24f, 0.95f,  0.04f}, 0.017f, 0.017f, 6, kSeat);
+            addTube(mb, {bx + 0.16f, 0.97f, -0.05f}, {bx + 0.24f, 0.95f,  0.04f}, 0.017f, 0.017f, 6, kSeat);
+            // Iconic hollow open-top emerald-green front basket (4 thin side walls + base + front white Seoul plate!)
+            const Vec3 bkC{bx, 0.80f, -0.31f};
+            mb.addBox({bkC.x, bkC.y - 0.10f, bkC.z}, {0.30f, 0.025f, 0.22f}, kEmeraldDark);
+            mb.addBox({bkC.x, bkC.y, bkC.z - 0.10f}, {0.30f, 0.20f, 0.022f}, kEmerald);
+            mb.addBox({bkC.x, bkC.y, bkC.z + 0.10f}, {0.30f, 0.20f, 0.022f}, kEmerald);
+            mb.addBox({bkC.x - 0.14f, bkC.y, bkC.z}, {0.022f, 0.20f, 0.22f}, kEmerald);
+            mb.addBox({bkC.x + 0.14f, bkC.y, bkC.z}, {0.022f, 0.20f, 0.22f}, kEmerald);
+            mb.addBox({bkC.x, bkC.y, bkC.z - 0.115f}, {0.18f, 0.10f, 0.012f}, kBikeWhite); // 따릉이 front badge
+        }
+        ddareungiRackMesh_ = mb.upload(vk, 35.0f);
+    }
+
+    // 2. Sculpted Seoul Architectural Curved Gooseneck LED Streetlamp (서울 가로등)
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kPlinth{54, 58, 66, 255};
+        const ColorRGBA kPole{74, 80, 90, 255};
+        const ColorRGBA kCollar{96, 102, 114, 255};
+        const ColorRGBA kHood{62, 68, 78, 255};
+        // Octagonal cast-iron base plinth + flanged anchor collar
+        mb.addCylinderY({0.0f, -0.15f, 0.0f}, 0.22f, 0.19f, 0.28f, 8, kPlinth);
+        mb.addCylinderY({0.0f,  0.13f, 0.0f}, 0.18f, 0.15f, 0.68f, 8, kPlinth);
+        mb.addCylinderY({0.0f,  0.81f, 0.0f}, 0.17f, 0.12f, 0.10f, 10, kCollar);
+        // Smoothly tapered cylindrical mast (0.90m .. 6.75m)
+        mb.addCylinderY({0.0f, 0.90f, 0.0f}, 0.105f, 0.072f, 5.85f, 10, kPole);
+        // Decorative upper collar + sweeping curved gooseneck cantilever arm reaching +2.15m over road!
+        mb.addCylinderY({0.0f, 6.62f, 0.0f}, 0.095f, 0.095f, 0.14f, 10, kCollar);
+        const Vec3 arc[6] = {
+            {0.00f, 6.68f, 0.0f},
+            {0.26f, 7.06f, 0.0f},
+            {0.72f, 7.28f, 0.0f},
+            {1.26f, 7.36f, 0.0f},
+            {1.78f, 7.30f, 0.0f},
+            {2.08f, 7.18f, 0.0f}
+        };
+        for (int i = 0; i < 5; ++i) {
+            const float r0 = lerpf(0.068f, 0.044f, static_cast<float>(i) / 5.0f);
+            const float r1 = lerpf(0.068f, 0.044f, static_cast<float>(i + 1) / 5.0f);
+            addTube(mb, arc[i], arc[i + 1], r0, r1, 8, kPole);
+        }
+        // Sleek aerodynamic Seoul LED cobra luminaire housing + finned heat-sink top
+        mb.addBox({2.24f, 7.16f, 0.0f}, {0.72f, 0.10f, 0.32f}, kHood);
+        mb.addBox({2.18f, 7.22f, 0.0f}, {0.52f, 0.05f, 0.24f}, kCollar);
+        seoulLampMesh_ = mb.upload(vk, 42.0f);
+    }
+
+    // 3. Sculpted Korean 4-Aspect Horizontal Cantilever Traffic Signal (한국 4구 가로형 신호등 + 차양막 + 보행자 신호등!)
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kPole{62, 68, 76, 255};
+        const ColorRGBA kSteel{92, 98, 108, 255};
+        const ColorRGBA kHousing{24, 26, 30, 255};
+        const ColorRGBA kBackplate{238, 242, 246, 255};
+        const ColorRGBA kStreetBlue{24, 86, 174, 255};
+        // Heavy flanged base plate + anchor collar + tapered vertical pole (0..6.45m) + dome cap
+        mb.addBox({0.0f, 0.04f, 0.0f}, {0.48f, 0.08f, 0.48f}, kPole);
+        mb.addCylinderY({0.0f, -0.15f, 0.0f}, 0.20f, 0.17f, 0.72f, 10, kPole);
+        mb.addCylinderY({0.0f,  0.56f, 0.0f}, 0.14f, 0.105f, 5.88f, 10, kPole);
+        mb.addSphere({0.0f, 6.46f, 0.0f}, 0.115f, 6, 10, kSteel);
+        // Tapered horizontal cantilever mast arm (x = 0..5.25m @ y = 5.98m) + gusset flange + upper diagonal tension rod!
+        addTube(mb, {0.0f, 5.98f, 0.0f}, {5.25f, 5.98f, 0.0f}, 0.105f, 0.068f, 10, kPole);
+        addTube(mb, {0.0f, 6.38f, 0.0f}, {2.60f, 6.02f, 0.0f}, 0.032f, 0.028f, 6, kSteel);
+        mb.addBox({0.14f, 5.98f, 0.0f}, {0.22f, 0.34f, 0.28f}, kSteel);
+        // Mounting hangers down to 4-aspect horizontal signal housing
+        for (float hx : {2.95f, 4.15f}) {
+            addTube(mb, {hx, 5.96f, 0.0f}, {hx, 5.72f, 0.0f}, 0.032f, 0.032f, 6, kSteel);
+        }
+        // White reflective backplate border + matte black 4-lens Korean horizontal signal housing!
+        mb.addBox({3.55f, 5.56f, 0.0f}, {2.24f, 0.62f, 0.10f}, kBackplate);
+        mb.addBox({3.55f, 5.56f, 0.0f}, {2.12f, 0.52f, 0.32f}, kHousing);
+        // 4 individual curved hood sun-visors (차양막) on BOTH front (+Z) & back (-Z) faces!
+        const float lampXs[4] = {2.80f, 3.30f, 3.80f, 4.30f};
+        for (float lx : lampXs) {
+            for (float fz : {-1.0f, 1.0f}) {
+                // Upper curved tunnel visor hood over each lens
+                mb.addBox({lx, 5.74f, fz * 0.25f}, {0.36f, 0.035f, 0.24f}, kHousing);
+                mb.addBox({lx - 0.17f, 5.62f, fz * 0.23f}, {0.032f, 0.24f, 0.20f}, kHousing);
+                mb.addBox({lx + 0.17f, 5.62f, fz * 0.23f}, {0.032f, 0.24f, 0.20f}, kHousing);
+            }
+        }
+        // Royal-blue Korean street-name blade sign (도로명판) mounted cleanly along inner cantilever arm!
+        mb.addBox({1.35f, 5.64f, 0.0f}, {1.25f, 0.30f, 0.06f}, kStreetBlue);
+        mb.addBox({1.35f, 5.64f, 0.0f}, {1.30f, 0.34f, 0.035f}, kBackplate);
+        addTube(mb, {0.95f, 5.96f, 0.0f}, {0.95f, 5.78f, 0.0f}, 0.02f, 0.02f, 5, kSteel);
+        addTube(mb, {1.75f, 5.96f, 0.0f}, {1.75f, 5.78f, 0.0f}, 0.02f, 0.02f, 5, kSteel);
+        // Pole-mounted Korean Pedestrian Signal Box (보행자 신호등) with dual visors @ y = 3.15m
+        mb.addBox({0.0f, 3.16f, 0.24f}, {0.36f, 0.76f, 0.24f}, kHousing);
+        mb.addBox({0.0f, 3.48f, 0.42f}, {0.32f, 0.03f, 0.18f}, kHousing); // Upper red-person visor
+        mb.addBox({0.0f, 3.14f, 0.42f}, {0.32f, 0.03f, 0.18f}, kHousing); // Lower green-walk visor
+        koreanSignalMesh_ = mb.upload(vk, 35.0f);
+    }
+
+    // 4. Sculpted Seoul Design Architectural Bus Shelter (Frame/Bench/BIT + Separate Tempered Glass!)
+    {
+        MeshBuilder3D mbF;
+        MeshBuilder3D mbG;
+        const ColorRGBA kFrame{46, 52, 62, 255};
+        const ColorRGBA kStainless{178, 186, 196, 255};
+        const ColorRGBA kSeoulBlue{26, 108, 218, 255};
+        const ColorRGBA kWood{148, 102, 62, 255};
+        const ColorRGBA kPosterBg{232, 238, 246, 255};
+        const ColorRGBA kGlass{92, 146, 182, 255};
+
+        // 3 tapered brushed-charcoal structural rear columns + stainless base flanges
+        for (float cx : {-2.15f, 0.0f, 2.15f}) {
+            mbF.addBox({cx, 0.04f, -0.74f}, {0.26f, 0.08f, 0.26f}, kStainless);
+            mbF.addBox({cx, 1.32f, -0.74f}, {0.14f, 2.58f, 0.16f}, kFrame);
+            // Sweeping cantilevered steel roof rafter arms reaching over boarding curb (+Z)
+            addTube(mbF, {cx, 2.52f, -0.80f}, {cx, 2.72f, 0.92f}, 0.055f, 0.038f, 6, kFrame);
+        }
+        // Sleek floating roof perimeter fascia + Seoul Bus Blue front header strip + rear rain gutter
+        mbF.addBox({0.0f, 2.72f,  0.90f}, {4.86f, 0.18f, 0.12f}, kFrame);
+        mbF.addBox({0.0f, 2.74f,  0.97f}, {4.78f, 0.14f, 0.04f}, kSeoulBlue);
+        mbF.addBox({0.0f, 2.50f, -0.82f}, {4.86f, 0.14f, 0.12f}, kFrame);
+        mbF.addBox({-2.40f, 2.61f, 0.04f}, {0.10f, 0.14f, 1.76f}, kFrame);
+        mbF.addBox({ 2.40f, 2.61f, 0.04f}, {0.10f, 0.14f, 1.76f}, kFrame);
+        // Sloped tempered skylight glass roof + mullioned back windbreak glass panels
+        mbG.addQuad({-2.34f, 2.54f, -0.76f}, { 2.34f, 2.54f, -0.76f},
+                    { 2.34f, 2.74f,  0.86f}, {-2.34f, 2.74f,  0.86f}, kGlass);
+        mbG.addBox({ 0.45f, 1.36f, -0.72f}, {3.30f, 2.15f, 0.045f}, kGlass);
+        mbG.addBox({ 2.16f, 1.36f, -0.18f}, {0.045f, 2.15f, 1.05f}, kGlass); // Side windbreak glass
+        // Horizontal stainless transom bars framing the back glass
+        mbF.addBox({0.45f, 0.30f, -0.72f}, {3.38f, 0.06f, 0.08f}, kStainless);
+        mbF.addBox({0.45f, 2.42f, -0.72f}, {3.38f, 0.06f, 0.08f}, kStainless);
+        // Left-side illuminated Seoul city ad/route lightbox cabinet (x = -1.78m)
+        mbF.addBox({-1.78f, 1.34f, -0.22f}, {0.18f, 2.18f, 1.12f}, kFrame);
+        mbF.addBox({-1.68f, 1.34f, -0.22f}, {0.03f, 1.92f, 0.94f}, kPosterBg);
+        mbF.addBox({-1.88f, 1.34f, -0.22f}, {0.03f, 1.92f, 0.94f}, kPosterBg);
+        // Ergonomic multi-slat wooden Seoul bus bench + brushed steel legs + center armrest dividers!
+        for (float lx : {-0.95f, 0.45f, 1.85f}) {
+            mbF.addBox({lx, 0.24f, -0.34f}, {0.06f, 0.46f, 0.42f}, kStainless);
+            // Curved stainless armrest hoop
+            mbF.addBox({lx, 0.62f, -0.34f}, {0.04f, 0.04f, 0.38f}, kStainless);
+            mbF.addBox({lx, 0.54f, -0.16f}, {0.04f, 0.18f, 0.04f}, kStainless);
+            mbF.addBox({lx, 0.54f, -0.52f}, {0.04f, 0.18f, 0.04f}, kStainless);
+        }
+        for (int sl = 0; sl < 4; ++sl) {
+            const float sz = -0.52f + static_cast<float>(sl) * 0.12f;
+            mbF.addBox({0.45f, 0.47f, sz}, {2.96f, 0.042f, 0.088f}, kWood);
+        }
+        // Sculpted Seoul BIT (Bus Information Terminal) digital arrival totem (x = +2.68m)
+        mbF.addBox({2.68f, 0.06f, 0.16f}, {0.72f, 0.12f, 0.34f}, kStainless);
+        mbF.addBox({2.68f, 1.38f, 0.16f}, {0.62f, 2.58f, 0.22f}, kFrame);
+        mbF.addBox({2.68f, 2.70f, 0.16f}, {0.68f, 0.12f, 0.28f}, kSeoulBlue);
+        mbF.addBox({2.68f, 1.96f, 0.275f}, {0.54f, 0.50f, 0.02f}, {18, 26, 38, 255}); // BIT screen recess
+
+        busShelterFrameMesh_ = mbF.upload(vk, 30.0f);
+        busShelterGlassMesh_ = mbG.upload(vk, 25.0f);
+    }
+
+    // 5. Sculpted Seoul Metro Glass-Vault Subway Entrance Canopy (Frame/Granite/Stairs/Handrails + Vaulted Glass!)
+    {
+        MeshBuilder3D mbF;
+        MeshBuilder3D mbG;
+        const ColorRGBA kSteel{58, 64, 74, 255};
+        const ColorRGBA kStainless{192, 198, 208, 255};
+        const ColorRGBA kGranite{168, 170, 174, 255};
+        const ColorRGBA kGraniteStep{138, 142, 148, 255};
+        const ColorRGBA kDarkWell{28, 32, 38, 255};
+        const ColorRGBA kGlass{94, 152, 188, 255};
+
+        // Low honed-granite perimeter curb parapet walls around 3 sides (open entry on +X side!)
+        mbF.addBox({0.0f, 0.42f, -1.28f}, {5.40f, 0.84f, 0.22f}, kGranite);
+        mbF.addBox({0.0f, 0.42f,  1.28f}, {5.40f, 0.84f, 0.22f}, kGranite);
+        mbF.addBox({-2.62f, 0.42f, 0.0f}, {0.22f, 0.84f, 2.78f}, kGranite);
+
+        // Visible descending granite stairwell steps + dark lower concourse throat
+        mbF.addBox({-1.65f, 0.10f, 0.0f}, {2.0f, 0.20f, 2.28f}, kDarkWell);
+        for (int st = 0; st < 5; ++st) {
+            const float sx = 2.10f - static_cast<float>(st) * 0.44f;
+            const float sy = 0.03f - static_cast<float>(st) * 0.015f;
+            mbF.addBox({sx, sy, 0.0f}, {0.42f, 0.06f, 2.24f}, (st & 1) ? kGranite : kGraniteStep);
+        }
+        // Brushed stainless-steel descending handrails along both side walls + center divider!
+        for (float hz : {-1.08f, 0.0f, 1.08f}) {
+            addTube(mbF, {2.35f, 0.92f, hz}, {-1.95f, 0.45f, hz}, 0.026f, 0.026f, 6, kStainless);
+            for (float px : {2.10f, 0.75f, -0.60f}) {
+                const float ty = lerpf(0.92f, 0.45f, (2.35f - px) / 4.30f);
+                addTube(mbF, {px, 0.02f, hz}, {px, ty, hz}, 0.022f, 0.022f, 6, kStainless);
+            }
+        }
+
+        // 5 Arched Brushed-Steel Portal Ribs supporting a vaulted tempered-glass roof!
+        for (int ri = 0; ri < 5; ++ri) {
+            const float rx = -2.55f + static_cast<float>(ri) * 1.275f;
+            mbF.addBox({rx, 1.65f, -1.26f}, {0.12f, 1.74f, 0.14f}, kSteel);
+            mbF.addBox({rx, 1.65f,  1.26f}, {0.12f, 1.74f, 0.14f}, kSteel);
+            // Smooth 4-segment vaulted arch over the entrance (y = 2.50 -> 3.04 -> 2.50)
+            const Vec3 ap[5] = {
+                {rx, 2.50f, -1.32f},
+                {rx, 2.86f, -0.72f},
+                {rx, 3.02f,  0.00f},
+                {rx, 2.86f,  0.72f},
+                {rx, 2.50f,  1.32f}
+            };
+            for (int k = 0; k < 4; ++k) {
+                addTube(mbF, ap[k], ap[k + 1], 0.055f, 0.055f, 6, kSteel);
+            }
+        }
+        // Longitudinal steel purlins + front/back fascia beams
+        for (float pz : {-1.30f, -0.70f, 0.0f, 0.70f, 1.30f}) {
+            const float py = (std::abs(pz) < 0.1f) ? 3.02f : ((std::abs(pz) < 0.8f) ? 2.86f : 2.50f);
+            mbF.addBox({0.0f, py, pz}, {5.45f, 0.08f, 0.09f}, kSteel);
+        }
+        // Vaulted skylight glass roof + side tempered glass windbreaks
+        const float zArc[5] = {-1.28f, -0.70f, 0.0f, 0.70f, 1.28f};
+        const float yArc[5] = { 2.52f,  2.88f, 3.04f, 2.88f, 2.52f};
+        for (int k = 0; k < 4; ++k) {
+            mbG.addQuad({-2.62f, yArc[k],     zArc[k]},     { 2.62f, yArc[k],     zArc[k]},
+                        { 2.62f, yArc[k + 1], zArc[k + 1]}, {-2.62f, yArc[k + 1], zArc[k + 1]}, kGlass);
+        }
+        mbG.addBox({0.0f, 1.66f, -1.24f}, {5.16f, 1.62f, 0.045f}, kGlass);
+        mbG.addBox({0.0f, 1.66f,  1.24f}, {5.16f, 1.62f, 0.045f}, kGlass);
+        mbG.addBox({-2.58f, 1.66f, 0.0f}, {0.045f, 1.62f, 2.46f}, kGlass);
+
+        // Tall brushed-steel Metro station lollipop totem pole (x = +3.22m)
+        mbF.addCylinderY({3.22f, -0.10f, 0.0f}, 0.14f, 0.12f, 0.42f, 10, kSteel);
+        mbF.addCylinderY({3.22f,  0.30f, 0.0f}, 0.075f, 0.068f, 4.05f, 10, kStainless);
+
+        subwayCanopyFrameMesh_ = mbF.upload(vk, 30.0f);
+        subwayCanopyGlassMesh_ = mbG.upload(vk, 25.0f);
+    }
+
+    // 6. Sculpted Seoul Design Pedestrian Safety Guardrail (7.5m modular span with 24 slender balusters!)
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kDarkBronze{62, 66, 74, 255};
+        const ColorRGBA kCollar{102, 108, 118, 255};
+        const ColorRGBA kReflect{242, 246, 250, 255};
+        // Smooth rounded tubular top rail (y = 0.88m) & lower rail (y = 0.22m)
+        addTube(mb, {-3.75f, 0.88f, 0.0f}, {3.75f, 0.88f, 0.0f}, 0.032f, 0.032f, 8, kDarkBronze);
+        addTube(mb, {-3.75f, 0.22f, 0.0f}, {3.75f, 0.22f, 0.0f}, 0.022f, 0.022f, 6, kDarkBronze);
+        // 4 flanged anchor posts grounded -0.18m for sloped curbs + white reflective safety collar!
+        for (float px : {-3.60f, -1.20f, 1.20f, 3.60f}) {
+            mb.addCylinderY({px, -0.18f, 0.0f}, 0.038f, 0.038f, 1.08f, 8, kDarkBronze);
+            mb.addCylinderY({px,  0.00f, 0.0f}, 0.072f, 0.064f, 0.055f, 8, kCollar);
+            mb.addCylinderY({px,  0.74f, 0.0f}, 0.042f, 0.042f, 0.065f, 8, kReflect);
+            mb.addSphere({px, 0.905f, 0.0f}, 0.042f, 5, 8, kCollar);
+        }
+        // 24 slender vertical infill balusters neatly spaced every 0.30m!
+        for (int bi = 0; bi < 24; ++bi) {
+            const float bx = -3.45f + static_cast<float>(bi) * 0.30f;
+            if (std::abs(bx + 1.20f) < 0.08f || std::abs(bx - 1.20f) < 0.08f) continue;
+            mb.addCylinderY({bx, 0.22f, 0.0f}, 0.013f, 0.013f, 0.66f, 5, kDarkBronze);
+        }
+        pedGuardrailMesh_ = mb.upload(vk, 35.0f);
+    }
+
+    // 7. Sculpted Seoul Wood-Slat & Cast-Iron Park/Street Bench (armrests + 5 contoured slats!)
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kIron{44, 48, 56, 255};
+        const ColorRGBA kWood{152, 106, 66, 255};
+        const ColorRGBA kWoodLight{168, 120, 76, 255};
+        for (float bx : {-0.82f, 0.0f, 0.82f}) {
+            mb.addBox({bx, 0.22f,  0.18f}, {0.06f, 0.44f, 0.06f}, kIron);
+            mb.addBox({bx, 0.22f, -0.20f}, {0.06f, 0.44f, 0.06f}, kIron);
+            mb.addBox({bx, 0.42f, -0.01f}, {0.06f, 0.05f, 0.46f}, kIron);
+            addTube(mb, {bx, 0.42f, -0.22f}, {bx, 0.86f, -0.32f}, 0.028f, 0.024f, 6, kIron);
+            if (std::abs(bx) > 0.1f) {
+                // Cast-iron scrolled armrests on ends
+                mb.addBox({bx, 0.62f, 0.00f}, {0.055f, 0.04f, 0.44f}, kIron);
+                mb.addBox({bx, 0.52f, 0.20f}, {0.05f, 0.20f, 0.05f}, kIron);
+            }
+        }
+        // 3 ergonomic horizontal seat slats + 2 contoured backrest slats
+        mb.addBox({0.0f, 0.46f,  0.15f}, {1.94f, 0.042f, 0.11f}, kWoodLight);
+        mb.addBox({0.0f, 0.45f,  0.00f}, {1.94f, 0.042f, 0.11f}, kWood);
+        mb.addBox({0.0f, 0.45f, -0.15f}, {1.94f, 0.042f, 0.11f}, kWoodLight);
+        mb.addBox({0.0f, 0.66f, -0.26f}, {1.94f, 0.12f, 0.042f}, kWood);
+        mb.addBox({0.0f, 0.82f, -0.30f}, {1.94f, 0.12f, 0.042f}, kWoodLight);
+        benchMesh_ = mb.upload(vk, 30.0f);
+    }
+
+    // 8. Sculpted Korean Flanged Red Cast-Iron Fire Hydrant (소화전) with twin brass nozzles & bonnet nut!
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kRed{214, 38, 38, 255};
+        const ColorRGBA kRedDark{168, 28, 28, 255};
+        const ColorRGBA kBrass{218, 184, 72, 255};
+        const ColorRGBA kBase{148, 152, 158, 255};
+        mb.addCylinderY({0.0f, -0.06f, 0.0f}, 0.23f, 0.21f, 0.14f, 10, kBase);     // Concrete plinth
+        mb.addCylinderY({0.0f,  0.08f, 0.0f}, 0.19f, 0.16f, 0.06f, 10, kRedDark);  // Flanged base collar
+        mb.addCylinderY({0.0f,  0.14f, 0.0f}, 0.14f, 0.13f, 0.56f, 12, kRed);      // Main barrel
+        mb.addCylinderY({0.0f,  0.68f, 0.0f}, 0.17f, 0.17f, 0.05f, 12, kRedDark);  // Upper bonnet flange
+        mb.addSphere({0.0f, 0.74f, 0.0f}, 0.145f, 6, 12, kRed);                    // Domed bonnet cap
+        mb.addCylinderY({0.0f,  0.86f, 0.0f}, 0.045f, 0.042f, 0.07f, 6, kBrass);   // Pentagonal operating nut
+        // Twin side brass hose couplings + larger front pumper nozzle!
+        addTube(mb, {-0.23f, 0.54f, 0.0f}, {0.23f, 0.54f, 0.0f}, 0.056f, 0.056f, 8, kBrass);
+        addTube(mb, {0.0f, 0.44f, 0.0f}, {0.0f, 0.44f, 0.21f}, 0.072f, 0.068f, 8, kBrass);
+        hydrantMesh_ = mb.upload(vk, 40.0f);
+    }
+
+    // 9. Sculpted Seoul Design Dual Stainless-Steel Recycling & Waste Bin Unit (서울시 가로휴지통!)
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kStainless{132, 140, 148, 255};
+        const ColorRGBA kCharcoal{54, 60, 68, 255};
+        const ColorRGBA kRecycleBlue{34, 124, 218, 255};
+        const ColorRGBA kWasteAmber{224, 138, 38, 255};
+        const ColorRGBA kSlotDark{18, 20, 24, 255};
+        // Raised steel support feet + dual body cabinets
+        mb.addBox({-0.28f, 0.04f, 0.0f}, {0.42f, 0.08f, 0.42f}, kCharcoal);
+        mb.addBox({ 0.28f, 0.04f, 0.0f}, {0.42f, 0.08f, 0.42f}, kCharcoal);
+        mb.addBox({-0.28f, 0.48f, 0.0f}, {0.46f, 0.80f, 0.46f}, kStainless);
+        mb.addBox({ 0.28f, 0.48f, 0.0f}, {0.46f, 0.80f, 0.46f}, kStainless);
+        // Slanted top rain hoods with color-coded Korean recycling (blue) & general waste (amber) trims!
+        mb.addBox({-0.28f, 0.96f, 0.0f}, {0.49f, 0.18f, 0.49f}, kCharcoal);
+        mb.addBox({-0.28f, 1.06f, 0.0f}, {0.50f, 0.04f, 0.50f}, kRecycleBlue);
+        mb.addBox({-0.28f, 0.94f, 0.25f}, {0.22f, 0.14f, 0.02f}, kSlotDark); // Bottle/can throw opening
+        mb.addBox({-0.28f, 0.72f, 0.24f}, {0.36f, 0.08f, 0.02f}, kRecycleBlue);
+        mb.addBox({ 0.28f, 0.96f, 0.0f}, {0.49f, 0.18f, 0.49f}, kCharcoal);
+        mb.addBox({ 0.28f, 1.06f, 0.0f}, {0.50f, 0.04f, 0.50f}, kWasteAmber);
+        mb.addBox({ 0.28f, 0.94f, 0.25f}, {0.28f, 0.14f, 0.02f}, kSlotDark); // General waste opening
+        mb.addBox({ 0.28f, 0.72f, 0.24f}, {0.36f, 0.08f, 0.02f}, kWasteAmber);
+        trashBinMesh_ = mb.upload(vk, 25.0f);
+    }
+
+    // 10. Sculpted KEPCO Street Transformer & Signal Control Cabinet (한전 지상개폐기 / 신호제어기)
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kPlinth{156, 160, 166, 255};
+        const ColorRGBA kBody{116, 128, 124, 255};
+        const ColorRGBA kTrim{78, 86, 86, 255};
+        const ColorRGBA kWarnYellow{236, 186, 36, 255};
+        // Beveled concrete foundation plinth
+        mb.addBox({0.0f, 0.14f, 0.0f}, {1.22f, 0.28f, 0.78f}, kPlinth);
+        mb.addBox({0.0f, 0.30f, 0.0f}, {1.12f, 0.06f, 0.70f}, kTrim);
+        // Main galvanized steel housing + double service door seam + stainless latch + pitched rain hood
+        mb.addBox({0.0f, 0.98f, 0.0f}, {1.06f, 1.30f, 0.64f}, kBody);
+        mb.addBox({0.0f, 1.66f, 0.0f}, {1.14f, 0.09f, 0.72f}, kTrim);
+        mb.addBox({0.0f, 0.98f, 0.325f}, {0.025f, 1.22f, 0.015f}, kTrim); // Center door seam
+        mb.addBox({0.08f, 0.98f, 0.34f}, {0.04f, 0.16f, 0.03f}, {198, 204, 212, 255}); // Latch handle
+        // Louvered cooling vents along lower door panels
+        for (int lv = 0; lv < 4; ++lv) {
+            const float ly = 0.48f + static_cast<float>(lv) * 0.075f;
+            mb.addBox({-0.28f, ly, 0.33f}, {0.36f, 0.032f, 0.02f}, kTrim);
+            mb.addBox({ 0.28f, ly, 0.33f}, {0.36f, 0.032f, 0.02f}, kTrim);
+        }
+        // High-voltage Korean yellow warning stripe & safety triangle emblem
+        mb.addBox({0.0f, 1.44f, 0.33f}, {0.88f, 0.12f, 0.02f}, kWarnYellow);
+        utilityBoxMesh_ = mb.upload(vk, 25.0f);
+    }
 }
 
 void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
@@ -1849,9 +2322,10 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     const auto& bldgs = real.buildings();
     const auto& flatBldgs = real.flatChunkBldgs();
 
-    std::vector<Vertex3D> groundV, roadsV, roadPaintV, sidewalksV, piersV;
+    std::vector<Vertex3D> groundV, hillsideV, roadsV, roadPaintV, sidewalksV, piersV;
     std::vector<Vertex3D> aptV, glassV, graniteV, brickV, stuccoV, hanokV, heritageV, roofV;
     groundV.reserve(32 * 32 * 6);
+    hillsideV.reserve(512);
     roadsV.reserve(3072);
     roadPaintV.reserve(2048);
     sidewalksV.reserve(2560);
@@ -1959,6 +2433,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             float minDistRoad;
             float nearRoadMinY;
             float nearRoadAvgY;
+            float roadSumWY;
+            float roadSumW;
             float swCapY;
             bool inWater;
             bool insideRoad;
@@ -2021,46 +2497,136 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 const float hU = real.sampleDem({wx, wz + 6.0f});
                 lg[static_cast<std::size_t>(iz * (kGn + 1) + ix)] = {
                     {wx, y, wz}, Vec3{hL - hR, 12.0f, hD - hU}.normalized(),
-                    h, 1e9f, 1e9f, h, 1e9f, wtr, insideRoad, false
+                    h, 1e9f, 1e9f, h, 0.0f, 0.0f, 1e9f, wtr, insideRoad, false
                 };
             }
         }
 
-        // Exact 2D point-to-triangle distance contouring for OCRM ground roads & sidewalks
-        if (useOcrm) {
-            auto ptSegDistSq2D = [](float px, float pz, float ax, float az, float bx, float bz) -> float {
-                const float ex = bx - ax, ez = bz - az;
-                const float l2 = ex * ex + ez * ez;
-                float t = (l2 > 1e-8f) ? clampf(((px - ax) * ex + (pz - az) * ez) / l2, 0.0f, 1.0f) : 0.0f;
-                const float dx = px - (ax + ex * t);
-                const float dz = pz - (az + ez * t);
-                return dx * dx + dz * dz;
-            };
-            auto ptInTri2D = [](float px, float pz, float ax, float az, float bx, float bz, float cx, float cz) -> bool {
-                const float s0 = (bx - ax) * (pz - az) - (bz - az) * (px - ax);
-                const float s1 = (cx - bx) * (pz - bz) - (cz - bz) * (px - bx);
-                const float s2 = (ax - cx) * (pz - cz) - (az - cz) * (px - cx);
-                return (s0 >= -1e-4f && s1 >= -1e-4f && s2 >= -1e-4f) ||
-                       (s0 <=  1e-4f && s1 <=  1e-4f && s2 <=  1e-4f);
+        // Exact 2D closest-point-on-triangle distance + interpolated Y contouring across ALL 3x3 neighbor OCRM chunks!
+        // Uses exact barycentric/edge Y (eliminating +/-2m sloped-triangle bias on long Teheran-ro spans!) and smooth IDW!
+        if (real.hasOcrmMesh()) {
+            auto closestPtOnTriWithY = [](float px, float pz,
+                                          const OcrmDecodedVertex& v0,
+                                          const OcrmDecodedVertex& v1,
+                                          const OcrmDecodedVertex& v2,
+                                          float& outD2, float& outY) {
+                const float ax = v1.px - v0.px, az = v1.pz - v0.pz;
+                const float bx = v2.px - v0.px, bz = v2.pz - v0.pz;
+                const float det = ax * bz - az * bx;
+                if (std::abs(det) > 1e-6f) {
+                    const float invDet = 1.0f / det;
+                    const float rx = px - v0.px, rz = pz - v0.pz;
+                    const float u = (rx * bz - rz * bx) * invDet;
+                    const float v = (ax * rz - az * rx) * invDet;
+                    const float w = 1.0f - u - v;
+                    if (u >= -1e-4f && v >= -1e-4f && w >= -1e-4f) {
+                        outD2 = 0.0f;
+                        outY = w * v0.py + u * v1.py + v * v2.py;
+                        return;
+                    }
+                }
+                auto testEdge = [&](const OcrmDecodedVertex& a, const OcrmDecodedVertex& b, float& bestD2, float& bestY) {
+                    const float ex = b.px - a.px, ez = b.pz - a.pz;
+                    const float l2 = ex * ex + ez * ez;
+                    const float t = (l2 > 1e-8f) ? clampf(((px - a.px) * ex + (pz - a.pz) * ez) / l2, 0.0f, 1.0f) : 0.0f;
+                    const float dx = px - (a.px + ex * t);
+                    const float dz = pz - (a.pz + ez * t);
+                    const float d2 = dx * dx + dz * dz;
+                    if (d2 < bestD2) {
+                        bestD2 = d2;
+                        bestY = lerpf(a.py, b.py, t);
+                    }
+                };
+                outD2 = 1e30f;
+                outY = v0.py;
+                testEdge(v0, v1, outD2, outY);
+                testEdge(v1, v2, outD2, outY);
+                testEdge(v2, v0, outD2, outY);
             };
 
-            const auto scanOcrmRoadList = [&](const std::vector<std::uint16_t>& idxList) {
-                constexpr float kPadM = 14.0f;
-                constexpr float kPadSq = kPadM * kPadM;
-                for (std::size_t k = 0; k + 2 < idxList.size(); k += 3) {
-                    const OcrmDecodedVertex& v0 = ocrmCh.verts[idxList[k]];
-                    const OcrmDecodedVertex& v1 = ocrmCh.verts[idxList[k + 1]];
-                    const OcrmDecodedVertex& v2 = ocrmCh.verts[idxList[k + 2]];
-                    const float cxT = (v0.px + v1.px + v2.px) * (1.0f / 3.0f);
-                    const float czT = (v0.pz + v1.pz + v2.pz) * (1.0f / 3.0f);
-                    const float minYT = std::min({v0.py, v1.py, v2.py});
-                    const float avgYT = (v0.py + v1.py + v2.py) * (1.0f / 3.0f);
-                    if (avgYT - real.sampleDem({cxT, czT}) > 1.80f) continue; // Elevated bridge/viaduct!
+            const float gx1 = gx0 + hdr.chunkSize;
+            const float gz1 = gz0 + hdr.chunkSize;
 
-                    const float tx0 = std::min({v0.px, v1.px, v2.px}) - kPadM;
-                    const float tx1 = std::max({v0.px, v1.px, v2.px}) + kPadM;
-                    const float tz0 = std::min({v0.pz, v1.pz, v2.pz}) - kPadM;
-                    const float tz1 = std::max({v0.pz, v1.pz, v2.pz}) + kPadM;
+            const auto scanOcrmChunk = [&](const OcrmDecodedChunk& srcCh) {
+                const auto scanRoadList = [&](const std::vector<std::uint16_t>& idxList) {
+                    constexpr float kPadM = 20.0f;
+                    constexpr float kPadSq = kPadM * kPadM;
+                    for (std::size_t k = 0; k + 2 < idxList.size(); k += 3) {
+                        const OcrmDecodedVertex& v0 = srcCh.verts[idxList[k]];
+                        const OcrmDecodedVertex& v1 = srcCh.verts[idxList[k + 1]];
+                        const OcrmDecodedVertex& v2 = srcCh.verts[idxList[k + 2]];
+
+                        const float vMinX = std::min({v0.px, v1.px, v2.px});
+                        const float vMaxX = std::max({v0.px, v1.px, v2.px});
+                        const float vMinZ = std::min({v0.pz, v1.pz, v2.pz});
+                        const float vMaxZ = std::max({v0.pz, v1.pz, v2.pz});
+                        const float tx0 = vMinX - kPadM;
+                        const float tx1 = vMaxX + kPadM;
+                        const float tz0 = vMinZ - kPadM;
+                        const float tz1 = vMaxZ + kPadM;
+                        if (tx1 < gx0 || tx0 > gx1 || tz1 < gz0 || tz0 > gz1) continue;
+
+                        const float cxT = (v0.px + v1.px + v2.px) * (1.0f / 3.0f);
+                        const float czT = (v0.pz + v1.pz + v2.pz) * (1.0f / 3.0f);
+                        const float avgYT = (v0.py + v1.py + v2.py) * (1.0f / 3.0f);
+                        // Ground roads on urban Seoul hills/embankments can reach +2.8m above raw DEM;
+                        // only skip true elevated bridges/viaducts (>= +3.40m above DEM)!
+                        if (avgYT - real.sampleDem({cxT, czT}) > 3.40f) continue;
+
+                        const int i0x = std::clamp(static_cast<int>(std::floor((tx0 - gx0) / step)), 0, kGn);
+                        const int i1x = std::clamp(static_cast<int>(std::ceil((tx1 - gx0) / step)), 0, kGn);
+                        const int i0z = std::clamp(static_cast<int>(std::floor((tz0 - gz0) / step)), 0, kGn);
+                        const int i1z = std::clamp(static_cast<int>(std::ceil((tz1 - gz0) / step)), 0, kGn);
+                        for (int iz = i0z; iz <= i1z; ++iz) {
+                            for (int ix = i0x; ix <= i1x; ++ix) {
+                                LocalGNode& nd = lg[static_cast<std::size_t>(iz * (kGn + 1) + ix)];
+                                if (nd.inWater) continue;
+                                const float dxB = std::max({vMinX - nd.pos.x, 0.0f, nd.pos.x - vMaxX});
+                                const float dzB = std::max({vMinZ - nd.pos.z, 0.0f, nd.pos.z - vMaxZ});
+                                if (dxB * dxB + dzB * dzB > kPadSq) continue;
+
+                                float d2 = 0.0f, exactY = 0.0f;
+                                closestPtOnTriWithY(nd.pos.x, nd.pos.z, v0, v1, v2, d2, exactY);
+                                if (d2 > kPadSq) continue;
+                                const float d = std::sqrt(d2);
+                                const float invD = 1.0f / (d + 1.5f);
+                                const float w = invD * invD * invD;
+                                nd.roadSumWY += w * exactY;
+                                nd.roadSumW += w;
+                                if (d <= 3.0f && exactY < nd.nearRoadMinY) {
+                                    nd.nearRoadMinY = exactY;
+                                }
+                                if (d < nd.minDistRoad) {
+                                    nd.minDistRoad = d;
+                                    nd.nearRoadAvgY = exactY;
+                                    if (nd.nearRoadMinY > 1e8f) nd.nearRoadMinY = exactY;
+                                }
+                            }
+                        }
+                    }
+                };
+                scanRoadList(srcCh.idxUrban);
+                scanRoadList(srcCh.idxHighway);
+                scanRoadList(srcCh.idxInter);
+
+                // Exact interpolated sidewalk/plaza height cap within 2.4m so ground NEVER z-fights or drops -1.8m downhill!
+                constexpr float kSwPad = 2.4f;
+                constexpr float kSwPadSq = kSwPad * kSwPad;
+                for (std::size_t k = 0; k + 2 < srcCh.idxSidewalk.size(); k += 3) {
+                    const OcrmDecodedVertex& v0 = srcCh.verts[srcCh.idxSidewalk[k]];
+                    const OcrmDecodedVertex& v1 = srcCh.verts[srcCh.idxSidewalk[k + 1]];
+                    const OcrmDecodedVertex& v2 = srcCh.verts[srcCh.idxSidewalk[k + 2]];
+                    if (std::abs(v0.ny) < 0.5f && std::abs(v1.ny) < 0.5f && std::abs(v2.ny) < 0.5f) continue; // Skip vertical curbs
+                    const float vMinX = std::min({v0.px, v1.px, v2.px});
+                    const float vMaxX = std::max({v0.px, v1.px, v2.px});
+                    const float vMinZ = std::min({v0.pz, v1.pz, v2.pz});
+                    const float vMaxZ = std::max({v0.pz, v1.pz, v2.pz});
+                    const float tx0 = vMinX - kSwPad;
+                    const float tx1 = vMaxX + kSwPad;
+                    const float tz0 = vMinZ - kSwPad;
+                    const float tz1 = vMaxZ + kSwPad;
+                    if (tx1 < gx0 || tx0 > gx1 || tz1 < gz0 || tz0 > gz1) continue;
+
                     const int i0x = std::clamp(static_cast<int>(std::floor((tx0 - gx0) / step)), 0, kGn);
                     const int i1x = std::clamp(static_cast<int>(std::ceil((tx1 - gx0) / step)), 0, kGn);
                     const int i0z = std::clamp(static_cast<int>(std::floor((tz0 - gz0) / step)), 0, kGn);
@@ -2069,92 +2635,90 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                         for (int ix = i0x; ix <= i1x; ++ix) {
                             LocalGNode& nd = lg[static_cast<std::size_t>(iz * (kGn + 1) + ix)];
                             if (nd.inWater) continue;
-                            float d = 0.0f;
-                            if (!ptInTri2D(nd.pos.x, nd.pos.z, v0.px, v0.pz, v1.px, v1.pz, v2.px, v2.pz)) {
-                                const float d2 = std::min({
-                                    ptSegDistSq2D(nd.pos.x, nd.pos.z, v0.px, v0.pz, v1.px, v1.pz),
-                                    ptSegDistSq2D(nd.pos.x, nd.pos.z, v1.px, v1.pz, v2.px, v2.pz),
-                                    ptSegDistSq2D(nd.pos.x, nd.pos.z, v2.px, v2.pz, v0.px, v0.pz)
-                                });
-                                if (d2 > kPadSq) continue;
-                                d = std::sqrt(d2);
-                            }
-                            if (d <= 2.4f && minYT < nd.nearRoadMinY) {
-                                nd.nearRoadMinY = minYT;
-                            }
-                            if (d < nd.minDistRoad) {
-                                nd.minDistRoad = d;
-                                nd.nearRoadAvgY = avgYT;
-                                if (nd.nearRoadMinY > 1e8f) nd.nearRoadMinY = minYT;
+                            const float dxB = std::max({vMinX - nd.pos.x, 0.0f, nd.pos.x - vMaxX});
+                            const float dzB = std::max({vMinZ - nd.pos.z, 0.0f, nd.pos.z - vMaxZ});
+                            if (dxB * dxB + dzB * dzB > kSwPadSq) continue;
+                            float d2 = 0.0f, exactSwY = 0.0f;
+                            closestPtOnTriWithY(nd.pos.x, nd.pos.z, v0, v1, v2, d2, exactSwY);
+                            if (d2 <= kSwPadSq) {
+                                nd.underSidewalk = true;
+                                nd.swCapY = std::min(nd.swCapY, exactSwY - 0.08f);
                             }
                         }
                     }
                 }
             };
-            scanOcrmRoadList(ocrmCh.idxUrban);
-            scanOcrmRoadList(ocrmCh.idxHighway);
-            scanOcrmRoadList(ocrmCh.idxInter);
 
-            // Also detect nodes sitting beneath OCRM sidewalks/granite plazas so ground NEVER z-fights them!
-            for (std::size_t k = 0; k + 2 < ocrmCh.idxSidewalk.size(); k += 3) {
-                const OcrmDecodedVertex& v0 = ocrmCh.verts[ocrmCh.idxSidewalk[k]];
-                const OcrmDecodedVertex& v1 = ocrmCh.verts[ocrmCh.idxSidewalk[k + 1]];
-                const OcrmDecodedVertex& v2 = ocrmCh.verts[ocrmCh.idxSidewalk[k + 2]];
-                if (std::abs(v0.ny) < 0.5f && std::abs(v1.ny) < 0.5f && std::abs(v2.ny) < 0.5f) continue; // Skip vertical curbs
-                const float minYS = std::min({v0.py, v1.py, v2.py});
-                const float tx0 = std::min({v0.px, v1.px, v2.px}) - 0.8f;
-                const float tx1 = std::max({v0.px, v1.px, v2.px}) + 0.8f;
-                const float tz0 = std::min({v0.pz, v1.pz, v2.pz}) - 0.8f;
-                const float tz1 = std::max({v0.pz, v1.pz, v2.pz}) + 0.8f;
-                const int i0x = std::clamp(static_cast<int>(std::floor((tx0 - gx0) / step)), 0, kGn);
-                const int i1x = std::clamp(static_cast<int>(std::ceil((tx1 - gx0) / step)), 0, kGn);
-                const int i0z = std::clamp(static_cast<int>(std::floor((tz0 - gz0) / step)), 0, kGn);
-                const int i1z = std::clamp(static_cast<int>(std::ceil((tz1 - gz0) / step)), 0, kGn);
-                for (int iz = i0z; iz <= i1z; ++iz) {
-                    for (int ix = i0x; ix <= i1x; ++ix) {
-                        LocalGNode& nd = lg[static_cast<std::size_t>(iz * (kGn + 1) + ix)];
-                        if (nd.inWater) continue;
-                        if (ptInTri2D(nd.pos.x, nd.pos.z, v0.px, v0.pz, v1.px, v1.pz, v2.px, v2.pz)) {
-                            nd.underSidewalk = true;
-                            nd.swCapY = std::min(nd.swCapY, minYS - 0.08f);
-                        }
+            if (useOcrm) scanOcrmChunk(ocrmCh);
+            OcrmDecodedChunk nbCh{};
+            for (int dcz = -1; dcz <= 1; ++dcz) {
+                for (int dcx = -1; dcx <= 1; ++dcx) {
+                    if (dcx == 0 && dcz == 0) continue;
+                    if (real.ocrmMesh().decodeChunk(cx + dcx, cz + dcz, nbCh)) {
+                        scanOcrmChunk(nbCh);
                     }
                 }
             }
 
-            // Apply smooth, watertight vertical contouring (ZERO road poke-through AND ZERO storefront trenches!)
+            // Apply silk-smooth, watertight vertical contouring using exact interpolated Y & IDW blending!
             for (LocalGNode& nd : lg) {
-                if (nd.inWater || nd.minDistRoad > 14.0f) continue;
-                const float rMin = (nd.nearRoadMinY < 1e8f) ? nd.nearRoadMinY : nd.nearRoadAvgY;
-                if (nd.minDistRoad <= 0.55f) {
-                    nd.pos.y = std::min(nd.pos.y, rMin - 0.52f);
-                    nd.insideRoad = true;
-                } else if (nd.underSidewalk) {
-                    const float tSw = clampf((nd.minDistRoad - 0.55f) / 4.2f, 0.0f, 1.0f);
-                    const float targetSw = std::min(nd.swCapY, nd.nearRoadAvgY + 0.05f);
-                    nd.pos.y = lerpf(rMin - 0.34f, targetSw, tSw);
-                } else if (nd.minDistRoad <= 4.5f) {
-                    // Narrow street without sidewalk OR immediate plaza outer apron: rise swiftly to flush!
-                    const float tAlley = clampf((nd.minDistRoad - 0.55f) / 2.2f, 0.0f, 1.0f);
-                    nd.pos.y = lerpf(rMin - 0.28f, nd.nearRoadAvgY + 0.04f, tAlley);
-                } else {
-                    const float tOut = clampf((nd.minDistRoad - 4.5f) / 9.5f, 0.0f, 1.0f);
-                    nd.pos.y = lerpf(nd.nearRoadAvgY + 0.04f, nd.rawH - subBaseDrop, tOut);
+                if (nd.inWater) continue;
+                if (nd.minDistRoad <= 20.0f) {
+                    const float smoothRdY = (nd.roadSumW > 1e-6f) ? (nd.roadSumWY / nd.roadSumW) : nd.nearRoadAvgY;
+                    const float rMin = (nd.nearRoadMinY < 1e8f) ? nd.nearRoadMinY : smoothRdY;
+                    if (nd.minDistRoad <= 0.75f) {
+                        nd.pos.y = std::min(nd.pos.y, rMin - 0.54f);
+                        nd.insideRoad = true;
+                    } else if (nd.underSidewalk) {
+                        const float tSw = clampf((nd.minDistRoad - 0.75f) / 3.5f, 0.0f, 1.0f);
+                        const float targetSw = std::min(nd.swCapY, smoothRdY + 0.06f);
+                        nd.pos.y = std::min(nd.swCapY, lerpf(rMin - 0.34f, targetSw, tSw));
+                    } else if (nd.minDistRoad <= 9.5f) {
+                        const float tLot = clampf((nd.minDistRoad - 0.75f) / 2.6f, 0.0f, 1.0f);
+                        nd.pos.y = lerpf(rMin - 0.28f, smoothRdY + 0.06f, tLot);
+                    } else {
+                        const float tOut = clampf((nd.minDistRoad - 9.5f) / 10.5f, 0.0f, 1.0f);
+                        const float sOut = tOut * tOut * (3.0f - 2.0f * tOut);
+                        nd.pos.y = lerpf(smoothRdY + 0.06f, nd.rawH - subBaseDrop, sOut);
+                    }
+                }
+                if (nd.underSidewalk && nd.pos.y > nd.swCapY) {
+                    nd.pos.y = nd.swCapY;
+                }
+            }
+
+            // 2 passes of constrained interior Laplacian smoothing (0.00cm chunk seam drift, zero micro-steps!)
+            std::vector<float> tmpY(lg.size());
+            for (int pass = 0; pass < 2; ++pass) {
+                for (std::size_t i = 0; i < lg.size(); ++i) tmpY[i] = lg[i].pos.y;
+                for (int iz = 1; iz < kGn; ++iz) {
+                    for (int ix = 1; ix < kGn; ++ix) {
+                        const std::size_t idx = static_cast<std::size_t>(iz * (kGn + 1) + ix);
+                        LocalGNode& nd = lg[idx];
+                        if (nd.inWater || nd.insideRoad) continue;
+                        const float avgNb = 0.25f * (
+                            tmpY[idx - 1] + tmpY[idx + 1] +
+                            tmpY[idx - static_cast<std::size_t>(kGn + 1)] +
+                            tmpY[idx + static_cast<std::size_t>(kGn + 1)]);
+                        float ny = lerpf(tmpY[idx], avgNb, 0.45f);
+                        if (nd.underSidewalk) ny = std::min(ny, nd.swCapY);
+                        nd.pos.y = ny;
+                    }
                 }
             }
         }
 
         const ColorRGBA kGroundCol{162, 164, 168, 255};
-        auto pushGVert = [&](const LocalGNode& n) {
+        auto pushGVert = [&](std::vector<Vertex3D>& dst, const LocalGNode& n, ColorRGBA col) {
             Vertex3D v{};
             v.px = n.pos.x; v.py = n.pos.y; v.pz = n.pos.z;
             v.nx = n.norm.x; v.ny = n.norm.y; v.nz = n.norm.z;
             v.u = 0.0f; v.v = 0.0f;
-            v.r = static_cast<float>(kGroundCol.r) / 255.0f;
-            v.g = static_cast<float>(kGroundCol.g) / 255.0f;
-            v.b = static_cast<float>(kGroundCol.b) / 255.0f;
+            v.r = static_cast<float>(col.r) / 255.0f;
+            v.g = static_cast<float>(col.g) / 255.0f;
+            v.b = static_cast<float>(col.b) / 255.0f;
             v.a = 1.0f;
-            groundV.push_back(v);
+            dst.push_back(v);
         };
         for (int iz = 0; iz < kGn; ++iz) {
             for (int ix = 0; ix < kGn; ++ix) {
@@ -2165,9 +2729,27 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 if (n00.inWater && n10.inWater && n11.inWater && n01.inWater) continue;
                 if (n00.insideRoad && n10.insideRoad && n11.insideRoad && n01.insideRoad) continue;
                 const float avgH = 0.25f * (n00.rawH + n10.rawH + n11.rawH + n01.rawH);
-                if (avgH >= 88.0f) continue; // Keep high forested Seoul mountains green while covering urban hills (Yeoksam/Itaewon)!
-                pushGVert(n00); pushGVert(n01); pushGVert(n11);
-                pushGVert(n00); pushGVert(n11); pushGVert(n10);
+                if (avgH >= 88.0f) continue; // High forested Seoul mountains rendered via macro mountainForestMesh_!
+
+                // Render steep non-road urban green hills (e.g. Kukkiwon Hill behind Gangnam Station, Yeoksam parks,
+                // Namsan foothills & landscaped retaining banks) as lush green hillside grass!
+                const float avgNY = 0.25f * (n00.norm.y + n10.norm.y + n11.norm.y + n01.norm.y);
+                const float minRoadD = std::min({n00.minDistRoad, n10.minDistRoad, n11.minDistRoad, n01.minDistRoad});
+                const bool anySw = n00.underSidewalk || n10.underSidewalk || n11.underSidewalk || n01.underSidewalk;
+                if (!anySw && minRoadD > 8.0f && (avgNY < 0.994f || avgH > 46.0f)) {
+                    const float hT = clampf((avgH - 24.0f) / 48.0f, 0.0f, 1.0f);
+                    const ColorRGBA hillCol{
+                        static_cast<std::uint8_t>(lerpf(86.0f, 58.0f, hT)),
+                        static_cast<std::uint8_t>(lerpf(126.0f, 96.0f, hT)),
+                        static_cast<std::uint8_t>(lerpf(64.0f, 50.0f, hT)),
+                        255u
+                    };
+                    pushGVert(hillsideV, n00, hillCol); pushGVert(hillsideV, n01, hillCol); pushGVert(hillsideV, n11, hillCol);
+                    pushGVert(hillsideV, n00, hillCol); pushGVert(hillsideV, n11, hillCol); pushGVert(hillsideV, n10, hillCol);
+                } else {
+                    pushGVert(groundV, n00, kGroundCol); pushGVert(groundV, n01, kGroundCol); pushGVert(groundV, n11, kGroundCol);
+                    pushGVert(groundV, n00, kGroundCol); pushGVert(groundV, n11, kGroundCol); pushGVert(groundV, n10, kGroundCol);
+                }
             }
         }
     }
@@ -3426,6 +4008,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
     }
 
     if (!groundV.empty())    out.groundMesh       = vk.createMesh(groundV);
+    if (!hillsideV.empty())  out.hillsideMesh     = vk.createMesh(hillsideV);
     if (!roadsV.empty())     out.roadsMesh        = vk.createMesh(roadsV);
     if (!roadPaintV.empty()) out.roadPaintMesh    = vk.createMesh(roadPaintV);
     if (!sidewalksV.empty()) out.sidewalksMesh    = vk.createMesh(sidewalksV);
@@ -3449,15 +4032,15 @@ void Renderer3D::prepareRealSeoulChunks(VulkanContext& vk, const CityMap& city, 
     const int centerCz = std::clamp(static_cast<int>(std::floor((focus.z - hdr.minZ) / hdr.chunkSize)),
                                     0, static_cast<int>(hdr.chunksZ) - 1);
 
-    constexpr int kRadius = 2; // 5x5 chunks = 1.28 km x 1.28 km full-detail Real-Seoul OCM4 window!
+    const int radius = settings_.chunkRadius(); // Dynamically 3x3 (<=400m) .. 9x9 (1600m) from Graphics Settings!
     struct PendingChunk { int cx, cz, distSq; std::int64_t key; };
     std::vector<PendingChunk> missing;
-    missing.reserve(25);
+    missing.reserve(static_cast<std::size_t>((2 * radius + 1) * (2 * radius + 1)));
 
-    for (int dz = -kRadius; dz <= kRadius; ++dz) {
+    for (int dz = -radius; dz <= radius; ++dz) {
         const int cz = centerCz + dz;
         if (cz < 0 || cz >= static_cast<int>(hdr.chunksZ)) continue;
-        for (int dx = -kRadius; dx <= kRadius; ++dx) {
+        for (int dx = -radius; dx <= radius; ++dx) {
             const int cx = centerCx + dx;
             if (cx < 0 || cx >= static_cast<int>(hdr.chunksX)) continue;
             const std::int64_t key = (static_cast<std::int64_t>(cz) << 16) | static_cast<std::int64_t>(cx);
@@ -3476,7 +4059,7 @@ void Renderer3D::prepareRealSeoulChunks(VulkanContext& vk, const CityMap& city, 
         });
         // Full synchronous warmup on initial startup or fast-travel teleport; smooth frame-budgeted streaming while driving!
         const bool fullWarmup = realChunks_.empty() || (missing.size() >= 12u);
-        const std::size_t budget = fullWarmup ? missing.size() : std::min<std::size_t>(missing.size(), 2u);
+        const std::size_t budget = fullWarmup ? missing.size() : std::min<std::size_t>(missing.size(), 3u);
         for (std::size_t i = 0; i < budget; ++i) {
             const PendingChunk& pc = missing[i];
             RealChunkGpu ch{};
@@ -3486,11 +4069,12 @@ void Renderer3D::prepareRealSeoulChunks(VulkanContext& vk, const CityMap& city, 
         }
     }
 
-    // LRU evict oldest inactive chunks safely before render passes start (49-chunk 7x7 resident window!)
-    constexpr std::size_t kMaxResidentChunks = 49;
-    if (realChunks_.size() > kMaxResidentChunks) {
+    // LRU evict oldest inactive chunks safely before render passes start (scales with active Render Distance!)
+    const std::size_t maxResidentChunks = std::max<std::size_t>(
+        49u, static_cast<std::size_t>((2 * radius + 3) * (2 * radius + 3)));
+    if (realChunks_.size() > maxResidentChunks) {
         vk.waitIdle();
-        while (realChunks_.size() > kMaxResidentChunks) {
+        while (realChunks_.size() > maxResidentChunks) {
             auto oldestIt = realChunks_.begin();
             for (auto it = realChunks_.begin(); it != realChunks_.end(); ++it) {
                 if (it->second.lastUsedFrame < oldestIt->second.lastUsedFrame) {
@@ -3514,7 +4098,7 @@ void Renderer3D::updateAndDrawRealSeoulChunks(VulkanContext& vk, const CityMap& 
     const int centerCz = std::clamp(static_cast<int>(std::floor((focus.z - hdr.minZ) / hdr.chunkSize)),
                                     0, static_cast<int>(hdr.chunksZ) - 1);
 
-    const int radius = shadowPass ? 1 : 2;
+    const int radius = shadowPass ? ((settings_.shadowQuality >= 4) ? 2 : 1) : settings_.chunkRadius();
     const ColorRGBA kWhite{255, 255, 255, 255};
     const Mat4 id = Mat4::identity();
 
@@ -3531,6 +4115,7 @@ void Renderer3D::updateAndDrawRealSeoulChunks(VulkanContext& vk, const CityMap& 
 
             if (!shadowPass) {
                 drawMesh(vk, ch.groundMesh,      id, kWhite, 0.86f, 0.00f, 0.0f, MatId::SidewalkPavers, false);
+                drawMesh(vk, ch.hillsideMesh,    id, kWhite, 0.90f, 0.00f, 0.0f, MatId::FoliageGrass,   false);
                 drawMesh(vk, ch.roadsMesh,       id, kWhite, 0.56f, 0.00f, 0.0f,
                          ch.usesOcrm ? MatId::RoadPoly : MatId::RoadAsphalt, false);
                 if (ch.usesOcrm) {
@@ -3626,7 +4211,7 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     ubo.lightDirAndShadows[0] = lightDir.x;
     ubo.lightDirAndShadows[1] = lightDir.y;
     ubo.lightDirAndShadows[2] = lightDir.z;
-    ubo.lightDirAndShadows[3] = shadowsActive ? 1.0f : 0.0f;
+    ubo.lightDirAndShadows[3] = shadowsActive ? settings_.shadowPcfTaps() : 0.0f;
 
     ubo.sunColorAndTime[0] = sunCol.x;
     ubo.sunColorAndTime[1] = sunCol.y;
@@ -3659,13 +4244,13 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     ubo.viewPosAndHour[3] = h;
 
     // -----------------------------------------------------------------------
-    // Gather up to 20 Dynamic Local Lights (Muzzle Flash, Flashing Emergency
-    // Sirens, Vehicle Twin Headlight Spotlights, and Warm Seoul Streetlights!)
+    // Gather Dynamic Local Lights capped live by GraphicsSettings::maxLocalLights()!
     // -----------------------------------------------------------------------
+    const int maxLights = std::min(SceneUBO::kMaxLocalLights, settings_.maxLocalLights());
     int nLights = 0;
     auto pushLocalLight = [&](const Vec3& pos, float radius, const Vec3& col,
                               bool isSpot, const Vec3& dir = {0, -1, 0}, float cosOuter = 0.72f) {
-        if (nLights >= SceneUBO::kMaxLocalLights) return;
+        if (nLights >= maxLights) return;
         ubo.lightPosRadius[nLights][0] = pos.x;
         ubo.lightPosRadius[nLights][1] = pos.y;
         ubo.lightPosRadius[nLights][2] = pos.z;
@@ -3686,7 +4271,7 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     const auto& pl = world.player();
 
     // 1. Player Firearm Muzzle Flash Point Light
-    if (pl.muzzleFlashTimer > 0.001f && pl.drivingVehicleId < 0) {
+    if (maxLights > 0 && pl.muzzleFlashTimer > 0.001f && pl.drivingVehicleId < 0) {
         const Vec2 pf = forwardFromHeading(pl.facingYaw);
         const float gy = std::max(city.surfaceHeightAt(pl.pos, pl.posY), pl.posY);
         const float flashK = clampf(pl.muzzleFlashTimer / 0.055f, 0.25f, 1.0f);
@@ -3704,15 +4289,17 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     const float headIntensity = clampf(nightF * 1.15f + wet * 0.45f, 0.0f, 1.25f);
 
     const auto& vehs = world.vehicles();
-    for (int vi = 0; vi < static_cast<int>(vehs.size()); ++vi) {
-        const auto& v = vehs[static_cast<std::size_t>(vi)];
-        if (v.destroyed) continue;
-        const float d2 = (v.pos - focus2D).lengthSq();
-        if (v.sirenActive && d2 < 78.0f * 78.0f) {
-            sirenCands.push_back({v.isPlayerDriving ? -1.0f : d2, vi});
-        }
-        if (headlightsOn && d2 < 68.0f * 68.0f && (v.isPlayerDriving || v.hasNpcDriver || v.sirenActive)) {
-            headCands.push_back({v.isPlayerDriving ? -1.0f : d2, vi});
+    if (maxLights > 0) {
+        for (int vi = 0; vi < static_cast<int>(vehs.size()); ++vi) {
+            const auto& v = vehs[static_cast<std::size_t>(vi)];
+            if (v.destroyed) continue;
+            const float d2 = (v.pos - focus2D).lengthSq();
+            if (v.sirenActive && d2 < 78.0f * 78.0f) {
+                sirenCands.push_back({v.isPlayerDriving ? -1.0f : d2, vi});
+            }
+            if (headlightsOn && d2 < 68.0f * 68.0f && (v.isPlayerDriving || v.hasNpcDriver || v.sirenActive)) {
+                headCands.push_back({v.isPlayerDriving ? -1.0f : d2, vi});
+            }
         }
     }
     std::sort(sirenCands.begin(), sirenCands.end(), [](const LightCand& a, const LightCand& b) { return a.distSq < b.distSq; });
@@ -3729,10 +4316,10 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     }
 
     // 3. Vehicle Twin Front Headlight Spotlights (player vehicle + up to 3 nearest traffic cars!)
-    if (headlightsOn && headIntensity > 0.05f) {
+    if (maxLights > 0 && headlightsOn && headIntensity > 0.05f) {
         std::sort(headCands.begin(), headCands.end(), [](const LightCand& a, const LightCand& b) { return a.distSq < b.distSq; });
         for (int i = 0; i < std::min<int>(4, static_cast<int>(headCands.size())); ++i) {
-            if (nLights + 2 > SceneUBO::kMaxLocalLights) break;
+            if (nLights + 2 > maxLights) break;
             const auto& v = vehs[static_cast<std::size_t>(headCands[static_cast<std::size_t>(i)].idx)];
             const auto& spec = getVehicleSpec(v.kind);
             const float gy = std::max(city.surfaceHeightAt(v.pos, v.posY), v.posY);
@@ -3758,7 +4345,7 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
     }
 
     // 4. Nearest Warm Seoul Streetlights illuminating night & rainy sidewalks/boulevards!
-    if (nightF > 0.16f && nLights < SceneUBO::kMaxLocalLights) {
+    if (nightF > 0.16f && nLights < maxLights) {
         std::vector<LightCand> lampCands;
         lampCands.reserve(24);
         const auto& props = city.streetProps();
@@ -3773,18 +4360,26 @@ SceneUBO Renderer3D::buildSceneUBO(const GameWorld& world, const CameraState& ca
         std::sort(lampCands.begin(), lampCands.end(), [](const LightCand& a, const LightCand& b) { return a.distSq < b.distSq; });
         const float lampGain = clampf((nightF - 0.14f) / 0.65f, 0.0f, 1.0f);
         for (const auto& lc : lampCands) {
-            if (nLights >= SceneUBO::kMaxLocalLights) break;
+            if (nLights >= maxLights) break;
             const auto& p = props[static_cast<std::size_t>(lc.idx)];
             const float propBaseY = (p.baseY > -1e8f) ? p.baseY : city.surfaceHeightAt(p.pos);
             const float gy = propBaseY + p.posY;
-            const float ax = std::cos(p.yaw) * 1.92f;
-            const float az = std::sin(p.yaw) * 1.92f;
-            pushLocalLight({p.pos.x + ax, gy + 6.75f, p.pos.z + az},
+            const float ax = std::cos(p.yaw) * 2.10f;
+            const float az = std::sin(p.yaw) * 2.10f;
+            pushLocalLight({p.pos.x + ax, gy + 7.05f, p.pos.z + az},
                            24.0f, {10.5f * lampGain, 8.2f * lampGain, 5.2f * lampGain}, false);
         }
     }
 
+    const float fogStartM = (settings_.fogMode == 2)
+        ? std::max(80.0f, static_cast<float>(settings_.renderDistanceM) * 0.25f)
+        : std::max(120.0f, static_cast<float>(settings_.renderDistanceM) * 0.42f);
+    const float fogDensScale = (settings_.fogMode == 0) ? 0.0f : ((settings_.fogMode == 2) ? 1.85f : 1.0f);
+
     ubo.localLightCount[0] = static_cast<float>(nLights);
+    ubo.localLightCount[1] = static_cast<float>(settings_.reflectionParallax);
+    ubo.localLightCount[2] = fogStartM;
+    ubo.localLightCount[3] = fogDensScale;
     return ubo;
 }
 
@@ -3907,10 +4502,16 @@ void Renderer3D::drawSeoulTerrainAndRoads(VulkanContext& vk, const GameWorld& wo
             // 3. Real OpenStreetMap Parks (17,931 textured organic grass tris!)
             drawMesh(vk, realParksMesh_,       id, kWhite, 0.88f, 0.00f, 0.0f, MatId::FoliageGrass,   false);
 
-            // 4. Distant Real Seoul Skyline LOD (beyond the active 5x5 high-detail OSM chunks!)
-            for (const auto& ds : distantSkyline_) {
+            // 4. Distant Real Seoul Skyline LOD (begins seamlessly beyond active high-detail OSM chunk ring!)
+            const float skyMinD = (static_cast<float>(settings_.chunkRadius()) + 0.35f) * 256.0f;
+            const float skyMaxD = std::max(skyMinD + 900.0f, static_cast<float>(settings_.renderDistanceM) * 7.2f);
+            const float skyMinSq = skyMinD * skyMinD;
+            const float skyMaxSq = skyMaxD * skyMaxD;
+            const std::size_t skyStride = (settings_.buildingDetail <= 0) ? 3u : ((settings_.buildingDetail == 1) ? 2u : 1u);
+            for (std::size_t si = 0; si < distantSkyline_.size(); si += skyStride) {
+                const auto& ds = distantSkyline_[si];
                 const float dSq = (ds.pos - focus).lengthSq();
-                if (dSq < 600.0f * 600.0f || dSq > 6800.0f * 6800.0f) continue;
+                if (dSq < skyMinSq || dSq > skyMaxSq) continue;
                 drawBox(vk, {ds.pos.x, ds.baseY + ds.height * 0.5f, ds.pos.z},
                         {ds.size.x, ds.height, ds.size.z}, 0.0f, ds.col,
                         ds.isGlass ? 0.22f : 0.78f, ds.isGlass ? 0.35f : 0.04f, 0.0f,
@@ -4289,23 +4890,32 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                                    const Vec2& focus, const Vec3& camPos, bool shadowPass) {
     const CityMap& city = world.city();
     const bool nightMode = world.isNight();
-    const float treeRadius = shadowPass ? 115.0f : 280.0f;
+    static constexpr float kTreeRadii[4] = {135.0f, 200.0f, 280.0f, 360.0f};
+    static constexpr float kPropRadii[4] = {115.0f, 175.0f, 235.0f, 315.0f};
+    static constexpr float kSignRadii[4] = { 95.0f, 135.0f, 180.0f, 235.0f};
+    const int pd = std::clamp(settings_.propDensity, 0, 3);
+    const int bd = std::clamp(settings_.buildingDetail, 0, 3);
+    const float treeRadius = shadowPass ? std::min(settings_.shadowSpanM() * 0.85f, kTreeRadii[pd]) : kTreeRadii[pd];
+    const float propRadius = shadowPass ? std::min(settings_.shadowSpanM() * 0.78f, kPropRadii[pd]) : kPropRadii[pd];
+    const float signRadiusSq = kSignRadii[bd] * kSignRadii[bd];
+    const ColorRGBA kWhite{255, 255, 255, 255};
 
-    // 1. Seoul Street Trees (Organic multi-cluster Ginkgo, Cherry Blossom, Korean Pine!)
+    // 1. Seoul Street Trees (Organic multi-cluster Ginkgo, Cherry Blossom, Korean Pine + Architectural Cast-Iron Grates!)
     visIdxBuf_.clear();
     city.queryTreesInRadius(focus, treeRadius, visIdxBuf_);
     for (int ti : visIdxBuf_) {
+        if (pd == 0 && (ti & 1) != 0) continue; // Low prop density trims 50% of distant foliage for max FPS
         const TreeProp& t = city.trees()[static_cast<std::size_t>(ti)];
         const float y0 = t.baseY;
 
         if (t.inPlanter && !shadowPass) {
-            // Authentic Seoul sidewalk flush granite tree-well frame + dark cast-iron slotted grate!
-            drawBox(vk, {t.pos.x, y0 + 0.045f, t.pos.z}, {1.92f, 0.09f, 1.92f}, 0.0f,
-                    {154, 156, 160, 255}, 0.78f, 0.04f, 0.0f, MatId::BridgeConcrete, false);
-            drawBox(vk, {t.pos.x, y0 + 0.062f, t.pos.z}, {1.62f, 0.06f, 1.62f}, 0.0f,
-                    {54, 58, 64, 255}, 0.42f, 0.68f, 0.0f, MatId::Standard, false);
-            drawBox(vk, {t.pos.x, y0 + 0.072f, t.pos.z}, {0.62f, 0.05f, 0.62f}, 0.0f,
-                    {64, 52, 42, 255}, 0.94f, 0.0f, 0.0f, MatId::Standard, false);
+            // Authentic Seoul sidewalk flush granite tree-well frame + dark cast-iron slotted grate + soil bed!
+            drawBox(vk, {t.pos.x, y0 + 0.035f, t.pos.z}, {1.94f, 0.07f, 1.94f}, 0.0f,
+                    {156, 158, 162, 255}, 0.76f, 0.04f, 0.0f, MatId::BridgeConcrete, false);
+            drawBox(vk, {t.pos.x, y0 + 0.052f, t.pos.z}, {1.62f, 0.05f, 1.62f}, 0.0f,
+                    {50, 54, 62, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, false);
+            drawBox(vk, {t.pos.x, y0 + 0.062f, t.pos.z}, {0.64f, 0.045f, 0.64f}, 0.0f,
+                    {68, 54, 42, 255}, 0.94f, 0.0f, 0.0f, MatId::Standard, false);
         }
         // Multi-branch flared bark trunk with natural yaw variation per tree
         const float treeYaw = std::fmod(std::abs(t.pos.x * 0.17f + t.pos.z * 0.31f), kTwoPi);
@@ -4339,13 +4949,17 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
         }
     }
 
-    // 2. Properly Oriented Seoul Street Props (Streetlamps, 4-Aspect Korean Traffic Lights, Bus Shelters, Subway Entrances!)
-    const float propRadius = shadowPass ? 95.0f : 220.0f;
+    // 2. High-Detail Sculpted Korean Street Architecture & Furniture (v6.2.0)
     const int sigPhase = static_cast<int>(std::fmod(world.elapsedTime(), 18.0f));
     visIdxBuf_.clear();
     city.queryPropsInRadius(focus, propRadius, visIdxBuf_);
     for (int pi : visIdxBuf_) {
         const StreetProp& p = city.streetProps()[static_cast<std::size_t>(pi)];
+        if (pd == 0 && (p.kind == StreetPropKind::Bench || p.kind == StreetPropKind::TrashBin ||
+                        p.kind == StreetPropKind::Bollard || p.kind == StreetPropKind::CafeTable) &&
+            (pi & 1) != 0) {
+            continue;
+        }
         const float propBaseY = (p.baseY > -1e8f) ? p.baseY : city.surfaceHeightAt(p.pos);
         const float gy = propBaseY + p.posY;
         const float distSq = (Vec3{p.pos.x, gy, p.pos.z} - camPos).lengthSq();
@@ -4368,7 +4982,7 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
         switch (p.kind) {
             case StreetPropKind::StreetLight: {
                 if (p.variant == 3u) {
-                    // Authentic Korean Expressway 10.2m Galvanized Silver Cobra-Head Highway Lamp Pole (NO street flags!)
+                    // Authentic Korean Expressway 10.2m Galvanized Silver Cobra-Head Highway Lamp Pole
                     const ColorRGBA kGalv{184, 190, 198, 255};
                     drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.38f, 0.90f, 0.38f),
                              {152, 156, 162, 255}, 0.78f, 0.08f, 0.0f, MatId::BridgeConcrete, shadowPass);
@@ -4377,99 +4991,88 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                     drawMesh(vk, cubeMesh_, baseM * Mat4::translation(1.45f, 10.05f, 0.0f) * Mat4::scale(3.10f, 0.14f, 0.20f),
                              kGalv, 0.28f, 0.82f, 0.0f, MatId::Standard, shadowPass);
                     if (!shadowPass) {
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.75f, 9.90f, 0.0f) * Mat4::scale(0.86f, 0.14f, 0.36f),
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.75f, 9.90f, 0.0f) * Mat4::scale(0.86f, 0.12f, 0.36f),
                                  {246, 248, 255, 255}, 0.14f, 0.0f, nightMode ? 3.0f : 0.22f, MatId::EmissiveGlow, false);
                     }
                     break;
                 }
-                // Detailed Seoul city LED streetlamp: cast pedestal base, tapered charcoal pole, curved luminaire arm & optional boulevard banner!
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.32f, 0.72f, 0.32f),
-                         {56, 62, 70, 255}, 0.42f, 0.68f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.17f, 7.25f, 0.17f),
-                         {76, 82, 92, 255}, 0.36f, 0.74f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(1.10f, 7.16f, 0.0f) * Mat4::scale(2.35f, 0.12f, 0.18f),
-                         {82, 88, 98, 255}, 0.36f, 0.74f, 0.0f, MatId::Standard, shadowPass);
+                // Sculpted Seoul curved-gooseneck LED streetlamp (octagonal plinth + tapered mast + arched arm + cobra housing!)
+                drawMesh(vk, seoulLampMesh_, baseM, kWhite, 0.34f, 0.74f, 0.0f, MatId::Standard, shadowPass);
                 if (!shadowPass) {
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.02f, 7.04f, 0.0f) * Mat4::scale(0.68f, 0.12f, 0.30f),
-                             {255, 240, 206, 255}, 0.15f, 0.0f, nightMode ? 2.6f : 0.2f, MatId::EmissiveGlow, false);
-                    // Signature Seoul boulevard vertical festival/district street banner hanging off major avenue poles!
-                    if (p.variant == 2u && distSq < 145.0f * 145.0f) {
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.24f, 7.09f, 0.0f) * Mat4::scale(0.62f, 0.06f, 0.26f),
+                             {255, 242, 212, 255}, 0.14f, 0.0f, nightMode ? 2.7f : 0.22f, MatId::EmissiveGlow, false);
+                    // Signature Seoul boulevard vertical district street banner with brushed stainless ring mounts!
+                    if (p.variant == 2u && distSq < 155.0f * 155.0f) {
                         const ColorRGBA kBanners[3] = {{34, 96, 178, 255}, {28, 134, 118, 255}, {182, 68, 72, 255}};
                         const ColorRGBA bc = kBanners[static_cast<unsigned>(std::abs(static_cast<int>(p.pos.x))) % 3u];
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.42f, 4.95f, 0.0f) * Mat4::scale(0.76f, 0.05f, 0.05f),
-                                 {168, 174, 182, 255}, 0.35f, 0.75f, 0.0f, MatId::Standard, false);
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.42f, 3.65f, 0.0f) * Mat4::scale(0.76f, 0.05f, 0.05f),
-                                 {168, 174, 182, 255}, 0.35f, 0.75f, 0.0f, MatId::Standard, false);
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.44f, 4.30f, 0.0f) * Mat4::scale(0.66f, 1.24f, 0.03f),
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.42f, 4.95f, 0.0f) * Mat4::scale(0.76f, 0.045f, 0.045f),
+                                 {178, 184, 192, 255}, 0.30f, 0.78f, 0.0f, MatId::Standard, false);
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.42f, 3.65f, 0.0f) * Mat4::scale(0.76f, 0.045f, 0.045f),
+                                 {178, 184, 192, 255}, 0.30f, 0.78f, 0.0f, MatId::Standard, false);
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.44f, 4.30f, 0.0f) * Mat4::scale(0.64f, 1.24f, 0.025f),
                                  bc, 0.78f, 0.0f, 0.0f, MatId::FabricCloth, false);
                     }
                 }
                 break;
             }
             case StreetPropKind::TrafficLight: {
-                // Authentic Korean horizontal 4-aspect cantilevered traffic signal extending OVER the intersection (+X local)!
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.36f, 0.55f, 0.36f),
-                         {48, 52, 58, 255}, 0.42f, 0.68f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.24f, 6.2f, 0.24f),
-                         {52, 56, 64, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.6f, 5.95f, 0.0f) * Mat4::scale(5.3f, 0.18f, 0.18f),
-                         {56, 60, 68, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, shadowPass);
-                // Horizontal black Korean 4-lamp signal housing + white border visor
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(3.5f, 5.65f, 0.0f) * Mat4::scale(1.92f, 0.52f, 0.36f),
-                         {24, 26, 30, 255}, 0.42f, 0.25f, 0.0f, MatId::Standard, shadowPass);
+                // Sculpted Korean 4-Aspect Horizontal Cantilever Traffic Signal + Sun Visors (차양막) + Street-Name Blade + Ped Signal!
+                drawMesh(vk, koreanSignalMesh_, baseM, kWhite, 0.36f, 0.62f, 0.0f, MatId::Standard, shadowPass);
                 if (!shadowPass) {
                     const bool controlsNsRoad = (std::abs(std::cos(p.yaw)) >= std::abs(std::sin(p.yaw)));
                     const int localPhase = controlsNsRoad ? sigPhase : ((sigPhase + 9) % 18);
-                    const bool isGreen = (localPhase < 7);
-                    const bool isAmber = (localPhase >= 7 && localPhase < 9);
-                    const bool isRed   = (localPhase >= 9);
-                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(2.85f, 5.65f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.38f),
-                             isRed ? ColorRGBA{255, 48, 48, 255} : ColorRGBA{58, 20, 20, 255},
-                             0.15f, 0.0f, isRed ? 2.6f : 0.0f, isRed ? MatId::EmissiveGlow : MatId::Standard, false);
-                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.45f, 5.65f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.38f),
-                             isAmber ? ColorRGBA{255, 198, 36, 255} : ColorRGBA{58, 48, 16, 255},
-                             0.15f, 0.0f, isAmber ? 2.4f : 0.0f, isAmber ? MatId::EmissiveGlow : MatId::Standard, false);
-                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(4.05f, 5.65f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.38f),
-                             isGreen ? ColorRGBA{42, 242, 118, 255} : ColorRGBA{18, 52, 32, 255},
-                             0.15f, 0.0f, isGreen ? 2.6f : 0.0f, isGreen ? MatId::EmissiveGlow : MatId::Standard, false);
-                    // Pedestrian crossing signal box + glowing Walk/Don't Walk indicator at 3.1m height!
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.15f, 0.24f) * Mat4::scale(0.34f, 0.72f, 0.24f),
-                             {26, 28, 32, 255}, 0.42f, 0.20f, 0.0f, MatId::Standard, false);
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, isRed ? 2.98f : 3.32f, 0.37f) * Mat4::scale(0.20f, 0.20f, 0.04f),
-                             isRed ? ColorRGBA{46, 242, 124, 255} : ColorRGBA{255, 58, 48, 255},
-                             0.15f, 0.0f, 2.0f, MatId::EmissiveGlow, false);
+                    const bool isGreen     = (localPhase < 6);
+                    const bool isLeftArrow = (localPhase >= 5 && localPhase < 7);
+                    const bool isAmber     = (localPhase >= 7 && localPhase < 9);
+                    const bool isRed       = (localPhase >= 9);
+
+                    // 4 Korean horizontal signal lenses inside sculpted hoods: Red | Amber | Left-Arrow | Green
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(2.80f, 5.56f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.36f),
+                             isRed ? ColorRGBA{255, 48, 48, 255} : ColorRGBA{52, 18, 18, 255},
+                             0.14f, 0.0f, isRed ? 2.6f : 0.0f, isRed ? MatId::EmissiveGlow : MatId::Standard, false);
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.30f, 5.56f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.36f),
+                             isAmber ? ColorRGBA{255, 198, 36, 255} : ColorRGBA{54, 44, 14, 255},
+                             0.14f, 0.0f, isAmber ? 2.4f : 0.0f, isAmber ? MatId::EmissiveGlow : MatId::Standard, false);
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.80f, 5.56f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.36f),
+                             isLeftArrow ? ColorRGBA{38, 245, 138, 255} : ColorRGBA{16, 46, 30, 255},
+                             0.14f, 0.0f, isLeftArrow ? 2.5f : 0.0f, isLeftArrow ? MatId::EmissiveGlow : MatId::Standard, false);
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(4.30f, 5.56f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.36f),
+                             isGreen ? ColorRGBA{42, 242, 118, 255} : ColorRGBA{16, 48, 28, 255},
+                             0.14f, 0.0f, isGreen ? 2.6f : 0.0f, isGreen ? MatId::EmissiveGlow : MatId::Standard, false);
+                    // Pedestrian Walk / Don't Walk LED panels inside pole-mounted pedestrian signal box
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.31f, 0.365f) * Mat4::scale(0.22f, 0.22f, 0.03f),
+                             !isRed ? ColorRGBA{255, 58, 48, 255} : ColorRGBA{48, 16, 16, 255},
+                             0.15f, 0.0f, !isRed ? 2.1f : 0.0f, !isRed ? MatId::EmissiveGlow : MatId::Standard, false);
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.97f, 0.365f) * Mat4::scale(0.22f, 0.22f, 0.03f),
+                             isRed ? ColorRGBA{46, 242, 124, 255} : ColorRGBA{16, 46, 28, 255},
+                             0.15f, 0.0f, isRed ? 2.1f : 0.0f, isRed ? MatId::EmissiveGlow : MatId::Standard, false);
                 }
                 break;
             }
             case StreetPropKind::BusShelter: {
-                // Seoul Bus Shelter: Glass back wall (-Z) on building side, Open boarding side (+Z) facing ROAD + glowing BIS totem!
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 2.62f, 0) * Mat4::scale(4.6f, 0.18f, 1.65f),
-                         {42, 48, 58, 255}, 0.34f, 0.68f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 2.76f, 0.72f) * Mat4::scale(4.5f, 0.26f, 0.14f),
-                         {28, 108, 222, 255}, 0.25f, 0.15f, nightMode ? 1.1f : 0.15f,
-                         nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 1.30f, -0.72f) * Mat4::scale(4.2f, 2.45f, 0.10f),
-                         {74, 118, 152, 255}, 0.12f, 0.28f, 0.0f, MatId::GlassSkyscraper, shadowPass);
-                for (float sx : {-2.05f, 2.05f}) {
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx, 1.30f, -0.68f) * Mat4::scale(0.14f, 2.60f, 0.14f),
-                             {48, 54, 64, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, shadowPass);
-                }
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.52f, -0.25f) * Mat4::scale(3.0f, 0.12f, 0.45f),
-                         {136, 96, 60, 255}, 0.75f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
+                // Sculpted Seoul Design Bus Shelter: cantilevered steel ribs, tempered skylight & windbreak glass,
+                // backlit poster lightbox, wood-slat armrest bench & glowing Korean BIT arrival totem!
+                drawMesh(vk, busShelterFrameMesh_, baseM, kWhite, 0.38f, 0.56f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, busShelterGlassMesh_, baseM, kWhite, 0.08f, 0.32f, 0.0f, MatId::GlassSkyscraper, shadowPass);
                 if (!shadowPass) {
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.65f, 1.35f, 0.15f) * Mat4::scale(0.64f, 2.70f, 0.24f),
-                             {38, 44, 54, 255}, 0.34f, 0.65f, 0.0f, MatId::Standard, false);
-                    drawLocalSign({2.65f, 1.96f, 0.285f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f},
-                                  0.60f, 0.42f, 56, nightMode ? 0.62f : 0.28f);
-                    drawLocalSign({2.65f, 1.96f, 0.015f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f},
-                                  0.60f, 0.42f, 56, nightMode ? 0.62f : 0.28f);
+                    if (nightMode) {
+                        // Subtle warm backlit poster lightbox glow inside shelter at night
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-1.66f, 1.34f, -0.22f) * Mat4::scale(0.02f, 1.88f, 0.90f),
+                                 {246, 242, 232, 255}, 0.22f, 0.0f, 0.85f, MatId::EmissiveGlow, false);
+                    }
+                    if (distSq < signRadiusSq) {
+                        drawLocalSign({2.68f, 1.96f, 0.295f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f},
+                                      0.56f, 0.44f, 56, nightMode ? 0.68f : 0.28f);
+                        drawLocalSign({2.68f, 1.96f, 0.025f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f},
+                                      0.56f, 0.44f, 56, nightMode ? 0.68f : 0.28f);
+                    }
                 }
                 break;
             }
             case StreetPropKind::SubwayEntrance: {
-                // Authentic Seoul Metro Glass-Canopy Subway Entrance + District-Matched 4K Hangul Station Signboards!
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.55f, 0.0f) * Mat4::scale(5.4f, 0.20f, 2.6f),
-                         {52, 58, 68, 255}, 0.30f, 0.74f, 0.0f, MatId::Standard, shadowPass);
+                // Sculpted Seoul Metro Vaulted Glass-Steel Canopy + Granite Stairs + Stainless Handrails + District Hangul Sign!
+                drawMesh(vk, subwayCanopyFrameMesh_, baseM, kWhite, 0.42f, 0.54f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, subwayCanopyGlassMesh_, baseM, kWhite, 0.08f, 0.34f, 0.0f, MatId::GlassSkyscraper, shadowPass);
                 static constexpr ColorRGBA kMetroLines[8] = {
                     { 42, 168,  78, 255}, // 48: Line 2 Green (강남역)
                     { 42, 168,  78, 255}, // 49: Line 2 Green (삼성역)
@@ -4495,28 +5098,24 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                         break;
                 }
                 const ColorRGBA lineCol = kMetroLines[metroIdx];
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.86f, 0.0f) * Mat4::scale(5.5f, 0.56f, 2.7f),
-                         lineCol, 0.24f, 0.18f, nightMode ? 0.45f : 0.06f, MatId::Standard, false);
-                if (!shadowPass && distSq < 160.0f * 160.0f) {
-                    const int metroSlot = 48 + static_cast<int>(metroIdx);
-                    const float mEm = nightMode ? 0.55f : 0.10f;
-                    drawLocalSign({0.0f, 2.86f,  1.38f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.72f, metroSlot, mEm);
-                    drawLocalSign({0.0f, 2.86f, -1.38f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.72f, metroSlot, mEm);
-                }
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.25f, -1.20f) * Mat4::scale(5.2f, 2.4f, 0.10f),
-                         {78, 128, 162, 255}, 0.12f, 0.28f, 0.0f, MatId::GlassSkyscraper, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.25f,  1.20f) * Mat4::scale(5.2f, 2.4f, 0.10f),
-                         {78, 128, 162, 255}, 0.12f, 0.28f, 0.0f, MatId::GlassSkyscraper, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-1.0f, 0.35f, 0.0f) * Mat4::scale(3.0f, 0.65f, 2.1f),
-                         {32, 36, 42, 255}, 0.80f, 0.0f, 0.0f, MatId::Standard, false);
-                drawMesh(vk, cylMesh_, baseM * Mat4::translation(3.15f, 0.0f, 0.0f) * Mat4::scale(0.14f, 4.4f, 0.14f),
-                         {64, 70, 80, 255}, 0.34f, 0.72f, 0.0f, MatId::Standard, shadowPass);
+                // Illuminated Seoul Metro line header fascia flanking the vaulted glass canopy
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.54f,  1.34f) * Mat4::scale(5.48f, 0.44f, 0.12f),
+                         lineCol, 0.24f, 0.16f, nightMode ? 0.45f : 0.06f, MatId::Standard, false);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.54f, -1.34f) * Mat4::scale(5.48f, 0.44f, 0.12f),
+                         lineCol, 0.24f, 0.16f, nightMode ? 0.45f : 0.06f, MatId::Standard, false);
                 if (!shadowPass) {
-                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.15f, 4.45f, 0.0f) * Mat4::scale(0.95f, 0.95f, 0.26f),
-                             lineCol, 0.22f, 0.10f, nightMode ? 1.55f : 0.25f,
+                    if (distSq < signRadiusSq) {
+                        const int metroSlot = 48 + static_cast<int>(metroIdx);
+                        const float mEm = nightMode ? 0.58f : 0.10f;
+                        drawLocalSign({0.0f, 2.54f,  1.42f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.68f, metroSlot, mEm);
+                        drawLocalSign({0.0f, 2.54f, -1.42f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.68f, metroSlot, mEm);
+                    }
+                    // Glowing circular Seoul Metro Line lollipop totem emblem!
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.22f, 4.45f, 0.0f) * Mat4::scale(0.92f, 0.92f, 0.22f),
+                             lineCol, 0.20f, 0.12f, nightMode ? 1.55f : 0.24f,
                              nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
-                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.15f, 4.45f, 0.0f) * Mat4::scale(0.42f, 0.42f, 0.30f),
-                             {246, 248, 252, 255}, 0.25f, 0.0f, nightMode ? 1.3f : 0.15f,
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.22f, 4.45f, 0.0f) * Mat4::scale(0.42f, 0.42f, 0.26f),
+                             {246, 248, 252, 255}, 0.22f, 0.0f, nightMode ? 1.3f : 0.14f,
                              nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
                 }
                 break;
@@ -4538,7 +5137,6 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                     drawMesh(vk, cylMesh_, baseM * Mat4::translation(sx, 0.0f, 0.0f) *
                              Mat4::scale(isExpresswayGantry ? 0.48f : 0.40f, portalH, isExpresswayGantry ? 0.48f : 0.40f),
                              kSteel, 0.32f, 0.78f, 0.0f, MatId::Standard, shadowPass);
-                    // Concrete pillar safety pedestal (+ yellow highway impact collar on expressways!)
                     drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx, 0.46f, 0.0f) * Mat4::scale(0.82f, 0.92f, 0.82f),
                              {156, 160, 166, 255}, 0.80f, 0.04f, 0.0f, MatId::BridgeConcrete, false);
                     if (isExpresswayGantry && !shadowPass) {
@@ -4551,7 +5149,6 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, barBotY, 0.0f) * Mat4::scale(spanFull - 0.2f, 0.22f, 0.16f),
                          kSteel, 0.32f, 0.78f, 0.0f, MatId::Standard, shadowPass);
                 if (isExpresswayGantry) {
-                    // Heavy steel highway truss vertical struts between upper & lower chords
                     for (float tx = -spanHalf + 1.8f; tx < spanHalf - 1.2f; tx += 2.6f) {
                         drawMesh(vk, cubeMesh_, baseM * Mat4::translation(tx, 0.5f * (barTopY + barBotY), 0.0f) *
                                  Mat4::scale(0.12f, barTopY - barBotY, 0.12f),
@@ -4561,30 +5158,28 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
 
                 int slotL = 8, slotR = 9;
                 if (isExpresswayGantry) {
-                    // GREEN Korean Expressway 4K signs (Slots 0..7) matched to real Seoul expressway corridors!
                     if (p.pos.x > 2100.0f && p.pos.x < 3300.0f && p.pos.z > 600.0f) {
-                        slotL = 1; slotR = 7; // 경부고속도로 (1) + 반포IC·서초IC (1)
+                        slotL = 1; slotR = 7;
                     } else if (p.pos.x > 4600.0f && p.pos.z > 200.0f) {
-                        slotL = 4; slotR = 5; // 분당수서로 (61) + 동부간선로 (61)
+                        slotL = 4; slotR = 5;
                     } else if (p.pos.z > 150.0f) {
-                        slotL = 0; slotR = 6; // 올림픽대로 잠실·여의도 (88) + 반포·공항 (88)
+                        slotL = 0; slotR = 6;
                     } else if (p.pos.z > -1600.0f) {
-                        slotL = 2; slotR = 3; // 강변북로 (70) + 내부순환로 (30)
+                        slotL = 2; slotR = 3;
                     } else {
-                        slotL = 3; slotR = 5; // 내부순환로 (30) + 동부간선로 (61)
+                        slotL = 3; slotR = 5;
                     }
                 } else {
-                    // ROYAL-BLUE Korean City Boulevard 4K signs (Slots 8..15) matched to real Seoul districts!
                     switch (city.districtAtWorld(p.pos)) {
-                        case DistrictType::GangnamTeheran:     slotL =  8; slotR = 13; break; // 테헤란로 + 강남대로
-                        case DistrictType::SeochoBanpo:        slotL = 10; slotR = 13; break; // 반포대로 + 강남대로
+                        case DistrictType::GangnamTeheran:     slotL =  8; slotR = 13; break;
+                        case DistrictType::SeochoBanpo:        slotL = 10; slotR = 13; break;
                         case DistrictType::GwanghwamunPalace:
-                        case DistrictType::MyeongdongCityHall: slotL =  9; slotR = 14; break; // 세종대로 + 종로·을지로
-                        case DistrictType::JongnoCheonggye:    slotL = 14; slotR =  9; break; // 종로·을지로 + 세종대로
-                        case DistrictType::YeouidoFinance:     slotL = 12; slotR = 10; break; // 여의대로 + 반포대로
+                        case DistrictType::MyeongdongCityHall: slotL =  9; slotR = 14; break;
+                        case DistrictType::JongnoCheonggye:    slotL = 14; slotR =  9; break;
+                        case DistrictType::YeouidoFinance:     slotL = 12; slotR = 10; break;
                         case DistrictType::HongdaeMapo:
-                        case DistrictType::SeongsuKonkuk:      slotL = 15; slotR = 14; break; // 양화로·성수 + 종로·을지로
-                        case DistrictType::JamsilSongpa:       slotL = 11; slotR =  8; break; // 올림픽로 + 테헤란로
+                        case DistrictType::SeongsuKonkuk:      slotL = 15; slotR = 14; break;
+                        case DistrictType::JamsilSongpa:       slotL = 11; slotR =  8; break;
                         default:                               slotL =  8; slotR =  9; break;
                     }
                 }
@@ -4606,21 +5201,8 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 break;
             }
             case StreetPropKind::PedGuardrail: {
-                // Sleek 7.5m modular Korean dark-graphite pedestrian safety guardrail hugging curved boulevard curbs!
-                const ColorRGBA kRailCol{64, 70, 80, 255};
-                const ColorRGBA kReflect{238, 242, 246, 255};
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.88f, 0.0f) * Mat4::scale(7.5f, 0.075f, 0.075f),
-                         kRailCol, 0.34f, 0.74f, 0.0f, MatId::Standard, false);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.50f, 0.0f) * Mat4::scale(7.5f, 0.050f, 0.050f),
-                         kRailCol, 0.34f, 0.74f, 0.0f, MatId::Standard, false);
-                for (float gx = -3.6f; gx <= 3.7f; gx += 2.4f) {
-                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(gx, -0.24f, 0.0f) * Mat4::scale(0.085f, 1.16f, 0.085f),
-                             kRailCol, 0.34f, 0.74f, 0.0f, MatId::Standard, false);
-                    if (!shadowPass) {
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(gx, 0.78f, 0.0f) * Mat4::scale(0.10f, 0.06f, 0.10f),
-                                 kReflect, 0.20f, 0.10f, nightMode ? 0.45f : 0.0f, MatId::Standard, false);
-                    }
-                }
+                // Sculpted 7.5m Seoul Design charcoal-bronze pedestrian safety guardrail with 24 slender vertical balusters!
+                drawMesh(vk, pedGuardrailMesh_, baseM, kWhite, 0.34f, 0.72f, 0.0f, MatId::Standard, shadowPass);
                 break;
             }
             case StreetPropKind::ShopSign: {
@@ -4629,19 +5211,16 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                     ? static_cast<int>(p.variant)
                     : (16 + (static_cast<int>(p.variant) % 32));
                 const float sEm = nightMode ? 0.65f : 0.10f;
-                // Sleek brushed dark-aluminum sign housing mounted at 3.85m (above 1F glass storefront)
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.85f, 0.14f) * Mat4::scale(4.45f, 1.02f, 0.26f),
                          {38, 42, 48, 255}, 0.36f, 0.68f, 0.0f, MatId::Standard, shadowPass);
-                if (!shadowPass && distSq < 165.0f * 165.0f) {
+                if (!shadowPass && distSq < signRadiusSq) {
                     drawLocalSign({0.0f, 3.85f, 0.295f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, 4.30f, 0.90f, signSlot, sEm);
                 }
-                // Architectural projecting 1F entrance canopy / awning directly beneath the signboard
                 static constexpr ColorRGBA kAwnCols[4] = {
                     {38, 66, 98, 255}, {44, 86, 68, 255}, {126, 86, 54, 255}, {52, 56, 66, 255}
                 };
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.12f, 0.56f) * Mat4::scale(4.65f, 0.14f, 1.15f),
                          kAwnCols[signSlot & 3], 0.62f, 0.18f, 0.0f, MatId::Standard, shadowPass);
-                // Tasteful dark-framed Korean projecting vertical blade sign (돌출 간판) matching shop brand color!
                 static constexpr ColorRGBA kBladeCols[6] = {
                     {48, 92, 168, 255}, {36, 128, 86, 255}, {176, 68, 48, 255},
                     {192, 124, 38, 255}, {76, 56, 138, 255}, {38, 118, 136, 255}
@@ -4655,72 +5234,57 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 break;
             }
             case StreetPropKind::UtilityBox: {
-                // Authentic KEPCO / Seoul traffic-signal steel control cabinet on raised concrete plinth!
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.16f, 0.0f) * Mat4::scale(1.18f, 0.32f, 0.76f),
-                         {152, 156, 162, 255}, 0.84f, 0.02f, 0.0f, MatId::BridgeConcrete, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.96f, 0.0f) * Mat4::scale(1.06f, 1.32f, 0.66f),
-                         {122, 134, 128, 255}, 0.48f, 0.45f, 0.0f, MatId::Standard, shadowPass);
-                if (!shadowPass) {
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.42f, 0.34f) * Mat4::scale(0.84f, 0.12f, 0.03f),
-                             {228, 178, 42, 255}, 0.35f, 0.10f, 0.0f, MatId::Standard, false);
-                }
+                // Sculpted KEPCO louvered steel street transformer / traffic-signal control cabinet on concrete plinth!
+                drawMesh(vk, utilityBoxMesh_, baseM, kWhite, 0.48f, 0.42f, 0.0f, MatId::Standard, shadowPass);
                 break;
             }
             case StreetPropKind::StreetKiosk: {
-                // Authentic Seoul boulevard street kiosk (가로판매대): dark steel booth, counter shelf & glowing display window!
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.15f, 0.0f) * Mat4::scale(2.85f, 2.30f, 1.75f),
-                         {48, 54, 64, 255}, 0.44f, 0.56f, 0.0f, MatId::Standard, shadowPass);
-                // Sloped awning roof overhang
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.42f, 0.22f) * Mat4::scale(3.15f, 0.22f, 2.25f),
-                         {34, 42, 54, 255}, 0.38f, 0.62f, 0.0f, MatId::Standard, shadowPass);
-                // Warm lit display window + serving counter ledge facing road (+Z)
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.42f, 0.89f) * Mat4::scale(2.25f, 0.96f, 0.06f),
-                         {248, 224, 176, 255}, 0.18f, 0.10f, nightMode ? 1.15f : 0.12f,
+                // Authentic Seoul boulevard street kiosk (가로판매대): dark aluminum booth, counter shelf, mullions & warm window!
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.14f, 0.0f) * Mat4::scale(2.85f, 2.28f, 1.75f),
+                         {48, 54, 64, 255}, 0.42f, 0.58f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.40f, 0.24f) * Mat4::scale(3.20f, 0.18f, 2.30f),
+                         {34, 42, 54, 255}, 0.36f, 0.64f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.52f, 0.24f) * Mat4::scale(3.05f, 0.08f, 2.15f),
+                         {64, 128, 186, 255}, 0.30f, 0.22f, nightMode ? 0.45f : 0.0f, MatId::Standard, false);
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.44f, 0.89f) * Mat4::scale(2.26f, 0.96f, 0.06f),
+                         {248, 224, 176, 255}, 0.16f, 0.10f, nightMode ? 1.15f : 0.12f,
                          nightMode ? MatId::EmissiveGlow : MatId::GlassSkyscraper, false);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.90f, 0.98f) * Mat4::scale(2.40f, 0.10f, 0.32f),
-                         {172, 176, 184, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
+                for (float mx : {-0.72f, 0.0f, 0.72f}) {
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(mx, 1.44f, 0.92f) * Mat4::scale(0.05f, 0.98f, 0.04f),
+                             {38, 44, 52, 255}, 0.34f, 0.72f, 0.0f, MatId::Standard, false);
+                }
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.92f, 0.98f) * Mat4::scale(2.44f, 0.09f, 0.34f),
+                         {176, 182, 190, 255}, 0.32f, 0.76f, 0.0f, MatId::Standard, false);
                 break;
             }
             case StreetPropKind::DdareungiRack: {
-                // Iconic Seoul Public Bike-Share Station (따릉이 거치대): emerald/white docking bar + 4 parked Seoul bicycles!
-                const ColorRGBA kSeoulGreen{42, 176, 108, 255};
-                const ColorRGBA kBikeWhite{238, 242, 246, 255};
-                const ColorRGBA kTireDark{28, 30, 34, 255};
-                // Ground docking base rail + emerald kiosk post
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.07f, -0.45f) * Mat4::scale(3.8f, 0.14f, 0.24f),
-                         {192, 198, 204, 255}, 0.42f, 0.65f, 0.0f, MatId::Standard, false);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-2.05f, 0.92f, -0.35f) * Mat4::scale(0.32f, 1.84f, 0.22f),
-                         kSeoulGreen, 0.32f, 0.25f, nightMode ? 0.25f : 0.0f, MatId::Standard, shadowPass);
-                // 4 parked 따릉이 bikes aligned neatly in the rack!
-                for (int bi = 0; bi < 4; ++bi) {
-                    const float bx = -1.35f + static_cast<float>(bi) * 0.90f;
-                    // Front & rear wheels
-                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(bx, 0.34f, -0.36f) * Mat4::rotationAxis({0, 0, 1}, kHalfPi) * Mat4::scale(0.32f, 0.07f, 0.32f),
-                             kTireDark, 0.85f, 0.0f, 0.0f, MatId::Standard, false);
-                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(bx, 0.34f,  0.54f) * Mat4::rotationAxis({0, 0, 1}, kHalfPi) * Mat4::scale(0.32f, 0.07f, 0.32f),
-                             kTireDark, 0.85f, 0.0f, 0.0f, MatId::Standard, false);
-                    // White-and-green step-through frame + seat + handlebar + front green basket!
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(bx, 0.64f, 0.08f) * Mat4::scale(0.08f, 0.10f, 0.92f),
-                             kBikeWhite, 0.30f, 0.45f, 0.0f, MatId::Standard, false);
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(bx, 0.94f, -0.26f) * Mat4::scale(0.46f, 0.06f, 0.06f),
-                             {52, 56, 62, 255}, 0.40f, 0.70f, 0.0f, MatId::Standard, false);
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(bx, 0.84f, -0.44f) * Mat4::scale(0.30f, 0.24f, 0.24f),
-                             kSeoulGreen, 0.45f, 0.10f, 0.0f, MatId::Standard, false);
+                // Hyper-Detailed Sculpted 따릉이 Seoul Public Bike-Share Station (4 spoked step-through bikes + QR kiosk!)
+                drawMesh(vk, ddareungiRackMesh_, baseM, kWhite, 0.36f, 0.48f, 0.0f, MatId::Standard, shadowPass);
+                if (!shadowPass) {
+                    // Glowing mint-white touchscreen panel on the 따릉이 QR rental kiosk!
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-2.18f, 1.28f, -0.305f) * Mat4::scale(0.22f, 0.33f, 0.015f),
+                             {156, 242, 206, 255}, 0.18f, 0.0f, nightMode ? 1.35f : 0.28f, MatId::EmissiveGlow, false);
                 }
                 break;
             }
             case StreetPropKind::CafeTable: {
-                // Korean street-side cafe table + canvas sun umbrella + 2 bistro chairs!
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.08f, 2.35f, 0.08f),
-                         {64, 68, 76, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cylMesh_, baseM * Mat4::translation(0.0f, 0.74f, 0.0f) * Mat4::scale(0.95f, 0.07f, 0.95f),
+                // Korean street-side cafe table + canvas sun umbrella + 2 bistro chairs with backrests!
+                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.46f, 0.05f, 0.46f),
+                         {52, 56, 64, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.075f, 2.38f, 0.075f),
+                         {64, 68, 76, 255}, 0.34f, 0.74f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, cylMesh_, baseM * Mat4::translation(0.0f, 0.74f, 0.0f) * Mat4::scale(0.96f, 0.06f, 0.96f),
                          {166, 122, 78, 255}, 0.62f, 0.05f, 0.0f, MatId::WoodBark, shadowPass);
-                const ColorRGBA umbCol = ((p.variant & 1u) == 0u) ? ColorRGBA{228, 222, 206, 255} : ColorRGBA{46, 98, 74, 255};
-                drawMesh(vk, coneMesh_, baseM * Mat4::translation(0.0f, 2.15f, 0.0f) * Mat4::scale(2.25f, 0.48f, 2.25f),
+                const ColorRGBA umbCol = ((p.variant & 1u) == 0u) ? ColorRGBA{232, 226, 212, 255} : ColorRGBA{46, 98, 74, 255};
+                drawMesh(vk, coneMesh_, baseM * Mat4::translation(0.0f, 2.15f, 0.0f) * Mat4::scale(2.28f, 0.48f, 2.28f),
                          umbCol, 0.76f, 0.0f, 0.0f, MatId::FabricCloth, shadowPass);
                 for (float sx : {-0.78f, 0.78f}) {
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx, 0.44f, 0.0f) * Mat4::scale(0.42f, 0.08f, 0.42f),
-                             {72, 76, 84, 255}, 0.46f, 0.55f, 0.0f, MatId::Standard, false);
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx, 0.44f, 0.0f) * Mat4::scale(0.42f, 0.06f, 0.42f),
+                             {156, 114, 74, 255}, 0.70f, 0.05f, 0.0f, MatId::WoodBark, false);
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(sx * 1.24f, 0.68f, 0.0f) * Mat4::scale(0.05f, 0.42f, 0.40f),
+                             {58, 62, 70, 255}, 0.42f, 0.68f, 0.0f, MatId::Standard, false);
+                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(sx, 0.0f, 0.0f) * Mat4::scale(0.08f, 0.44f, 0.08f),
+                             {58, 62, 70, 255}, 0.42f, 0.68f, 0.0f, MatId::Standard, false);
                 }
                 break;
             }
@@ -4728,10 +5292,10 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 // Korean central boulevard median curb (grounded -0.28m on hills!) + dark anti-glare steel divider fence & amber reflectors!
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.02f, 0.0f) * Mat4::scale(6.4f, 0.60f, 0.56f),
                          {164, 168, 174, 255}, 0.80f, 0.04f, 0.0f, MatId::BridgeConcrete, false);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.78f, 0.0f) * Mat4::scale(6.3f, 0.09f, 0.10f),
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.78f, 0.0f) * Mat4::scale(6.3f, 0.085f, 0.095f),
                          {64, 70, 80, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
                 for (float mx = -2.7f; mx <= 2.8f; mx += 1.8f) {
-                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(mx, 0.28f, 0.0f) * Mat4::scale(0.09f, 0.56f, 0.09f),
+                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(mx, 0.28f, 0.0f) * Mat4::scale(0.085f, 0.56f, 0.085f),
                              {68, 74, 84, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
                     if (!shadowPass) {
                         drawMesh(vk, cubeMesh_, baseM * Mat4::translation(mx, 0.86f, 0.0f) * Mat4::scale(0.10f, 0.08f, 0.12f),
@@ -4741,39 +5305,20 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 break;
             }
             case StreetPropKind::Bench:
-                // Slatted Korean wooden park/street bench with cast-iron legs & armrests
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.46f, 0) * Mat4::scale(1.90f, 0.11f, 0.56f),
-                         {142, 96, 58, 255}, 0.78f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.80f, -0.24f) * Mat4::scale(1.90f, 0.42f, 0.09f),
-                         {142, 96, 58, 255}, 0.78f, 0.0f, 0.0f, MatId::WoodBark, shadowPass);
-                for (float bx : {-0.78f, 0.78f}) {
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(bx, 0.24f, 0.0f) * Mat4::scale(0.10f, 0.48f, 0.52f),
-                             {46, 50, 58, 255}, 0.40f, 0.72f, 0.0f, MatId::Standard, false);
-                }
+                // Sculpted wood-slat & cast-iron Korean street bench with armrests!
+                drawMesh(vk, benchMesh_, baseM, kWhite, 0.64f, 0.25f, 0.0f, MatId::Standard, shadowPass);
                 break;
             case StreetPropKind::Hydrant:
-                // Detailed Korean red double-nozzle fire hydrant + dome cap + protective yellow post ring!
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.32f, 0.82f, 0.32f),
-                         {216, 44, 44, 255}, 0.40f, 0.38f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, sphereMesh_, baseM * Mat4::translation(0.0f, 0.84f, 0.0f) * Mat4::scale(0.34f, 0.22f, 0.34f),
-                         {224, 52, 48, 255}, 0.38f, 0.42f, 0.0f, MatId::Standard, false);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.56f, 0.0f) * Mat4::scale(0.50f, 0.14f, 0.14f),
-                         {212, 178, 64, 255}, 0.32f, 0.78f, 0.0f, MatId::Standard, false);
+                // Sculpted flanged red cast-iron Korean fire hydrant with twin brass couplings & pumper port!
+                drawMesh(vk, hydrantMesh_, baseM, kWhite, 0.38f, 0.45f, 0.0f, MatId::Standard, shadowPass);
                 break;
             case StreetPropKind::TrafficCone:
                 drawMesh(vk, coneMesh_, baseM * Mat4::scale(0.45f, 0.75f, 0.45f),
                          {242, 106, 26, 255}, 0.55f, 0.0f, 0.0f, MatId::Standard, shadowPass);
                 break;
             case StreetPropKind::TrashBin:
-                // Authentic Seoul dual recycling (blue lid) + general waste (charcoal lid) street bin pair!
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.28f, 0.48f, 0.0f) * Mat4::scale(0.46f, 0.94f, 0.46f),
-                         {64, 72, 82, 255}, 0.48f, 0.52f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.28f, 0.98f, 0.0f) * Mat4::scale(0.48f, 0.10f, 0.48f),
-                         {38, 118, 212, 255}, 0.36f, 0.25f, 0.0f, MatId::Standard, false);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation( 0.28f, 0.48f, 0.0f) * Mat4::scale(0.46f, 0.94f, 0.46f),
-                         {74, 80, 88, 255}, 0.48f, 0.52f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation( 0.28f, 0.98f, 0.0f) * Mat4::scale(0.48f, 0.10f, 0.48f),
-                         {218, 134, 42, 255}, 0.36f, 0.25f, 0.0f, MatId::Standard, false);
+                // Sculpted Seoul Design dual stainless recycling (blue) & general waste (amber) street bin!
+                drawMesh(vk, trashBinMesh_, baseM, kWhite, 0.42f, 0.54f, 0.0f, MatId::Standard, shadowPass);
                 break;
             case StreetPropKind::FuelPump:
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.92f, 0) * Mat4::scale(0.85f, 1.84f, 0.58f),
@@ -4788,11 +5333,15 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                          {52, 148, 228, 255}, 0.72f, 0.0f, 0.0f, MatId::FabricCloth, shadowPass);
                 break;
             case StreetPropKind::Bollard:
-                // Brushed stainless Korean pedestrian safety bollard with reflective night band
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.20f, 0.84f, 0.20f),
-                         {128, 134, 142, 255}, 0.28f, 0.78f, 0.0f, MatId::Standard, shadowPass);
+                // Sculpted brushed-stainless Korean safety bollard with flange base, domed cap & reflective safety band!
+                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.27f, 0.055f, 0.27f),
+                         {82, 88, 96, 255}, 0.34f, 0.78f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.19f, 0.82f, 0.19f),
+                         {154, 160, 168, 255}, 0.24f, 0.84f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, sphereMesh_, baseM * Mat4::translation(0.0f, 0.82f, 0.0f) * Mat4::scale(0.19f, 0.11f, 0.19f),
+                         {168, 174, 182, 255}, 0.22f, 0.86f, 0.0f, MatId::Standard, false);
                 if (!shadowPass) {
-                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(0.0f, 0.64f, 0.0f) * Mat4::scale(0.215f, 0.09f, 0.215f),
+                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(0.0f, 0.64f, 0.0f) * Mat4::scale(0.205f, 0.085f, 0.205f),
                              {246, 206, 48, 255}, 0.20f, 0.10f, nightMode ? 0.55f : 0.0f, MatId::Standard, false);
                 }
                 break;
@@ -6205,10 +6754,10 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
     prepareRealSeoulChunks(vk, world.city(), focus);
 
     const Vec3 lightDir = computeSunDirection(world);
-    const bool shadowsOn = (quality_ != GraphicsQuality::Performance);
+    const bool shadowsOn = (settings_.shadowQuality > 0);
 
     // Light ortho camera snapped to shadow texel grid around focus (zero shadow swimming!)
-    const float shadowSpan = 135.0f;
+    const float shadowSpan = std::max(85.0f, settings_.shadowSpanM());
     const float texelWorld = (shadowSpan * 2.0f) / static_cast<float>(VulkanContext::kShadowMapSize);
     const float snapX = std::floor(focus.x / texelWorld) * texelWorld;
     const float snapZ = std::floor(focus.z / texelWorld) * texelWorld;
@@ -6222,6 +6771,8 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
     vk.updateSceneUBO(ubo);
 
     const bool nightMode = world.isNight();
+    const float liveVehCull = clampf(static_cast<float>(settings_.renderDistanceM) * 0.45f, 160.0f, 650.0f);
+    const float liveNpcCull = clampf(static_cast<float>(settings_.renderDistanceM) * 0.24f, 95.0f, 320.0f);
 
     auto renderWorldPass = [&](bool shadowPass) {
         drawSeoulTerrainAndRoads(vk, world, focus, shadowPass);
@@ -6229,7 +6780,7 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
         drawTreesAndProps(vk, world, focus, camera.position, shadowPass);
 
         // Draw all CAD-precision Vehicles!
-        const float vehCull = shadowPass ? 135.0f : 360.0f;
+        const float vehCull = shadowPass ? std::min(shadowSpan * 0.92f, liveVehCull) : liveVehCull;
         for (const auto& v : world.vehicles()) {
             if ((v.pos - focus).lengthSq() > vehCull * vehCull) continue;
             const float gy = world.city().surfaceHeightAt(v.pos, v.posY);
@@ -6266,7 +6817,7 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
         }
 
         // Draw Living Seoul Citizens, Gangsters & Police Officers!
-        const float npcCull = shadowPass ? 90.0f : 185.0f;
+        const float npcCull = shadowPass ? std::min(shadowSpan * 0.72f, liveNpcCull) : liveNpcCull;
         for (const auto& npc : world.npcs()) {
             if ((npc.pos - focus).lengthSq() > npcCull * npcCull) continue;
             const float gy = world.city().surfaceHeightAt(npc.pos);
@@ -6324,7 +6875,7 @@ void Renderer3D::renderSceneAndBeginPost(VulkanContext& vk, const GameWorld& wor
     pp.params0[3] = nightMode ? 1.08f : 1.02f; // Exposure
     const Vehicle* pCar = world.playerVehicle();
     pp.params1[0] = (pCar && pCar->nitroActive) ? 0.85f : 0.0f;
-    pp.params1[1] = (quality_ == GraphicsQuality::Ultra) ? 1.0f : 0.0f;
+    pp.params1[1] = settings_.bloomEnabled() ? 1.0f : 0.0f;
     vk.beginSwapchainPostAndUiPass(pp);
 }
 

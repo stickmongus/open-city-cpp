@@ -9,14 +9,14 @@ layout(location = 4) in vec4 fragPosLightSpace;
 layout(set = 0, binding = 0) uniform SceneUBO {
     mat4 viewProj;
     mat4 lightVP;
-    vec4 lightDirAndShadows;   // xyz = lightDir, w = enableShadows
+    vec4 lightDirAndShadows;   // xyz = lightDir, w = shadow PCF taps (0=off, 1/4/8/16)
     vec4 sunColorAndTime;      // xyz = sunColor, w = animTime
     vec4 skyAmbientAndNight;   // xyz = skyAmbient, w = nightFactor
     vec4 groundAmbientAndWet;  // xyz = groundAmbient, w = wetRoadFactor
     vec4 fogColorAndTexel;     // xyz = fogColor, w = shadowTexelSize
     vec4 horizonColorAndDay;   // xyz = horizonColor, w = dayFactor
     vec4 viewPosAndHour;       // xyz = viewPos, w = timeHours
-    vec4 localLightCount;      // x = active dynamic local lights (0..20)
+    vec4 localLightCount;      // x = local lights (0..20), y = refl/parallax (0..2), z = fogStartM, w = fogDensityScale
     vec4 lightPosRadius[20];   // xyz = worldPos, w = radius
     vec4 lightColorType[20];   // rgb = linear HDR intensity, w = type (0 = point, 1 = spot)
     vec4 lightDirCone[20];     // xyz = unit forward dir, w = cosOuterHalfAngle
@@ -134,9 +134,10 @@ vec3 perturbNormal(vec3 N, vec3 pos, vec2 uv, vec2 normalXY, float strength) {
     return perturbNormalGrad(N, dFdx(pos), dFdy(pos), dFdx(uv), dFdy(uv), normalXY, strength);
 }
 
-// 16-Tap Rotated Poisson Disk Soft PCF Shadows in Vulkan [0, 1] NDC depth space
+// Configurable 1 / 4 / 8 / 16-Tap Rotated Poisson Disk Soft PCF Shadows in Vulkan [0, 1] NDC depth space
 float computeShadow(vec4 lightSpacePos, vec3 N, vec3 L) {
-    if (ubo.lightDirAndShadows.w < 0.5) return 0.0;
+    int pcfTaps = clamp(int(ubo.lightDirAndShadows.w + 0.5), 0, 16);
+    if (pcfTaps <= 0) return 0.0;
     vec3 proj = lightSpacePos.xyz / max(lightSpacePos.w, 0.0001);
     vec2 uv = proj.xy * 0.5 + 0.5;
     float depth = proj.z;
@@ -147,6 +148,11 @@ float computeShadow(vec4 lightSpacePos, vec3 N, vec3 L) {
     float edgeFade = smoothstep(0.008, 0.085, min(edgeDist.x, edgeDist.y));
     float ndotl = max(dot(N, L), 0.0);
     float bias = max(0.00035, 0.0018 * (1.0 - ndotl));
+
+    if (pcfTaps == 1) {
+        float d = texture(shadowMap, uv).r;
+        return ((depth - bias > d) ? 1.0 : 0.0) * edgeFade;
+    }
 
     vec2 poisson[16] = vec2[16](
         vec2(-0.94201624, -0.39906216), vec2( 0.94558609, -0.76890725),
@@ -161,14 +167,14 @@ float computeShadow(vec4 lightSpacePos, vec3 N, vec3 L) {
     float ang = hash12(gl_FragCoord.xy) * 6.283185;
     float cs = cos(ang), sn = sin(ang);
     mat2 rot = mat2(cs, -sn, sn, cs);
-    float spread = ubo.fogColorAndTexel.w * 2.1;
+    float spread = ubo.fogColorAndTexel.w * ((pcfTaps >= 12) ? 2.1 : 1.65);
 
     float occluded = 0.0;
-    for (int i = 0; i < 16; ++i) {
+    for (int i = 0; i < pcfTaps; ++i) {
         float d = texture(shadowMap, uv + (rot * poisson[i]) * spread).r;
         occluded += (depth - bias > d) ? 1.0 : 0.0;
     }
-    return (occluded * (1.0 / 16.0)) * edgeFade;
+    return (occluded / float(pcfTaps)) * edgeFade;
 }
 
 // High-Contrast Automotive & Urban Environment Reflection Map
@@ -628,7 +634,7 @@ void main() {
             roughness = mix(roughness, 0.22, wetAmt * 0.48);
             roughness = mix(roughness, 0.04, puddleMask);
             // Organic 2-layer rotated & jittered Voronoi raindrop ripples ONLY inside deep puddles (ZERO polka-dot grid!)
-            if (puddleMask > 0.26 && wetRoadFactor > 0.12 && detailFade > 0.05) {
+            if (ubo.localLightCount.y > 1.5 && puddleMask > 0.26 && wetRoadFactor > 0.12 && detailFade > 0.05) {
                 vec2 ripN = vec2(0.0);
                 // Layer 1 (prime scale 1.73m^-1)
                 vec2 uv1 = p * 1.73;
@@ -849,46 +855,53 @@ void main() {
                 float floorSeed = hash12(vec2(roomCoord.y + bldKey * 7.1, floor(fragPosition.x * 0.025) + floor(fragPosition.z * 0.025)));
                 float roomSeed  = hash12(roomCoord + vec2(bldKey * 13.7, floor(fragPosition.x * 0.03) - floor(fragPosition.z * 0.03)));
 
-                vec3 T_w = normalize(cross(N, vec3(0.0, 1.0, 0.0)));
-                vec3 rayW = -V;
-                vec3 rDir = vec3(dot(rayW, T_w), rayW.y, max(dot(rayW, -N), 0.08));
-                float roomDepth = isGroundFlr ? 0.92 : 0.72;
-                float tBack = roomDepth / rDir.z;
-                float tX = (abs(rDir.x) > 0.001) ? (((rDir.x > 0.0) ? (1.0 - rPos2.x) : rPos2.x) / abs(rDir.x)) : 99.0;
-                float tY = (abs(rDir.y) > 0.001) ? (((rDir.y > 0.0) ? (1.0 - rPos2.y) : rPos2.y) / abs(rDir.y)) : 99.0;
-                float tHit = min(tBack, min(tX, tY));
-                vec3 hitP = vec3(rPos2, 0.0) + rDir * tHit;
+                float depthAO = 0.68;
+                vec3 intRoomBase = vec3(0.09, 0.10, 0.12);
+                float ceilLightBar = 0.24;
+                float blindMask = 0.0;
 
-                // Interior surface shading: ceiling slab + linear LED light bars, back wall, side partitions, floor
-                float depthAO = exp(-hitP.z * 1.45);
-                vec3 intRoomBase = vec3(0.10, 0.11, 0.13);
-                float ceilLightBar = 0.0;
-                if (tY <= tX && tY <= tBack) {
-                    if (rDir.y > 0.0) {
-                        // Office / retail ceiling with crisp recessed LED light strips
-                        intRoomBase = vec3(0.19, 0.20, 0.22);
-                        float barX = 1.0 - smoothstep(0.18, 0.30, abs(hitP.x - 0.5));
-                        float barZ = smoothstep(0.12, 0.24, fract(hitP.z * 2.6)) * (1.0 - smoothstep(0.68, 0.80, fract(hitP.z * 2.6)));
-                        ceilLightBar = barX * barZ;
+                if (ubo.localLightCount.y > 1.5) {
+                    vec3 T_w = normalize(cross(N, vec3(0.0, 1.0, 0.0)));
+                    vec3 rayW = -V;
+                    vec3 rDir = vec3(dot(rayW, T_w), rayW.y, max(dot(rayW, -N), 0.08));
+                    float roomDepth = isGroundFlr ? 0.92 : 0.72;
+                    float tBack = roomDepth / rDir.z;
+                    float tX = (abs(rDir.x) > 0.001) ? (((rDir.x > 0.0) ? (1.0 - rPos2.x) : rPos2.x) / abs(rDir.x)) : 99.0;
+                    float tY = (abs(rDir.y) > 0.001) ? (((rDir.y > 0.0) ? (1.0 - rPos2.y) : rPos2.y) / abs(rDir.y)) : 99.0;
+                    float tHit = min(tBack, min(tX, tY));
+                    vec3 hitP = vec3(rPos2, 0.0) + rDir * tHit;
+
+                    // Interior surface shading: ceiling slab + linear LED light bars, back wall, side partitions, floor
+                    depthAO = exp(-hitP.z * 1.45);
+                    intRoomBase = vec3(0.10, 0.11, 0.13);
+                    ceilLightBar = 0.0;
+                    if (tY <= tX && tY <= tBack) {
+                        if (rDir.y > 0.0) {
+                            // Office / retail ceiling with crisp recessed LED light strips
+                            intRoomBase = vec3(0.19, 0.20, 0.22);
+                            float barX = 1.0 - smoothstep(0.18, 0.30, abs(hitP.x - 0.5));
+                            float barZ = smoothstep(0.12, 0.24, fract(hitP.z * 2.6)) * (1.0 - smoothstep(0.68, 0.80, fract(hitP.z * 2.6)));
+                            ceilLightBar = barX * barZ;
+                        } else {
+                            // Darker interior floor slab
+                            intRoomBase = vec3(0.055, 0.058, 0.064);
+                        }
+                    } else if (tBack <= tX) {
+                        // Back interior wall with subtle desk/partition band
+                        float deskBand = smoothstep(0.28, 0.36, hitP.y);
+                        intRoomBase = mix(vec3(0.06, 0.065, 0.075), vec3(0.14, 0.145, 0.155), deskBand) * depthAO;
                     } else {
-                        // Darker interior floor slab
-                        intRoomBase = vec3(0.055, 0.058, 0.064);
+                        // Side partition walls
+                        intRoomBase = vec3(0.10, 0.105, 0.115) * depthAO;
                     }
-                } else if (tBack <= tX) {
-                    // Back interior wall with subtle desk/partition band
-                    float deskBand = smoothstep(0.28, 0.36, hitP.y);
-                    intRoomBase = mix(vec3(0.06, 0.065, 0.075), vec3(0.14, 0.145, 0.155), deskBand) * depthAO;
-                } else {
-                    // Side partition walls
-                    intRoomBase = vec3(0.10, 0.105, 0.115) * depthAO;
-                }
 
-                // Subtle partially-lowered office Venetian blinds on random windows (authentic Teheran-ro detail!)
-                float blindDrop = (roomSeed > 0.45 && !isGroundFlr) ? (0.18 + 0.36 * fract(roomSeed * 5.7)) : 0.0;
-                float blindMask = (rPos2.y > (1.0 - blindDrop)) ? 1.0 : 0.0;
-                if (blindMask > 0.5) {
-                    float slat = 0.82 + 0.18 * sin(rPos2.y * 58.0);
-                    intRoomBase = mix(intRoomBase, vec3(0.24, 0.25, 0.27) * slat, 0.72);
+                    // Subtle partially-lowered office Venetian blinds on random windows (authentic Teheran-ro detail!)
+                    float blindDrop = (roomSeed > 0.45 && !isGroundFlr) ? (0.18 + 0.36 * fract(roomSeed * 5.7)) : 0.0;
+                    blindMask = (rPos2.y > (1.0 - blindDrop)) ? 1.0 : 0.0;
+                    if (blindMask > 0.5) {
+                        float slat = 0.82 + 0.18 * sin(rPos2.y * 58.0);
+                        intRoomBase = mix(intRoomBase, vec3(0.24, 0.25, 0.27) * slat, 0.72);
+                    }
                 }
 
                 // Authentic Low-E architectural glass tint & reflection coating per building
@@ -1227,7 +1240,7 @@ void main() {
             albedo *= (1.0 - wetRoadFactor * 0.24 - puddleMask * 0.22);
             roughness = mix(roughness, 0.22, wetRoadFactor * 0.48);
             roughness = mix(roughness, 0.04, puddleMask);
-            if (puddleMask > 0.26 && wetRoadFactor > 0.12 && detailFade > 0.05) {
+            if (ubo.localLightCount.y > 1.5 && puddleMask > 0.26 && wetRoadFactor > 0.12 && detailFade > 0.05) {
                 vec2 ripN = vec2(0.0);
                 vec2 uv1 = p * 1.73;
                 vec2 c1 = floor(uv1);
@@ -1325,7 +1338,7 @@ void main() {
         directLit += albedo * vec3(0.55, 0.68, 0.28) * leafBack * sunColor * sunVis;
     }
 
-    bool reflectiveMat = (isWindowPane || matId == 3 || matId == 4 || matId == 6 || matId == 7 || matId == 8 || puddleMask > 0.04 || wetRoadSurface > 0.15);
+    bool reflectiveMat = (ubo.localLightCount.y > 0.5) && (isWindowPane || matId == 3 || matId == 4 || matId == 6 || matId == 7 || matId == 8 || puddleMask > 0.04 || wetRoadSurface > 0.15);
     if (reflectiveMat) {
         vec3 R = reflect(-V, N);
         bool isAuto = (matId == 7 || matId == 8);
@@ -1426,13 +1439,19 @@ void main() {
 
     vec3 totalLinear = envLit + directLit + localLit + emissiveColor * emissive;
 
-    // Real Seoul long-range atmospheric perspective
-    float dist = length(viewPos - fragPosition);
-    float fogStart = mix(280.0, 75.0, wetRoadFactor);
-    float fogDens  = mix(0.00034, 0.0020, wetRoadFactor);
-    float fogFactor = clamp(1.0 - exp(-max(0.0, dist - fogStart) * fogDens), 0.0, 0.82);
-    vec3 linearFog = pow(ubo.fogColorAndTexel.xyz, vec3(2.2));
-    vec3 fogged = mix(totalLinear, linearFog, fogFactor);
+    // Real Seoul long-range atmospheric perspective scaled live by GraphicsSettings Render Distance & Fog Mode!
+    float fogDensScale = ubo.localLightCount.w;
+    vec3 fogged = totalLinear;
+    if (fogDensScale > 0.001) {
+        float dist = length(viewPos - fragPosition);
+        float clearStart = (ubo.localLightCount.z > 10.0) ? ubo.localLightCount.z : 280.0;
+        float fogStart = mix(clearStart, min(clearStart, 75.0), wetRoadFactor);
+        float clearDens = 0.00034 * clamp(320.0 / max(clearStart, 100.0), 0.35, 1.85);
+        float fogDens  = mix(clearDens, 0.0020, wetRoadFactor) * fogDensScale;
+        float fogFactor = clamp(1.0 - exp(-max(0.0, dist - fogStart) * fogDens), 0.0, 0.82);
+        vec3 linearFog = pow(ubo.fogColorAndTexel.xyz, vec3(2.2));
+        fogged = mix(totalLinear, linearFog, fogFactor);
+    }
 
     outColor = vec4(fogged, alphaOut);
 }

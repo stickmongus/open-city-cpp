@@ -89,16 +89,44 @@ public:
     bool hasChunk(int cx, int cz) const;
     bool decodeChunk(int cx, int cz, OcrmDecodedChunk& out) const;
 
+    // Exact 3D barycentric height query against decoded OCRM road & sidewalk triangles
+    // (0.000mm visual-vs-physics mismatch across curbs, yellow tactile strips, plazas & bridges!).
+    bool sampleSurfaceHeightAt(const Vec2& p, float refY, float& outY,
+                               bool* outIsSidewalk = nullptr) const;
+
     // Bounds-checked zero-dependency LZ4 raw block decompressor (exposed for unit tests)
     static bool decompressLz4Block(const std::uint8_t* src, std::size_t srcSize,
                                    std::uint8_t* dst, std::size_t dstSize);
 
 private:
+    struct SurfTri {
+        float x0, y0, z0;
+        float x1, y1, z1;
+        float x2, y2, z2;
+        bool isSidewalk;
+    };
+
+    struct CachedSurfaceChunk {
+        static constexpr int kGridN = 16;
+        int cx = -1;
+        int cz = -1;
+        std::uint64_t lastUse = 0;
+        float minX = 0.0f;
+        float minZ = 0.0f;
+        float invCellSize = 1.0f;
+        std::vector<SurfTri> tris;
+        std::vector<std::vector<std::uint32_t>> cells; // kGridN * kGridN
+    };
+
+    const CachedSurfaceChunk* getOrBuildSurfaceChunk(int cx, int cz) const;
+
     bool loaded_ = false;
     OcrmHeader hdr_{};
     std::size_t activeChunkCount_ = 0;
     std::vector<OcrmChunkEntry> directory_;
     std::vector<std::uint8_t> rawFile_;
+    mutable std::vector<CachedSurfaceChunk> surfaceCache_;
+    mutable std::uint64_t cacheClock_ = 0;
 };
 
 } // namespace oc

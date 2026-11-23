@@ -1,3 +1,4 @@
+#include "core/GraphicsSettings.hpp"
 #include "gameplay/GameWorld.hpp"
 #include "physics/PhysicsBridge.hpp"
 
@@ -4179,6 +4180,157 @@ void testV610UnifiedCityBuildingsPropsAndHighwaysMatchSumoRoads() {
 }
 
 
+void testV620OcrmExactTrianglePhysicsAndDetailedGraphicsSettings() {
+    auto findAsset = [](const char* relPath) -> std::string {
+        const std::string candidates[3] = {
+            std::string("assets/") + relPath,
+            std::string("../assets/") + relPath,
+            std::string("../../assets/") + relPath
+        };
+        for (const std::string& p : candidates) {
+            std::ifstream f(p, std::ios::binary);
+            if (f.good()) return p;
+        }
+        return {};
+    };
+    const std::string ocmapPath = findAsset("maps/seoul_real.ocmap");
+    const std::string ocrmPath  = findAsset("maps/seoul_roads_hd.ocrm");
+    ASSERT_TRUE(!ocmapPath.empty() && !ocrmPath.empty());
+
+    oc::GameWorld world(20261123ULL);
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    ASSERT_TRUE(world.loadOcrmRoadMeshFromFile(ocrmPath));
+    const oc::CityMap& city = world.city();
+    const oc::OcrmRoadMesh& ocrm = city.realData().ocrmMesh();
+
+    // 1. Exact Barycentric OCRM 3D Triangle Height Sampler & Startup Resync (0cm ankle/tire sinking!)
+    {
+        float sampledY = 0.0f;
+        bool isSw = false;
+        const oc::Vec2 pPos = world.player().pos;
+        ASSERT_TRUE(ocrm.sampleSurfaceHeightAt(pPos, -1e8f, sampledY, &isSw));
+        // Player spawn must sit flush on exact OCRM sidewalk/road surface within 2cm!
+        ASSERT_TRUE(std::abs(world.player().posY - sampledY) < 0.02f);
+        ASSERT_TRUE(std::abs(city.surfaceHeightAt(pPos) - sampledY) < 0.02f);
+
+        // Teheran-ro sidewalk / yellow Braille strip point
+        const oc::Vec2 swPt{4000.5f, 2765.0f};
+        float swY = 0.0f;
+        bool swFlag = false;
+        ASSERT_TRUE(ocrm.sampleSurfaceHeightAt(swPt, -1e8f, swY, &swFlag));
+        ASSERT_TRUE(swFlag);
+        ASSERT_TRUE(std::abs(city.surfaceHeightAt(swPt) - swY) < 0.02f);
+
+        // Every initial/parked vehicle must be resynced flush onto exact OCRM triangle surface (0% buried car!)
+        int checkedCars = 0;
+        for (const oc::Vehicle& v : world.vehicles()) {
+            float carOcrmY = 0.0f;
+            if (ocrm.sampleSurfaceHeightAt(v.pos, v.posY, carOcrmY)) {
+                ASSERT_TRUE(std::abs(v.posY - carOcrmY) < 0.05f);
+                ++checkedCars;
+            }
+        }
+        ASSERT_TRUE(checkedCars >= 10);
+
+        // Seamless Gangnam Station 4-chunk boundary (x=3840, z=2816) continuous height sampling!
+        float leftY = 0.0f, rightY = 0.0f;
+        const bool okL = ocrm.sampleSurfaceHeightAt({3839.2f, 2816.2f}, -1e8f, leftY);
+        const bool okR = ocrm.sampleSurfaceHeightAt({3840.8f, 2816.2f}, -1e8f, rightY);
+        ASSERT_TRUE(okL && okR);
+        ASSERT_TRUE(std::abs(leftY - rightY) < 0.35f);
+        ASSERT_TRUE(std::abs(city.surfaceHeightAt({3839.2f, 2816.2f}) - leftY) < 0.02f);
+        ASSERT_TRUE(std::abs(city.surfaceHeightAt({3840.8f, 2816.2f}) - rightY) < 0.02f);
+
+        // Street props near Teheran-ro must be snapped flush to OCRM triangle surface!
+        int propsSnapped = 0;
+        for (const oc::StreetProp& p : city.streetProps()) {
+            float propOcrmY = 0.0f;
+            if (ocrm.sampleSurfaceHeightAt(p.pos, p.baseY, propOcrmY)) {
+                ASSERT_TRUE(std::abs(p.baseY - propOcrmY) < 0.08f);
+                ++propsSnapped;
+            }
+        }
+        ASSERT_TRUE(propsSnapped >= 20);
+    }
+
+    // 2. Granular GraphicsSettings Presets, Render Distance (250m..1600m), Shadow PCF, Lights & Custom Detection
+    {
+        oc::GraphicsSettings gs{};
+        ASSERT_TRUE(gs.preset == oc::GraphicsQuality::Ultra);
+        ASSERT_TRUE(gs.renderDistanceM == 850);
+        ASSERT_TRUE(gs.chunkRadius() == 2);
+        ASSERT_TRUE(gs.shadowPcfTaps() == 16.0f);
+        ASSERT_TRUE(gs.maxLocalLights() == 20);
+        ASSERT_TRUE(gs.bloomEnabled());
+
+        gs.applyPreset(oc::GraphicsQuality::High);
+        ASSERT_TRUE(gs.renderDistanceM == 600 && gs.chunkRadius() == 2);
+        ASSERT_TRUE(gs.shadowPcfTaps() == 8.0f && gs.maxLocalLights() == 16 && !gs.bloomEnabled());
+
+        gs.applyPreset(oc::GraphicsQuality::Medium);
+        ASSERT_TRUE(gs.renderDistanceM == 400 && gs.chunkRadius() == 1);
+        ASSERT_TRUE(gs.shadowPcfTaps() == 4.0f && gs.maxLocalLights() == 8);
+
+        gs.applyPreset(oc::GraphicsQuality::Performance);
+        ASSERT_TRUE(gs.renderDistanceM == 250 && gs.chunkRadius() == 1);
+        ASSERT_TRUE(gs.shadowPcfTaps() == 0.0f && gs.maxLocalLights() == 0 && !gs.bloomEnabled());
+
+        // Stepping render distance up to 1100m, 1400m, 1600m updates preset to Custom & expands chunkRadius!
+        gs.applyPreset(oc::GraphicsQuality::Ultra);
+        gs.stepRenderDistance(+1);
+        ASSERT_TRUE(gs.renderDistanceM == 1100 && gs.chunkRadius() == 3);
+        ASSERT_TRUE(gs.preset == oc::GraphicsQuality::Custom);
+
+        gs.stepRenderDistance(+1);
+        ASSERT_TRUE(gs.renderDistanceM == 1400 && gs.chunkRadius() == 3);
+        gs.stepRenderDistance(+1);
+        ASSERT_TRUE(gs.renderDistanceM == 1600 && gs.chunkRadius() == 4);
+        gs.stepRenderDistance(+5); // Clamps cleanly at 1600m
+        ASSERT_TRUE(gs.renderDistanceM == 1600 && gs.chunkRadius() == 4);
+
+        // Stepping back down to 850m restores exact Ultra preset automatically!
+        gs.stepRenderDistance(-3);
+        ASSERT_TRUE(gs.renderDistanceM == 850 && gs.preset == oc::GraphicsQuality::Ultra);
+    }
+
+    // 3. Live Traffic & Crowd Density Control (0=Low .. 3=Heavy) in GameWorld
+    {
+        auto countAiTraffic = [&]() -> int {
+            int c = 0;
+            for (const oc::Vehicle& v : world.vehicles()) {
+                if (!v.destroyed && !v.isParked && !v.isPolice && v.hasNpcDriver) ++c;
+            }
+            return c;
+        };
+        auto countCivs = [&]() -> int {
+            int c = 0;
+            for (const oc::NpcCharacter& n : world.npcs()) {
+                if (n.alive && n.role == oc::NpcRole::Civilian) ++c;
+            }
+            return c;
+        };
+
+        world.setTrafficDensity(0);
+        ASSERT_TRUE(world.trafficDensity() == 0);
+        for (int f = 0; f < 5; ++f) world.update(1.0f / 60.0f, {});
+        const int lowCars = countAiTraffic();
+        const int lowCivs = countCivs();
+        ASSERT_TRUE(lowCars <= 12);
+        ASSERT_TRUE(lowCivs <= 18);
+
+        world.setTrafficDensity(3);
+        ASSERT_TRUE(world.trafficDensity() == 3);
+        for (int f = 0; f < 45; ++f) world.update(1.0f / 60.0f, {});
+        const int highCars = countAiTraffic();
+        const int highCivs = countCivs();
+        ASSERT_TRUE(highCars > lowCars);
+        ASSERT_TRUE(highCivs > lowCivs);
+    }
+
+    ++gTestsPassed;
+}
+
+
 } // namespace
 
 int main() {
@@ -4221,8 +4373,9 @@ int main() {
     testV520ExpresswayParityGradeLimitsAndOsmSignalDiscipline();
     testV600OcrmTopologicalRoadMeshAndZeroIntersectionIntrusion();
     testV610UnifiedCityBuildingsPropsAndHighwaysMatchSumoRoads();
+    testV620OcrmExactTrianglePhysicsAndDetailedGraphicsSettings();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.1.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.2.0 simulation test suites succeeded!\n";
     return 0;
 }
 

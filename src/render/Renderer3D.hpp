@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/GraphicsSettings.hpp"
 #include "core/Mat4.hpp"
 #include "gameplay/GameWorld.hpp"
 #include "render/CarMeshGenerator.hpp"
@@ -9,12 +10,6 @@
 #include <vector>
 
 namespace oc {
-
-enum class GraphicsQuality : int {
-    Ultra = 0,       // 2048px 16-Tap PCF Shadows + 16-bit HDR Bloom + ACES + MSAA
-    High = 1,        // 2048px 16-Tap PCF Shadows + ACES Filmic + MSAA
-    Performance = 2  // Direct MSAA Scene + ACES (Max Battery / FPS)
-};
 
 struct CameraState {
     Vec3 position{600.0f, 5.0f, 1030.0f};
@@ -42,8 +37,12 @@ public:
               const std::vector<std::uint8_t>& signs4kPng = {});
     void shutdown(VulkanContext& vk);
 
-    GraphicsQuality quality() const { return quality_; }
-    void setQuality(GraphicsQuality q) { quality_ = q; }
+    const GraphicsSettings& settings() const { return settings_; }
+    GraphicsSettings& mutableSettings() { return settings_; }
+    void setSettings(const GraphicsSettings& s);
+
+    GraphicsQuality quality() const { return settings_.preset; }
+    void setQuality(GraphicsQuality q);
     void cycleQuality();
     const char* qualityNameEn() const;
     const char* qualityNameKo() const;
@@ -90,6 +89,7 @@ private:
         bool usesOcrm = false;
         std::uint64_t lastUsedFrame = 0;
         GpuMesh groundMesh{};
+        GpuMesh hillsideMesh{};
         GpuMesh roadsMesh{};
         GpuMesh roadPaintMesh{};
         GpuMesh sidewalksMesh{};
@@ -179,7 +179,7 @@ private:
 
     bool initialized_ = false;
     bool signAtlas4k_ = false;
-    GraphicsQuality quality_ = GraphicsQuality::Ultra;
+    GraphicsSettings settings_{};
     std::uint64_t frameCounter_ = 0;
 
     // Static reusable primitives
@@ -195,6 +195,20 @@ private:
     GpuMesh giwaRoofMesh_{};
     GpuMesh capsuleLimbMesh_{};
     GpuMesh torsoMesh_{};
+
+    // High-Detail Sculpted Korean Street Architecture Meshes (v6.2.0 — 1 draw call per structure!)
+    GpuMesh ddareungiRackMesh_{};
+    GpuMesh seoulLampMesh_{};
+    GpuMesh koreanSignalMesh_{};
+    GpuMesh busShelterFrameMesh_{};
+    GpuMesh busShelterGlassMesh_{};
+    GpuMesh subwayCanopyFrameMesh_{};
+    GpuMesh subwayCanopyGlassMesh_{};
+    GpuMesh pedGuardrailMesh_{};
+    GpuMesh benchMesh_{};
+    GpuMesh hydrantMesh_{};
+    GpuMesh trashBinMesh_{};
+    GpuMesh utilityBoxMesh_{};
 
     // Real-Scale 30km x 25km Seoul Static Macro Meshes (built once on init!)
     GpuMesh realTerrainMesh_{};
@@ -216,10 +230,10 @@ private:
     GpuMesh landmarkGlowMesh_{};
     GpuMesh banpoFountainMesh_{};
 
-    // Real-OSM 3D Chunk GPU Cache (keyed by (cz << 16) | cx, LRU capped at 48 chunks!)
+    // Real-OSM 3D Chunk GPU Cache (keyed by (cz << 16) | cx, dynamically sized for Render Distance!)
     std::unordered_map<std::int64_t, RealChunkGpu> realChunks_;
 
-    // Distant Seoul Skyline LOD massing clusters (drawn beyond 490m so streets never end in an empty void!)
+    // Distant Seoul Skyline LOD massing clusters (drawn beyond active high-detail chunks!)
     struct DistantSkylineBlock {
         Vec2 pos{};
         Vec2 size{};

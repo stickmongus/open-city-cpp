@@ -293,7 +293,7 @@ void TouchControls::render(Vulkan2D& ui, const GameWorld& world, int screenW, in
     const float hr = world.timeOfDayHours();
     const bool isNight = (hr < 6.0f || hr >= 19.5f);
 
-    const char* topKo[7] = {"지도", firstPerson ? "1인칭" : "3인칭", "폰", "커스텀", isRaining ? "비옴" : "날씨", isNight ? "야간" : "시간", "품질"};
+    const char* topKo[7] = {"지도", firstPerson ? "1인칭" : "3인칭", "폰", "커스텀", isRaining ? "비옴" : "날씨", isNight ? "야간" : "시간", "그래픽"};
     const char* topEn[7] = {"MAP", firstPerson ? "1ST" : "3RD", "PHONE", "STYLE", isRaining ? "RAIN" : "WTHR", isNight ? "NIGHT" : "TIME", "GFX"};
     for (int i = 0; i < 7; ++i) {
         const RectF r = l.topButtons[static_cast<std::size_t>(i)];

@@ -37,6 +37,7 @@ void HudRenderer::setFullMapOpen(bool open, const Vec2& focusWorld) {
         shopMenuOpen_ = false;
         phoneOpen_ = false;
         customStudioOpen_ = false;
+        graphicsMenuOpen_ = false;
         mapCenterWorld_ = {1920.0f, -1280.0f}; // Centered squarely over Real-OSM Seoul (Yeouido..Jamsil, Gwanghwamun..Gangnam)!
         mapZoom_ = 1.0f;
         mapSelectedWorld_ = focusWorld;
@@ -52,17 +53,27 @@ void HudRenderer::setFullMapOpen(bool open, const Vec2& focusWorld) {
 
 void HudRenderer::setShopMenuOpen(bool open) {
     shopMenuOpen_ = open;
-    if (open) { fullMapOpen_ = false; phoneOpen_ = false; customStudioOpen_ = false; }
+    if (open) { fullMapOpen_ = false; phoneOpen_ = false; customStudioOpen_ = false; graphicsMenuOpen_ = false; }
 }
 
 void HudRenderer::setPhoneOpen(bool open) {
     phoneOpen_ = open;
-    if (open) { fullMapOpen_ = false; shopMenuOpen_ = false; customStudioOpen_ = false; }
+    if (open) { fullMapOpen_ = false; shopMenuOpen_ = false; customStudioOpen_ = false; graphicsMenuOpen_ = false; }
 }
 
 void HudRenderer::setCustomStudioOpen(bool open) {
     customStudioOpen_ = open;
-    if (open) { fullMapOpen_ = false; shopMenuOpen_ = false; phoneOpen_ = false; }
+    if (open) { fullMapOpen_ = false; shopMenuOpen_ = false; phoneOpen_ = false; graphicsMenuOpen_ = false; }
+}
+
+void HudRenderer::setGraphicsMenuOpen(bool open) {
+    graphicsMenuOpen_ = open;
+    if (open) {
+        fullMapOpen_ = false;
+        shopMenuOpen_ = false;
+        phoneOpen_ = false;
+        customStudioOpen_ = false;
+    }
 }
 
 void HudRenderer::showSystemToast(const char* textEn, const char* textKo) {
@@ -407,6 +418,159 @@ bool HudRenderer::handleModalTap(const GameWorld& world, int screenW, int screen
         }
     }
     return false;
+}
+
+namespace {
+struct GraphicsModalLayout {
+    static constexpr int kRowCount = 9;
+    RectF box{};
+    RectF btnClose{};
+    RectF presetBtns[4]{};
+    RectF rowRects[kRowCount]{};
+    RectF rowMinus[kRowCount]{};
+    RectF rowBar[kRowCount]{};
+    RectF rowPlus[kRowCount]{};
+};
+
+GraphicsModalLayout computeGraphicsModalLayout(int screenW, int screenH) {
+    GraphicsModalLayout l{};
+    const float w = static_cast<float>(screenW);
+    const float h = static_cast<float>(screenH);
+    const float mw = std::min(684.0f, w * 0.90f);
+    const float mh = std::min(556.0f, h * 0.91f);
+    l.box = {(w - mw) * 0.5f, (h - mh) * 0.5f, mw, mh};
+    l.btnClose = {l.box.x + l.box.w - 88.0f, l.box.y + 10.0f, 74.0f, 30.0f};
+
+    const float tabW = (l.box.w - 28.0f) / 4.0f;
+    for (int i = 0; i < 4; ++i) {
+        l.presetBtns[i] = {l.box.x + 14.0f + static_cast<float>(i) * tabW, l.box.y + 48.0f, tabW - 5.0f, 32.0f};
+    }
+
+    const float listTop = l.box.y + 92.0f;
+    const float footerH = 30.0f;
+    const float rowH = std::max(34.0f, (l.box.y + l.box.h - footerH - listTop) / static_cast<float>(GraphicsModalLayout::kRowCount));
+    const float ctrlW = std::min(308.0f, l.box.w * 0.50f);
+    const float stepW = 36.0f;
+    const float barW = std::max(100.0f, ctrlW - stepW * 2.0f - 10.0f);
+    const float ctrlRight = l.box.x + l.box.w - 18.0f;
+    const float ctrlLeft = ctrlRight - ctrlW;
+
+    for (int i = 0; i < GraphicsModalLayout::kRowCount; ++i) {
+        const float ry = listTop + static_cast<float>(i) * rowH;
+        const float rh = rowH - 5.0f;
+        l.rowRects[i] = {l.box.x + 14.0f, ry, l.box.w - 28.0f, rh};
+        l.rowMinus[i] = {ctrlLeft, ry + 3.0f, stepW, rh - 6.0f};
+        l.rowBar[i]   = {ctrlLeft + stepW + 5.0f, ry + 3.0f, barW, rh - 6.0f};
+        l.rowPlus[i]  = {ctrlRight - stepW, ry + 3.0f, stepW, rh - 6.0f};
+    }
+    return l;
+}
+
+void adjustGraphicsRow(GraphicsSettings& s, int row, int delta) {
+    switch (row) {
+        case 0: s.stepRenderDistance(delta); return;
+        case 1: s.buildingDetail = std::clamp(s.buildingDetail + delta, 0, 3); break;
+        case 2: s.propDensity = std::clamp(s.propDensity + delta, 0, 3); break;
+        case 3: s.shadowQuality = std::clamp(s.shadowQuality + delta, 0, 4); break;
+        case 4: s.lightingQuality = std::clamp(s.lightingQuality + delta, 0, 3); break;
+        case 5: s.reflectionParallax = std::clamp(s.reflectionParallax + delta, 0, 2); break;
+        case 6: s.fogMode = std::clamp(s.fogMode + delta, 0, 2); break;
+        case 7: s.trafficDensity = std::clamp(s.trafficDensity + delta, 0, 3); break;
+        case 8: s.showFps = !s.showFps; return;
+        default: return;
+    }
+    s.clampAndSyncPreset();
+}
+
+void setGraphicsRowFrac(GraphicsSettings& s, int row, float frac) {
+    const float f = clampf(frac, 0.0f, 1.0f);
+    switch (row) {
+        case 0: s.renderDistanceM = GraphicsSettings::kRenderDistPresets[std::clamp(static_cast<int>(std::lround(f * 6.0f)), 0, 6)]; break;
+        case 1: s.buildingDetail = std::clamp(static_cast<int>(std::lround(f * 3.0f)), 0, 3); break;
+        case 2: s.propDensity = std::clamp(static_cast<int>(std::lround(f * 3.0f)), 0, 3); break;
+        case 3: s.shadowQuality = std::clamp(static_cast<int>(std::lround(f * 4.0f)), 0, 4); break;
+        case 4: s.lightingQuality = std::clamp(static_cast<int>(std::lround(f * 3.0f)), 0, 3); break;
+        case 5: s.reflectionParallax = std::clamp(static_cast<int>(std::lround(f * 2.0f)), 0, 2); break;
+        case 6: s.fogMode = std::clamp(static_cast<int>(std::lround(f * 2.0f)), 0, 2); break;
+        case 7: s.trafficDensity = std::clamp(static_cast<int>(std::lround(f * 3.0f)), 0, 3); break;
+        case 8: s.showFps = !s.showFps; return;
+        default: return;
+    }
+    s.clampAndSyncPreset();
+}
+} // namespace
+
+bool HudRenderer::handleGraphicsModalTap(int screenW, int screenH, Vec2 tapPos, GraphicsSettings& ioSettings) {
+    if (!graphicsMenuOpen_) return false;
+    const GraphicsModalLayout l = computeGraphicsModalLayout(screenW, screenH);
+    if (!l.box.contains(tapPos.x, tapPos.z) || l.btnClose.contains(tapPos.x, tapPos.z)) {
+        graphicsMenuOpen_ = false;
+        return false;
+    }
+    for (int i = 0; i < 4; ++i) {
+        if (l.presetBtns[i].contains(tapPos.x, tapPos.z)) {
+            ioSettings.applyPreset(static_cast<GraphicsQuality>(i));
+            showGraphicsToast(GraphicsSettings::presetNameEn(ioSettings.preset),
+                              GraphicsSettings::presetNameKo(ioSettings.preset));
+            return true;
+        }
+    }
+    for (int i = 0; i < GraphicsModalLayout::kRowCount; ++i) {
+        if (l.rowMinus[i].contains(tapPos.x, tapPos.z)) {
+            graphicsSelectedRow_ = i;
+            adjustGraphicsRow(ioSettings, i, -1);
+            return true;
+        }
+        if (l.rowPlus[i].contains(tapPos.x, tapPos.z)) {
+            graphicsSelectedRow_ = i;
+            adjustGraphicsRow(ioSettings, i, +1);
+            return true;
+        }
+        if (l.rowBar[i].contains(tapPos.x, tapPos.z)) {
+            graphicsSelectedRow_ = i;
+            const float frac = (tapPos.x - l.rowBar[i].x) / std::max(1.0f, l.rowBar[i].w);
+            setGraphicsRowFrac(ioSettings, i, frac);
+            return true;
+        }
+        if (l.rowRects[i].contains(tapPos.x, tapPos.z)) {
+            graphicsSelectedRow_ = i;
+            if (i == 8) {
+                ioSettings.showFps = !ioSettings.showFps;
+                return true;
+            }
+            return false;
+        }
+    }
+    return false;
+}
+
+bool HudRenderer::handleGraphicsModalInput(const PlatformInput& input, GraphicsSettings& ioSettings) {
+    if (!graphicsMenuOpen_) return false;
+    bool changed = false;
+    if (input.isPressed(KeyCode::Up) || input.isPressed(KeyCode::W)) {
+        graphicsSelectedRow_ = (graphicsSelectedRow_ + GraphicsModalLayout::kRowCount - 1) % GraphicsModalLayout::kRowCount;
+    }
+    if (input.isPressed(KeyCode::Down) || input.isPressed(KeyCode::S)) {
+        graphicsSelectedRow_ = (graphicsSelectedRow_ + 1) % GraphicsModalLayout::kRowCount;
+    }
+    if (input.isPressed(KeyCode::Left) || input.isPressed(KeyCode::A)) {
+        adjustGraphicsRow(ioSettings, graphicsSelectedRow_, -1);
+        changed = true;
+    }
+    if (input.isPressed(KeyCode::Right) || input.isPressed(KeyCode::D)) {
+        adjustGraphicsRow(ioSettings, graphicsSelectedRow_, +1);
+        changed = true;
+    }
+    for (int k = 0; k < 4; ++k) {
+        const KeyCode kc = static_cast<KeyCode>(static_cast<int>(KeyCode::Num1) + k);
+        if (input.isPressed(kc)) {
+            ioSettings.applyPreset(static_cast<GraphicsQuality>(k));
+            showGraphicsToast(GraphicsSettings::presetNameEn(ioSettings.preset),
+                              GraphicsSettings::presetNameKo(ioSettings.preset));
+            changed = true;
+        }
+    }
+    return changed;
 }
 
 void HudRenderer::drawRadarMinimap(Vulkan2D& ui, VulkanContext& vk, const GameWorld& world,
@@ -1067,7 +1231,8 @@ void HudRenderer::drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const 
                         14.5f, {255, 255, 255, 255});
 }
 
-void HudRenderer::drawTopRightStatus(Vulkan2D& ui, const GameWorld& world, int screenW, bool firstPerson) {
+void HudRenderer::drawTopRightStatus(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH,
+                                     bool firstPerson, const GraphicsSettings* gfxSettings) {
     const auto& pl = world.player();
     const ColorRGBA accent = getHudThemeColorRGBA(pl.hudCustom.hudThemeIdx);
     const float panelW = mobileUi_ ? 232.0f : 294.0f;
@@ -1101,7 +1266,7 @@ void HudRenderer::drawTopRightStatus(Vulkan2D& ui, const GameWorld& world, int s
     ui.drawRoundedRect(x + 12.0f, armY, barW, armH, 4.0f, {34, 38, 48, 230});
     ui.drawRoundedRect(x + 12.0f, armY, barW * armF, armH, 4.0f, {68, 172, 248, 255});
 
-    // Current Weapon & Ammo (+ Desktop Vulkan/Camera tag; mobile keeps card sleek & clean!)
+    // Current Weapon & Ammo (+ Desktop Vulkan/Camera/FPS tag)
     const auto& ws = getWeaponSpec(pl.currentWeapon);
     const auto& slot = pl.weapons[static_cast<std::size_t>(pl.currentWeapon)];
     char wBuf[96];
@@ -1112,10 +1277,35 @@ void HudRenderer::drawTopRightStatus(Vulkan2D& ui, const GameWorld& world, int s
     }
     ui.drawText(wBuf, x + 12.0f, y + (mobileUi_ ? 69.0f : 75.0f), mobileUi_ ? 14.5f : 15.5f, {244, 248, 255, 255});
 
+    const bool showFps = gfxSettings ? gfxSettings->showFps : false;
+    const ColorRGBA fpsCol = (fpsValue_ >= 45.0f) ? ColorRGBA{102, 240, 148, 255}
+                           : ((fpsValue_ >= 25.0f) ? ColorRGBA{255, 214, 86, 255}
+                                                   : ColorRGBA{255, 106, 98, 255});
     if (!mobileUi_) {
-        const std::string tag = std::string("Vulkan 1.0  |  ") +
-                                (firstPerson ? pickText("1ST PERSON", "1인칭") : pickText("3RD PERSON", "3인칭"));
-        ui.drawText(tag, x + 12.0f, y + 97.0f, 13.0f, {158, 188, 224, 230});
+        std::string tag = std::string("Vulkan  |  ") +
+                          (firstPerson ? pickText("1ST", "1인칭") : pickText("3RD", "3인칭"));
+        if (gfxSettings) {
+            char rBuf[32];
+            std::snprintf(rBuf, sizeof(rBuf), "  |  %dm", gfxSettings->renderDistanceM);
+            tag += rBuf;
+        }
+        ui.drawText(tag, x + 12.0f, y + 97.0f, 12.5f, {158, 188, 224, 230});
+        if (showFps) {
+            char fBuf[32];
+            std::snprintf(fBuf, sizeof(fBuf), "%.0f FPS", fpsValue_);
+            const float fw = ui.measureTextWidth(fBuf, 12.5f);
+            ui.drawText(fBuf, x + panelW - fw - 12.0f, y + 97.0f, 12.5f, fpsCol);
+        }
+    } else if (showFps) {
+        // Sleek FPS & Render Distance pill neatly tucked below the top-left minimap (zero overlap!)
+        const RectF mm = minimapRect(screenW, screenH);
+        const float py = mm.y + mm.h + 8.0f;
+        ui.drawRoundedRect(mm.x, py, mm.w, 24.0f, 7.0f, {10, 16, 26, 206});
+        ui.drawRoundedRectOutline(mm.x, py, mm.w, 24.0f, 7.0f, 1.0f, {64, 86, 118, 195});
+        char fBuf[48];
+        std::snprintf(fBuf, sizeof(fBuf), "%.0f FPS · %dm", fpsValue_,
+                      gfxSettings ? gfxSettings->renderDistanceM : 850);
+        ui.drawTextCentered(fBuf, mm.x + mm.w * 0.5f, py + 4.5f, 12.0f, fpsCol);
     }
 
     // --- REALISTIC ESCAPABLE SEOUL POLICE WANTED & EVASION HUD ---
@@ -1400,6 +1590,150 @@ void HudRenderer::drawCustomStudioModal(Vulkan2D& ui, const GameWorld& world, in
     }
 }
 
+void HudRenderer::drawGraphicsModal(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH,
+                                    const GraphicsSettings& gfx) {
+    const GraphicsModalLayout l = computeGraphicsModalLayout(screenW, screenH);
+    const ColorRGBA accent = getHudThemeColorRGBA(world.player().hudCustom.hudThemeIdx);
+
+    // Subtle dim backdrop so settings stay crisp while keeping live 3D Seoul visible behind!
+    ui.drawRect(0.0f, 0.0f, static_cast<float>(screenW), static_cast<float>(screenH), {4, 8, 14, 118});
+
+    ui.drawRoundedRect(l.box.x, l.box.y, l.box.w, l.box.h, 13.0f, {11, 17, 27, 246});
+    ui.drawRoundedRectOutline(l.box.x, l.box.y, l.box.w, l.box.h, 13.0f, 2.0f, accent);
+
+    // Header Title + Active Preset/FPS Badge + Close button
+    ui.drawText(mobileUi_ ? pickText("GRAPHICS SETTINGS", "그래픽 상세 설정")
+                          : pickText("GRAPHICS SETTINGS [U]", "그래픽 상세 설정 [U]"),
+                l.box.x + 18.0f, l.box.y + 13.0f, 19.5f, accent);
+
+    char badgeBuf[80];
+    std::snprintf(badgeBuf, sizeof(badgeBuf), "%s · %dm · %.0f FPS",
+                  pickText(GraphicsSettings::presetNameEn(gfx.preset),
+                           GraphicsSettings::presetNameKo(gfx.preset)),
+                  gfx.renderDistanceM, fpsValue_);
+    const float bw = ui.measureTextWidth(badgeBuf, 12.5f) + 16.0f;
+    const float bx = l.btnClose.x - bw - 10.0f;
+    ui.drawRoundedRect(bx, l.box.y + 13.0f, bw, 24.0f, 6.0f, {22, 34, 52, 235});
+    ui.drawTextCentered(badgeBuf, bx + bw * 0.5f, l.box.y + 18.0f, 12.5f, {168, 224, 255, 255});
+
+    ui.drawRoundedRect(l.btnClose.x, l.btnClose.y, l.btnClose.w, l.btnClose.h, 6.0f, {178, 44, 52, 238});
+    ui.drawTextCentered(pickText("CLOSE", "닫기"), l.btnClose.x + l.btnClose.w * 0.5f, l.btnClose.y + 7.0f,
+                        14.0f, {255, 255, 255, 255});
+
+    // Top 4 Master Preset Quick-Select Pills
+    const GraphicsQuality kPresets[4] = {
+        GraphicsQuality::Ultra, GraphicsQuality::High, GraphicsQuality::Medium, GraphicsQuality::Performance
+    };
+    for (int i = 0; i < 4; ++i) {
+        const RectF& pr = l.presetBtns[i];
+        const bool active = (gfx.preset == kPresets[i]);
+        ui.drawRoundedRect(pr.x, pr.y, pr.w, pr.h, 7.0f,
+                           active ? ColorRGBA{16, 128, 168, 245} : ColorRGBA{24, 34, 50, 230});
+        ui.drawRoundedRectOutline(pr.x, pr.y, pr.w, pr.h, 7.0f,
+                                  active ? 2.0f : 1.0f,
+                                  active ? accent : ColorRGBA{58, 76, 104, 190});
+        ui.drawTextCentered(pickText(GraphicsSettings::presetNameEn(kPresets[i]),
+                                     GraphicsSettings::presetNameKo(kPresets[i])),
+                            pr.x + pr.w * 0.5f, pr.y + 7.5f, 14.0f,
+                            active ? ColorRGBA{255, 255, 255, 255} : ColorRGBA{214, 228, 244, 255});
+    }
+
+    // 9 Granular Interactive Rows with ◀ | Visual Bar + Label | ▶
+    struct RowSpec {
+        const char* nameEn;
+        const char* nameKo;
+        std::string val;
+        float frac;
+        bool activeGlow;
+    };
+
+    char distVal[32];
+    std::snprintf(distVal, sizeof(distVal), "%d m (%dx%d)", gfx.renderDistanceM,
+                  gfx.chunkRadius() * 2 + 1, gfx.chunkRadius() * 2 + 1);
+
+    const char* kDetailEn[4]  = {"Low", "Medium", "High", "Ultra"};
+    const char* kDetailKo[4]  = {"낮음", "보통", "높음", "최고"};
+    const char* kPropEn[4]    = {"Low (40%)", "Medium (70%)", "High (100%)", "Ultra (130%)"};
+    const char* kPropKo[4]    = {"낮음 (40%)", "보통 (70%)", "높음 (100%)", "최고 (130%)"};
+    const char* kShadEn[5]    = {"Off", "Low (1-Tap)", "Med (4-Tap)", "High (8-Tap)", "Ultra (16-PCF)"};
+    const char* kShadKo[5]    = {"끄기", "낮음 (1-Tap)", "보통 (4-Tap)", "높음 (8-Tap)", "최고 (16-PCF)"};
+    const char* kLightEn[4]   = {"Off", "Med (8 Lights)", "High (16 Lights)", "Ultra (20+Bloom)"};
+    const char* kLightKo[4]   = {"끄기", "보통 (8광원)", "높음 (16광원)", "최고 (20광원+블룸)"};
+    const char* kReflEn[3]    = {"Off", "Basic Refl", "Ultra (Voronoi+3D)"};
+    const char* kReflKo[3]    = {"끄기", "기본 반사", "최고 (보로노이+실내)"};
+    const char* kFogEn[3]     = {"Off", "Natural", "Dense"};
+    const char* kFogKo[3]     = {"끄기", "자연스럽게", "짙게"};
+    const char* kTrafEn[4]    = {"Low", "Medium", "High", "Crowded"};
+    const char* kTrafKo[4]    = {"적음", "보통", "많음", "혼잡"};
+
+    const RowSpec rows[GraphicsModalLayout::kRowCount] = {
+        {"Render Distance",         "렌더 거리 (시야 범위)",      distVal,
+         static_cast<float>(gfx.renderDistanceIndex()) / 6.0f, true},
+        {"Building & Skyline",      "건물·스카이라인 디테일",     pickText(kDetailEn[gfx.buildingDetail], kDetailKo[gfx.buildingDetail]),
+         static_cast<float>(gfx.buildingDetail) / 3.0f, gfx.buildingDetail > 0},
+        {"Props & Street Trees",    "거리 구조물·가로수 밀도",    pickText(kPropEn[gfx.propDensity], kPropKo[gfx.propDensity]),
+         static_cast<float>(gfx.propDensity) / 3.0f, gfx.propDensity > 0},
+        {"Shadow Quality",          "그림자 품질",                pickText(kShadEn[gfx.shadowQuality], kShadKo[gfx.shadowQuality]),
+         static_cast<float>(gfx.shadowQuality) / 4.0f, gfx.shadowQuality > 0},
+        {"Dynamic Lights & Bloom",  "동적 광원 & HDR 블룸",       pickText(kLightEn[gfx.lightingQuality], kLightKo[gfx.lightingQuality]),
+         static_cast<float>(gfx.lightingQuality) / 3.0f, gfx.lightingQuality > 0},
+        {"Reflections & Parallax",  "노면 반사 & 3D 실내",        pickText(kReflEn[gfx.reflectionParallax], kReflKo[gfx.reflectionParallax]),
+         static_cast<float>(gfx.reflectionParallax) / 2.0f, gfx.reflectionParallax > 0},
+        {"Atmospheric Fog",         "대기 안개·원근감",           pickText(kFogEn[gfx.fogMode], kFogKo[gfx.fogMode]),
+         static_cast<float>(gfx.fogMode) / 2.0f, gfx.fogMode > 0},
+        {"Traffic & Crowd Density", "교통량 & 보행자 밀도",       pickText(kTrafEn[gfx.trafficDensity], kTrafKo[gfx.trafficDensity]),
+         static_cast<float>(gfx.trafficDensity) / 3.0f, gfx.trafficDensity > 0},
+        {"Live FPS Counter",        "실시간 FPS 표시",            gfx.showFps ? pickText("ON", "켜기") : pickText("OFF", "끄기"),
+         gfx.showFps ? 1.0f : 0.0f, gfx.showFps}
+    };
+
+    for (int i = 0; i < GraphicsModalLayout::kRowCount; ++i) {
+        const RectF& rr = l.rowRects[i];
+        const RectF& rm = l.rowMinus[i];
+        const RectF& rb = l.rowBar[i];
+        const RectF& rp = l.rowPlus[i];
+        const bool sel = (i == graphicsSelectedRow_);
+
+        ui.drawRoundedRect(rr.x, rr.y, rr.w, rr.h, 7.0f,
+                           sel ? ColorRGBA{26, 40, 62, 236} : ColorRGBA{18, 26, 40, 222});
+        if (sel) {
+            ui.drawRoundedRectOutline(rr.x, rr.y, rr.w, rr.h, 7.0f, 1.3f, accent);
+        }
+        const float lblY = rr.y + (rr.h - 14.5f) * 0.5f;
+        ui.drawText(pickText(rows[i].nameEn, rows[i].nameKo), rr.x + 12.0f, lblY, 14.2f,
+                    sel ? ColorRGBA{255, 255, 255, 255} : ColorRGBA{222, 234, 248, 245});
+
+        // Minus ◀ button
+        ui.drawRoundedRect(rm.x, rm.y, rm.w, rm.h, 6.0f, {30, 42, 62, 235});
+        ui.drawTextCentered("◀", rm.x + rm.w * 0.5f, rm.y + (rm.h - 14.0f) * 0.5f, 14.0f, {226, 238, 252, 255});
+
+        // Visual progress bar + centered crisp setting label
+        ui.drawRoundedRect(rb.x, rb.y, rb.w, rb.h, 6.0f, {14, 20, 32, 240});
+        const float fillW = rb.w * clampf(rows[i].frac, 0.0f, 1.0f);
+        if (fillW > 2.0f) {
+            const ColorRGBA barCol = rows[i].activeGlow
+                ? ColorRGBA{static_cast<std::uint8_t>(accent.r * 3 / 5),
+                            static_cast<std::uint8_t>(accent.g * 3 / 5),
+                            static_cast<std::uint8_t>(accent.b * 3 / 5), 220}
+                : ColorRGBA{68, 78, 96, 210};
+            ui.drawRoundedRect(rb.x, rb.y, fillW, rb.h, 6.0f, barCol);
+        }
+        ui.drawRoundedRectOutline(rb.x, rb.y, rb.w, rb.h, 6.0f, 1.0f, {60, 80, 110, 190});
+        ui.drawTextCentered(rows[i].val, rb.x + rb.w * 0.5f, rb.y + (rb.h - 13.5f) * 0.5f, 13.2f, {248, 252, 255, 255});
+
+        // Plus ▶ button
+        ui.drawRoundedRect(rp.x, rp.y, rp.w, rp.h, 6.0f, {30, 42, 62, 235});
+        ui.drawTextCentered("▶", rp.x + rp.w * 0.5f, rp.y + (rp.h - 14.0f) * 0.5f, 14.0f, {226, 238, 252, 255});
+    }
+
+    // Footer tip bar
+    const char* tip = mobileUi_
+        ? pickText("All graphics settings apply instantly in real time.", "모든 그래픽 설정은 즉시 실시간으로 반영됩니다.")
+        : pickText("Live preview · [↑↓] Select  [←→] Adjust  [1-4] Preset  [ESC/U] Close",
+                   "실시간 즉시 반영 · [↑↓] 항목  [←→] 조절  [1~4] 프리셋  [ESC/U] 닫기");
+    ui.drawTextCentered(tip, l.box.x + l.box.w * 0.5f, l.box.y + l.box.h - 23.0f, 12.2f, {162, 186, 216, 235});
+}
+
 void HudRenderer::drawBannerToast(Vulkan2D& ui, const GameWorld& world, int screenW, int /*screenH*/) {
     const float cx = static_cast<float>(screenW) * 0.5f;
     const float bannerY = mobileUi_ ? 90.0f : 64.0f;
@@ -1427,14 +1761,14 @@ void HudRenderer::drawHelpOverlay(Vulkan2D& ui, const GameWorld& world, int scre
     const float w = 316.0f, h = 172.0f;
     ui.drawRoundedRect(18.0f, 16.0f, w, h, 10.0f, {10, 14, 22, 198});
     ui.drawRoundedRectOutline(18.0f, 16.0f, w, h, 10.0f, 1.2f, accent);
-    ui.drawText(pickText("OPEN CITY SEOUL v6.0 (VULKAN)", "오픈 시티 서울 v6.0 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
+    ui.drawText(pickText("OPEN CITY SEOUL v6.2 (VULKAN)", "오픈 시티 서울 v6.2 (Vulkan 엔진)"), 28.0f, 24.0f, 14.5f, accent);
     const char* lines[7] = {
         "WASD: 이동/운전 | Space: 점프/핸드브레이크",
         "Shift: 달리기/니트로 | F/E: 차량 탑승/상점",
         "1~0: 무기 교체 | 우클릭: 조준 | R: 재장전",
         "M 또는 미니맵 클릭: 서울 전체 지도 & 빠른이동",
         "V: 1인칭/3인칭 | P: 스마트폰 | K: 커스텀",
-        "Y: 날씨 변경 | T: 시간 이동 | U: Vulkan 품질",
+        "Y: 날씨 변경 | T: 시간 이동 | U: 그래픽 설정",
         "H: 도움말 숨기기 | Tab: 마우스 잠금 해제"
     };
     for (int i = 0; i < 7; ++i) {
@@ -1445,14 +1779,15 @@ void HudRenderer::drawHelpOverlay(Vulkan2D& ui, const GameWorld& world, int scre
 
 void HudRenderer::renderHud(Vulkan2D& ui, VulkanContext& vk, const GameWorld& world,
                             int screenW, int screenH, float cameraYaw,
-                            bool cursorLocked, bool firstPerson, float adsBlend) {
+                            bool cursorLocked, bool firstPerson, float adsBlend,
+                            const GraphicsSettings* gfxSettings) {
     if (fullMapOpen_) {
         drawFullScreenSeoulMap(ui, vk, world, screenW, screenH);
         return;
     }
 
     drawRadarMinimap(ui, vk, world, screenW, screenH, cameraYaw);
-    drawTopRightStatus(ui, world, screenW, firstPerson);
+    drawTopRightStatus(ui, world, screenW, screenH, firstPerson, gfxSettings);
     drawSpeedometerAndDrift(ui, world, screenW, screenH);
     if (showCrosshair_) drawCrosshair(ui, world, screenW, screenH, firstPerson, adsBlend);
     drawContextPromptsAndMission(ui, world, screenW, screenH);
@@ -1462,6 +1797,7 @@ void HudRenderer::renderHud(Vulkan2D& ui, VulkanContext& vk, const GameWorld& wo
     if (shopMenuOpen_) drawShopModal(ui, world, screenW, screenH);
     else if (phoneOpen_) drawSmartphoneModal(ui, world, screenW, screenH);
     else if (customStudioOpen_) drawCustomStudioModal(ui, world, screenW, screenH);
+    else if (graphicsMenuOpen_ && gfxSettings) drawGraphicsModal(ui, world, screenW, screenH, *gfxSettings);
 
     // Wasted / Busted Screen Overlay
     if (world.player().wasted) {

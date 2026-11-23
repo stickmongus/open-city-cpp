@@ -344,12 +344,31 @@ bool GameWorld::loadRealSeoulMapFromFile(const std::string& path) {
     return true;
 }
 
+void GameWorld::resyncWorldHeightsAfterOcrmLoad() {
+    city_.updateStreaming(player_.pos, true);
+    player_.posY = surfaceHeightAt(player_.pos);
+    player_.onGround = true;
+    for (auto& v : vehicles_) {
+        v.posY = surfaceHeightAt(v.pos, v.posY);
+    }
+}
+
 bool GameWorld::loadOcrmRoadMesh(const std::uint8_t* bytes, std::size_t size) {
-    return city_.loadOcrmRoadMesh(bytes, size);
+    const bool ok = city_.loadOcrmRoadMesh(bytes, size);
+    if (ok) resyncWorldHeightsAfterOcrmLoad();
+    return ok;
 }
 
 bool GameWorld::loadOcrmRoadMeshFromFile(const std::string& path) {
-    return city_.loadOcrmRoadMeshFromFile(path);
+    const bool ok = city_.loadOcrmRoadMeshFromFile(path);
+    if (ok) resyncWorldHeightsAfterOcrmLoad();
+    return ok;
+}
+
+void GameWorld::setTrafficDensity(int level) {
+    trafficDensity_ = std::clamp(level, 0, 3);
+    maintainTrafficPopulation();
+    maintainCivilianPopulation();
 }
 
 void GameWorld::reset() {
@@ -446,14 +465,14 @@ void GameWorld::reset() {
     player_.onGround = true;
 
     spawnInitialWorld();
-    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL HD-TOPOLOGY ROADS v6.0" : "WELCOME TO SEOUL (VULKAN)",
-               city_.hasRealSeoulMap() ? "실제 서울 단일 토폴로지 정밀도로·교차로 4K v6.0에 오신 것을 환영합니다" : "서울 메트로폴리스에 오신 것을 환영합니다",
+    pushBanner(city_.hasRealSeoulMap() ? "REAL SEOUL HD-TOPOLOGY & STREET ARCHITECTURE v6.2" : "WELCOME TO SEOUL (VULKAN)",
+               city_.hasRealSeoulMap() ? "실제 서울 정밀도로·거리 구조물·상세 그래픽 설정 v6.2" : "서울 메트로폴리스에 오신 것을 환영합니다",
 #if defined(__ANDROID__)
-               "Tap Minimap: Full Seoul Map  |  Top Bar: Custom · Weather · Camera",
-               "미니맵 터치: 서울 전체 지도 · 상단 버튼: 커스텀 · 날씨 · 시점 전환",
+               "Tap Minimap: Seoul Map  |  Top Bar: GFX · Custom · Weather · Camera",
+               "미니맵: 서울 전체 지도 · 상단 버튼: 그래픽 · 커스텀 · 날씨 · 시점",
 #else
-               "[M] Full Seoul Map  |  [K] Custom Studio  |  [Y] Rain  |  [V] 1st/3rd Person",
-               "미니맵 클릭/[M] 서울 전체 지도 · [K] 커스텀 · [Y] 날씨 · [V] 1·3인칭",
+               "[M] Seoul Map  |  [U] Graphics Settings  |  [K] Custom  |  [Y] Rain",
+               "[M] 서울 전체 지도 · [U] 그래픽 설정 · [K] 커스텀 · [Y] 날씨 · [V] 시점",
 #endif
                {118, 192, 232, 255}, 5.2f);
 }
@@ -1114,7 +1133,8 @@ const Vehicle* GameWorld::customizationTargetVehicle() const {
 }
 
 void GameWorld::maintainTrafficPopulation() {
-    constexpr int kTargetTraffic = 28;
+    static constexpr int kTrafficTargets[4] = {10, 20, 28, 42};
+    const int targetTraffic = kTrafficTargets[std::clamp(trafficDensity_, 0, 3)];
     int activeTraffic = 0;
     const Vec2 center = playerWorldPos();
 
@@ -1132,6 +1152,24 @@ void GameWorld::maintainTrafficPopulation() {
         if (v.hasNpcDriver && !v.destroyed && !v.isPolice) ++activeTraffic;
     }
 
+    // If the user lowered traffic density live in Graphics Settings, trim excess distant AI cars smoothly!
+    while (activeTraffic > targetTraffic) {
+        int farthestIdx = -1;
+        float farthestD2 = -1.0f;
+        for (int i = 0; i < static_cast<int>(vehicles_.size()); ++i) {
+            const auto& v = vehicles_[static_cast<std::size_t>(i)];
+            if (v.isPlayerDriving || v.isMissionTarget || v.isPolice || v.isParked || !v.hasNpcDriver) continue;
+            const float d2 = (v.pos - center).lengthSq();
+            if (d2 > farthestD2) {
+                farthestD2 = d2;
+                farthestIdx = i;
+            }
+        }
+        if (farthestIdx < 0) break;
+        vehicles_.erase(vehicles_.begin() + farthestIdx);
+        --activeTraffic;
+    }
+
     int attempts = 0;
     std::vector<std::uint32_t> osmRoadPool;
     if (city_.hasRealSeoulMap() && city_.realData().isInCoreBounds(center)) {
@@ -1146,7 +1184,7 @@ void GameWorld::maintainTrafficPopulation() {
     }
     const int centerRx = city_.nearestRoadIndex(center.x);
     const int centerRz = city_.nearestRoadIndex(center.z);
-    while (activeTraffic < kTargetTraffic && attempts < 80) {
+    while (activeTraffic < targetTraffic && attempts < 80) {
         ++attempts;
         bool horiz = true;
         int roadIdx = 0;
@@ -1288,7 +1326,8 @@ void GameWorld::maintainTrafficPopulation() {
 }
 
 void GameWorld::maintainCivilianPopulation() {
-    constexpr int kTargetCivilians = 44;
+    static constexpr int kCivTargets[4] = {16, 28, 44, 64};
+    const int targetCivilians = kCivTargets[std::clamp(trafficDensity_, 0, 3)];
     const Vec2 center = playerWorldPos();
 
     npcs_.erase(
@@ -1307,6 +1346,23 @@ void GameWorld::maintainCivilianPopulation() {
     int civCount = 0;
     for (const auto& n : npcs_) {
         if (n.alive && n.role == NpcRole::Civilian) ++civCount;
+    }
+
+    while (civCount > targetCivilians) {
+        int farthestIdx = -1;
+        float farthestD2 = -1.0f;
+        for (int i = 0; i < static_cast<int>(npcs_.size()); ++i) {
+            const auto& n = npcs_[static_cast<std::size_t>(i)];
+            if (n.missionTarget || n.role != NpcRole::Civilian || !n.alive) continue;
+            const float d2 = (n.pos - center).lengthSq();
+            if (d2 > farthestD2) {
+                farthestD2 = d2;
+                farthestIdx = i;
+            }
+        }
+        if (farthestIdx < 0) break;
+        npcs_.erase(npcs_.begin() + farthestIdx);
+        --civCount;
     }
 
     std::vector<std::uint32_t> osmPedRoads;
@@ -1329,7 +1385,7 @@ void GameWorld::maintainCivilianPopulation() {
     const int maxV =  140 * 2 - 2;
     const int centerNodeU = std::clamp(city_.nearestSidewalkNodeIndex(center.x), minU, maxU);
     const int centerNodeV = std::clamp(city_.nearestSidewalkNodeIndex(center.z), minV, maxV);
-    while (civCount < kTargetCivilians && attempts < 280) {
+    while (civCount < targetCivilians && attempts < 280) {
         ++attempts;
         int fromU = 0, fromV = 0, toU = 0, toV = 0;
         float edgeYaw = 0.0f;

@@ -37,6 +37,8 @@ struct CliOptions {
     bool wetRoad = false;
     bool rain = false;
     bool openMap = false;
+    bool openGraphics = false;
+    int renderDistM = 0;
     bool mobileUi = false;
     bool noHelp = false;
     bool firstPerson = false;
@@ -75,6 +77,8 @@ CliOptions parseArgs(int argc, char** argv) {
         else if (a == "--wet-road") o.wetRoad = true;
         else if (a == "--rain") { o.rain = true; o.wetRoad = true; }
         else if (a == "--open-map") o.openMap = true;
+        else if (a == "--open-graphics") o.openGraphics = true;
+        else if (a == "--render-dist" && i + 1 < argc) o.renderDistM = std::atoi(argv[++i]);
         else if (a == "--mobile-ui") o.mobileUi = true;
         else if (a == "--no-help") o.noHelp = true;
         else if (a == "--fps") o.firstPerson = true;
@@ -109,7 +113,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
 
     GameWorld world(20261107ULL);
 
-    // Load Real-World OpenStreetMap + Overture + TUM Seoul GIS + 15m DTM + 1:1 Synced Eclipse SUMO OCRM v1 (v6.1.0)
+    // Load Real-World OpenStreetMap + Overture + TUM Seoul GIS + 15m DTM + 1:1 Synced Eclipse SUMO OCRM v1 (v6.2.0)
     const auto ocmapBytes = app.loadAssetBytes("maps/seoul_real.ocmap");
     if (!ocmapBytes.empty()) {
         world.loadRealSeoulMap(ocmapBytes.data(), ocmapBytes.size());
@@ -263,7 +267,12 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
     hud.setMobileUi(useMobileUi);
     if (cli.noHelp || !cli.screenshotPath.empty()) hud.setShowHelp(false);
     hud.setShowCrosshair(!useHeroCam && (cli.screenshotPath.empty() || cli.firstPerson || cli.forceAim));
+    if (cli.renderDistM > 0) {
+        renderer.mutableSettings().renderDistanceM = cli.renderDistM;
+        renderer.mutableSettings().clampAndSyncPreset();
+    }
     if (cli.openMap) hud.setFullMapOpen(true, world.player().pos);
+    if (cli.openGraphics) hud.setGraphicsMenuOpen(true);
 
     TouchControls touch;
     touch.setEnabled(useMobileUi);
@@ -285,6 +294,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
     bool lastCamDriving = false;
     float smoothKeySteer = 0.0f;
     float smoothKeyThrottle = 0.0f;
+    float smoothFps = 60.0f;
     int screenshotWarmupFrames = cli.screenshotPath.empty() ? 0 : 3;
 
     if (!useMobileUi && cli.screenshotPath.empty() && !hud.isAnyModalOpen()) {
@@ -299,7 +309,13 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         }
         if (!app.isWindowReady() || !vk.isReady()) continue;
 
-        const float dt = std::clamp(app.deltaTime(), 0.001f, 0.05f);
+        const float rawDt = app.deltaTime();
+        const float dt = std::clamp(rawDt, 0.001f, 0.05f);
+        if (rawDt > 0.0005f && rawDt < 1.0f) {
+            const float instFps = clampf(1.0f / rawDt, 1.0f, 240.0f);
+            smoothFps += (instFps - smoothFps) * std::min(1.0f, dt * 6.0f);
+        }
+        hud.setFpsStats(smoothFps, 1000.0f / std::max(1.0f, smoothFps));
         const PlatformInput& pi = app.input();
         const int sw = vk.width();
         const int sh = vk.height();
@@ -341,6 +357,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
                 hud.setShopMenuOpen(false);
                 hud.setPhoneOpen(false);
                 hud.setCustomStudioOpen(false);
+                hud.setGraphicsMenuOpen(false);
                 if (!useMobileUi) app.setCursorLocked(true);
             } else if (!app.isAndroid()) {
                 break;
@@ -367,8 +384,8 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
             world.advanceTimeOfDayHours(2.0f);
         }
         if (pi.isPressed(KeyCode::U)) {
-            renderer.cycleQuality();
-            hud.showGraphicsToast(renderer.qualityNameEn(), renderer.qualityNameKo());
+            hud.toggleGraphicsMenu();
+            if (!useMobileUi) app.setCursorLocked(!hud.isAnyModalOpen());
         }
         if (pi.isPressed(KeyCode::E) && !hud.isFullMapOpen()) {
             if (hud.isShopMenuOpen()) {
@@ -401,14 +418,26 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         }
         if (tr.advanceTimePressed) world.advanceTimeOfDayHours(2.0f);
         if (tr.cycleQualityPressed) {
-            renderer.cycleQuality();
-            hud.showGraphicsToast(renderer.qualityNameEn(), renderer.qualityNameKo());
+            hud.toggleGraphicsMenu();
         }
 
-        // Process Modal / Full-Screen Seoul Map Interactions
+        // Process Modal / Full-Screen Seoul Map / Graphics Settings Interactions
         ModalTapAction modalAct{};
         if (hud.isFullMapOpen()) {
             hud.updateFullMapInput(uiPi, uiW, uiH, world, dt, modalAct);
+        } else if (hud.isGraphicsMenuOpen()) {
+            bool gfxChanged = hud.handleGraphicsModalInput(pi, renderer.mutableSettings());
+            if (tr.modalTapValid) {
+                gfxChanged = hud.handleGraphicsModalTap(uiW, uiH, tr.modalTapPos, renderer.mutableSettings()) || gfxChanged;
+            } else if (!useMobileUi && uiPi.mouseLeftPressed) {
+                gfxChanged = hud.handleGraphicsModalTap(uiW, uiH, {uiPi.mouseX, uiPi.mouseY}, renderer.mutableSettings()) || gfxChanged;
+            }
+            if (gfxChanged) {
+                world.setTrafficDensity(renderer.settings().trafficDensity);
+            }
+            if (!hud.isGraphicsMenuOpen() && !useMobileUi) {
+                app.setCursorLocked(true);
+            }
         } else if (tr.modalTapValid) {
             hud.handleModalTap(world, uiW, uiH, tr.modalTapPos, modalAct);
         } else if (!useMobileUi && hud.isAnyModalOpen() && uiPi.mouseLeftPressed) {
@@ -630,10 +659,10 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
         // Pass 1 (Shadows) + Pass 2 (HDR+MSAA 3D Seoul) + Begin Pass 3 (Post-Process Bloom+ACES)
         renderer.renderSceneAndBeginPost(vk, world, cam, firstPerson, adsBlend, lookBack);
 
-        // Pass 3 continued: DPI-Scaled 2D Vulkan HUD + Interactive Full-Screen Seoul Map + Mobile Touch UI!
+        // Pass 3 continued: DPI-Scaled 2D Vulkan HUD + Interactive Full-Screen Seoul Map + Graphics Settings + Mobile Touch UI!
         vk.setUiLogicalSize(static_cast<float>(uiW), static_cast<float>(uiH));
         ui2d.beginBatch();
-        hud.renderHud(ui2d, vk, world, uiW, uiH, camYaw, app.isCursorLocked(), firstPerson, adsBlend);
+        hud.renderHud(ui2d, vk, world, uiW, uiH, camYaw, app.isCursorLocked(), firstPerson, adsBlend, &renderer.settings());
         touch.render(ui2d, world, uiW, uiH, hud.isAnyModalOpen(), firstPerson, hud.isUsingKorean());
         ui2d.flush(vk);
 
@@ -673,7 +702,7 @@ extern "C" void android_main(struct android_app* state) {
 int main(int argc, char** argv) {
     const oc::CliOptions cli = oc::parseArgs(argc, argv);
     oc::PlatformApp app;
-    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v6.0 — Single-Topology HD Roads & Ultra-Real Seoul 4K (Native Vulkan)")) {
+    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v6.2 — Realistic Street Architecture & Granular Vulkan Graphics")) {
         return 1;
     }
     const int rc = oc::runApplication(app, cli);

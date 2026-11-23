@@ -2,6 +2,7 @@
 
 #include "gameplay/GameWorld.hpp"
 #include "platform/PlatformApp.hpp"
+#include "render/Renderer3D.hpp"
 #include "ui/Vulkan2D.hpp"
 #include <string>
 
@@ -40,6 +41,10 @@ public:
     void setShowHelp(bool show) { showHelp_ = show; }
     void setShowCrosshair(bool show) { showCrosshair_ = show; }
     void toggleLanguage() { if (koreanFontLoaded_) useKorean_ = !useKorean_; }
+    void setFpsStats(float fps, float frameMs) {
+        fpsValue_ = fps;
+        frameMs_ = frameMs;
+    }
 
     // Interactive Full-Screen 30km x 25km Seoul Map!
     bool isFullMapOpen() const { return fullMapOpen_; }
@@ -62,8 +67,15 @@ public:
     void setCustomTab(int tab) { customTab_ = ((tab % 4) + 4) % 4; }
     void cycleCustomTab(int delta) { customTab_ = ((customTab_ + delta) % 4 + 4) % 4; }
 
+    // Granular Vulkan Graphics Settings Modal (Render Distance, Shadows, Lights, Reflections, Fog, Traffic, FPS!)
+    bool isGraphicsMenuOpen() const { return graphicsMenuOpen_; }
+    void setGraphicsMenuOpen(bool open);
+    void toggleGraphicsMenu() { setGraphicsMenuOpen(!graphicsMenuOpen_); }
+    bool handleGraphicsModalTap(int screenW, int screenH, Vec2 tapPos, GraphicsSettings& ioSettings);
+    bool handleGraphicsModalInput(const PlatformInput& input, GraphicsSettings& ioSettings);
+
     bool isAnyModalOpen() const {
-        return fullMapOpen_ || shopMenuOpen_ || phoneOpen_ || customStudioOpen_;
+        return fullMapOpen_ || shopMenuOpen_ || phoneOpen_ || customStudioOpen_ || graphicsMenuOpen_;
     }
 
     // Exact clickable minimap rectangle (click/tap opens Full-Screen Seoul Map!)
@@ -78,7 +90,8 @@ public:
 
     void renderHud(Vulkan2D& ui, VulkanContext& vk, const GameWorld& world,
                    int screenW, int screenH, float cameraYaw,
-                   bool cursorLocked, bool firstPerson = false, float adsBlend = 0.0f);
+                   bool cursorLocked, bool firstPerson = false, float adsBlend = 0.0f,
+                   const GraphicsSettings* gfxSettings = nullptr);
 
 private:
     const char* pickText(const char* en, const char* ko) const {
@@ -89,7 +102,8 @@ private:
                           int screenW, int screenH, float cameraYaw);
     void drawFullScreenSeoulMap(Vulkan2D& ui, VulkanContext& vk, const GameWorld& world,
                                 int screenW, int screenH);
-    void drawTopRightStatus(Vulkan2D& ui, const GameWorld& world, int screenW, bool firstPerson);
+    void drawTopRightStatus(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH,
+                            bool firstPerson, const GraphicsSettings* gfxSettings);
     void drawSpeedometerAndDrift(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH);
     void drawCrosshair(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH,
                        bool firstPerson, float adsBlend);
@@ -97,6 +111,8 @@ private:
     void drawShopModal(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH);
     void drawSmartphoneModal(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH);
     void drawCustomStudioModal(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH);
+    void drawGraphicsModal(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH,
+                           const GraphicsSettings& gfx);
     void drawBannerToast(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH);
     void drawHelpOverlay(Vulkan2D& ui, const GameWorld& world, int screenW, int screenH, bool cursorLocked);
 
@@ -127,6 +143,11 @@ private:
     int phoneTab_ = 0;
     bool customStudioOpen_ = false;
     int customTab_ = 0;
+    bool graphicsMenuOpen_ = false;
+    int graphicsSelectedRow_ = 0;
+
+    float fpsValue_ = 60.0f;
+    float frameMs_ = 16.6f;
 
     std::string gfxToastEn_;
     std::string gfxToastKo_;

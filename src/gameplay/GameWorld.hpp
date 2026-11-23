@@ -162,6 +162,10 @@ public:
                     const std::string& subEn, const std::string& subKo,
                     ColorRGBA accent, float duration = 3.6f);
 
+    // Live Graphics Settings: Traffic & Pedestrian Crowd Density (0=Low, 1=Medium, 2=High, 3=Crowded)
+    void setTrafficDensity(int level);
+    int trafficDensity() const { return trafficDensity_; }
+
 private:
     struct RayHit3D {
         enum class Kind {
@@ -253,6 +257,9 @@ private:
     float policeSpawnCooldown_ = 0.0f;
     float panicScreamCooldown_ = 0.0f;
     bool rainWeather_ = false;
+    int trafficDensity_ = 2; // 0=Low, 1=Medium, 2=High (default), 3=Crowded
+
+    void resyncWorldHeightsAfterOcrmLoad();
 };
 
 } // namespace oc

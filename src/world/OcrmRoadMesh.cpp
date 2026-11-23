@@ -1,5 +1,6 @@
 #include "world/OcrmRoadMesh.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -63,6 +64,8 @@ void OcrmRoadMesh::clear() {
     activeChunkCount_ = 0;
     directory_.clear();
     rawFile_.clear();
+    surfaceCache_.clear();
+    cacheClock_ = 0;
 }
 
 bool OcrmRoadMesh::loadFromBytes(const std::uint8_t* data, std::size_t size) {
@@ -293,6 +296,215 @@ bool OcrmRoadMesh::decodeChunk(int cx, int cz, OcrmDecodedChunk& out) const {
         return false;
     }
 
+    return true;
+}
+
+const OcrmRoadMesh::CachedSurfaceChunk* OcrmRoadMesh::getOrBuildSurfaceChunk(int cx, int cz) const {
+    if (!hasChunk(cx, cz)) return nullptr;
+    ++cacheClock_;
+    for (auto& entry : surfaceCache_) {
+        if (entry.cx == cx && entry.cz == cz) {
+            entry.lastUse = cacheClock_;
+            return &entry;
+        }
+    }
+
+    OcrmDecodedChunk decoded{};
+    if (!decodeChunk(cx, cz, decoded)) return nullptr;
+
+    constexpr std::size_t kMaxCache = 16;
+    if (surfaceCache_.capacity() < kMaxCache) surfaceCache_.reserve(kMaxCache);
+    CachedSurfaceChunk* slot = nullptr;
+    if (surfaceCache_.size() < kMaxCache) {
+        surfaceCache_.emplace_back();
+        slot = &surfaceCache_.back();
+    } else {
+        std::size_t oldest = 0;
+        for (std::size_t i = 1; i < surfaceCache_.size(); ++i) {
+            if (surfaceCache_[i].lastUse < surfaceCache_[oldest].lastUse) oldest = i;
+        }
+        slot = &surfaceCache_[oldest];
+    }
+
+    slot->cx = cx;
+    slot->cz = cz;
+    slot->lastUse = cacheClock_;
+    constexpr float kOverhangM = 12.0f;
+    const float span = hdr_.chunkSize + 2.0f * kOverhangM;
+    slot->minX = hdr_.minX + static_cast<float>(cx) * hdr_.chunkSize - kOverhangM;
+    slot->minZ = hdr_.minZ + static_cast<float>(cz) * hdr_.chunkSize - kOverhangM;
+    slot->invCellSize = static_cast<float>(CachedSurfaceChunk::kGridN) / std::max(1.0f, span);
+    slot->tris.clear();
+    slot->cells.assign(static_cast<std::size_t>(CachedSurfaceChunk::kGridN * CachedSurfaceChunk::kGridN), {});
+
+    const std::size_t estTris = (decoded.idxUrban.size() + decoded.idxHighway.size() +
+                                 decoded.idxInter.size() + decoded.idxSidewalk.size()) / 3u;
+    slot->tris.reserve(estTris);
+
+    auto ingestList = [&](const std::vector<std::uint16_t>& idxList, bool isSidewalk) {
+        for (std::size_t k = 0; k + 2 < idxList.size(); k += 3) {
+            const OcrmDecodedVertex& v0 = decoded.verts[idxList[k]];
+            const OcrmDecodedVertex& v1 = decoded.verts[idxList[k + 1]];
+            const OcrmDecodedVertex& v2 = decoded.verts[idxList[k + 2]];
+
+            // Reject vertical curb risers / parapet walls (only walkable & drivable horizontal surfaces!)
+            const float ax = v1.px - v0.px, ay = v1.py - v0.py, az = v1.pz - v0.pz;
+            const float bx = v2.px - v0.px, by = v2.py - v0.py, bz = v2.pz - v0.pz;
+            const float nx = ay * bz - az * by;
+            const float ny = az * bx - ax * bz;
+            const float nz = ax * by - ay * bx;
+            const float lenSq = nx * nx + ny * ny + nz * nz;
+            if (lenSq < 1e-6f) continue;
+            if ((ny * ny) < 0.25f * lenSq) continue; // |normal.y| < 0.5 -> vertical curb wall!
+
+            const std::uint32_t ti = static_cast<std::uint32_t>(slot->tris.size());
+            slot->tris.push_back(SurfTri{
+                v0.px, v0.py, v0.pz,
+                v1.px, v1.py, v1.pz,
+                v2.px, v2.py, v2.pz,
+                isSidewalk
+            });
+
+            const float tMinX = std::min({v0.px, v1.px, v2.px});
+            const float tMaxX = std::max({v0.px, v1.px, v2.px});
+            const float tMinZ = std::min({v0.pz, v1.pz, v2.pz});
+            const float tMaxZ = std::max({v0.pz, v1.pz, v2.pz});
+            const int g0x = std::clamp(static_cast<int>(std::floor((tMinX - slot->minX) * slot->invCellSize)),
+                                       0, CachedSurfaceChunk::kGridN - 1);
+            const int g1x = std::clamp(static_cast<int>(std::floor((tMaxX - slot->minX) * slot->invCellSize)),
+                                       0, CachedSurfaceChunk::kGridN - 1);
+            const int g0z = std::clamp(static_cast<int>(std::floor((tMinZ - slot->minZ) * slot->invCellSize)),
+                                       0, CachedSurfaceChunk::kGridN - 1);
+            const int g1z = std::clamp(static_cast<int>(std::floor((tMaxZ - slot->minZ) * slot->invCellSize)),
+                                       0, CachedSurfaceChunk::kGridN - 1);
+            for (int gz = g0z; gz <= g1z; ++gz) {
+                for (int gx = g0x; gx <= g1x; ++gx) {
+                    slot->cells[static_cast<std::size_t>(gz * CachedSurfaceChunk::kGridN + gx)].push_back(ti);
+                }
+            }
+        }
+    };
+
+    ingestList(decoded.idxUrban, false);
+    ingestList(decoded.idxHighway, false);
+    ingestList(decoded.idxInter, false);
+    ingestList(decoded.idxSidewalk, true);
+    return slot;
+}
+
+bool OcrmRoadMesh::sampleSurfaceHeightAt(const Vec2& p, float refY, float& outY,
+                                         bool* outIsSidewalk) const {
+    if (!loaded_ || hdr_.chunkSize <= 1.0f) return false;
+    const float fx = (p.x - hdr_.minX) / hdr_.chunkSize;
+    const float fz = (p.z - hdr_.minZ) / hdr_.chunkSize;
+    const int baseCx = static_cast<int>(std::floor(fx));
+    const int baseCz = static_cast<int>(std::floor(fz));
+    if (baseCx < -1 || baseCz < -1 ||
+        baseCx > static_cast<int>(hdr_.chunksX) || baseCz > static_cast<int>(hdr_.chunksZ)) {
+        return false;
+    }
+
+    // Also probe immediate neighbor chunk(s) when within 8m of a chunk boundary so overhanging
+    // border triangles stay 100% seamless across every chunk seam!
+    const float localX = (fx - static_cast<float>(baseCx)) * hdr_.chunkSize;
+    const float localZ = (fz - static_cast<float>(baseCz)) * hdr_.chunkSize;
+    int cxList[2] = {baseCx, -999};
+    int czList[2] = {baseCz, -999};
+    int nCx = 1, nCz = 1;
+    if (localX < 8.0f) cxList[nCx++] = baseCx - 1;
+    else if (localX > hdr_.chunkSize - 8.0f) cxList[nCx++] = baseCx + 1;
+    if (localZ < 8.0f) czList[nCz++] = baseCz - 1;
+    else if (localZ > hdr_.chunkSize - 8.0f) czList[nCz++] = baseCz + 1;
+
+    struct HitCand {
+        float y;
+        bool isSidewalk;
+    };
+    HitCand hits[16];
+    int nHits = 0;
+
+    for (int iz = 0; iz < nCz; ++iz) {
+        const int cz = czList[iz];
+        if (cz < 0 || cz >= static_cast<int>(hdr_.chunksZ)) continue;
+        for (int ix = 0; ix < nCx; ++ix) {
+            const int cx = cxList[ix];
+            if (cx < 0 || cx >= static_cast<int>(hdr_.chunksX)) continue;
+            const CachedSurfaceChunk* sc = getOrBuildSurfaceChunk(cx, cz);
+            if (!sc || sc->tris.empty()) continue;
+
+            const int gx = static_cast<int>(std::floor((p.x - sc->minX) * sc->invCellSize));
+            const int gz = static_cast<int>(std::floor((p.z - sc->minZ) * sc->invCellSize));
+            if (gx < 0 || gx >= CachedSurfaceChunk::kGridN || gz < 0 || gz >= CachedSurfaceChunk::kGridN) continue;
+
+            const auto& cell = sc->cells[static_cast<std::size_t>(gz * CachedSurfaceChunk::kGridN + gx)];
+            for (std::uint32_t ti : cell) {
+                const SurfTri& t = sc->tris[ti];
+                const float v0x = t.x1 - t.x0, v0z = t.z1 - t.z0;
+                const float v1x = t.x2 - t.x0, v1z = t.z2 - t.z0;
+                const float denom = v0x * v1z - v0z * v1x;
+                if (std::abs(denom) < 1e-6f) continue;
+                const float invD = 1.0f / denom;
+                const float px = p.x - t.x0, pz = p.z - t.z0;
+                const float u = (px * v1z - pz * v1x) * invD;
+                const float v = (v0x * pz - v0z * px) * invD;
+                const float w = 1.0f - u - v;
+                if (u >= -1e-3f && v >= -1e-3f && w >= -1e-3f) {
+                    const float y = w * t.y0 + u * t.y1 + v * t.y2;
+                    if (nHits < 16) {
+                        hits[nHits++] = {y, t.isSidewalk};
+                    }
+                }
+            }
+        }
+    }
+
+    if (nHits == 0) return false;
+
+    int bestIdx = 0;
+    if (refY > -1e7f) {
+        // Multi-level aware selection: prefer highest surface within [-1.85m .. +1.35m] of refY
+        // so raised sidewalks (+0.125m) NEVER let entities sink to road lip while bridges stay separated!
+        int bestInWin = -1;
+        for (int i = 0; i < nHits; ++i) {
+            const float dy = hits[i].y - refY;
+            if (dy >= -1.85f && dy <= 1.35f) {
+                if (bestInWin < 0 || hits[i].y > hits[bestInWin].y) {
+                    bestInWin = i;
+                }
+            }
+        }
+        if (bestInWin >= 0) {
+            bestIdx = bestInWin;
+        } else {
+            float bestAbs = std::abs(hits[0].y - refY);
+            for (int i = 1; i < nHits; ++i) {
+                const float d = std::abs(hits[i].y - refY);
+                if (d < bestAbs) {
+                    bestAbs = d;
+                    bestIdx = i;
+                }
+            }
+        }
+    } else {
+        // Ground-level default query (spawns / street props): pick lowest level, then highest surface
+        // within +0.65m of that lowest level (picks ground sidewalk over buried road lip, ignores +6m viaduct!).
+        float minY = hits[0].y;
+        for (int i = 1; i < nHits; ++i) {
+            if (hits[i].y < minY) minY = hits[i].y;
+        }
+        bestIdx = -1;
+        for (int i = 0; i < nHits; ++i) {
+            if (hits[i].y <= minY + 0.65f) {
+                if (bestIdx < 0 || hits[i].y > hits[bestIdx].y) {
+                    bestIdx = i;
+                }
+            }
+        }
+        if (bestIdx < 0) bestIdx = 0;
+    }
+
+    outY = hits[bestIdx].y;
+    if (outIsSidewalk) *outIsSidewalk = hits[bestIdx].isSidewalk;
     return true;
 }
 
