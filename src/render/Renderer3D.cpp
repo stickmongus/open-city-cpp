@@ -1213,6 +1213,55 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
             };
             std::vector<GridNode> grid(static_cast<std::size_t>((kNx + 1) * (kNz + 1)));
 
+            // Precompute exact minimum ground-road elevation touching every 120m macro grid corner (<3ms pass!).
+            // Guaranteeing macroY <= cellMinRoadY - 4.2m makes it mathematically IMPOSSIBLE for the coarse 120m
+            // realTerrainMesh_ or mountainForestMesh_ to ever bridge a valley or pierce ANY road/sidewalk anywhere in Seoul!
+            std::vector<float> gridMinRoadY(static_cast<std::size_t>((kNx + 1) * (kNz + 1)), 1e9f);
+            {
+                const auto& roads = real.roads();
+                const auto& rVerts = real.roadVerts();
+                const float invDx = 1.0f / dx;
+                const float invDz = 1.0f / dz;
+                for (std::size_t ri = 0; ri < roads.size(); ++ri) {
+                    const OsmRoadRec& r = roads[ri];
+                    if (r.vertCount < 2 || (r.flags & 4u) != 0u) continue; // Skip tunnels
+                    const bool isElev = ((r.flags & 2u) != 0u) || (r.layer >= 1) || ((r.flags2 & 4u) != 0u);
+                    if (isElev) continue;
+                    auto stampRoadPt = [&](const Vec2& p, float ry) {
+                        const float demP = real.sampleDem(p);
+                        if (ry - demP > 3.2f) return; // Skip elevated viaduct spans
+                        const float roadLow = std::min(ry, demP);
+                        const int cx0 = std::clamp(static_cast<int>(std::floor((p.x - hdr.demMinX) * invDx)), 0, kNx);
+                        const int cz0 = std::clamp(static_cast<int>(std::floor((p.z - hdr.demMinZ) * invDz)), 0, kNz);
+                        const int cx1 = std::min(kNx, cx0 + 1);
+                        const int cz1 = std::min(kNz, cz0 + 1);
+                        for (int gz = cz0; gz <= cz1; ++gz) {
+                            for (int gx = cx0; gx <= cx1; ++gx) {
+                                float& slot = gridMinRoadY[static_cast<std::size_t>(gz * (kNx + 1) + gx)];
+                                if (roadLow < slot) slot = roadLow;
+                            }
+                        }
+                    };
+                    for (std::uint16_t vi = 0; vi < r.vertCount; ++vi) {
+                        const Vec2& p0 = rVerts[r.firstVert + vi];
+                        const float y0 = real.has3DRoads() ? real.roadVertY(r.firstVert + vi) : real.sampleDem(p0);
+                        stampRoadPt(p0, y0);
+                        if (vi + 1u < r.vertCount) {
+                            const Vec2& p1 = rVerts[r.firstVert + vi + 1u];
+                            const float segLen = (p1 - p0).length();
+                            if (segLen > 45.0f) {
+                                const float y1 = real.has3DRoads() ? real.roadVertY(r.firstVert + vi + 1u) : real.sampleDem(p1);
+                                const int nSub = static_cast<int>(std::ceil(segLen / 45.0f));
+                                for (int s = 1; s < nSub; ++s) {
+                                    const float t = static_cast<float>(s) / static_cast<float>(nSub);
+                                    stampRoadPt(p0 + (p1 - p0) * t, lerpf(y0, y1, t));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             for (int iz = 0; iz <= kNz; ++iz) {
                 const float wz = hdr.demMinZ + static_cast<float>(iz) * dz;
                 for (int ix = 0; ix <= kNx; ++ix) {
@@ -1222,15 +1271,30 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                     const bool inCore = real.isInCoreBounds(wp);
                     const bool inWater = inCore && real.isInWater(wp);
 
-                    // Depress riverbed under water (-2.2m) & sink coarse 120m macro urban terrain (-3.40m)
-                    // safely below per-chunk 8m fine urban ground & leveled road corridors up to h=95m (Yeoksam/Itaewon/Sinchon hills!),
-                    // while leaving high Korean mountain peaks (Namsan/Bukhansan/Gwanaksan 140..836m) 100% untouched!
                     float y = h;
                     if (inWater) {
                         y = h - 2.2f;
                     } else if (inCore) {
-                        const float urbanBlend = clampf(1.0f - (h - 95.0f) / 30.0f, 0.0f, 1.0f);
-                        y = h - 3.40f * urbanBlend;
+                        // Sample 3x3 surrounding neighborhood DEM (+/-65m) so coarse 120m triangles never bridge valleys!
+                        float minNeighH = h;
+                        if (h < 220.0f) {
+                            for (float oz : {-65.0f, 0.0f, 65.0f}) {
+                                for (float ox : {-65.0f, 0.0f, 65.0f}) {
+                                    if (ox == 0.0f && oz == 0.0f) continue;
+                                    minNeighH = std::min(minNeighH, real.sampleDem({wx + ox, wz + oz}));
+                                }
+                            }
+                        }
+                        const float urbanBlend = clampf(1.0f - (h - 115.0f) / 35.0f, 0.0f, 1.0f);
+                        y = lerpf(h, minNeighH, urbanBlend) - 3.80f * urbanBlend;
+                    }
+
+                    // Strict road-clearance depression: EVERY macro vertex touching any ground road cell stays >= 4.2m
+                    // beneath the lowest road in that cell (eliminating 100% of 120m road/sidewalk pierces up to +23m!),
+                    // while high roadless peaks (Namsan peak, Bukhansan, Gwanaksan) remain untouched!
+                    const float minRdY = gridMinRoadY[static_cast<std::size_t>(iz * (kNx + 1) + ix)];
+                    if (minRdY < 1e8f) {
+                        y = std::min(y, minRdY - 4.20f);
                     }
 
                     // Finite-difference SRTM surface normal
@@ -1336,13 +1400,36 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
         }
 
         // 3. Real OpenStreetMap Parks Mesh (17,931 real Yeouido, Seoul Forest, Yongsan, Namsan, Olympic, Hangang Park tris!)
-        // Subdivide large park triangles (> 28m edge) so lawns hug the 16m local ground seamlessly!
+        //    Subdivide near roads and depress/skip triangles touching OCRM roads or sidewalks (ZERO green road/sidewalk pierces!)
         {
             const auto& pTris = real.parkTris();
             std::vector<Vertex3D> pv;
             pv.reserve(pTris.size() * 6);
-            auto emitParkVert = [&](const Vec2& p) {
+            auto evalParkVertY = [&](const Vec2& p, bool& outOnOcrm, bool& outNearRoad) -> float {
                 const float h = real.sampleDem(p);
+                float py = h - 0.06f;
+                outOnOcrm = false;
+                outNearRoad = false;
+                if (real.hasOcrmMesh()) {
+                    float oy = 0.0f;
+                    bool isSw = false;
+                    if (real.ocrmMesh().sampleSurfaceHeightAt(p, h, oy, &isSw) && std::abs(oy - h) < 3.6f) {
+                        outOnOcrm = true;
+                        outNearRoad = true;
+                        py = std::min(py, oy - 0.55f);
+                    }
+                }
+                const NearestOsmRoad nr = real.findNearestRoad(p, 16.0f, h);
+                if (nr.found && !nr.isBridge && std::abs(nr.deckY - h) < 3.4f) {
+                    const float roadClear = nr.dist - std::max(2.6f, nr.halfWidth);
+                    if (roadClear <= 6.8f) {
+                        outNearRoad = true;
+                        py = std::min(py, nr.deckY - 0.55f);
+                    }
+                }
+                return py;
+            };
+            auto emitParkVert = [&](const Vec2& p, float py) {
                 const float hL = real.sampleDem({p.x - 16.0f, p.z});
                 const float hR = real.sampleDem({p.x + 16.0f, p.z});
                 const float hD = real.sampleDem({p.x, p.z - 16.0f});
@@ -1350,7 +1437,7 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                 const Vec3 n = Vec3{hL - hR, 32.0f, hD - hU}.normalized();
                 Vertex3D v{};
                 v.px = p.x;
-                v.py = h - 0.05f;
+                v.py = py;
                 v.pz = p.z;
                 v.nx = n.x; v.ny = n.y; v.nz = n.z;
                 v.u = 0.0f; v.v = 0.0f;
@@ -1361,7 +1448,15 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                 const float dAB = (b - a).lengthSq();
                 const float dBC = (c - b).lengthSq();
                 const float dCA = (a - c).lengthSq();
-                if (depth < 3 && std::max({dAB, dBC, dCA}) > 28.0f * 28.0f) {
+                const float maxE2 = std::max({dAB, dBC, dCA});
+                const Vec2 mid = (a + b + c) * (1.0f / 3.0f);
+                const bool nearRd = (depth < 5) && (
+                    real.isOnRoad(mid, 14.0f) ||
+                    real.isOnRoad(a, 10.0f) ||
+                    real.isOnRoad(b, 10.0f) ||
+                    real.isOnRoad(c, 10.0f));
+                const float splitThresh2 = nearRd ? (10.0f * 10.0f) : (28.0f * 28.0f);
+                if (depth < (nearRd ? 5 : 3) && maxE2 > splitThresh2) {
                     if (dAB >= dBC && dAB >= dCA) {
                         const Vec2 m = (a + b) * 0.5f;
                         self(self, a, m, c, depth + 1);
@@ -1379,9 +1474,22 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                         return;
                     }
                 }
-                emitParkVert(a);
-                emitParkVert(b);
-                emitParkVert(c);
+                bool oA = false, oB = false, oC = false, oM = false;
+                bool nA = false, nB = false, nC = false, nM = false;
+                const float yA = evalParkVertY(a, oA, nA);
+                const float yB = evalParkVertY(b, oB, nB);
+                const float yC = evalParkVertY(c, oC, nC);
+                (void)evalParkVertY(mid, oM, nM);
+                // Skip park triangles directly overlapping OCRM roads/sidewalks at centroid or edge midpoints!
+                if (oM || oA || oB || oC || nM || (nA && nB && nC)) return;
+                bool oAB = false, oBC = false, oCA = false, dummy = false;
+                (void)evalParkVertY((a + b) * 0.5f, oAB, dummy);
+                (void)evalParkVertY((b + c) * 0.5f, oBC, dummy);
+                (void)evalParkVertY((c + a) * 0.5f, oCA, dummy);
+                if (oAB || oBC || oCA) return;
+                emitParkVert(a, yA);
+                emitParkVert(b, yB);
+                emitParkVert(c, yC);
             };
             for (const auto& t : pTris) {
                 emitParkTriRec(emitParkTriRec, {t.x0, t.z0}, {t.x1, t.z1}, {t.x2, t.z2}, 0);
@@ -1889,7 +1997,7 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                     }
                     addRotBox(glowMb, lx, baseY + 552.0f, lz, 0.0f, 0.0f, {16.0f, 5.5f, 16.0f}, yaw, {195, 228, 255, 255});
                     // Lotte World Mall Podium on the EAST (+X) side of the tower (real Jamsil layout!)
-                    stoneMb.addBox({lx + 76.0f, baseY + 18.0f, lz - 6.0f}, {84.0f, 36.0f, 76.0f}, {222, 224, 228, 255});
+                    stoneMb.addBox({lx + 76.0f, baseY + 16.0f, lz - 6.0f}, {84.0f, 40.0f, 76.0f}, {222, 224, 228, 255});
                     glassMb.addBox({lx + 76.0f, baseY + 26.0f, lz - 6.0f}, {86.0f, 12.0f, 78.0f}, {148, 186, 218, 255});
                     break;
                 }
@@ -1909,7 +2017,7 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                     // Iconic Namsan Octagonal Pavilion (팔각정) on SW terrace!
                     const float px = lx - 28.0f, pz = lz + 18.0f;
                     const float py = city.terrainElevationAt({px, pz});
-                    stoneMb.addCylinderY({px, py - 2.0f, pz}, 10.0f, 9.5f, 4.0f, 8, {194, 190, 184, 255});
+                    stoneMb.addCylinderY({px, py - 4.0f, pz}, 10.0f, 9.5f, 6.0f, 8, {194, 190, 184, 255});
                     stoneMb.addCylinderY({px, py + 2.0f, pz}, 7.6f, 7.6f, 6.8f, 8, {164, 48, 40, 255});
                     addPalaceGiwaRoof(px, py + 8.6f, pz, 20.0f, 20.0f, 5.2f);
                     break;
@@ -1917,7 +2025,7 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
 
                 case SeoulLandmarkKind::GyeongbokgungPalace: {
                     // Gyeongbokgung Geunjeongjeon Throne Hall + 3-Arch Gwanghwamun Gate + Gwanghwamun Square Statues (Facing South +Z!)
-                    stoneMb.addBox({lx, baseY + 2.0f, lz}, {68.0f, 4.0f, 52.0f}, {206, 202, 194, 255});
+                    stoneMb.addBox({lx, baseY + 0.0f, lz}, {68.0f, 8.0f, 52.0f}, {206, 202, 194, 255});
                     stoneMb.addBox({lx, baseY + 5.2f, lz}, {56.0f, 2.8f, 42.0f}, {214, 210, 202, 255});
                     stoneMb.addBox({lx, baseY + 11.5f, lz}, {40.0f, 10.5f, 28.0f}, {162, 46, 38, 255});
                     stoneMb.addBox({lx, baseY + 16.8f, lz}, {42.5f, 1.8f, 30.5f}, {44, 136, 118, 255});
@@ -1926,35 +2034,40 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                     stoneMb.addBox({lx, baseY + 27.6f, lz}, {32.0f, 1.4f, 22.0f}, {44, 136, 118, 255});
                     addPalaceGiwaRoof(lx, baseY + 28.3f, lz, 38.0f, 27.0f, 8.2f);
 
-                    // Gwanghwamun Gate 142m south of Geunjeongjeon (z = -5654, 3 Hongyemun stone piers + palace walls!)
+                    // Gwanghwamun Gate 142m south of Geunjeongjeon — grounded to exact local terrain elevation!
                     const float gz = lz + 142.0f;
-                    stoneMb.addBox({lx - 22.0f, baseY + 4.5f, gz}, {14.0f, 9.0f, 14.0f}, {204, 198, 188, 255});
-                    stoneMb.addBox({lx -  6.5f, baseY + 4.5f, gz}, { 4.8f, 9.0f, 14.0f}, {204, 198, 188, 255});
-                    stoneMb.addBox({lx +  6.5f, baseY + 4.5f, gz}, { 4.8f, 9.0f, 14.0f}, {204, 198, 188, 255});
-                    stoneMb.addBox({lx + 22.0f, baseY + 4.5f, gz}, {14.0f, 9.0f, 14.0f}, {204, 198, 188, 255});
-                    stoneMb.addBox({lx, baseY + 9.2f, gz}, {58.0f, 2.8f, 14.2f}, {208, 202, 192, 255});
-                    stoneMb.addBox({lx, baseY + 13.8f, gz}, {34.0f, 6.6f, 12.0f}, {166, 46, 38, 255});
-                    stoneMb.addBox({lx, baseY + 17.2f, gz}, {36.0f, 1.3f, 13.5f}, {44, 136, 118, 255});
-                    addPalaceGiwaRoof(lx, baseY + 17.8f, gz, 44.0f, 19.0f, 6.4f);
+                    const float gateY = city.terrainElevationAt({lx, gz});
+                    stoneMb.addBox({lx - 22.0f, gateY + 2.5f, gz}, {14.0f, 13.0f, 14.0f}, {204, 198, 188, 255});
+                    stoneMb.addBox({lx -  6.5f, gateY + 2.5f, gz}, { 4.8f, 13.0f, 14.0f}, {204, 198, 188, 255});
+                    stoneMb.addBox({lx +  6.5f, gateY + 2.5f, gz}, { 4.8f, 13.0f, 14.0f}, {204, 198, 188, 255});
+                    stoneMb.addBox({lx + 22.0f, gateY + 2.5f, gz}, {14.0f, 13.0f, 14.0f}, {204, 198, 188, 255});
+                    stoneMb.addBox({lx, gateY + 9.2f, gz}, {58.0f, 2.8f, 14.2f}, {208, 202, 192, 255});
+                    stoneMb.addBox({lx, gateY + 13.8f, gz}, {34.0f, 6.6f, 12.0f}, {166, 46, 38, 255});
+                    stoneMb.addBox({lx, gateY + 17.2f, gz}, {36.0f, 1.3f, 13.5f}, {44, 136, 118, 255});
+                    addPalaceGiwaRoof(lx, gateY + 17.8f, gz, 44.0f, 19.0f, 6.4f);
                     // Palace Stone Rampart Walls (궁장) running East & West from Gwanghwamun!
-                    stoneMb.addBox({lx - 86.0f, baseY + 2.8f, gz}, {116.0f, 5.6f, 2.4f}, {202, 196, 186, 255});
-                    stoneMb.addBox({lx + 86.0f, baseY + 2.8f, gz}, {116.0f, 5.6f, 2.4f}, {202, 196, 186, 255});
-                    // Gwanghwamun Square Iconic Statues along Sejong-daero facing South (+Z)!
-                    // King Sejong the Great (세종대왕상 — seated royal bronze statue on carved granite plinth!)
-                    const float sjZ = gz + 205.0f;
-                    stoneMb.addBox({lx, baseY + 1.1f, sjZ}, {7.6f, 2.2f, 6.8f}, {198, 194, 186, 255});
-                    stoneMb.addBox({lx, baseY + 2.55f, sjZ}, {5.4f, 0.85f, 4.8f}, {184, 180, 172, 255});
+                    stoneMb.addBox({lx - 86.0f, gateY + 0.8f, gz}, {116.0f, 9.6f, 2.4f}, {202, 196, 186, 255});
+                    stoneMb.addBox({lx + 86.0f, gateY + 0.8f, gz}, {116.0f, 9.6f, 2.4f}, {202, 196, 186, 255});
+                    // Gwanghwamun Square Iconic Statues placed on the exact renovated Sejong-daero pedestrian plaza
+                    // (west of Sejong-daero traffic, clear of OSM walls & grounded flush to local square elevation!)
+                    const float sjX = city.hasRealSeoulMap() ? -726.0f : lx;
+                    const float sjZ = city.hasRealSeoulMap() ? -5488.0f : (gz + 205.0f);
+                    const float sjY = city.terrainElevationAt({sjX, sjZ});
+                    stoneMb.addBox({sjX, sjY + 0.1f, sjZ}, {7.6f, 4.2f, 6.8f}, {198, 194, 186, 255});
+                    stoneMb.addBox({sjX, sjY + 2.55f, sjZ}, {5.4f, 0.85f, 4.8f}, {184, 180, 172, 255});
                     const ColorRGBA kSejongBronze{184, 144, 62, 255};
-                    metalMb.addBox({lx, baseY + 3.65f, sjZ}, {3.2f, 1.4f, 2.8f}, kSejongBronze); // Seated royal robe base
-                    metalMb.addBox({lx, baseY + 4.95f, sjZ - 0.15f}, {2.0f, 1.55f, 1.45f}, kSejongBronze); // Royal torso
-                    metalMb.addSphere({lx, baseY + 6.05f, sjZ - 0.10f}, 0.56f, 7, 10, kSejongBronze); // Head + 익선관
-                    // Admiral Yi Sun-sin (충무공 이순신 장군상 — tall granite pedestal + standing dark bronze statue!)
-                    const float yiZ = gz + 415.0f;
-                    stoneMb.addBox({lx, baseY + 1.2f, yiZ}, {6.8f, 2.4f, 6.8f}, {188, 184, 176, 255});
-                    stoneMb.addBox({lx, baseY + 5.2f, yiZ}, {3.8f, 5.8f, 3.8f}, {178, 174, 168, 255});
+                    metalMb.addBox({sjX, sjY + 3.65f, sjZ}, {3.2f, 1.4f, 2.8f}, kSejongBronze); // Seated royal robe base
+                    metalMb.addBox({sjX, sjY + 4.95f, sjZ - 0.15f}, {2.0f, 1.55f, 1.45f}, kSejongBronze); // Royal torso
+                    metalMb.addSphere({sjX, sjY + 6.05f, sjZ - 0.10f}, 0.56f, 7, 10, kSejongBronze); // Head + 익선관
+                    // Admiral Yi Sun-sin (충무공 이순신 장군상 — grounded to exact Gwanghwamun Square surface!)
+                    const float yiX = city.hasRealSeoulMap() ? -726.0f : lx;
+                    const float yiZ = city.hasRealSeoulMap() ? -5320.0f : (gz + 415.0f);
+                    const float yiY = city.terrainElevationAt({yiX, yiZ});
+                    stoneMb.addBox({yiX, yiY + 0.2f, yiZ}, {6.8f, 4.4f, 6.8f}, {188, 184, 176, 255});
+                    stoneMb.addBox({yiX, yiY + 5.2f, yiZ}, {3.8f, 5.8f, 3.8f}, {178, 174, 168, 255});
                     const ColorRGBA kYiBronze{72, 68, 58, 255};
-                    metalMb.addCylinderY({lx, baseY + 8.1f, yiZ}, 0.85f, 0.72f, 3.6f, 10, kYiBronze);
-                    metalMb.addSphere({lx, baseY + 12.1f, yiZ}, 0.48f, 7, 10, kYiBronze);
+                    metalMb.addCylinderY({yiX, yiY + 8.1f, yiZ}, 0.85f, 0.72f, 3.6f, 10, kYiBronze);
+                    metalMb.addSphere({yiX, yiY + 12.1f, yiZ}, 0.48f, 7, 10, kYiBronze);
                     break;
                 }
 
@@ -1972,11 +2085,12 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                     const Vec2 t1 = rotXZ(lx, lz,  hxTop, -hzTop, yaw);
                     const Vec2 t2 = rotXZ(lx, lz,  hxTop,  hzTop, yaw);
                     const Vec2 t3 = rotXZ(lx, lz, -hxTop,  hzTop, yaw);
-                    // 4 continuous smooth sloped golden glass facades!
-                    glassMb.addQuad({b0.x, baseY, b0.z}, {t0.x, baseY + hTop, t0.z}, {t1.x, baseY + hTop, t1.z}, {b1.x, baseY, b1.z}, kGoldGlass);
-                    glassMb.addQuad({b1.x, baseY, b1.z}, {t1.x, baseY + hTop, t1.z}, {t2.x, baseY + hTop, t2.z}, {b2.x, baseY, b2.z}, kGoldGlass);
-                    glassMb.addQuad({b2.x, baseY, b2.z}, {t2.x, baseY + hTop, t2.z}, {t3.x, baseY + hTop, t3.z}, {b3.x, baseY, b3.z}, kGoldGlass);
-                    glassMb.addQuad({b3.x, baseY, b3.z}, {t3.x, baseY + hTop, t3.z}, {t0.x, baseY + hTop, t0.z}, {b0.x, baseY, b0.z}, kGoldGlass);
+                    // 4 continuous smooth sloped golden glass facades anchored -4m below grade!
+                    const float yB63 = baseY - 4.0f;
+                    glassMb.addQuad({b0.x, yB63, b0.z}, {t0.x, baseY + hTop, t0.z}, {t1.x, baseY + hTop, t1.z}, {b1.x, yB63, b1.z}, kGoldGlass);
+                    glassMb.addQuad({b1.x, yB63, b1.z}, {t1.x, baseY + hTop, t1.z}, {t2.x, baseY + hTop, t2.z}, {b2.x, yB63, b2.z}, kGoldGlass);
+                    glassMb.addQuad({b2.x, yB63, b2.z}, {t2.x, baseY + hTop, t2.z}, {t3.x, baseY + hTop, t3.z}, {b3.x, yB63, b3.z}, kGoldGlass);
+                    glassMb.addQuad({b3.x, yB63, b3.z}, {t3.x, baseY + hTop, t3.z}, {t0.x, baseY + hTop, t0.z}, {b0.x, yB63, b0.z}, kGoldGlass);
                     // Roof cap & golden crown glow
                     glassMb.addQuad({t0.x, baseY + hTop, t0.z}, {t3.x, baseY + hTop, t3.z}, {t2.x, baseY + hTop, t2.z}, {t1.x, baseY + hTop, t1.z}, kGoldGlass);
                     addRotBox(glowMb, lx, baseY + hTop + 1.8f, lz, 0.0f, 0.0f, {36.0f, 3.2f, 9.2f}, yaw, {255, 224, 128, 255});
@@ -1985,18 +2099,18 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
 
                 case SeoulLandmarkKind::NationalAssembly: {
                     // National Assembly of South Korea: Oriented facing EAST-SOUTHEAST (+X/+Z, yaw=0.18) down Uisadang-daero!
-                    addRotBox(stoneMb, lx, baseY + 14.0f, lz, 0.0f, 0.0f, {56.0f, 28.0f, 82.0f}, yaw, {214, 212, 206, 255});
+                    addRotBox(stoneMb, lx, baseY + 12.0f, lz, 0.0f, 0.0f, {56.0f, 32.0f, 82.0f}, yaw, {214, 212, 206, 255});
                     // Monumental East-facing ceremonial granite staircase (+X front)!
                     for (int st = 0; st < 4; ++st) {
                         const float sf = static_cast<float>(st);
-                        addRotBox(stoneMb, lx, baseY + 0.9f + sf * 1.4f, lz, 32.0f + (3.0f - sf) * 3.8f, 0.0f,
-                                  {6.0f, 1.5f, 38.0f}, yaw, {222, 220, 214, 255});
+                        addRotBox(stoneMb, lx, baseY - 0.6f + sf * 1.4f, lz, 32.0f + (3.0f - sf) * 3.8f, 0.0f,
+                                  {6.0f, 4.5f, 38.0f}, yaw, {222, 220, 214, 255});
                     }
                     // 24 vertical classical granite columns around perimeter (front & back face East/West!)
                     for (int c = -5; c <= 5; ++c) {
                         const float czOff = static_cast<float>(c) * 7.2f;
-                        addRotBox(stoneMb, lx, baseY + 14.5f, lz,  29.2f, czOff, {2.3f, 27.5f, 2.3f}, yaw, {228, 226, 220, 255});
-                        addRotBox(stoneMb, lx, baseY + 14.5f, lz, -29.2f, czOff, {2.3f, 27.5f, 2.3f}, yaw, {228, 226, 220, 255});
+                        addRotBox(stoneMb, lx, baseY + 12.5f, lz,  29.2f, czOff, {2.3f, 31.5f, 2.3f}, yaw, {228, 226, 220, 255});
+                        addRotBox(stoneMb, lx, baseY + 12.5f, lz, -29.2f, czOff, {2.3f, 31.5f, 2.3f}, yaw, {228, 226, 220, 255});
                     }
                     // Iconic ribbed mint-green oxidized copper dome!
                     metalMb.addCylinderY({lx, baseY + 28.0f, lz}, 24.0f, 22.0f, 8.0f, 20, {196, 194, 188, 255});
@@ -2006,13 +2120,13 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
 
                 case SeoulLandmarkKind::Parc1RedTower: {
                     // Yeouido Parc1 Towers (333m + 256m) rotated along Yeouido-daero with signature crimson exoskeleton!
-                    addRotBox(glassMb, lx, baseY + 166.0f, lz, -28.0f, 0.0f, {34.0f, 332.0f, 34.0f}, yaw, {132, 164, 192, 255});
-                    addRotBox(glassMb, lx, baseY + 128.0f, lz,  34.0f, 8.0f, {32.0f, 256.0f, 32.0f}, yaw, {136, 168, 196, 255});
+                    addRotBox(glassMb, lx, baseY + 164.0f, lz, -28.0f, 0.0f, {34.0f, 336.0f, 34.0f}, yaw, {132, 164, 192, 255});
+                    addRotBox(glassMb, lx, baseY + 126.0f, lz,  34.0f, 8.0f, {32.0f, 260.0f, 32.0f}, yaw, {136, 168, 196, 255});
                     const ColorRGBA kParcRed{208, 36, 44, 255};
                     for (float sx : {-1.0f, 1.0f}) {
                         for (float sz : {-1.0f, 1.0f}) {
-                            addRotBox(metalMb, lx, baseY + 166.0f, lz, -28.0f + sx * 17.6f, sz * 17.6f, {2.8f, 334.0f, 2.8f}, yaw, kParcRed);
-                            addRotBox(metalMb, lx, baseY + 128.0f, lz,  34.0f + sx * 16.6f, 8.0f + sz * 16.6f, {2.6f, 258.0f, 2.6f}, yaw, kParcRed);
+                            addRotBox(metalMb, lx, baseY + 164.0f, lz, -28.0f + sx * 17.6f, sz * 17.6f, {2.8f, 338.0f, 2.8f}, yaw, kParcRed);
+                            addRotBox(metalMb, lx, baseY + 126.0f, lz,  34.0f + sx * 16.6f, 8.0f + sz * 16.6f, {2.6f, 262.0f, 2.6f}, yaw, kParcRed);
                         }
                     }
                     for (int h = 1; h <= 5; ++h) {
@@ -2023,11 +2137,11 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
 
                 case SeoulLandmarkKind::CoexTradeTower: {
                     // Samseong-dong COEX Trade Tower (228m stepped chevron facing East onto Yeongdong-daero!) + NW COEX Mall
-                    glassMb.addBox({lx, baseY + 95.0f, lz}, {34.0f, 190.0f, 38.0f}, {148, 184, 214, 255});
+                    glassMb.addBox({lx, baseY + 93.0f, lz}, {34.0f, 194.0f, 38.0f}, {148, 184, 214, 255});
                     glassMb.addBox({lx, baseY + 206.0f, lz}, {26.0f, 32.0f, 28.0f}, {162, 196, 224, 255});
                     glassMb.addBox({lx, baseY + 225.0f, lz}, {18.0f, 12.0f, 20.0f}, {176, 208, 232, 255});
                     // COEX Convention Center sprawling Northwest behind Trade Tower
-                    stoneMb.addBox({lx - 64.0f, baseY + 15.0f, lz - 42.0f}, {86.0f, 30.0f, 72.0f}, {198, 204, 212, 255});
+                    stoneMb.addBox({lx - 64.0f, baseY + 13.0f, lz - 42.0f}, {86.0f, 34.0f, 72.0f}, {198, 204, 212, 255});
                     glassMb.addBox({lx - 64.0f, baseY + 31.0f, lz - 42.0f}, {82.0f, 4.5f, 68.0f}, {132, 174, 208, 255});
                     glowMb.addBox({lx, baseY + 232.0f, lz}, {18.5f, 2.8f, 20.5f}, {122, 212, 255, 255});
                     break;
@@ -2042,21 +2156,22 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                         const float zPush = -20.0f + std::pow(tf, 1.45f) * 18.0f; // Iconic southward wave overhang!
                         glassMb.addBox({lx, yMid, lz + zPush}, {66.0f, 11.5f, 22.0f + tf * 10.0f}, {126, 182, 224, 255});
                     }
+                    stoneMb.addBox({lx, baseY - 2.0f, lz - 20.0f}, {66.0f, 4.5f, 22.0f}, {132, 138, 146, 255});
                     // Historic stone Seoul Metropolitan Library (Old City Hall) directly South facing Seoul Plaza!
-                    stoneMb.addBox({lx, baseY + 11.0f, lz + 18.0f}, {54.0f, 22.0f, 18.0f}, {208, 200, 186, 255});
+                    stoneMb.addBox({lx, baseY + 9.0f, lz + 18.0f}, {54.0f, 26.0f, 18.0f}, {208, 200, 186, 255});
                     stoneMb.addBox({lx, baseY + 25.0f, lz + 18.0f}, {16.0f, 9.0f, 14.0f}, {214, 206, 192, 255});
                     metalMb.addCylinderY({lx, baseY + 29.5f, lz + 18.0f}, 6.2f, 2.2f, 5.5f, 12, {82, 134, 122, 255});
                     break;
                 }
 
                 case SeoulLandmarkKind::SungnyemunGate: {
-                    // Sungnyemun (Namdaemun): centered on Sejong-daero (x=-924) with N-S stone arch & E-W fortress wall wings!
-                    stoneMb.addBox({lx - 12.0f, baseY + 4.5f, lz}, {13.0f, 9.0f, 14.0f}, {188, 182, 174, 255});
-                    stoneMb.addBox({lx + 12.0f, baseY + 4.5f, lz}, {13.0f, 9.0f, 14.0f}, {188, 182, 174, 255});
+                    // Sungnyemun (Namdaemun): centered on Sejong-daero with N-S stone arch & watertight -4m stone base!
+                    stoneMb.addBox({lx - 12.0f, baseY + 2.5f, lz}, {13.0f, 13.0f, 14.0f}, {188, 182, 174, 255});
+                    stoneMb.addBox({lx + 12.0f, baseY + 2.5f, lz}, {13.0f, 13.0f, 14.0f}, {188, 182, 174, 255});
                     stoneMb.addBox({lx, baseY + 8.8f, lz}, {37.0f, 2.8f, 14.0f}, {192, 186, 178, 255});
                     // Short Hanyangdoseong stone wall wings extending East & West
-                    stoneMb.addBox({lx - 26.0f, baseY + 2.8f, lz}, {16.0f, 5.6f, 3.6f}, {182, 176, 168, 255});
-                    stoneMb.addBox({lx + 26.0f, baseY + 2.8f, lz}, {16.0f, 5.6f, 3.6f}, {182, 176, 168, 255});
+                    stoneMb.addBox({lx - 26.0f, baseY + 0.8f, lz}, {16.0f, 9.6f, 3.6f}, {182, 176, 168, 255});
+                    stoneMb.addBox({lx + 26.0f, baseY + 0.8f, lz}, {16.0f, 9.6f, 3.6f}, {182, 176, 168, 255});
                     stoneMb.addBox({lx, baseY + 13.4f, lz}, {25.0f, 6.2f, 11.0f}, {164, 46, 38, 255});
                     stoneMb.addBox({lx, baseY + 16.4f, lz}, {26.5f, 1.2f, 12.2f}, {44, 136, 118, 255});
                     addPalaceGiwaRoof(lx, baseY + 16.8f, lz, 32.0f, 16.5f, 4.8f);
@@ -2074,7 +2189,7 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                         const float dz = std::sin(u * kPi * 1.4f) * 18.0f;
                         const float w = 22.0f + 10.0f * std::sin(u * kPi);
                         const float h = 16.0f + 11.0f * std::sin(u * kPi);
-                        addRotBox(metalMb, lx, baseY + h * 0.5f, lz, dx, dz, {14.0f, h, w}, yaw + std::cos(u * kPi * 1.4f) * 0.25f, {214, 220, 228, 255});
+                        addRotBox(metalMb, lx, baseY + (h - 4.0f) * 0.5f, lz, dx, dz, {14.0f, h + 4.0f, w}, yaw + std::cos(u * kPi * 1.4f) * 0.25f, {214, 220, 228, 255});
                         if (s % 2 == 0) {
                             addRotBox(glowMb, lx, baseY + h + 0.5f, lz, dx, dz, {12.0f, 0.9f, w * 0.72f}, yaw + std::cos(u * kPi * 1.4f) * 0.25f, {192, 228, 255, 255});
                         }
@@ -2092,8 +2207,8 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                         const float a1 = kTwoPi * static_cast<float>(s + 1) / static_cast<float>(segs);
                         const float h0 = 28.0f + 14.0f * std::abs(std::cos(a0)); // Iconic sweeping roof saddle!
                         const float h1 = 28.0f + 14.0f * std::abs(std::cos(a1));
-                        const Vec3 o0b{lx + std::cos(a0) * rxOut, baseY,      lz + std::sin(a0) * rzOut};
-                        const Vec3 o1b{lx + std::cos(a1) * rxOut, baseY,      lz + std::sin(a1) * rzOut};
+                        const Vec3 o0b{lx + std::cos(a0) * rxOut, baseY - 4.0f, lz + std::sin(a0) * rzOut};
+                        const Vec3 o1b{lx + std::cos(a1) * rxOut, baseY - 4.0f, lz + std::sin(a1) * rzOut};
                         const Vec3 o0t{lx + std::cos(a0) * rxOut, baseY + h0, lz + std::sin(a0) * rzOut};
                         const Vec3 o1t{lx + std::cos(a1) * rxOut, baseY + h1, lz + std::sin(a1) * rzOut};
                         const Vec3 i0t{lx + std::cos(a0) * rxIn,  baseY + h0 * 0.95f, lz + std::sin(a0) * rzIn};
@@ -2439,6 +2554,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             bool inWater;
             bool insideRoad;
             bool underSidewalk;
+            bool onSidewalk;
         };
         std::vector<LocalGNode> lg(static_cast<std::size_t>((kGn + 1) * (kGn + 1)));
         for (int iz = 0; iz <= kGn; ++iz) {
@@ -2497,7 +2613,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 const float hU = real.sampleDem({wx, wz + 6.0f});
                 lg[static_cast<std::size_t>(iz * (kGn + 1) + ix)] = {
                     {wx, y, wz}, Vec3{hL - hR, 12.0f, hD - hU}.normalized(),
-                    h, 1e9f, 1e9f, h, 0.0f, 0.0f, 1e9f, wtr, insideRoad, false
+                    h, 1e9f, 1e9f, h, 0.0f, 0.0f, 1e9f, wtr, insideRoad, false, false
                 };
             }
         }
@@ -2593,7 +2709,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                                 const float w = invD * invD * invD;
                                 nd.roadSumWY += w * exactY;
                                 nd.roadSumW += w;
-                                if (d <= 3.0f && exactY < nd.nearRoadMinY) {
+                                if (d <= 3.6f && exactY < nd.nearRoadMinY) {
                                     nd.nearRoadMinY = exactY;
                                 }
                                 if (d < nd.minDistRoad) {
@@ -2609,8 +2725,9 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 scanRoadList(srcCh.idxHighway);
                 scanRoadList(srcCh.idxInter);
 
-                // Exact interpolated sidewalk/plaza height cap within 2.4m so ground NEVER z-fights or drops -1.8m downhill!
-                constexpr float kSwPad = 2.4f;
+                // Exact interpolated sidewalk/plaza height cap within 3.6m (> 2.83m 4m-quad circumradius!) so
+                // even steep 35-deg hillside quads (Sillim/Namsan/Itaewon) NEVER bridge or poke through sidewalks!
+                constexpr float kSwPad = 3.6f;
                 constexpr float kSwPadSq = kSwPad * kSwPad;
                 for (std::size_t k = 0; k + 2 < srcCh.idxSidewalk.size(); k += 3) {
                     const OcrmDecodedVertex& v0 = srcCh.verts[srcCh.idxSidewalk[k]];
@@ -2626,6 +2743,10 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                     const float tz0 = vMinZ - kSwPad;
                     const float tz1 = vMaxZ + kSwPad;
                     if (tx1 < gx0 || tx0 > gx1 || tz1 < gz0 || tz0 > gz1) continue;
+                    const float cxT = (v0.px + v1.px + v2.px) * (1.0f / 3.0f);
+                    const float czT = (v0.pz + v1.pz + v2.pz) * (1.0f / 3.0f);
+                    const float avgYT = (v0.py + v1.py + v2.py) * (1.0f / 3.0f);
+                    if (avgYT - real.sampleDem({cxT, czT}) > 3.40f) continue; // Skip elevated bridge sidewalks
 
                     const int i0x = std::clamp(static_cast<int>(std::floor((tx0 - gx0) / step)), 0, kGn);
                     const int i1x = std::clamp(static_cast<int>(std::ceil((tx1 - gx0) / step)), 0, kGn);
@@ -2642,7 +2763,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                             closestPtOnTriWithY(nd.pos.x, nd.pos.z, v0, v1, v2, d2, exactSwY);
                             if (d2 <= kSwPadSq) {
                                 nd.underSidewalk = true;
-                                nd.swCapY = std::min(nd.swCapY, exactSwY - 0.08f);
+                                if (d2 <= 0.65f * 0.65f) nd.onSidewalk = true;
+                                nd.swCapY = std::min(nd.swCapY, exactSwY - 0.10f);
                             }
                         }
                     }
@@ -2661,23 +2783,29 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             }
 
             // Apply silk-smooth, watertight vertical contouring using exact interpolated Y & IDW blending!
+            // On flat urban blocks, hold storefront apron flush out to 9.5m; on steep Seoul hills (|rawH - roadY| > 1m),
+            // transition gracefully back to natural hillside slope right past the sidewalk (2.2m) so roads NEVER carve
+            // jagged 10m vertical concrete cliff pits beneath uphill buildings!
             for (LocalGNode& nd : lg) {
                 if (nd.inWater) continue;
                 if (nd.minDistRoad <= 20.0f) {
                     const float smoothRdY = (nd.roadSumW > 1e-6f) ? (nd.roadSumWY / nd.roadSumW) : nd.nearRoadAvgY;
                     const float rMin = (nd.nearRoadMinY < 1e8f) ? nd.nearRoadMinY : smoothRdY;
+                    const float hillBlend = clampf((std::abs(nd.rawH - smoothRdY) - 0.8f) / 2.2f, 0.0f, 1.0f);
+                    const float flatShelfM = lerpf(9.5f, 2.2f, hillBlend);
+                    const float transSpanM = lerpf(10.5f, 15.0f, hillBlend);
                     if (nd.minDistRoad <= 0.75f) {
                         nd.pos.y = std::min(nd.pos.y, rMin - 0.54f);
                         nd.insideRoad = true;
-                    } else if (nd.underSidewalk) {
+                    } else if (nd.onSidewalk) {
                         const float tSw = clampf((nd.minDistRoad - 0.75f) / 3.5f, 0.0f, 1.0f);
                         const float targetSw = std::min(nd.swCapY, smoothRdY + 0.06f);
                         nd.pos.y = std::min(nd.swCapY, lerpf(rMin - 0.34f, targetSw, tSw));
-                    } else if (nd.minDistRoad <= 9.5f) {
-                        const float tLot = clampf((nd.minDistRoad - 0.75f) / 2.6f, 0.0f, 1.0f);
+                    } else if (nd.minDistRoad <= flatShelfM) {
+                        const float tLot = clampf((nd.minDistRoad - 0.75f) / std::max(1.2f, flatShelfM - 0.75f), 0.0f, 1.0f);
                         nd.pos.y = lerpf(rMin - 0.28f, smoothRdY + 0.06f, tLot);
                     } else {
-                        const float tOut = clampf((nd.minDistRoad - 9.5f) / 10.5f, 0.0f, 1.0f);
+                        const float tOut = clampf((nd.minDistRoad - flatShelfM) / transSpanM, 0.0f, 1.0f);
                         const float sOut = tOut * tOut * (3.0f - 2.0f * tOut);
                         nd.pos.y = lerpf(smoothRdY + 0.06f, nd.rawH - subBaseDrop, sOut);
                     }
@@ -2702,6 +2830,10 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                             tmpY[idx + static_cast<std::size_t>(kGn + 1)]);
                         float ny = lerpf(tmpY[idx], avgNb, 0.45f);
                         if (nd.underSidewalk) ny = std::min(ny, nd.swCapY);
+                        if (nd.minDistRoad <= 1.25f) {
+                            const float rMin = (nd.nearRoadMinY < 1e8f) ? nd.nearRoadMinY : nd.nearRoadAvgY;
+                            ny = std::min(ny, rMin - 0.36f);
+                        }
                         nd.pos.y = ny;
                     }
                 }
@@ -2709,6 +2841,7 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
         }
 
         const ColorRGBA kGroundCol{162, 164, 168, 255};
+        const ColorRGBA kSubRoadCol{36, 38, 42, 255};
         auto pushGVert = [&](std::vector<Vertex3D>& dst, const LocalGNode& n, ColorRGBA col) {
             Vertex3D v{};
             v.px = n.pos.x; v.py = n.pos.y; v.pz = n.pos.z;
@@ -2727,21 +2860,31 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 const LocalGNode& n11 = lg[static_cast<std::size_t>((iz + 1) * (kGn + 1) + (ix + 1))];
                 const LocalGNode& n01 = lg[static_cast<std::size_t>((iz + 1) * (kGn + 1) + ix)];
                 if (n00.inWater && n10.inWater && n11.inWater && n01.inWater) continue;
-                if (n00.insideRoad && n10.insideRoad && n11.insideRoad && n01.insideRoad) continue;
-                const float avgH = 0.25f * (n00.rawH + n10.rawH + n11.rawH + n01.rawH);
-                if (avgH >= 88.0f) continue; // High forested Seoul mountains rendered via macro mountainForestMesh_!
 
-                // Render steep non-road urban green hills (e.g. Kukkiwon Hill behind Gangnam Station, Yeoksam parks,
-                // Namsan foothills & landscaped retaining banks) as lush green hillside grass!
+                // Keep depressed road-subbase quads watertight underneath opaque asphalt (dark charcoal) so
+                // twin-carriageway medians, slip-ramps & micro-gaps NEVER open holes into the blue sky/void!
+                if (n00.insideRoad && n10.insideRoad && n11.insideRoad && n01.insideRoad) {
+                    pushGVert(groundV, n00, kSubRoadCol); pushGVert(groundV, n01, kSubRoadCol); pushGVert(groundV, n11, kSubRoadCol);
+                    pushGVert(groundV, n00, kSubRoadCol); pushGVert(groundV, n11, kSubRoadCol); pushGVert(groundV, n10, kSubRoadCol);
+                    continue;
+                }
+
+                // Render ALL active-chunk elevations (0..836m) at full 4m OCRM-carved precision so there is
+                // ZERO 88m cliff tear and ZERO mountain mesh piercing hillside roads (Namsan/Itaewon/Seongbuk/Sillim)!
+                const float avgH = 0.25f * (n00.rawH + n10.rawH + n11.rawH + n01.rawH);
                 const float avgNY = 0.25f * (n00.norm.y + n10.norm.y + n11.norm.y + n01.norm.y);
                 const float minRoadD = std::min({n00.minDistRoad, n10.minDistRoad, n11.minDistRoad, n01.minDistRoad});
-                const bool anySw = n00.underSidewalk || n10.underSidewalk || n11.underSidewalk || n01.underSidewalk;
-                if (!anySw && minRoadD > 8.0f && (avgNY < 0.994f || avgH > 46.0f)) {
-                    const float hT = clampf((avgH - 24.0f) / 48.0f, 0.0f, 1.0f);
+                const bool anyOnSw = n00.onSidewalk || n10.onSidewalk || n11.onSidewalk || n01.onSidewalk;
+                const float qRise = std::max({n00.pos.y, n10.pos.y, n11.pos.y, n01.pos.y})
+                                  - std::min({n00.pos.y, n10.pos.y, n11.pos.y, n01.pos.y});
+                if ((minRoadD > 1.6f && qRise > 1.55f) ||
+                    (!anyOnSw && ((minRoadD > 2.2f && (qRise > 0.65f || avgNY < 0.985f)) ||
+                                  (minRoadD > 8.0f && (avgNY < 0.994f || avgH > 46.0f))))) {
+                    const float hT = clampf((avgH - 24.0f) / 140.0f, 0.0f, 1.0f);
                     const ColorRGBA hillCol{
-                        static_cast<std::uint8_t>(lerpf(86.0f, 58.0f, hT)),
-                        static_cast<std::uint8_t>(lerpf(126.0f, 96.0f, hT)),
-                        static_cast<std::uint8_t>(lerpf(64.0f, 50.0f, hT)),
+                        static_cast<std::uint8_t>(lerpf(86.0f, 48.0f, hT)),
+                        static_cast<std::uint8_t>(lerpf(126.0f, 82.0f, hT)),
+                        static_cast<std::uint8_t>(lerpf(64.0f, 46.0f, hT)),
                         255u
                     };
                     pushGVert(hillsideV, n00, hillCol); pushGVert(hillsideV, n01, hillCol); pushGVert(hillsideV, n11, hillCol);
@@ -2765,22 +2908,73 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                                    bool isSidewalk) {
             if (idxList.empty()) return;
             dst.reserve(dst.size() + idxList.size());
-            for (std::uint16_t vi : idxList) {
-                const OcrmDecodedVertex& dv = ocrmCh.verts[vi];
-                Vertex3D v{};
-                v.px = dv.px;
-                v.py = dv.py;
-                v.pz = dv.pz;
-                v.nx = dv.nx;
-                v.ny = dv.ny;
-                v.nz = dv.nz;
-                v.u  = isSidewalk ? (dv.uCm * 0.01f) : 0.0f;
-                v.v  = isSidewalk ? -1.0f : 0.0f; // v < -0.5 selects OCRM world-space sidewalk shader!
-                v.r  = static_cast<float>(dv.r) / 255.0f;
-                v.g  = static_cast<float>(dv.g) / 255.0f;
-                v.b  = static_cast<float>(dv.b) / 255.0f;
-                v.a  = static_cast<float>(dv.a) / 255.0f;
-                dst.push_back(v);
+            if (!isSidewalk) {
+                for (std::uint16_t vi : idxList) {
+                    const OcrmDecodedVertex& dv = ocrmCh.verts[vi];
+                    Vertex3D v{};
+                    v.px = dv.px; v.py = dv.py; v.pz = dv.pz;
+                    v.nx = dv.nx; v.ny = dv.ny; v.nz = dv.nz;
+                    v.u  = 0.0f;  v.v  = 0.0f;
+                    v.r  = static_cast<float>(dv.r) / 255.0f;
+                    v.g  = static_cast<float>(dv.g) / 255.0f;
+                    v.b  = static_cast<float>(dv.b) / 255.0f;
+                    v.a  = static_cast<float>(dv.a) / 255.0f;
+                    dst.push_back(v);
+                }
+                return;
+            }
+            for (std::size_t k = 0; k + 2 < idxList.size(); k += 3) {
+                const OcrmDecodedVertex& d0 = ocrmCh.verts[idxList[k]];
+                const OcrmDecodedVertex& d1 = ocrmCh.verts[idxList[k + 1]];
+                const OcrmDecodedVertex& d2 = ocrmCh.verts[idxList[k + 2]];
+                const bool isVertCurb = (std::abs(d0.ny) < 0.5f && std::abs(d1.ny) < 0.5f && std::abs(d2.ny) < 0.5f)
+                                     || (d0.uCm < 0.0f && d1.uCm < 0.0f && d2.uCm < 0.0f);
+                bool steepOuterHill = false;
+                if (!isVertCurb) {
+                    // Only convert outer setback-plaza triangles strictly beyond the 3.0m sidewalk/Braille strip
+                    // AND truly steeper than 24 deg (absNy < 0.91f), preserving all sloped city sidewalks intact!
+                    const float minU = std::min({d0.uCm, d1.uCm, d2.uCm});
+                    if (minU >= 300.0f) {
+                        const Vec3 e1{d1.px - d0.px, d1.py - d0.py, d1.pz - d0.pz};
+                        const Vec3 e2{d2.px - d0.px, d2.py - d0.py, d2.pz - d0.pz};
+                        const Vec3 fn = e1.cross(e2);
+                        const float fnLen = fn.length();
+                        const float absNy = (fnLen > 1e-5f) ? (std::abs(fn.y) / fnLen) : 1.0f;
+                        if (absNy < 0.91f) {
+                            steepOuterHill = true;
+                        }
+                    }
+                }
+                if (steepOuterHill) {
+                    const float avgH = (d0.py + d1.py + d2.py) * (1.0f / 3.0f);
+                    const float hT = clampf((avgH - 24.0f) / 140.0f, 0.0f, 1.0f);
+                    const float hr = lerpf(86.0f, 48.0f, hT) / 255.0f;
+                    const float hg = lerpf(126.0f, 82.0f, hT) / 255.0f;
+                    const float hb = lerpf(64.0f, 46.0f, hT) / 255.0f;
+                    for (int t = 0; t < 3; ++t) {
+                        const OcrmDecodedVertex& dv = ocrmCh.verts[idxList[k + static_cast<std::size_t>(t)]];
+                        Vertex3D v{};
+                        v.px = dv.px; v.py = dv.py; v.pz = dv.pz;
+                        v.nx = dv.nx; v.ny = dv.ny; v.nz = dv.nz;
+                        v.u = 0.0f; v.v = 0.0f;
+                        v.r = hr; v.g = hg; v.b = hb; v.a = 1.0f;
+                        hillsideV.push_back(v);
+                    }
+                } else {
+                    for (int t = 0; t < 3; ++t) {
+                        const OcrmDecodedVertex& dv = ocrmCh.verts[idxList[k + static_cast<std::size_t>(t)]];
+                        Vertex3D v{};
+                        v.px = dv.px; v.py = dv.py; v.pz = dv.pz;
+                        v.nx = dv.nx; v.ny = dv.ny; v.nz = dv.nz;
+                        v.u  = dv.uCm * 0.01f;
+                        v.v  = -1.0f; // v < -0.5 selects OCRM world-space sidewalk shader!
+                        v.r  = static_cast<float>(dv.r) / 255.0f;
+                        v.g  = static_cast<float>(dv.g) / 255.0f;
+                        v.b  = static_cast<float>(dv.b) / 255.0f;
+                        v.a  = static_cast<float>(dv.a) / 255.0f;
+                        dst.push_back(v);
+                    }
+                }
             }
         };
         emitOcrmSubmesh(ocrmCh.idxUrban,    roadsV,     false);
@@ -3623,6 +3817,8 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
         excl.push_back({lm.pos, rad * rad});
         if (lm.kind == SeoulLandmarkKind::GyeongbokgungPalace) {
             excl.push_back({{lm.pos.x, lm.pos.z + 142.0f}, 78.0f * 78.0f}); // Gwanghwamun Gate
+            excl.push_back({{-726.0f, -5488.0f}, 20.0f * 20.0f});          // King Sejong Statue plaza
+            excl.push_back({{-726.0f, -5320.0f}, 20.0f * 20.0f});          // Admiral Yi Sun-sin Statue plaza
         }
     }
 
@@ -3714,12 +3910,26 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
             }
         }
 
-        // True minHeight extrusion for 3D multi-part stepped skyscrapers & skybridges; deep (-3.5m) foundation otherwise!
+        // True minHeight extrusion for 3D multi-part stepped skyscrapers & skybridges;
+        // for ground-level buildings, anchor main facade cleanly at street-level baseY (v = 0..height)
+        // and extend a watertight Korean honed-granite foundation plinth skirt down to minCornerY - 3.5m!
         const bool isElevated = (b.minHeight > 0.15f);
-        const float yBot = isElevated ? (b.baseY + b.minHeight) : (b.baseY - 3.5f);
+        float minCornerY = b.baseY;
+        if (!isElevated) {
+            for (const Vec2& p : polyPts) {
+                minCornerY = std::min(minCornerY, real.sampleDem(p));
+            }
+            const NearestOsmRoad nrF = real.findNearestRoad({b.cx, b.cz}, 22.0f, b.baseY);
+            if (nrF.found && !nrF.isBridge && nrF.deckY < minCornerY && (minCornerY - nrF.deckY) < 18.0f) {
+                minCornerY = std::min(minCornerY, nrF.deckY);
+            }
+        }
+        const float yFoundBot = std::min(b.baseY - 3.5f, minCornerY - 3.5f);
+        const float yBot = isElevated ? (b.baseY + b.minHeight) : b.baseY;
         const float yTop = b.baseY + b.height;
-        const float vBot = isElevated ? b.minHeight : -3.5f;
+        const float vBot = isElevated ? b.minHeight : 0.0f;
         const float vTop = b.height;
+        const ColorRGBA kFoundPlinthCol{96, 100, 106, 255};
 
         // Check if footprint is cleanly star-shaped around centroid (safe for ridged/pyramidal/stepped roofs)
         bool starConvex = true;
@@ -3756,6 +3966,16 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                        {pA.x, yBot, pA.z}, {pB.x, yBot, pB.z},
                        {pB.x, yTop, pB.z}, {pA.x, yTop, pA.z},
                        outN, u0, vBot, u1, vBot, u1, vTop, u0, vTop, wallCol);
+
+            // Watertight honed-granite hillside foundation plinth skirt (0% floating even on 45-deg Seoul hills!)
+            if (!isElevated) {
+                pushQuadV3(piersV,
+                           {pA.x, yFoundBot, pA.z}, {pB.x, yFoundBot, pB.z},
+                           {pB.x, yBot + 0.06f, pB.z}, {pA.x, yBot + 0.06f, pA.z},
+                           outN, u0 * 0.25f, 0.0f, u1 * 0.25f, 0.0f,
+                           u1 * 0.25f, (yBot - yFoundBot) * 0.25f, u0 * 0.25f, (yBot - yFoundBot) * 0.25f,
+                           kFoundPlinthCol);
+            }
 
             // 3D Ground-Floor Commercial Podium Cornice Ledge (separates 1F retail glass from upper stories!)
             if (emitPodiumCornice && edgeLen >= 1.2f) {

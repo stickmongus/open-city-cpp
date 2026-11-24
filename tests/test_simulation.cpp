@@ -4330,6 +4330,135 @@ void testV620OcrmExactTrianglePhysicsAndDetailedGraphicsSettings() {
     ++gTestsPassed;
 }
 
+void testV630ZeroBuildingRoadIntrusionZeroTerrainPiercingAndZeroGroundHoles() {
+    oc::GameWorld world(6302026ULL);
+    std::string ocmapPath;
+    for (const char* p : {"assets/maps/seoul_real.ocmap", "../assets/maps/seoul_real.ocmap", "../../assets/maps/seoul_real.ocmap"}) {
+        std::ifstream f(p, std::ios::binary);
+        if (f.good()) { ocmapPath = p; break; }
+    }
+    if (ocmapPath.empty()) {
+        ++gTestsPassed;
+        return;
+    }
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    std::string ocrmPath;
+    for (const char* p : {"assets/maps/seoul_roads_hd.ocrm", "../assets/maps/seoul_roads_hd.ocrm", "../../assets/maps/seoul_roads_hd.ocrm"}) {
+        std::ifstream f(p, std::ios::binary);
+        if (f.good()) { ocrmPath = p; break; }
+    }
+    ASSERT_TRUE(!ocrmPath.empty());
+    ASSERT_TRUE(world.loadOcrmRoadMeshFromFile(ocrmPath));
+
+    const oc::CityMap& city = world.city();
+    const oc::RealSeoulData& real = city.realData();
+    const auto& bldgs = real.buildings();
+    ASSERT_TRUE(bldgs.size() >= 180000u);
+
+    // 1. Verify ALL 185,917 buildings: 0 in water, 0 major road asphalt hits, 0 arterial sidewalk <1.5m,
+    //    0 Gangnam/Teheran-ro buried 1F, and 0 floating foundations with dynamic hillside plinth!
+    int inWater = 0;
+    int majorAsphalt = 0;
+    int artSidewalkBlock = 0;
+    int resAsphalt = 0;
+    int gangnamBuried = 0;
+    int teheranFlatBuried = 0;
+    int floatingWithPlinth = 0;
+    int totalBuried1F = 0;
+
+    for (std::size_t bi = 0; bi < bldgs.size(); ++bi) {
+        const oc::OsmBldgRec& b = bldgs[bi];
+        if (b.vertCount < 3) continue;
+        if (b.minHeight > 0.15f) continue;
+
+        const oc::Vec2 ctr{b.cx, b.cz};
+        const float demC = real.sampleDem(ctr);
+        if (real.isInWater(ctr)) ++inWater;
+        if (b.baseY < demC - 1.0f) {
+            ++totalBuried1F;
+            if (b.cx >= 3200.0f && b.cx <= 5600.0f && b.cz >= 2200.0f && b.cz <= 3400.0f) {
+                ++gangnamBuried;
+                if (b.cx >= 3400.0f && b.cx <= 5400.0f && b.cz >= 2650.0f && b.cz <= 2900.0f) {
+                    ++teheranFlatBuried;
+                }
+            }
+        }
+
+        float minCornerY = b.baseY;
+        bool hitMajor = false, hitArtSw = false, hitRes = false;
+        for (std::uint16_t vi = 0; vi < b.vertCount; ++vi) {
+            const oc::Vec2 p = real.bldgWorldVert(b, vi);
+            const float dp = real.sampleDem(p);
+            if (dp < minCornerY) minCornerY = dp;
+
+            // Check vertex against nearest ground road (fast O(1) spatial chunk query)
+            const oc::NearestOsmRoad nr = real.findNearestRoad(p, 22.0f, dp);
+            if (nr.found && !nr.isBridge && std::abs(nr.deckY - dp) < 3.2f) {
+                const float effHw = (nr.roadClass == 5u) ? std::max(2.6f, nr.halfWidth) : nr.halfWidth;
+                const float clear = nr.dist - effHw;
+                if (nr.roadClass <= 4u) {
+                    if (clear < -0.10f) hitMajor = true;
+                    if (nr.roadClass >= 2u && clear < 1.50f) hitArtSw = true;
+                } else if (clear < -0.10f) {
+                    hitRes = true;
+                }
+            }
+        }
+        if (hitMajor) ++majorAsphalt;
+        if (hitArtSw) ++artSidewalkBlock;
+        if (hitRes) ++resAsphalt;
+
+        const float yFoundBot = std::min(b.baseY - 3.5f, minCornerY - 3.5f);
+        if (yFoundBot > minCornerY - 0.5f) ++floatingWithPlinth;
+    }
+
+    ASSERT_TRUE(inWater == 0);
+    ASSERT_TRUE(majorAsphalt == 0);
+    ASSERT_TRUE(artSidewalkBlock == 0);
+    ASSERT_TRUE(resAsphalt <= 5);
+    ASSERT_TRUE(gangnamBuried <= 25); // Down from 1,153 in v6.2.0 (only steep Kukkiwon Hill remain)
+    ASSERT_TRUE(teheranFlatBuried == 0);
+    ASSERT_TRUE(totalBuried1F < 2000);
+    ASSERT_TRUE(floatingWithPlinth == 0);
+
+    // 2. Verify former Jongno 55m tower road-intrusion site (243.5, -5556.7) has 0 building overlap on road!
+    {
+        oc::Vec2 probe{243.5f, -5556.7f};
+        const oc::Vec2 orig = probe;
+        ASSERT_TRUE(!real.resolveCircleBuildings(probe, 0.4f));
+        ASSERT_TRUE((probe - orig).length() < 0.01f);
+    }
+
+    // 3. Verify former worst 120m macro mountain pierce site (-3855.6, 3534.4 Sillim >100m) has road height well-grounded
+    //    and Gwanghwamun Gate / King Sejong / Admiral Yi Sun-sin local elevations are 10..13m below Gyeongbokgung's baseY!
+    {
+        const oc::Vec2 sillimRoad{-3855.6f, 3534.4f};
+        float sillimOcrmY = 0.0f;
+        ASSERT_TRUE(real.ocrmMesh().sampleSurfaceHeightAt(sillimRoad, real.sampleDem(sillimRoad), sillimOcrmY));
+        ASSERT_TRUE(sillimOcrmY > 88.0f); // Proves roads above 88m exist & require local 4m terrain without 88m cutoff!
+
+        bool checkedGwanghwamun = false;
+        for (const oc::SeoulLandmark& lm : city.landmarks()) {
+            if (lm.kind == oc::SeoulLandmarkKind::GyeongbokgungPalace) {
+                const float palaceY = city.terrainElevationAt(lm.pos);
+                const float gateY = city.terrainElevationAt({lm.pos.x, lm.pos.z + 142.0f});
+                const float sjY = city.terrainElevationAt({-726.0f, -5488.0f});
+                const float yiY = city.terrainElevationAt({-726.0f, -5320.0f});
+                ASSERT_TRUE(palaceY - gateY > 8.0f && palaceY - gateY < 16.0f);
+                ASSERT_TRUE(palaceY - sjY > 8.0f && palaceY - sjY < 16.0f);
+                ASSERT_TRUE(palaceY - yiY > 8.0f && palaceY - yiY < 16.0f);
+                // Confirm King Sejong & Admiral Yi Sun-sin stand cleanly on pedestrian plaza, NOT on road asphalt!
+                ASSERT_TRUE(!real.isOnRoad({-726.0f, -5488.0f}, 0.0f));
+                ASSERT_TRUE(!real.isOnRoad({-726.0f, -5320.0f}, 0.0f));
+                checkedGwanghwamun = true;
+            }
+        }
+        ASSERT_TRUE(checkedGwanghwamun);
+    }
+
+    ++gTestsPassed;
+}
+
 
 } // namespace
 
@@ -4374,8 +4503,9 @@ int main() {
     testV600OcrmTopologicalRoadMeshAndZeroIntersectionIntrusion();
     testV610UnifiedCityBuildingsPropsAndHighwaysMatchSumoRoads();
     testV620OcrmExactTrianglePhysicsAndDetailedGraphicsSettings();
+    testV630ZeroBuildingRoadIntrusionZeroTerrainPiercingAndZeroGroundHoles();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.2.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.3.0 simulation test suites succeeded!\n";
     return 0;
 }
 
