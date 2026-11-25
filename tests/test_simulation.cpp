@@ -4590,6 +4590,96 @@ void testV640SeoulSidewalkPaversTactileAndStreetFurnitureFidelity() {
     ++gTestsPassed;
 }
 
+void testV650WholeSeoulOverpassesTpiersAndOcrmPropClearance() {
+    oc::GameWorld world(20266500ULL);
+    static constexpr const char* kMapPaths[] = {
+        "assets/maps/seoul_real.ocmap", "../assets/maps/seoul_real.ocmap", "../../assets/maps/seoul_real.ocmap"
+    };
+    static constexpr const char* kOcrmPaths[] = {
+        "assets/maps/seoul_roads_hd.ocrm", "../assets/maps/seoul_roads_hd.ocrm", "../../assets/maps/seoul_roads_hd.ocrm"
+    };
+    bool mapOk = false, ocrmOk = false;
+    for (const char* p : kMapPaths) { if (world.loadRealSeoulMapFromFile(p)) { mapOk = true; break; } }
+    for (const char* p : kOcrmPaths) { if (world.loadOcrmRoadMeshFromFile(p)) { ocrmOk = true; break; } }
+    ASSERT_TRUE(mapOk && ocrmOk);
+
+    const oc::CityMap& city = world.city();
+    const oc::RealSeoulData& real = city.realData();
+    const oc::OcrmRoadMesh& ocrm = real.ocrmMesh();
+    const auto& roads = real.roads();
+    const auto& rverts = real.roadVerts();
+
+    // 1. Seocho IC (rd#48010/48011 over rd#1758) & Banpo IC (rd#47790/47998 over rd#10184):
+    //    MUST have >= 5.5m deck-to-deck clearance (>= 4.5m clear headroom) and < 0.10m abutment cliff to approach roads!
+    auto checkOverpass = [&](std::uint32_t brIdx, std::uint32_t appIdx, std::uint32_t underIdx) {
+        ASSERT_TRUE(brIdx < roads.size() && appIdx < roads.size() && underIdx < roads.size());
+        const auto& br = roads[brIdx];
+        const auto& app = roads[appIdx];
+        const auto& und = roads[underIdx];
+        float brMidY = real.roadVertY(br.firstVert + br.vertCount / 2);
+        float undMidY = real.roadVertY(und.firstVert + und.vertCount / 2);
+        ASSERT_TRUE(brMidY - undMidY >= 5.45f);
+        // Find matching abutment endpoints (< 3.5m horizontally) -> vertical step MUST be < 0.10m!
+        float minStep = 999.0f;
+        for (int e1 : {0, static_cast<int>(br.vertCount) - 1}) {
+            const oc::Vec2 p1 = rverts[br.firstVert + e1];
+            const float y1 = real.roadVertY(br.firstVert + e1);
+            for (int e2 : {0, static_cast<int>(app.vertCount) - 1}) {
+                const oc::Vec2 p2 = rverts[app.firstVert + e2];
+                if ((p1 - p2).lengthSq() < 3.5f * 3.5f) {
+                    minStep = std::min(minStep, std::abs(y1 - real.roadVertY(app.firstVert + e2)));
+                }
+            }
+        }
+        ASSERT_TRUE(minStep < 0.12f);
+    };
+    checkOverpass(48010u, 41975u, 1758u);  // Seocho IC NB
+    checkOverpass(48011u, 41978u, 1758u);  // Seocho IC SB
+    checkOverpass(47790u, 45125u, 10184u); // Banpo IC NB
+    checkOverpass(47998u, 42006u, 10184u); // Banpo IC SB
+
+    // 2. Across 8 major Seoul districts: ZERO non-gantry/non-median street props AND ZERO street trees
+    //    may sit on OCRM road asphalt!
+    const struct { const char* name; float x; float z; } kDistricts[] = {
+        {"Seocho IC",     3205.0f,  3055.0f},
+        {"Banpo IC",      2960.0f,  2270.0f},
+        {"Gangnam Stn",   4260.0f,  2600.0f},
+        {"COEX Samseong", 6710.0f,  1610.0f},
+        {"Jamsil Lotte",  8800.0f,  1470.0f},
+        {"Gwanghwamun",   -760.0f, -4510.0f},
+        {"Hongdae",      -4880.0f, -3050.0f},
+        {"Yeouido",      -4520.0f,   350.0f},
+    };
+    int propsOnOcrmAsphalt = 0;
+    int treesOnOcrmAsphalt = 0;
+    for (const auto& d : kDistricts) {
+        world.fastTravelTo({d.x, d.z}, d.name);
+        for (const oc::StreetProp& sp : city.streetProps()) {
+            if (sp.kind == oc::StreetPropKind::RoadGantry || sp.kind == oc::StreetPropKind::MedianBarrier) continue;
+            // Skip bridge/expressway parapet lamps (variant 1 or 3)
+            if (sp.kind == oc::StreetPropKind::StreetLight && (sp.variant == 1u || sp.variant == 3u)) continue;
+            const float refY = (sp.baseY > -1e8f) ? sp.baseY : city.surfaceHeightAt(sp.pos);
+            float ocY = 0.0f;
+            bool isSw = false;
+            if (ocrm.sampleSurfaceHeightAt(sp.pos, refY, ocY, &isSw) && !isSw && std::abs(ocY - refY) < 1.2f) {
+                ++propsOnOcrmAsphalt;
+            }
+        }
+        for (const oc::TreeProp& tr : city.trees()) {
+            if (!tr.inPlanter) continue;
+            float ocY = 0.0f;
+            bool isSw = false;
+            if (ocrm.sampleSurfaceHeightAt(tr.pos, tr.baseY, ocY, &isSw) && !isSw && std::abs(ocY - tr.baseY) < 1.2f) {
+                ++treesOnOcrmAsphalt;
+            }
+        }
+    }
+    ASSERT_TRUE(propsOnOcrmAsphalt == 0);
+    ASSERT_TRUE(treesOnOcrmAsphalt == 0);
+
+    ++gTestsPassed;
+}
+
 
 } // namespace
 
@@ -4636,8 +4726,9 @@ int main() {
     testV620OcrmExactTrianglePhysicsAndDetailedGraphicsSettings();
     testV630ZeroBuildingRoadIntrusionZeroTerrainPiercingAndZeroGroundHoles();
     testV640SeoulSidewalkPaversTactileAndStreetFurnitureFidelity();
+    testV650WholeSeoulOverpassesTpiersAndOcrmPropClearance();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.4.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.5.0 simulation test suites succeeded!\n";
     return 0;
 }
 

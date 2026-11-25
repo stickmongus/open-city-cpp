@@ -1481,6 +1481,12 @@ void main() {
             float nearRamp = smoothstep(0.65, 4.2, distL);
             float longFade = pow(uDist, 1.65);
             atten = longFade * nearRamp * cone / (1.0 + 0.032 * d2);
+            // Korean low-beam headlights have sharp horizontal cutoff -> never blast bright discs onto bridge soffits overhead!
+            if (N.y < -0.45) atten *= 0.14;
+        } else {
+            // Korean LED streetlamps are full-cutoff downward luminaires (never shine bright circles UP onto bridge undersides!)
+            atten *= smoothstep(-0.42, 0.12, lDir.y);
+            if (N.y < -0.45) atten *= 0.18;
         }
 
         vec3 lCol = ubo.lightColorType[li].rgb * atten;

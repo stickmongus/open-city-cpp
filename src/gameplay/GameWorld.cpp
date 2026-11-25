@@ -4485,13 +4485,38 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
                     const bool isLargeVehicle = (v.kind == VehicleKind::SeoulBus || v.kind == VehicleKind::FireTruck);
                     if (rd.findConnectingRoadAt(b, v.osmRoadIdx, connR, connV, connD, v.posY,
                                                 isLargeVehicle ? 2u : 4u, isLargeVehicle ? 5.2f : 0.0f)) {
-                        v.osmRoadIdx = connR;
-                        v.osmVertIdx = connV;
-                        v.osmDir = connD;
+                        const OsmRoadRec& cr = rd.roads()[connR];
+                        const float connY = rd.has3DRoads() ? rd.roadVertY(cr.firstVert + connV) : v.posY;
+                        if (std::abs(connY - v.posY) < 1.85f) {
+                            v.osmRoadIdx = connR;
+                            v.osmVertIdx = connV;
+                            v.osmDir = connD;
+                        } else {
+                            v.osmDir = -v.osmDir;
+                            v.osmVertIdx = static_cast<std::uint32_t>(
+                                std::clamp(static_cast<int>(v.osmVertIdx) + v.osmDir, 0, static_cast<int>(r.vertCount) - 1));
+                        }
                     } else {
                         v.osmDir = -v.osmDir;
                         v.osmVertIdx = static_cast<std::uint32_t>(
                             std::clamp(static_cast<int>(v.osmVertIdx) + v.osmDir, 0, static_cast<int>(r.vertCount) - 1));
+                    }
+                }
+            }
+            // Keep NPC traffic strictly on OCRM road asphalt (prevents cutting corners or driving onto granite sidewalk plazas!)
+            if (rd.hasOcrmMesh()) {
+                float ocY = 0.0f;
+                bool isSw = false;
+                if (rd.ocrmMesh().sampleSurfaceHeightAt(v.pos, v.posY, ocY, &isSw) &&
+                    isSw && std::abs(ocY - v.posY) < 1.05f) {
+                    const NearestOsmRoad nrBack = rd.findNearestRoad(v.pos, 22.0f, v.posY);
+                    if (nrBack.found && nrBack.roadClass <= 4u) {
+                        const Vec2 backRight{-nrBack.tangent.z, nrBack.tangent.x};
+                        const float backSign = (forwardFromHeading(v.heading).dot(nrBack.tangent) >= 0.0f) ? 1.0f : -1.0f;
+                        const RoadLaneLayout bl = RealSeoulData::computeRoadLaneLayout(rd.roads()[nrBack.roadIdx]);
+                        targetPoint = nrBack.closestPt + (backRight * backSign) * bl.laneCenterOffset(0) + (nrBack.tangent * backSign) * 6.0f;
+                        // Damp sideways drift when recovering from curb
+                        if (v.speed() > 7.0f) v.velocity *= (1.0f - std::min(0.35f, dt * 3.0f));
                     }
                 }
             }
@@ -4923,6 +4948,35 @@ void GameWorld::resolveVehicleCollisions(float dt) {
                     }
                     if (!v.destroyed && v.health <= 0.0f) {
                         explodeVehicle(v);
+                    }
+                }
+            }
+        }
+        // 1B. Vehicle vs Heavy Solid Street Structures (StreetKiosk, BusShelter, SubwayEntrance, UtilityBox, DdareungiRack)
+        const OBB2D vObb = v.obb();
+        for (const auto& sp : city_.streetProps()) {
+            float hx = 0.0f, hz = 0.0f;
+            if (sp.kind == StreetPropKind::StreetKiosk)        { hx = 1.42f; hz = 0.86f; }
+            else if (sp.kind == StreetPropKind::BusShelter)    { hx = 2.35f; hz = 0.80f; }
+            else if (sp.kind == StreetPropKind::SubwayEntrance){ hx = 2.70f; hz = 1.30f; }
+            else if (sp.kind == StreetPropKind::UtilityBox)    { hx = 0.56f; hz = 0.36f; }
+            else if (sp.kind == StreetPropKind::DdareungiRack) { hx = 1.75f; hz = 0.75f; }
+            else continue;
+            const Vec2 d = v.pos - sp.pos;
+            if (d.lengthSq() > 42.0f) continue;
+            const float propY = (sp.baseY > -1e8f) ? sp.baseY : v.posY;
+            if (std::abs(propY - v.posY) > 2.2f) continue;
+            OBB2D pObb{sp.pos, {hx, hz}, sp.yaw};
+            Vec2 mtv{};
+            if (intersectOBB(vObb, pObb, mtv)) {
+                v.pos += mtv;
+                const float pen = mtv.length();
+                if (pen > 1e-4f) {
+                    const Vec2 n = mtv / pen;
+                    const float into = -v.velocity.dot(n);
+                    if (into > 0.0f) {
+                        v.velocity += n * (into * 1.18f);
+                        v.velocity *= 0.80f;
                     }
                 }
             }
