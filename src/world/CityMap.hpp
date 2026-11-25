@@ -95,6 +95,7 @@ struct TreeProp {
     float crownRadius = 2.2f;
     bool inPlanter = false;
     TreeSpecies species = TreeSpecies::GinkgoDeciduous;
+    float yaw = 0.0f;
 };
 
 enum class StreetPropKind {
@@ -342,7 +343,7 @@ public:
     float raycastBuildings(const Vec2& origin, const Vec2& dir, float maxDist) const;
     float raycastBuildings3D(const Vec3& origin, const Vec3& dir, float maxDist) const;
 
-    // Real-World OpenStreetMap + Overture + TUM + 15m DTM + 1:1 Synced Eclipse SUMO OCRM v1 Seoul GIS Loader (v6.3.0)
+    // Real-World OpenStreetMap + Overture + TUM + 15m DTM + 1:1 Synced Eclipse SUMO OCRM v1 Seoul GIS Loader (v6.4.0)
     bool loadRealSeoulMap(const std::uint8_t* bytes, std::size_t size);
     bool loadRealSeoulMapFromFile(const std::string& path);
     bool loadOcrmRoadMesh(const std::uint8_t* bytes, std::size_t size);

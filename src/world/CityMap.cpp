@@ -340,11 +340,23 @@ float CityMap::surfaceHeightAt(const Vec2& p, float refY) const {
                     return realData_.isOcm6() ? hit.y : std::max(demY, hit.y);
                 }
                 if (realData_.isOcm6() && realData_.hasOcrmMesh() && !realData_.isInWater(p)) {
-                    const NearestOsmRoad nr = realData_.findNearestRoad(p, 16.0f, refY);
+                    const NearestOsmRoad nr = realData_.findNearestRoad(p, 22.0f, refY);
                     if (nr.found && !nr.isBridge && nr.layer == 0 && nr.roadClass >= 2u && nr.roadClass <= 4u) {
                         const float curbDist = nr.dist - std::max(2.6f, nr.halfWidth);
+                        const float hillBlend = clampf((std::abs(demY - nr.deckY) - 0.8f) / 2.2f, 0.0f, 1.0f);
+                        const float flatShelfM = lerpf(9.5f, 2.2f, hillBlend);
+                        const float transSpanM = lerpf(10.5f, 15.0f, hillBlend);
                         if (curbDist >= 0.0f && curbDist <= 6.55f) {
                             return nr.deckY + 0.125f;
+                        }
+                        if (curbDist > 6.55f && curbDist <= flatShelfM) {
+                            const float tApr = clampf((curbDist - 6.55f) / std::max(0.5f, flatShelfM - 6.55f), 0.0f, 1.0f);
+                            return lerpf(nr.deckY + 0.125f, nr.deckY + 0.115f, tApr);
+                        }
+                        if (curbDist > flatShelfM && curbDist <= flatShelfM + transSpanM) {
+                            const float tOut = clampf((curbDist - flatShelfM) / transSpanM, 0.0f, 1.0f);
+                            const float sOut = tOut * tOut * (3.0f - 2.0f * tOut);
+                            return lerpf(nr.deckY + 0.115f, demY, sOut);
                         }
                     }
                 }
@@ -1960,7 +1972,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                     if (r.roadClass >= 3 && (((lampOrdinal & 1) == 0) != (side > 0.0f))) continue;
                     const bool isInnerMedianSide = isOneway &&
                         realData_.isOnRoad(cPt + rightN * (side * (hw + 6.5f)), 3.2f);
-                    const float lampSetback = isInnerMedianSide ? 0.90f : 0.48f;
+                    const float lampSetback = isInnerMedianSide ? 0.88f : 0.46f;
                     const Vec2 lp = cPt + rightN * (side * (hw + lampSetback));
                     Vec2 test = lp;
                     if (!realData_.isInWater(lp) && !realData_.isOnRoad(lp, 0.40f) &&
@@ -1968,39 +1980,42 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         !hasGantryNear(lp, 18.0f) && !hasPropNearby(lp, 4.8f)) {
                         const Vec2 armDir = rightN * (-side);
                         const float armYaw = std::atan2(armDir.z, armDir.x);
-                        // Tasteful vertical district street banners ONLY on every 3rd outer boulevard lamp (never inner medians!)
-                        const std::uint8_t lVar = (r.roadClass <= 2 && !isInnerMedianSide && ((lampOrdinal % 3) == 0)) ? 2u : 0u;
+                        // Variant 4 = Iconic Seoul Twin-Arm Boulevard Lamp on central medians;
+                        // Variant 2 = Vertical district street banner on every 3rd outer boulevard lamp!
+                        const std::uint8_t lVar = (r.roadClass <= 2 && isInnerMedianSide)
+                            ? 4u
+                            : ((r.roadClass <= 2 && !isInnerMedianSide && ((lampOrdinal % 3) == 0)) ? 2u : 0u);
                         streetProps_.push_back(StreetProp{lp, StreetPropKind::StreetLight, armYaw, false, {}, 0.0f, lp, 0,0,0,0,0,0, lVar, evalSidewalkY(t, lp)});
                     }
                 }
                 nextLamp += lampStep;
             }
 
-            // E) Central Boulevard Median Barriers on twin one-way carriageways (clean rhythm, clear of gantries & crosswalks!)
+            // E) Central Boulevard Median Jaywalking-Prevention Fence on twin one-way carriageways (flush on median top!)
             if (r.roadClass <= 2 && isOneway) {
                 advanceToWindow(nextMedian, 7.2f);
                 while (nextMedian < walkMax) {
                     const float t = clampf((nextMedian - distAccum) / segLen, 0.0f, 1.0f);
                     const Vec2 cPt = a + e * t;
-                    // Probe the left (inner median) side (-rightN): if opposite carriageway lies 1.5..6.8m away, place median curb!
-                    const Vec2 medPos = cPt - rightN * (hw + 0.65f);
+                    // Probe the left (inner median) side (-rightN): if opposite carriageway lies 1.8..6.8m away, center fence on median!
+                    const Vec2 medPos = cPt - rightN * (hw + 1.15f);
                     const Vec2 oppProbe = cPt - rightN * (hw + 4.4f);
                     if (!realData_.isInWater(medPos) &&
-                        !realData_.isOnRoad(medPos, 0.25f) &&
-                        !realData_.isOnRoad(medPos - tang * 3.1f, 0.30f) &&
-                        !realData_.isOnRoad(medPos + tang * 3.1f, 0.30f) &&
+                        !realData_.isOnRoad(medPos, 0.35f) &&
+                        !realData_.isOnRoad(medPos - tang * 3.1f, 0.35f) &&
+                        !realData_.isOnRoad(medPos + tang * 3.1f, 0.35f) &&
                         realData_.isOnRoad(oppProbe, 1.35f) &&
                         !hasGantryNear(medPos, 9.5f) &&
                         !hasSignalNear(medPos, 16.0f) &&
-                        !hasPropNearby(medPos, 6.5f)) {
+                        !hasPropNearby(medPos, 6.2f)) {
                         const float mYaw = std::atan2(tang.z, tang.x);
-                        streetProps_.push_back(StreetProp{medPos, StreetPropKind::MedianBarrier, mYaw, false, {}, 0.0f, medPos, 0,0,0,0,0,0, 0u, evalDeckY(t, medPos)});
+                        streetProps_.push_back(StreetProp{medPos, StreetPropKind::MedianBarrier, mYaw, false, {}, 0.0f, medPos, 0,0,0,0,0,0, 0u, evalSidewalkY(t, medPos)});
                     }
                     nextMedian += 7.2f;
                 }
             }
 
-            // F) Continuous Modular Korean Boulevard Pedestrian Guardrails (7.5m sections along OUTER curbs ONLY!)
+            // F) Continuous Modular Korean Boulevard Pedestrian Guardrails (7.2m sections tightly behind outer granite curbs!)
             if (r.roadClass <= 2) {
                 advanceToWindow(nextGuard, 10.5f);
                 while (nextGuard < walkMax) {
@@ -2012,18 +2027,18 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         for (float side : {-1.0f, 1.0f}) {
                             // Never clutter inner twin-carriageway central medians with sidewalk pedestrian guardrails!
                             if (isOneway && realData_.isOnRoad(cPt + rightN * (side * (hw + 6.5f)), 3.5f)) continue;
-                            const Vec2 gp = cPt + rightN * (side * (hw + 0.58f));
-                            const Vec2 gA = gp - tang * 3.5f;
-                            const Vec2 gB = gp + tang * 3.5f;
+                            const Vec2 gp = cPt + rightN * (side * (hw + 0.36f));
+                            const Vec2 gA = gp - tang * 3.4f;
+                            const Vec2 gB = gp + tang * 3.4f;
                             Vec2 tG = gp;
                             if (!realData_.isInWater(gp) &&
-                                !realData_.isOnRoad(gp, 0.35f) &&
-                                !realData_.isOnRoad(gA, 0.35f) &&
-                                !realData_.isOnRoad(gB, 0.35f) &&
+                                !realData_.isOnRoad(gp, 0.24f) &&
+                                !realData_.isOnRoad(gA, 0.24f) &&
+                                !realData_.isOnRoad(gB, 0.24f) &&
                                 !realData_.resolveCircleBuildings(tG, 0.55f) &&
                                 !hasGantryNear(gp, 7.5f) &&
                                 !hasSignalNear(gp, 12.0f) &&
-                                !hasPropNearby(gp, 4.2f)) {
+                                !hasPropNearby(gp, 4.0f)) {
                                 const float gYaw = std::atan2(tang.z, tang.x);
                                 streetProps_.push_back(StreetProp{gp, StreetPropKind::PedGuardrail, gYaw, false, {}, 0.0f, gp, 0,0,0,0,0,0, 0u, evalSidewalkY(t, gp)});
                             }
@@ -2033,17 +2048,18 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                 }
             }
 
-            // G) Outer Sidewalk Street Trees — STRICTLY >= 1.85m CLEAR OF ALL ASPHALT & >= 14m CLEAR OF GANTRIES!
+            // G) Outer Sidewalk Street Trees — ROAD-ALIGNED GRANITE GRATES STRICTLY CLEAR OF 1.45..1.75m TACTILE STRIP!
             const float treeStep = (r.roadClass <= 2) ? 21.0f : 26.0f;
             advanceToWindow(nextTree, treeStep);
             while (nextTree < walkMax) {
                 const float t = clampf((nextTree - distAccum) / segLen, 0.0f, 1.0f);
                 const Vec2 cPt = a + e * t;
+                const float treeCurbYaw = std::atan2(tang.z, tang.x);
                 for (float side : {-1.0f, 1.0f}) {
                     if (r.roadClass >= 3 && (((static_cast<int>(nextTree / treeStep) & 1) == 0) != (side < 0.0f))) continue;
                     // Never plant street trees on narrow inner central medians between opposing 5-lane carriageways!
                     if (isOneway && realData_.isOnRoad(cPt + rightN * (side * (hw + 6.5f)), 3.5f)) continue;
-                    const Vec2 tp = cPt + rightN * (side * (hw + 2.20f));
+                    const Vec2 tp = cPt + rightN * (side * (hw + 2.55f));
                     Vec2 test = tp;
                     if (!realData_.isInWater(tp) &&
                         !realData_.isOnRoad(tp, 1.85f) &&
@@ -2053,14 +2069,15 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         !hasPropNearby(tp, 2.4f)) {
                         const float gy = evalSidewalkY(t, tp);
                         const float hScale = 2.85f + static_cast<float>((ri + s + static_cast<std::uint32_t>(nextTree)) % 5u) * 0.24f;
-                        trees_.push_back(TreeProp{tp, gy, hScale, 2.25f, true, streetSpecies});
+                        trees_.push_back(TreeProp{tp, gy, hScale, 2.25f, true, streetSpecies, treeCurbYaw});
                     }
                 }
                 nextTree += treeStep;
             }
 
-            // H) Rich Sidewalk Street Furniture Micro-Clusters (Benches, Hydrants, Dual Recycling Bins,
-            //    Korean Street Kiosks, Ddareungi Bike Racks, Outdoor Cafe Tables & Utility Cabinets — OUTER sidewalks ONLY!)
+            // H) Rich Sidewalk Street Furniture Micro-Clusters (Clear of the 1.45..1.75m KS Yellow Tactile Strip!)
+            //    Curb-side strip (0.48m): Fire Hydrants, Dual Recycling Bins;
+            //    Outer pedestrian amenity zone (2.45..3.15m): Benches, KEPCO Cabinets, Street Kiosks, Ddareungi Racks, Cafe Tables!
             const float furnStep = (r.roadClass <= 2) ? 10.5f : 18.0f;
             advanceToWindow(nextFurn, furnStep);
             while (nextFurn < walkMax) {
@@ -2074,11 +2091,15 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                     if (isOneway && realData_.isOnRoad(cPt + rightN * (side * (hw + 6.5f)), 3.5f)) continue;
                     const int slot = baseSlot + (side > 0.0f ? 0 : 3);
                     const int fType = ((slot % 7) + 7) % 7;
-                    const float setBack = (fType == 2 || fType == 4 || fType == 5) ? 2.95f : 1.85f;
+                    // Strictly keep curb strip (0.48m) and outer zone (2.45..3.15m) off the 1.45..1.75m yellow tactile strip!
+                    const float setBack = (fType == 1 || fType == 3)
+                        ? 0.48f
+                        : ((fType == 2 || fType == 4 || fType == 5) ? 3.15f : 2.45f);
+                    const float roadClear = (fType == 1 || fType == 3) ? 0.40f : 1.75f;
                     const Vec2 fp = cPt + rightN * (side * (hw + setBack));
                     Vec2 chk = fp;
                     if (!realData_.isInWater(fp) &&
-                        !realData_.isOnRoad(fp, 1.35f) &&
+                        !realData_.isOnRoad(fp, roadClear) &&
                         !realData_.resolveCircleBuildings(chk, 0.90f) &&
                         !hasPropNearby(fp, 2.8f) &&
                         !hasTreeNearby(fp, 2.1f)) {

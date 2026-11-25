@@ -450,16 +450,23 @@ void Renderer3D::shutdown(VulkanContext& vk) {
 
     vk.destroyMesh(ddareungiRackMesh_);
     vk.destroyMesh(seoulLampMesh_);
+    vk.destroyMesh(seoulDoubleLampMesh_);
+    vk.destroyMesh(highwayLampMesh_);
     vk.destroyMesh(koreanSignalMesh_);
     vk.destroyMesh(busShelterFrameMesh_);
     vk.destroyMesh(busShelterGlassMesh_);
     vk.destroyMesh(subwayCanopyFrameMesh_);
     vk.destroyMesh(subwayCanopyGlassMesh_);
     vk.destroyMesh(pedGuardrailMesh_);
+    vk.destroyMesh(medianFenceMesh_);
+    vk.destroyMesh(bollardMesh_);
     vk.destroyMesh(benchMesh_);
     vk.destroyMesh(hydrantMesh_);
     vk.destroyMesh(trashBinMesh_);
     vk.destroyMesh(utilityBoxMesh_);
+    vk.destroyMesh(streetKioskMesh_);
+    vk.destroyMesh(streetKioskGlassMesh_);
+    vk.destroyMesh(treeGrateMesh_);
 
     vk.destroyMesh(realTerrainMesh_);
     vk.destroyMesh(realWaterMesh_);
@@ -765,424 +772,713 @@ void Renderer3D::buildStaticPrimitives(VulkanContext& vk) {
         }
     };
 
-    // 1. Sculpted 따릉이 (Seoul Public Bike-Share Station): 4 real spoked step-through bikes + wheel cradles + QR kiosk!
+    // 1. Sculpted 따릉이 (Seoul Public Bike-Share Station): bright white bikes + signature Seoul-Green baskets/fenders/docks + QR kiosk!
     {
         MeshBuilder3D mb;
-        const ColorRGBA kEmerald{34, 178, 108, 255};
-        const ColorRGBA kEmeraldDark{22, 134, 82, 255};
-        const ColorRGBA kBikeWhite{242, 246, 250, 255};
-        const ColorRGBA kAlloy{192, 198, 206, 255};
-        const ColorRGBA kSteelDark{58, 64, 72, 255};
-        const ColorRGBA kTire{26, 28, 32, 255};
-        const ColorRGBA kSeat{40, 42, 48, 255};
-        const ColorRGBA kScreen{22, 34, 48, 255};
+        const ColorRGBA kSeoulGreen{46, 184, 86, 255};     // Signature 따릉이 vibrant lime-emerald green
+        const ColorRGBA kGreenDark{28, 138, 66, 255};
+        const ColorRGBA kBikeWhite{246, 248, 252, 255};
+        const ColorRGBA kAlloy{196, 202, 210, 255};
+        const ColorRGBA kSteelDark{66, 72, 82, 255};
+        const ColorRGBA kTire{28, 30, 34, 255};
+        const ColorRGBA kSeat{42, 44, 50, 255};
+        const ColorRGBA kScreen{24, 38, 52, 255};
 
-        // Low beveled stainless ground rail + anchor base plates
-        mb.addBox({-0.10f, 0.035f, -0.52f}, {3.85f, 0.07f, 0.24f}, {176, 182, 190, 255});
-        mb.addBox({-0.10f, 0.075f, -0.52f}, {3.75f, 0.025f, 0.14f}, kSteelDark);
+        // Low beveled stainless ground base rail + bolted anchor footplate
+        mb.addBox({-0.10f, 0.032f, -0.52f}, {3.95f, 0.064f, 0.28f}, {182, 188, 196, 255});
+        mb.addBox({-0.10f, 0.072f, -0.52f}, {3.85f, 0.024f, 0.16f}, kSteelDark);
 
-        // Tall sleek white & emerald-green Seoul Bike QR Kiosk Totem (x = -2.18m)
-        mb.addBox({-2.18f, 0.06f, -0.45f}, {0.48f, 0.12f, 0.44f}, kSteelDark);
-        mb.addBox({-2.18f, 0.96f, -0.45f}, {0.36f, 1.72f, 0.24f}, kBikeWhite);
-        mb.addBox({-2.18f, 1.78f, -0.44f}, {0.38f, 0.22f, 0.28f}, kEmerald);
-        mb.addBox({-2.18f, 1.28f, -0.32f}, {0.26f, 0.38f, 0.03f}, kScreen); // Recessed LCD touchscreen
-        mb.addBox({-2.18f, 0.72f, -0.32f}, {0.24f, 0.32f, 0.02f}, kEmerald); // Seoul Bike logo stripe
-        mb.addBox({-2.18f, 1.88f, -0.42f}, {0.42f, 0.05f, 0.34f}, kSteelDark); // Top weather hood
+        // Sleek Seoul Bike White & Lime-Green Info Sign / QR Kiosk Totem (x = -2.22m)
+        mb.addBox({-2.22f, 0.06f, -0.45f}, {0.50f, 0.12f, 0.44f}, kSteelDark);
+        mb.addBox({-2.22f, 0.98f, -0.45f}, {0.40f, 1.76f, 0.22f}, kBikeWhite);
+        mb.addBox({-2.22f, 1.80f, -0.44f}, {0.42f, 0.24f, 0.26f}, kSeoulGreen);
+        mb.addBox({-2.22f, 1.30f, -0.33f}, {0.28f, 0.40f, 0.03f}, kScreen);     // Recessed QR/rental display
+        mb.addBox({-2.22f, 0.72f, -0.33f}, {0.30f, 0.34f, 0.02f}, kSeoulGreen); // 따릉이 green graphic panel
+        mb.addBox({-2.22f, 1.94f, -0.42f}, {0.46f, 0.05f, 0.32f}, kSteelDark);  // Weather canopy hood
 
-        // 4 Sculpted 따릉이 Bicycles docked neatly into individual steel U-cradles!
+        // 4 Sculpted 따릉이 Bicycles docked neatly into white-and-green upright cradles!
         for (int bi = 0; bi < 4; ++bi) {
             const float bx = -1.35f + static_cast<float>(bi) * 0.90f;
-            // Individual stainless docking cradle + green smart-lock pod
-            mb.addBox({bx, 0.30f, -0.52f}, {0.16f, 0.56f, 0.12f}, kAlloy);
-            mb.addBox({bx, 0.60f, -0.50f}, {0.18f, 0.12f, 0.16f}, kEmeraldDark);
-            addTube(mb, {bx - 0.07f, 0.06f, -0.48f}, {bx - 0.07f, 0.44f, -0.36f}, 0.016f, 0.016f, 6, kAlloy);
-            addTube(mb, {bx + 0.07f, 0.06f, -0.48f}, {bx + 0.07f, 0.44f, -0.36f}, 0.016f, 0.016f, 6, kAlloy);
+            // Upright white/stainless docking bollard + signature green QR smart-lock head
+            mb.addBox({bx, 0.34f, -0.52f}, {0.16f, 0.62f, 0.13f}, kBikeWhite);
+            mb.addBox({bx, 0.68f, -0.50f}, {0.19f, 0.14f, 0.17f}, kSeoulGreen);
+            mb.addBox({bx, 0.50f, -0.45f}, {0.10f, 0.18f, 0.02f}, kGreenDark);
+            addTube(mb, {bx - 0.075f, 0.06f, -0.48f}, {bx - 0.075f, 0.46f, -0.35f}, 0.017f, 0.017f, 6, kAlloy);
+            addTube(mb, {bx + 0.075f, 0.06f, -0.48f}, {bx + 0.075f, 0.46f, -0.35f}, 0.017f, 0.017f, 6, kAlloy);
 
-            const Vec3 fwC{bx, 0.31f, -0.26f}; // Front wheel center (docked in cradle)
-            const Vec3 rwC{bx, 0.31f,  0.74f}; // Rear wheel center
-            const Vec3 bbC{bx, 0.30f,  0.30f}; // Bottom bracket / crankset
-            const Vec3 htBot{bx, 0.62f, -0.14f};
-            const Vec3 htTop{bx, 0.80f, -0.10f};
-            const Vec3 stTop{bx, 0.78f,  0.40f};
+            const Vec3 fwC{bx, 0.32f, -0.26f}; // Front wheel center (docked)
+            const Vec3 rwC{bx, 0.32f,  0.76f}; // Rear wheel center
+            const Vec3 bbC{bx, 0.30f,  0.31f}; // Bottom bracket / crankset
+            const Vec3 htBot{bx, 0.64f, -0.14f};
+            const Vec3 htTop{bx, 0.84f, -0.10f};
+            const Vec3 stTop{bx, 0.80f,  0.41f};
 
-            // Front & Rear hollow tires + shiny alloy rims + hubs + 6 cross spokes!
+            // Front & Rear tires + bright alloy rims + hubs + 6 spokes
             for (const Vec3& wc : {fwC, rwC}) {
-                addWheelYZ(mb, wc, 0.285f, 0.026f, 14, 6, kTire);
-                addWheelYZ(mb, wc, 0.252f, 0.013f, 14, 5, kAlloy);
-                addTube(mb, {wc.x - 0.038f, wc.y, wc.z}, {wc.x + 0.038f, wc.y, wc.z}, 0.022f, 0.022f, 6, kSteelDark);
+                addWheelYZ(mb, wc, 0.295f, 0.028f, 14, 6, kTire);
+                addWheelYZ(mb, wc, 0.260f, 0.014f, 14, 5, kAlloy);
+                addTube(mb, {wc.x - 0.040f, wc.y, wc.z}, {wc.x + 0.040f, wc.y, wc.z}, 0.022f, 0.022f, 6, kSteelDark);
                 for (int sp = 0; sp < 6; ++sp) {
                     const float ang = kPi * static_cast<float>(sp) / 6.0f;
-                    const float dy = std::sin(ang) * 0.25f;
-                    const float dz = std::cos(ang) * 0.25f;
-                    addTube(mb, {wc.x, wc.y - dy, wc.z - dz}, {wc.x, wc.y + dy, wc.z + dz}, 0.005f, 0.005f, 4, kAlloy);
+                    const float dy = std::sin(ang) * 0.255f;
+                    const float dz = std::cos(ang) * 0.255f;
+                    addTube(mb, {wc.x, wc.y - dy, wc.z - dz}, {wc.x, wc.y + dy, wc.z + dz}, 0.0055f, 0.0055f, 4, kAlloy);
                 }
             }
-            // Curved step-through white Seoul Bike frame (double downtube, seat tube, fork, stays, chain guard!)
-            addTube(mb, htTop, htBot, 0.024f, 0.024f, 7, kBikeWhite);                       // Head tube
-            addTube(mb, htBot, {bx, 0.34f, 0.14f}, 0.022f, 0.022f, 7, kBikeWhite);          // Curved step-through downtube
-            addTube(mb, {bx, 0.34f, 0.14f}, bbC, 0.022f, 0.024f, 7, kBikeWhite);
-            addTube(mb, {bx, 0.66f, -0.12f}, {bx, 0.44f, 0.32f}, 0.016f, 0.016f, 6, kEmerald); // Iconic green accent brace
-            addTube(mb, bbC, stTop, 0.021f, 0.020f, 7, kBikeWhite);                         // Seat tube
+            // Iconic bright matte-white step-through curved 따릉이 frame + green logo tube!
+            addTube(mb, htTop, htBot, 0.028f, 0.028f, 7, kBikeWhite);
+            addTube(mb, htBot, {bx, 0.35f, 0.14f}, 0.026f, 0.026f, 7, kBikeWhite);
+            addTube(mb, {bx, 0.35f, 0.14f}, bbC, 0.026f, 0.028f, 7, kBikeWhite);
+            addTube(mb, {bx, 0.68f, -0.12f}, {bx, 0.45f, 0.33f}, 0.020f, 0.020f, 6, kSeoulGreen);
+            addTube(mb, bbC, stTop, 0.024f, 0.022f, 7, kBikeWhite);
             for (float s : {-1.0f, 1.0f}) {
-                addTube(mb, htBot + Vec3{s * 0.035f, 0.0f, 0.0f}, fwC + Vec3{s * 0.042f, 0.0f, 0.0f}, 0.014f, 0.011f, 5, kBikeWhite); // Front fork
-                addTube(mb, bbC + Vec3{s * 0.030f, 0.0f, 0.0f}, rwC + Vec3{s * 0.045f, 0.0f, 0.0f}, 0.013f, 0.010f, 5, kBikeWhite);   // Chainstay
-                addTube(mb, stTop + Vec3{s * 0.026f, -0.05f, 0.0f}, rwC + Vec3{s * 0.045f, 0.0f, 0.0f}, 0.011f, 0.009f, 5, kBikeWhite); // Seatstay
+                addTube(mb, htBot + Vec3{s * 0.036f, 0.0f, 0.0f}, fwC + Vec3{s * 0.044f, 0.0f, 0.0f}, 0.015f, 0.012f, 5, kBikeWhite);
+                addTube(mb, bbC + Vec3{s * 0.032f, 0.0f, 0.0f}, rwC + Vec3{s * 0.046f, 0.0f, 0.0f}, 0.014f, 0.011f, 5, kBikeWhite);
+                addTube(mb, stTop + Vec3{s * 0.028f, -0.05f, 0.0f}, rwC + Vec3{s * 0.046f, 0.0f, 0.0f}, 0.012f, 0.010f, 5, kBikeWhite);
             }
-            // Chain guard & crank
-            mb.addBox({bx + 0.042f, 0.31f, 0.52f}, {0.024f, 0.10f, 0.44f}, kBikeWhite);
-            // Brushed mudguards curving over tops of front & rear tires
-            addTube(mb, {bx, 0.60f, -0.44f}, {bx, 0.62f, -0.08f}, 0.026f, 0.026f, 5, kSteelDark);
-            addTube(mb, {bx, 0.60f,  0.54f}, {bx, 0.60f,  0.94f}, 0.026f, 0.026f, 5, kSteelDark);
-            // Seatpost + sculpted dark ergonomic saddle
-            addTube(mb, stTop, {bx, 0.90f, 0.42f}, 0.015f, 0.014f, 6, kAlloy);
-            mb.addBox({bx, 0.92f, 0.43f}, {0.16f, 0.055f, 0.25f}, kSeat);
-            // Stem + swept-back chrome handlebars + black grips
-            addTube(mb, htTop, {bx, 0.96f, -0.06f}, 0.016f, 0.015f, 6, kAlloy);
-            addTube(mb, {bx - 0.16f, 0.97f, -0.05f}, {bx + 0.16f, 0.97f, -0.05f}, 0.013f, 0.013f, 6, kAlloy);
-            addTube(mb, {bx - 0.16f, 0.97f, -0.05f}, {bx - 0.24f, 0.95f,  0.04f}, 0.017f, 0.017f, 6, kSeat);
-            addTube(mb, {bx + 0.16f, 0.97f, -0.05f}, {bx + 0.24f, 0.95f,  0.04f}, 0.017f, 0.017f, 6, kSeat);
-            // Iconic hollow open-top emerald-green front basket (4 thin side walls + base + front white Seoul plate!)
-            const Vec3 bkC{bx, 0.80f, -0.31f};
-            mb.addBox({bkC.x, bkC.y - 0.10f, bkC.z}, {0.30f, 0.025f, 0.22f}, kEmeraldDark);
-            mb.addBox({bkC.x, bkC.y, bkC.z - 0.10f}, {0.30f, 0.20f, 0.022f}, kEmerald);
-            mb.addBox({bkC.x, bkC.y, bkC.z + 0.10f}, {0.30f, 0.20f, 0.022f}, kEmerald);
-            mb.addBox({bkC.x - 0.14f, bkC.y, bkC.z}, {0.022f, 0.20f, 0.22f}, kEmerald);
-            mb.addBox({bkC.x + 0.14f, bkC.y, bkC.z}, {0.022f, 0.20f, 0.22f}, kEmerald);
-            mb.addBox({bkC.x, bkC.y, bkC.z - 0.115f}, {0.18f, 0.10f, 0.012f}, kBikeWhite); // 따릉이 front badge
+            // Full white & Seoul-Green enclosed chain guard + green-accented rear mudguard!
+            mb.addBox({bx + 0.046f, 0.32f, 0.53f}, {0.026f, 0.11f, 0.46f}, kBikeWhite);
+            mb.addBox({bx + 0.056f, 0.32f, 0.53f}, {0.012f, 0.05f, 0.38f}, kSeoulGreen);
+            addTube(mb, {bx, 0.63f, -0.45f}, {bx, 0.65f, -0.07f}, 0.028f, 0.028f, 5, kGreenDark);
+            addTube(mb, {bx, 0.63f,  0.55f}, {bx, 0.63f,  0.96f}, 0.028f, 0.028f, 5, kSeoulGreen);
+            // Seatpost + sculpted dark saddle + swept chrome handlebars + grips
+            addTube(mb, stTop, {bx, 0.93f, 0.43f}, 0.016f, 0.015f, 6, kAlloy);
+            mb.addBox({bx, 0.95f, 0.44f}, {0.17f, 0.058f, 0.26f}, kSeat);
+            addTube(mb, htTop, {bx, 0.99f, -0.06f}, 0.017f, 0.016f, 6, kAlloy);
+            addTube(mb, {bx - 0.17f, 1.00f, -0.05f}, {bx + 0.17f, 1.00f, -0.05f}, 0.014f, 0.014f, 6, kAlloy);
+            addTube(mb, {bx - 0.17f, 1.00f, -0.05f}, {bx - 0.25f, 0.98f,  0.04f}, 0.018f, 0.018f, 6, kSeat);
+            addTube(mb, {bx + 0.17f, 1.00f, -0.05f}, {bx + 0.25f, 0.98f,  0.04f}, 0.018f, 0.018f, 6, kSeat);
+            // Iconic hollow open-top vibrant Seoul-Green front basket + crisp white front 따릉이 plate!
+            const Vec3 bkC{bx, 0.83f, -0.32f};
+            mb.addBox({bkC.x, bkC.y - 0.11f, bkC.z}, {0.32f, 0.026f, 0.24f}, kGreenDark);
+            mb.addBox({bkC.x, bkC.y, bkC.z - 0.11f}, {0.32f, 0.22f, 0.024f}, kSeoulGreen);
+            mb.addBox({bkC.x, bkC.y, bkC.z + 0.11f}, {0.32f, 0.22f, 0.024f}, kSeoulGreen);
+            mb.addBox({bkC.x - 0.15f, bkC.y, bkC.z}, {0.024f, 0.22f, 0.24f}, kSeoulGreen);
+            mb.addBox({bkC.x + 0.15f, bkC.y, bkC.z}, {0.024f, 0.22f, 0.24f}, kSeoulGreen);
+            mb.addBox({bkC.x, bkC.y, bkC.z - 0.125f}, {0.20f, 0.11f, 0.014f}, kBikeWhite);
         }
         ddareungiRackMesh_ = mb.upload(vk, 35.0f);
     }
 
-    // 2. Sculpted Seoul Architectural Curved Gooseneck LED Streetlamp (서울 가로등)
+    // 2A. Sculpted 8.2m Seoul Public-Design Single-Arm LED Streetlamp (서울 표준 가로등 — 기와진회색!)
     {
         MeshBuilder3D mb;
-        const ColorRGBA kPlinth{54, 58, 66, 255};
-        const ColorRGBA kPole{74, 80, 90, 255};
-        const ColorRGBA kCollar{96, 102, 114, 255};
-        const ColorRGBA kHood{62, 68, 78, 255};
-        // Octagonal cast-iron base plinth + flanged anchor collar
-        mb.addCylinderY({0.0f, -0.15f, 0.0f}, 0.22f, 0.19f, 0.28f, 8, kPlinth);
-        mb.addCylinderY({0.0f,  0.13f, 0.0f}, 0.18f, 0.15f, 0.68f, 8, kPlinth);
-        mb.addCylinderY({0.0f,  0.81f, 0.0f}, 0.17f, 0.12f, 0.10f, 10, kCollar);
-        // Smoothly tapered cylindrical mast (0.90m .. 6.75m)
-        mb.addCylinderY({0.0f, 0.90f, 0.0f}, 0.105f, 0.072f, 5.85f, 10, kPole);
-        // Decorative upper collar + sweeping curved gooseneck cantilever arm reaching +2.15m over road!
-        mb.addCylinderY({0.0f, 6.62f, 0.0f}, 0.095f, 0.095f, 0.14f, 10, kCollar);
+        const ColorRGBA kGiwaDark{68, 74, 84, 255};      // 서울 기와진회색 base plinth
+        const ColorRGBA kGiwaPole{92, 98, 108, 255};     // Powder-coated metallic titanium-gray mast
+        const ColorRGBA kSilverTrim{146, 154, 164, 255}; // Brushed aluminum decorative rings & head
+        const ColorRGBA kTagBlue{32, 96, 186, 255};      // Seoul streetlight ID management plate
+        const ColorRGBA kWhite{238, 242, 246, 255};
+
+        // Grounded stepped octagonal cast-aluminum base pedestal + service hatch + flange collar
+        mb.addCylinderY({0.0f, -0.18f, 0.0f}, 0.21f, 0.18f, 0.28f, 8, kGiwaDark);
+        mb.addCylinderY({0.0f,  0.10f, 0.0f}, 0.17f, 0.135f, 0.88f, 8, kGiwaDark);
+        mb.addBox({0.145f, 0.56f, 0.0f}, {0.02f, 0.36f, 0.11f}, kSilverTrim); // Inspection door plate
+        mb.addCylinderY({0.0f,  0.98f, 0.0f}, 0.155f, 0.11f, 0.10f, 10, kSilverTrim);
+        // Slender tapered circular steel pole (1.08m .. 7.70m) + mid decorative ring + blue management tag
+        mb.addCylinderY({0.0f, 1.08f, 0.0f}, 0.098f, 0.062f, 6.62f, 10, kGiwaPole);
+        mb.addCylinderY({0.0f, 2.35f, 0.0f}, 0.096f, 0.096f, 0.05f, 10, kSilverTrim);
+        mb.addBox({0.088f, 2.58f, 0.0f}, {0.025f, 0.22f, 0.08f}, kTagBlue);
+        mb.addBox({0.098f, 2.62f, 0.0f}, {0.012f, 0.08f, 0.065f}, kWhite);
+        // Upper finial cap + sweeping curved Seoul arched cantilever arm reaching +2.35m over road!
+        mb.addCylinderY({0.0f, 7.62f, 0.0f}, 0.082f, 0.082f, 0.14f, 10, kSilverTrim);
+        mb.addSphere({0.0f, 7.80f, 0.0f}, 0.070f, 6, 10, kSilverTrim);
         const Vec3 arc[6] = {
-            {0.00f, 6.68f, 0.0f},
-            {0.26f, 7.06f, 0.0f},
-            {0.72f, 7.28f, 0.0f},
-            {1.26f, 7.36f, 0.0f},
-            {1.78f, 7.30f, 0.0f},
-            {2.08f, 7.18f, 0.0f}
+            {0.00f, 7.66f, 0.0f},
+            {0.34f, 8.04f, 0.0f},
+            {0.86f, 8.26f, 0.0f},
+            {1.42f, 8.32f, 0.0f},
+            {1.94f, 8.24f, 0.0f},
+            {2.22f, 8.12f, 0.0f}
         };
         for (int i = 0; i < 5; ++i) {
-            const float r0 = lerpf(0.068f, 0.044f, static_cast<float>(i) / 5.0f);
-            const float r1 = lerpf(0.068f, 0.044f, static_cast<float>(i + 1) / 5.0f);
-            addTube(mb, arc[i], arc[i + 1], r0, r1, 8, kPole);
+            const float r0 = lerpf(0.056f, 0.036f, static_cast<float>(i) / 5.0f);
+            const float r1 = lerpf(0.056f, 0.036f, static_cast<float>(i + 1) / 5.0f);
+            addTube(mb, arc[i], arc[i + 1], r0, r1, 8, kGiwaPole);
         }
-        // Sleek aerodynamic Seoul LED cobra luminaire housing + finned heat-sink top
-        mb.addBox({2.24f, 7.16f, 0.0f}, {0.72f, 0.10f, 0.32f}, kHood);
-        mb.addBox({2.18f, 7.22f, 0.0f}, {0.52f, 0.05f, 0.24f}, kCollar);
+        // Subtle architectural tension brace beneath arm root
+        addTube(mb, {0.04f, 7.12f, 0.0f}, {0.82f, 8.20f, 0.0f}, 0.020f, 0.016f, 6, kSilverTrim);
+        // Slim aerodynamic Seoul die-cast silver-gray LED luminaire housing + cooling fins
+        mb.addBox({2.38f, 8.10f, 0.0f}, {0.78f, 0.085f, 0.30f}, kSilverTrim);
+        mb.addBox({2.32f, 8.16f, 0.0f}, {0.58f, 0.045f, 0.22f}, kGiwaDark);
         seoulLampMesh_ = mb.upload(vk, 42.0f);
     }
 
-    // 3. Sculpted Korean 4-Aspect Horizontal Cantilever Traffic Signal (한국 4구 가로형 신호등 + 차양막 + 보행자 신호등!)
+    // 2B. Sculpted 8.6m Seoul Twin-Arm Boulevard Central-Median LED Streetlamp (테헤란로/강남대로 양팔형 가로등!)
     {
         MeshBuilder3D mb;
-        const ColorRGBA kPole{62, 68, 76, 255};
-        const ColorRGBA kSteel{92, 98, 108, 255};
-        const ColorRGBA kHousing{24, 26, 30, 255};
-        const ColorRGBA kBackplate{238, 242, 246, 255};
-        const ColorRGBA kStreetBlue{24, 86, 174, 255};
-        // Heavy flanged base plate + anchor collar + tapered vertical pole (0..6.45m) + dome cap
-        mb.addBox({0.0f, 0.04f, 0.0f}, {0.48f, 0.08f, 0.48f}, kPole);
-        mb.addCylinderY({0.0f, -0.15f, 0.0f}, 0.20f, 0.17f, 0.72f, 10, kPole);
-        mb.addCylinderY({0.0f,  0.56f, 0.0f}, 0.14f, 0.105f, 5.88f, 10, kPole);
-        mb.addSphere({0.0f, 6.46f, 0.0f}, 0.115f, 6, 10, kSteel);
-        // Tapered horizontal cantilever mast arm (x = 0..5.25m @ y = 5.98m) + gusset flange + upper diagonal tension rod!
-        addTube(mb, {0.0f, 5.98f, 0.0f}, {5.25f, 5.98f, 0.0f}, 0.105f, 0.068f, 10, kPole);
-        addTube(mb, {0.0f, 6.38f, 0.0f}, {2.60f, 6.02f, 0.0f}, 0.032f, 0.028f, 6, kSteel);
-        mb.addBox({0.14f, 5.98f, 0.0f}, {0.22f, 0.34f, 0.28f}, kSteel);
-        // Mounting hangers down to 4-aspect horizontal signal housing
-        for (float hx : {2.95f, 4.15f}) {
-            addTube(mb, {hx, 5.96f, 0.0f}, {hx, 5.72f, 0.0f}, 0.032f, 0.032f, 6, kSteel);
+        const ColorRGBA kGiwaDark{68, 74, 84, 255};
+        const ColorRGBA kGiwaPole{92, 98, 108, 255};
+        const ColorRGBA kSilverTrim{146, 154, 164, 255};
+        mb.addCylinderY({0.0f, -0.18f, 0.0f}, 0.23f, 0.19f, 0.28f, 8, kGiwaDark);
+        mb.addCylinderY({0.0f,  0.10f, 0.0f}, 0.18f, 0.145f, 0.96f, 8, kGiwaDark);
+        mb.addCylinderY({0.0f,  1.06f, 0.0f}, 0.165f, 0.115f, 0.10f, 10, kSilverTrim);
+        mb.addCylinderY({0.0f,  1.16f, 0.0f}, 0.108f, 0.068f, 6.95f, 10, kGiwaPole);
+        mb.addCylinderY({0.0f,  8.02f, 0.0f}, 0.092f, 0.092f, 0.16f, 10, kSilverTrim);
+        mb.addSphere({0.0f, 8.24f, 0.0f}, 0.075f, 6, 10, kSilverTrim);
+        for (float dir : {-1.0f, 1.0f}) {
+            const Vec3 arc[5] = {
+                {0.00f, 8.08f, 0.0f},
+                {dir * 0.45f, 8.46f, 0.0f},
+                {dir * 1.08f, 8.64f, 0.0f},
+                {dir * 1.70f, 8.60f, 0.0f},
+                {dir * 2.15f, 8.48f, 0.0f}
+            };
+            for (int i = 0; i < 4; ++i) {
+                const float r0 = lerpf(0.056f, 0.036f, static_cast<float>(i) / 4.0f);
+                const float r1 = lerpf(0.056f, 0.036f, static_cast<float>(i + 1) / 4.0f);
+                addTube(mb, arc[i], arc[i + 1], r0, r1, 8, kGiwaPole);
+            }
+            addTube(mb, {dir * 0.05f, 7.52f, 0.0f}, {dir * 0.92f, 8.58f, 0.0f}, 0.020f, 0.016f, 6, kSilverTrim);
+            mb.addBox({dir * 2.30f, 8.46f, 0.0f}, {0.76f, 0.085f, 0.30f}, kSilverTrim);
+            mb.addBox({dir * 2.24f, 8.52f, 0.0f}, {0.56f, 0.045f, 0.22f}, kGiwaDark);
         }
-        // White reflective backplate border + matte black 4-lens Korean horizontal signal housing!
-        mb.addBox({3.55f, 5.56f, 0.0f}, {2.24f, 0.62f, 0.10f}, kBackplate);
-        mb.addBox({3.55f, 5.56f, 0.0f}, {2.12f, 0.52f, 0.32f}, kHousing);
-        // 4 individual curved hood sun-visors (차양막) on BOTH front (+Z) & back (-Z) faces!
-        const float lampXs[4] = {2.80f, 3.30f, 3.80f, 4.30f};
+        seoulDoubleLampMesh_ = mb.upload(vk, 42.0f);
+    }
+
+    // 2C. Sculpted 10.5m Korean Expressway Galvanized Silver Upswept Cobra Lamp (고속도로/강변북로 가로등)
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kPlinth{154, 158, 164, 255};
+        const ColorRGBA kGalv{184, 190, 198, 255};
+        const ColorRGBA kCap{124, 132, 142, 255};
+        mb.addCylinderY({0.0f, -0.20f, 0.0f}, 0.26f, 0.22f, 0.95f, 8, kPlinth);
+        mb.addCylinderY({0.0f,  0.75f, 0.0f}, 0.135f, 0.078f, 8.95f, 10, kGalv);
+        const Vec3 arc[5] = {
+            {0.00f, 9.65f, 0.0f},
+            {0.55f, 10.18f, 0.0f},
+            {1.35f, 10.48f, 0.0f},
+            {2.18f, 10.56f, 0.0f},
+            {2.78f, 10.48f, 0.0f}
+        };
+        for (int i = 0; i < 4; ++i) {
+            addTube(mb, arc[i], arc[i + 1], lerpf(0.068f, 0.042f, static_cast<float>(i) / 4.0f),
+                    lerpf(0.068f, 0.042f, static_cast<float>(i + 1) / 4.0f), 8, kGalv);
+        }
+        mb.addBox({2.95f, 10.46f, 0.0f}, {0.92f, 0.11f, 0.36f}, kGalv);
+        mb.addBox({2.88f, 10.53f, 0.0f}, {0.68f, 0.05f, 0.26f}, kCap);
+        highwayLampMesh_ = mb.upload(vk, 42.0f);
+    }
+
+    // 3. Sculpted Korean 4-Aspect Horizontal Cantilever Traffic Signal (한국 4구 가로형 신호등 + 흰색 배면판 + 보행신호 잔여시간표시기 + 음향신호기!)
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kPole{84, 90, 100, 255};         // 기와진회색 metallic signal pole
+        const ColorRGBA kSteel{128, 134, 144, 255};      // Galvanized steel collars & brackets
+        const ColorRGBA kHousing{26, 28, 32, 255};       // Matte black polycarbonate signal head
+        const ColorRGBA kBackplate{242, 245, 248, 255};  // Iconic crisp Korean white backplate border
+        const ColorRGBA kStreetBlue{22, 88, 178, 255};   // Royal-blue 도로명판 street-name blade
+        const ColorRGBA kYellowBox{238, 190, 36, 255};   // Tactile acoustic push-button box (음향신호기)
+
+        // Heavy 4-bolt anchor flange + tapered vertical pole (0..6.65m) + dome cap
+        mb.addBox({0.0f, 0.045f, 0.0f}, {0.50f, 0.09f, 0.50f}, kPole);
+        mb.addCylinderY({0.0f, -0.15f, 0.0f}, 0.20f, 0.17f, 0.72f, 10, kPole);
+        mb.addCylinderY({0.0f,  0.56f, 0.0f}, 0.145f, 0.105f, 6.08f, 10, kPole);
+        mb.addSphere({0.0f, 6.66f, 0.0f}, 0.115f, 6, 10, kSteel);
+        // Tapered horizontal cantilever mast arm (x = 0..5.40m @ y = 6.12m) + triangular gusset + tension tie rod!
+        addTube(mb, {0.0f, 6.12f, 0.0f}, {5.40f, 6.12f, 0.0f}, 0.105f, 0.066f, 10, kPole);
+        addTube(mb, {0.0f, 6.56f, 0.0f}, {2.70f, 6.16f, 0.0f}, 0.032f, 0.026f, 6, kSteel);
+        mb.addBox({0.16f, 6.12f, 0.0f}, {0.26f, 0.36f, 0.28f}, kSteel);
+        // Twin stainless mounting hangers down to 4-aspect horizontal signal housing
+        for (float hx : {2.95f, 4.25f}) {
+            addTube(mb, {hx, 6.10f, 0.0f}, {hx, 5.82f, 0.0f}, 0.032f, 0.032f, 6, kSteel);
+        }
+        // Crisp Korean white reflective backplate border + matte black 4-lens horizontal signal housing!
+        mb.addBox({3.60f, 5.64f, 0.0f}, {2.32f, 0.66f, 0.09f}, kBackplate);
+        mb.addBox({3.60f, 5.64f, 0.0f}, {2.18f, 0.54f, 0.32f}, kHousing);
+        // 4 individual sculpted sun-visor hoods (차양막) on BOTH front (+Z) & back (-Z) faces!
+        const float lampXs[4] = {2.85f, 3.35f, 3.85f, 4.35f};
         for (float lx : lampXs) {
             for (float fz : {-1.0f, 1.0f}) {
-                // Upper curved tunnel visor hood over each lens
-                mb.addBox({lx, 5.74f, fz * 0.25f}, {0.36f, 0.035f, 0.24f}, kHousing);
-                mb.addBox({lx - 0.17f, 5.62f, fz * 0.23f}, {0.032f, 0.24f, 0.20f}, kHousing);
-                mb.addBox({lx + 0.17f, 5.62f, fz * 0.23f}, {0.032f, 0.24f, 0.20f}, kHousing);
+                mb.addBox({lx, 5.83f, fz * 0.26f}, {0.36f, 0.036f, 0.26f}, kHousing);
+                mb.addBox({lx - 0.17f, 5.70f, fz * 0.23f}, {0.032f, 0.25f, 0.22f}, kHousing);
+                mb.addBox({lx + 0.17f, 5.70f, fz * 0.23f}, {0.032f, 0.25f, 0.22f}, kHousing);
             }
         }
-        // Royal-blue Korean street-name blade sign (도로명판) mounted cleanly along inner cantilever arm!
-        mb.addBox({1.35f, 5.64f, 0.0f}, {1.25f, 0.30f, 0.06f}, kStreetBlue);
-        mb.addBox({1.35f, 5.64f, 0.0f}, {1.30f, 0.34f, 0.035f}, kBackplate);
-        addTube(mb, {0.95f, 5.96f, 0.0f}, {0.95f, 5.78f, 0.0f}, 0.02f, 0.02f, 5, kSteel);
-        addTube(mb, {1.75f, 5.96f, 0.0f}, {1.75f, 5.78f, 0.0f}, 0.02f, 0.02f, 5, kSteel);
-        // Pole-mounted Korean Pedestrian Signal Box (보행자 신호등) with dual visors @ y = 3.15m
-        mb.addBox({0.0f, 3.16f, 0.24f}, {0.36f, 0.76f, 0.24f}, kHousing);
-        mb.addBox({0.0f, 3.48f, 0.42f}, {0.32f, 0.03f, 0.18f}, kHousing); // Upper red-person visor
-        mb.addBox({0.0f, 3.14f, 0.42f}, {0.32f, 0.03f, 0.18f}, kHousing); // Lower green-walk visor
+        // Royal-blue Korean street-name blade sign (도로명판) with crisp white border!
+        mb.addBox({1.35f, 5.74f, 0.0f}, {1.38f, 0.34f, 0.055f}, kStreetBlue);
+        mb.addBox({1.35f, 5.74f, 0.0f}, {1.44f, 0.39f, 0.030f}, kBackplate);
+        addTube(mb, {0.92f, 6.10f, 0.0f}, {0.92f, 5.92f, 0.0f}, 0.022f, 0.022f, 5, kSteel);
+        addTube(mb, {1.78f, 6.10f, 0.0f}, {1.78f, 5.92f, 0.0f}, 0.022f, 0.022f, 5, kSteel);
+        // Pole-mounted Korean Pedestrian Signal Box (보행자 신호등) + Auxiliary Countdown Unit (잔여시간표시기) @ y = 3.16m
+        mb.addBox({0.0f, 3.18f, 0.24f}, {0.38f, 0.80f, 0.24f}, kHousing);
+        mb.addBox({0.0f, 3.52f, 0.42f}, {0.34f, 0.032f, 0.20f}, kHousing); // Upper red-stand visor
+        mb.addBox({0.0f, 3.16f, 0.42f}, {0.34f, 0.032f, 0.20f}, kHousing); // Lower green-walk visor
+        // Side-mounted Korean triangular pedestrian countdown housing
+        mb.addBox({0.36f, 3.18f, 0.24f}, {0.32f, 0.68f, 0.22f}, kHousing);
+        mb.addBox({0.36f, 3.50f, 0.40f}, {0.28f, 0.03f, 0.16f}, kHousing);
+        // Iconic Korean yellow tactile acoustic pedestrian signal push-button box (시각장애인 음향신호기) @ y = 1.15m
+        mb.addBox({0.0f, 1.16f, 0.18f}, {0.16f, 0.24f, 0.10f}, kYellowBox);
+        mb.addCylinderY({0.0f, 1.10f, 0.235f}, 0.03f, 0.03f, 0.04f, 8, kSteel);
         koreanSignalMesh_ = mb.upload(vk, 35.0f);
     }
 
-    // 4. Sculpted Seoul Design Architectural Bus Shelter (Frame/Bench/BIT + Separate Tempered Glass!)
+    // 4. Sculpted Seoul Design Bus Shelter (서울형 가로변 승차대 — 기와진회색 프레임 + 실제 투명 강화유리 + 안전띠 + 원목벤치 + BIT!)
     {
         MeshBuilder3D mbF;
         MeshBuilder3D mbG;
-        const ColorRGBA kFrame{46, 52, 62, 255};
-        const ColorRGBA kStainless{178, 186, 196, 255};
-        const ColorRGBA kSeoulBlue{26, 108, 218, 255};
-        const ColorRGBA kWood{148, 102, 62, 255};
-        const ColorRGBA kPosterBg{232, 238, 246, 255};
-        const ColorRGBA kGlass{92, 146, 182, 255};
+        const ColorRGBA kGiwaFrame{64, 70, 80, 255};     // 서울 기와진회색 structural steel
+        const ColorRGBA kStainless{192, 198, 206, 255};  // Brushed stainless base flanges & spider fittings
+        const ColorRGBA kSeoulBlue{26, 108, 214, 255};   // 서울 간선버스 블루 header strip
+        const ColorRGBA kWood{164, 114, 68, 255};        // Warm cedar wood slats
+        const ColorRGBA kWoodAlt{150, 102, 58, 255};
+        const ColorRGBA kPosterBg{238, 242, 248, 255};
+        const ColorRGBA kGlass{152, 204, 224, 96};       // Real see-through low-iron tempered safety glass (alpha=96/255!)
+        const ColorRGBA kRoofGlass{136, 186, 212, 118};  // Lightly tinted overhead canopy glass
+        const ColorRGBA kSafetyFrit{242, 246, 250, 245}; // Iconic white ceramic safety-dot stripe at eye level!
 
-        // 3 tapered brushed-charcoal structural rear columns + stainless base flanges
-        for (float cx : {-2.15f, 0.0f, 2.15f}) {
-            mbF.addBox({cx, 0.04f, -0.74f}, {0.26f, 0.08f, 0.26f}, kStainless);
-            mbF.addBox({cx, 1.32f, -0.74f}, {0.14f, 2.58f, 0.16f}, kFrame);
-            // Sweeping cantilevered steel roof rafter arms reaching over boarding curb (+Z)
-            addTube(mbF, {cx, 2.52f, -0.80f}, {cx, 2.72f, 0.92f}, 0.055f, 0.038f, 6, kFrame);
+        // 3 slim 기와진회색 structural rear columns + brushed stainless bolted base plates & glass spider clamps
+        for (float cx : {-2.20f, 0.0f, 2.20f}) {
+            mbF.addBox({cx, 0.04f, -0.78f}, {0.26f, 0.08f, 0.26f}, kStainless);
+            mbF.addBox({cx, 1.32f, -0.78f}, {0.13f, 2.58f, 0.15f}, kGiwaFrame);
+            // Sweeping cantilevered steel roof rafter arms reaching over boarding zone (+Z)
+            addTube(mbF, {cx, 2.52f, -0.84f}, {cx, 2.74f, 0.96f}, 0.052f, 0.036f, 6, kGiwaFrame);
+            // Stainless glass-mounting spider clamps
+            for (float sy : {0.42f, 2.30f}) {
+                mbF.addBox({cx, sy, -0.72f}, {0.18f, 0.06f, 0.08f}, kStainless);
+            }
         }
-        // Sleek floating roof perimeter fascia + Seoul Bus Blue front header strip + rear rain gutter
-        mbF.addBox({0.0f, 2.72f,  0.90f}, {4.86f, 0.18f, 0.12f}, kFrame);
-        mbF.addBox({0.0f, 2.74f,  0.97f}, {4.78f, 0.14f, 0.04f}, kSeoulBlue);
-        mbF.addBox({0.0f, 2.50f, -0.82f}, {4.86f, 0.14f, 0.12f}, kFrame);
-        mbF.addBox({-2.40f, 2.61f, 0.04f}, {0.10f, 0.14f, 1.76f}, kFrame);
-        mbF.addBox({ 2.40f, 2.61f, 0.04f}, {0.10f, 0.14f, 1.76f}, kFrame);
-        // Sloped tempered skylight glass roof + mullioned back windbreak glass panels
-        mbG.addQuad({-2.34f, 2.54f, -0.76f}, { 2.34f, 2.54f, -0.76f},
-                    { 2.34f, 2.74f,  0.86f}, {-2.34f, 2.74f,  0.86f}, kGlass);
-        mbG.addBox({ 0.45f, 1.36f, -0.72f}, {3.30f, 2.15f, 0.045f}, kGlass);
-        mbG.addBox({ 2.16f, 1.36f, -0.18f}, {0.045f, 2.15f, 1.05f}, kGlass); // Side windbreak glass
-        // Horizontal stainless transom bars framing the back glass
-        mbF.addBox({0.45f, 0.30f, -0.72f}, {3.38f, 0.06f, 0.08f}, kStainless);
-        mbF.addBox({0.45f, 2.42f, -0.72f}, {3.38f, 0.06f, 0.08f}, kStainless);
-        // Left-side illuminated Seoul city ad/route lightbox cabinet (x = -1.78m)
-        mbF.addBox({-1.78f, 1.34f, -0.22f}, {0.18f, 2.18f, 1.12f}, kFrame);
-        mbF.addBox({-1.68f, 1.34f, -0.22f}, {0.03f, 1.92f, 0.94f}, kPosterBg);
-        mbF.addBox({-1.88f, 1.34f, -0.22f}, {0.03f, 1.92f, 0.94f}, kPosterBg);
-        // Ergonomic multi-slat wooden Seoul bus bench + brushed steel legs + center armrest dividers!
-        for (float lx : {-0.95f, 0.45f, 1.85f}) {
-            mbF.addBox({lx, 0.24f, -0.34f}, {0.06f, 0.46f, 0.42f}, kStainless);
-            // Curved stainless armrest hoop
-            mbF.addBox({lx, 0.62f, -0.34f}, {0.04f, 0.04f, 0.38f}, kStainless);
-            mbF.addBox({lx, 0.54f, -0.16f}, {0.04f, 0.18f, 0.04f}, kStainless);
-            mbF.addBox({lx, 0.54f, -0.52f}, {0.04f, 0.18f, 0.04f}, kStainless);
+        // Sleek floating roof perimeter fascia + iconic Seoul Bus Blue front header strip + rear rain gutter
+        mbF.addBox({0.0f, 2.74f,  0.94f}, {4.96f, 0.15f, 0.12f}, kGiwaFrame);
+        mbF.addBox({0.0f, 2.75f,  1.01f}, {4.88f, 0.12f, 0.035f}, kSeoulBlue);
+        mbF.addBox({0.0f, 2.50f, -0.86f}, {4.96f, 0.13f, 0.12f}, kGiwaFrame);
+        mbF.addBox({-2.44f, 2.62f, 0.04f}, {0.09f, 0.13f, 1.82f}, kGiwaFrame);
+        mbF.addBox({ 2.44f, 2.62f, 0.04f}, {0.09f, 0.13f, 1.82f}, kGiwaFrame);
+        // Single-plane translucent tempered skylight glass roof + rear & side windbreak glass panels (MatId::StreetGlass!)
+        mbG.addQuad({-2.38f, 2.54f, -0.80f}, { 2.38f, 2.54f, -0.80f},
+                    { 2.38f, 2.74f,  0.90f}, {-2.38f, 2.74f,  0.90f}, kRoofGlass);
+        mbG.addQuad({-1.26f, 0.30f, -0.74f}, { 2.18f, 0.30f, -0.74f},
+                    { 2.18f, 2.44f, -0.74f}, {-1.26f, 2.44f, -0.74f}, kGlass);
+        mbG.addQuad({ 2.20f, 0.30f, -0.74f}, { 2.20f, 0.30f,  0.38f},
+                    { 2.20f, 2.44f,  0.38f}, { 2.20f, 2.44f, -0.74f}, kGlass);
+        // Iconic Korean frosted-white horizontal collision-safety stripe across tempered glass at eye height (y = 1.32m)!
+        mbG.addQuad({-1.24f, 1.28f, -0.732f}, { 2.16f, 1.28f, -0.732f},
+                    { 2.16f, 1.36f, -0.732f}, {-1.24f, 1.36f, -0.732f}, kSafetyFrit);
+        mbG.addQuad({ 2.208f, 1.28f, -0.72f}, { 2.208f, 1.28f,  0.36f},
+                    { 2.208f, 1.36f,  0.36f}, { 2.208f, 1.36f, -0.72f}, kSafetyFrit);
+        // Horizontal stainless transom bars framing the rear tempered glass
+        mbF.addBox({0.46f, 0.30f, -0.74f}, {3.48f, 0.055f, 0.075f}, kStainless);
+        mbF.addBox({0.46f, 2.44f, -0.74f}, {3.48f, 0.055f, 0.075f}, kStainless);
+        // Left-side illuminated Seoul bus-route map & ad lightbox cabinet (x = -1.82m)
+        mbF.addBox({-1.82f, 1.34f, -0.20f}, {0.17f, 2.20f, 1.16f}, kGiwaFrame);
+        mbF.addBox({-1.725f, 1.34f, -0.20f}, {0.025f, 1.94f, 0.96f}, kPosterBg);
+        mbF.addBox({-1.915f, 1.34f, -0.20f}, {0.025f, 1.94f, 0.96f}, kPosterBg);
+        mbF.addBox({-1.71f, 2.16f, -0.20f}, {0.015f, 0.18f, 0.92f}, kSeoulBlue); // Route-map blue header inside lightbox
+        // Ergonomic 4-slat warm cedar Seoul bus bench + brushed stainless legs + center armrest hoops!
+        for (float lx : {-0.96f, 0.46f, 1.88f}) {
+            mbF.addBox({lx, 0.23f, -0.36f}, {0.055f, 0.46f, 0.44f}, kStainless);
+            mbF.addBox({lx, 0.62f, -0.36f}, {0.04f, 0.038f, 0.40f}, kStainless);
+            mbF.addBox({lx, 0.54f, -0.17f}, {0.04f, 0.18f, 0.04f}, kStainless);
+            mbF.addBox({lx, 0.54f, -0.55f}, {0.04f, 0.18f, 0.04f}, kStainless);
         }
         for (int sl = 0; sl < 4; ++sl) {
-            const float sz = -0.52f + static_cast<float>(sl) * 0.12f;
-            mbF.addBox({0.45f, 0.47f, sz}, {2.96f, 0.042f, 0.088f}, kWood);
+            const float sz = -0.54f + static_cast<float>(sl) * 0.12f;
+            mbF.addBox({0.46f, 0.47f, sz}, {3.00f, 0.042f, 0.092f}, (sl & 1) ? kWoodAlt : kWood);
         }
-        // Sculpted Seoul BIT (Bus Information Terminal) digital arrival totem (x = +2.68m)
-        mbF.addBox({2.68f, 0.06f, 0.16f}, {0.72f, 0.12f, 0.34f}, kStainless);
-        mbF.addBox({2.68f, 1.38f, 0.16f}, {0.62f, 2.58f, 0.22f}, kFrame);
-        mbF.addBox({2.68f, 2.70f, 0.16f}, {0.68f, 0.12f, 0.28f}, kSeoulBlue);
-        mbF.addBox({2.68f, 1.96f, 0.275f}, {0.54f, 0.50f, 0.02f}, {18, 26, 38, 255}); // BIT screen recess
+        // Sculpted Seoul BIT (버스정보안내단말기) freestanding digital arrival totem (x = +2.72m)
+        mbF.addBox({2.72f, 0.06f, 0.16f}, {0.72f, 0.12f, 0.34f}, kStainless);
+        mbF.addBox({2.72f, 1.38f, 0.16f}, {0.60f, 2.56f, 0.21f}, kGiwaFrame);
+        mbF.addBox({2.72f, 2.70f, 0.16f}, {0.66f, 0.14f, 0.26f}, kSeoulBlue);
+        mbF.addBox({2.72f, 1.96f, 0.27f}, {0.52f, 0.48f, 0.02f}, {18, 26, 38, 255}); // BIT LED screen recess
+        mbF.addBox({2.72f, 1.24f, 0.27f}, {0.42f, 0.34f, 0.02f}, kPosterBg);         // Lower static route timetable
 
         busShelterFrameMesh_ = mbF.upload(vk, 30.0f);
         busShelterGlassMesh_ = mbG.upload(vk, 25.0f);
     }
 
-    // 5. Sculpted Seoul Metro Glass-Vault Subway Entrance Canopy (Frame/Granite/Stairs/Handrails + Vaulted Glass!)
+    // 5. Sculpted Seoul Metro Glass-Vault Subway Entrance Canopy (서울교통공사 표준 유리 캐노피 + 화강석 계단 + 투명 유리 + 출입구 폴사인!)
     {
         MeshBuilder3D mbF;
         MeshBuilder3D mbG;
-        const ColorRGBA kSteel{58, 64, 74, 255};
-        const ColorRGBA kStainless{192, 198, 208, 255};
-        const ColorRGBA kGranite{168, 170, 174, 255};
-        const ColorRGBA kGraniteStep{138, 142, 148, 255};
+        const ColorRGBA kSteel{70, 76, 86, 255};
+        const ColorRGBA kStainless{198, 204, 214, 255};
+        const ColorRGBA kGranite{184, 184, 182, 255};      // Warm Pocheon granite parapet
+        const ColorRGBA kGraniteCoping{198, 198, 196, 255};
+        const ColorRGBA kGraniteStep{154, 156, 158, 255};
+        const ColorRGBA kNosing{56, 58, 62, 255};          // Anti-slip stair nosing strip
         const ColorRGBA kDarkWell{28, 32, 38, 255};
-        const ColorRGBA kGlass{94, 152, 188, 255};
+        const ColorRGBA kGlass{152, 206, 228, 98};         // Real see-through tempered glass vault (alpha=98/255!)
+        const ColorRGBA kSafetyFrit{242, 246, 250, 240};
 
-        // Low honed-granite perimeter curb parapet walls around 3 sides (open entry on +X side!)
-        mbF.addBox({0.0f, 0.42f, -1.28f}, {5.40f, 0.84f, 0.22f}, kGranite);
-        mbF.addBox({0.0f, 0.42f,  1.28f}, {5.40f, 0.84f, 0.22f}, kGranite);
-        mbF.addBox({-2.62f, 0.42f, 0.0f}, {0.22f, 0.84f, 2.78f}, kGranite);
+        // Low honed-Pocheon-granite perimeter parapet walls + beveled stone coping cap (open entry on +X side!)
+        mbF.addBox({0.0f, 0.43f, -1.32f}, {5.50f, 0.86f, 0.22f}, kGranite);
+        mbF.addBox({0.0f, 0.43f,  1.32f}, {5.50f, 0.86f, 0.22f}, kGranite);
+        mbF.addBox({-2.66f, 0.43f, 0.0f}, {0.22f, 0.86f, 2.86f}, kGranite);
+        mbF.addBox({0.0f, 0.88f, -1.32f}, {5.58f, 0.06f, 0.28f}, kGraniteCoping);
+        mbF.addBox({0.0f, 0.88f,  1.32f}, {5.58f, 0.06f, 0.28f}, kGraniteCoping);
+        mbF.addBox({-2.66f, 0.88f, 0.0f}, {0.28f, 0.06f, 2.92f}, kGraniteCoping);
 
-        // Visible descending granite stairwell steps + dark lower concourse throat
-        mbF.addBox({-1.65f, 0.10f, 0.0f}, {2.0f, 0.20f, 2.28f}, kDarkWell);
-        for (int st = 0; st < 5; ++st) {
-            const float sx = 2.10f - static_cast<float>(st) * 0.44f;
-            const float sy = 0.03f - static_cast<float>(st) * 0.015f;
-            mbF.addBox({sx, sy, 0.0f}, {0.42f, 0.06f, 2.24f}, (st & 1) ? kGranite : kGraniteStep);
+        // Visible descending granite stairwell steps with dark anti-slip nosing + dark concourse throat
+        mbF.addBox({-1.65f, 0.08f, 0.0f}, {2.10f, 0.16f, 2.36f}, kDarkWell);
+        for (int st = 0; st < 6; ++st) {
+            const float sx = 2.25f - static_cast<float>(st) * 0.40f;
+            const float sy = 0.03f - static_cast<float>(st) * 0.012f;
+            mbF.addBox({sx, sy, 0.0f}, {0.38f, 0.055f, 2.30f}, (st & 1) ? kGranite : kGraniteStep);
+            mbF.addBox({sx + 0.17f, sy + 0.030f, 0.0f}, {0.035f, 0.012f, 2.28f}, kNosing);
         }
-        // Brushed stainless-steel descending handrails along both side walls + center divider!
-        for (float hz : {-1.08f, 0.0f, 1.08f}) {
-            addTube(mbF, {2.35f, 0.92f, hz}, {-1.95f, 0.45f, hz}, 0.026f, 0.026f, 6, kStainless);
-            for (float px : {2.10f, 0.75f, -0.60f}) {
-                const float ty = lerpf(0.92f, 0.45f, (2.35f - px) / 4.30f);
+        // Triple brushed-stainless descending handrails (left, center divider, right!)
+        for (float hz : {-1.10f, 0.0f, 1.10f}) {
+            addTube(mbF, {2.45f, 0.94f, hz}, {-1.95f, 0.46f, hz}, 0.026f, 0.026f, 6, kStainless);
+            for (float px : {2.20f, 0.85f, -0.55f}) {
+                const float ty = lerpf(0.94f, 0.46f, (2.45f - px) / 4.40f);
                 addTube(mbF, {px, 0.02f, hz}, {px, ty, hz}, 0.022f, 0.022f, 6, kStainless);
             }
         }
 
-        // 5 Arched Brushed-Steel Portal Ribs supporting a vaulted tempered-glass roof!
+        // 5 Arched Brushed-Steel Portal Ribs supporting a vaulted see-through tempered-glass roof!
         for (int ri = 0; ri < 5; ++ri) {
-            const float rx = -2.55f + static_cast<float>(ri) * 1.275f;
-            mbF.addBox({rx, 1.65f, -1.26f}, {0.12f, 1.74f, 0.14f}, kSteel);
-            mbF.addBox({rx, 1.65f,  1.26f}, {0.12f, 1.74f, 0.14f}, kSteel);
-            // Smooth 4-segment vaulted arch over the entrance (y = 2.50 -> 3.04 -> 2.50)
+            const float rx = -2.60f + static_cast<float>(ri) * 1.30f;
+            mbF.addBox({rx, 1.72f, -1.30f}, {0.11f, 1.70f, 0.13f}, kSteel);
+            mbF.addBox({rx, 1.72f,  1.30f}, {0.11f, 1.70f, 0.13f}, kSteel);
             const Vec3 ap[5] = {
-                {rx, 2.50f, -1.32f},
-                {rx, 2.86f, -0.72f},
-                {rx, 3.02f,  0.00f},
-                {rx, 2.86f,  0.72f},
-                {rx, 2.50f,  1.32f}
+                {rx, 2.56f, -1.36f},
+                {rx, 2.94f, -0.74f},
+                {rx, 3.10f,  0.00f},
+                {rx, 2.94f,  0.74f},
+                {rx, 2.56f,  1.36f}
             };
             for (int k = 0; k < 4; ++k) {
-                addTube(mbF, ap[k], ap[k + 1], 0.055f, 0.055f, 6, kSteel);
+                addTube(mbF, ap[k], ap[k + 1], 0.052f, 0.052f, 6, kSteel);
             }
         }
-        // Longitudinal steel purlins + front/back fascia beams
-        for (float pz : {-1.30f, -0.70f, 0.0f, 0.70f, 1.30f}) {
-            const float py = (std::abs(pz) < 0.1f) ? 3.02f : ((std::abs(pz) < 0.8f) ? 2.86f : 2.50f);
-            mbF.addBox({0.0f, py, pz}, {5.45f, 0.08f, 0.09f}, kSteel);
+        // Longitudinal steel purlins + stainless top edge trim
+        for (float pz : {-1.34f, -0.72f, 0.0f, 0.72f, 1.34f}) {
+            const float py = (std::abs(pz) < 0.1f) ? 3.10f : ((std::abs(pz) < 0.8f) ? 2.94f : 2.56f);
+            mbF.addBox({0.0f, py, pz}, {5.56f, 0.075f, 0.085f}, kSteel);
         }
-        // Vaulted skylight glass roof + side tempered glass windbreaks
-        const float zArc[5] = {-1.28f, -0.70f, 0.0f, 0.70f, 1.28f};
-        const float yArc[5] = { 2.52f,  2.88f, 3.04f, 2.88f, 2.52f};
+        // Single-plane vaulted skylight glass roof + side tempered glass windbreaks + white safety frit stripe!
+        const float zArc[5] = {-1.32f, -0.72f, 0.0f, 0.72f, 1.32f};
+        const float yArc[5] = { 2.58f,  2.96f, 3.12f, 2.96f, 2.58f};
         for (int k = 0; k < 4; ++k) {
-            mbG.addQuad({-2.62f, yArc[k],     zArc[k]},     { 2.62f, yArc[k],     zArc[k]},
-                        { 2.62f, yArc[k + 1], zArc[k + 1]}, {-2.62f, yArc[k + 1], zArc[k + 1]}, kGlass);
+            mbG.addQuad({-2.66f, yArc[k],     zArc[k]},     { 2.66f, yArc[k],     zArc[k]},
+                        { 2.66f, yArc[k + 1], zArc[k + 1]}, {-2.66f, yArc[k + 1], zArc[k + 1]}, kGlass);
         }
-        mbG.addBox({0.0f, 1.66f, -1.24f}, {5.16f, 1.62f, 0.045f}, kGlass);
-        mbG.addBox({0.0f, 1.66f,  1.24f}, {5.16f, 1.62f, 0.045f}, kGlass);
-        mbG.addBox({-2.58f, 1.66f, 0.0f}, {0.045f, 1.62f, 2.46f}, kGlass);
+        mbG.addQuad({-2.62f, 0.90f, -1.28f}, { 2.62f, 0.90f, -1.28f},
+                    { 2.62f, 2.52f, -1.28f}, {-2.62f, 2.52f, -1.28f}, kGlass);
+        mbG.addQuad({-2.62f, 0.90f,  1.28f}, { 2.62f, 0.90f,  1.28f},
+                    { 2.62f, 2.52f,  1.28f}, {-2.62f, 2.52f,  1.28f}, kGlass);
+        mbG.addQuad({-2.62f, 0.90f, -1.28f}, {-2.62f, 0.90f,  1.28f},
+                    {-2.62f, 2.52f,  1.28f}, {-2.62f, 2.52f, -1.28f}, kGlass);
+        mbG.addQuad({-2.60f, 1.38f,  1.286f}, { 2.60f, 1.38f,  1.286f},
+                    { 2.60f, 1.45f,  1.286f}, {-2.60f, 1.45f,  1.286f}, kSafetyFrit);
+        mbG.addQuad({-2.60f, 1.38f, -1.286f}, { 2.60f, 1.38f, -1.286f},
+                    { 2.60f, 1.45f, -1.286f}, {-2.60f, 1.45f, -1.286f}, kSafetyFrit);
 
-        // Tall brushed-steel Metro station lollipop totem pole (x = +3.22m)
-        mbF.addCylinderY({3.22f, -0.10f, 0.0f}, 0.14f, 0.12f, 0.42f, 10, kSteel);
-        mbF.addCylinderY({3.22f,  0.30f, 0.0f}, 0.075f, 0.068f, 4.05f, 10, kStainless);
+        // Tall brushed-steel Seoul Metro Exit Pole Sign (출입구 폴사인, x = +3.28m)
+        mbF.addCylinderY({3.28f, -0.10f, 0.0f}, 0.14f, 0.12f, 0.42f, 10, kSteel);
+        mbF.addCylinderY({3.28f,  0.30f, 0.0f}, 0.072f, 0.064f, 4.10f, 10, kStainless);
 
         subwayCanopyFrameMesh_ = mbF.upload(vk, 30.0f);
         subwayCanopyGlassMesh_ = mbG.upload(vk, 25.0f);
     }
 
-    // 6. Sculpted Seoul Design Pedestrian Safety Guardrail (7.5m modular span with 24 slender balusters!)
+    // 6. Sculpted Seoul Public-Design Modular Pedestrian Safety Guardrail (서울시 보행자 방호울타리 7.2m — 기와진회색!)
     {
         MeshBuilder3D mb;
-        const ColorRGBA kDarkBronze{62, 66, 74, 255};
-        const ColorRGBA kCollar{102, 108, 118, 255};
-        const ColorRGBA kReflect{242, 246, 250, 255};
-        // Smooth rounded tubular top rail (y = 0.88m) & lower rail (y = 0.22m)
-        addTube(mb, {-3.75f, 0.88f, 0.0f}, {3.75f, 0.88f, 0.0f}, 0.032f, 0.032f, 8, kDarkBronze);
-        addTube(mb, {-3.75f, 0.22f, 0.0f}, {3.75f, 0.22f, 0.0f}, 0.022f, 0.022f, 6, kDarkBronze);
-        // 4 flanged anchor posts grounded -0.18m for sloped curbs + white reflective safety collar!
+        const ColorRGBA kGiwaMetal{84, 90, 100, 255};    // 서울 기와진회색 metallic finish
+        const ColorRGBA kCollar{142, 148, 158, 255};     // Brushed stainless base flanges & joint sleeves
+        const ColorRGBA kReflect{244, 248, 252, 255};    // High-visibility reflective band
+        const ColorRGBA kAmber{244, 188, 38, 255};
+
+        // Flattened architectural oval top rail (y = 0.90m), upper accent rail (y = 0.76m) & lower rail (y = 0.20m)
+        mb.addBox({0.0f, 0.90f, 0.0f}, {7.24f, 0.052f, 0.068f}, kGiwaMetal);
+        addTube(mb, {-3.60f, 0.76f, 0.0f}, {3.60f, 0.76f, 0.0f}, 0.018f, 0.018f, 6, kCollar);
+        addTube(mb, {-3.60f, 0.20f, 0.0f}, {3.60f, 0.20f, 0.0f}, 0.022f, 0.022f, 6, kGiwaMetal);
+        // 4 sturdy flanged anchor posts grounded -0.18m for sloped curbs + crisp dual reflective collars!
         for (float px : {-3.60f, -1.20f, 1.20f, 3.60f}) {
-            mb.addCylinderY({px, -0.18f, 0.0f}, 0.038f, 0.038f, 1.08f, 8, kDarkBronze);
-            mb.addCylinderY({px,  0.00f, 0.0f}, 0.072f, 0.064f, 0.055f, 8, kCollar);
-            mb.addCylinderY({px,  0.74f, 0.0f}, 0.042f, 0.042f, 0.065f, 8, kReflect);
-            mb.addSphere({px, 0.905f, 0.0f}, 0.042f, 5, 8, kCollar);
+            mb.addCylinderY({px, -0.18f, 0.0f}, 0.042f, 0.040f, 1.09f, 8, kGiwaMetal);
+            mb.addCylinderY({px,  0.00f, 0.0f}, 0.078f, 0.068f, 0.055f, 8, kCollar);
+            mb.addCylinderY({px,  0.66f, 0.0f}, 0.045f, 0.045f, 0.055f, 8, kReflect);
+            mb.addCylinderY({px,  0.59f, 0.0f}, 0.045f, 0.045f, 0.040f, 8, kAmber);
+            mb.addSphere({px, 0.93f, 0.0f}, 0.042f, 5, 8, kCollar);
         }
-        // 24 slender vertical infill balusters neatly spaced every 0.30m!
-        for (int bi = 0; bi < 24; ++bi) {
-            const float bx = -3.45f + static_cast<float>(bi) * 0.30f;
-            if (std::abs(bx + 1.20f) < 0.08f || std::abs(bx - 1.20f) < 0.08f) continue;
-            mb.addCylinderY({bx, 0.22f, 0.0f}, 0.013f, 0.013f, 0.66f, 5, kDarkBronze);
+        // Clean Seoul geometric rectangular-frame vertical balusters between lower & upper rails
+        for (int bay = 0; bay < 3; ++bay) {
+            const float xStart = -3.60f + static_cast<float>(bay) * 2.40f;
+            for (int bi = 1; bi <= 7; ++bi) {
+                const float bx = xStart + static_cast<float>(bi) * 0.30f;
+                mb.addCylinderY({bx, 0.20f, 0.0f}, 0.014f, 0.014f, 0.56f, 5, kGiwaMetal);
+            }
         }
         pedGuardrailMesh_ = mb.upload(vk, 35.0f);
     }
 
-    // 7. Sculpted Seoul Wood-Slat & Cast-Iron Park/Street Bench (armrests + 5 contoured slats!)
+    // 6B. Sculpted Seoul Boulevard Central Median Jaywalking-Prevention Fence (강남/테헤란로 중앙분리대 무단횡단 방지펜스!)
     {
         MeshBuilder3D mb;
-        const ColorRGBA kIron{44, 48, 56, 255};
-        const ColorRGBA kWood{152, 106, 66, 255};
-        const ColorRGBA kWoodLight{168, 120, 76, 255};
-        for (float bx : {-0.82f, 0.0f, 0.82f}) {
-            mb.addBox({bx, 0.22f,  0.18f}, {0.06f, 0.44f, 0.06f}, kIron);
-            mb.addBox({bx, 0.22f, -0.20f}, {0.06f, 0.44f, 0.06f}, kIron);
-            mb.addBox({bx, 0.42f, -0.01f}, {0.06f, 0.05f, 0.46f}, kIron);
-            addTube(mb, {bx, 0.42f, -0.22f}, {bx, 0.86f, -0.32f}, 0.028f, 0.024f, 6, kIron);
-            if (std::abs(bx) > 0.1f) {
-                // Cast-iron scrolled armrests on ends
-                mb.addBox({bx, 0.62f, 0.00f}, {0.055f, 0.04f, 0.44f}, kIron);
-                mb.addBox({bx, 0.52f, 0.20f}, {0.05f, 0.20f, 0.05f}, kIron);
+        const ColorRGBA kGraniteBase{174, 174, 172, 255}; // Low dressed granite median plinth (only 16cm!)
+        const ColorRGBA kPostDark{68, 74, 84, 255};       // Flexible charcoal-slate Korean median posts
+        const ColorRGBA kRailMetal{92, 98, 108, 255};
+        const ColorRGBA kReflectW{244, 248, 252, 255};    // Crisp white retroreflective bands
+        const ColorRGBA kReflectY{244, 192, 34, 255};     // Korean amber retroreflective sleeve
+
+        // Low sleek dressed-granite anchor plinth (grounded -0.18m on hills, rises +0.14m above median top!)
+        mb.addBox({0.0f, -0.02f, 0.0f}, {6.40f, 0.32f, 0.28f}, kGraniteBase);
+        // Twin slim horizontal dark-steel rails (y = 0.56m & y = 0.88m)
+        mb.addBox({0.0f, 0.88f, 0.0f}, {6.36f, 0.048f, 0.062f}, kRailMetal);
+        mb.addBox({0.0f, 0.56f, 0.0f}, {6.36f, 0.042f, 0.056f}, kRailMetal);
+        // 5 flexible Korean tubular median posts with iconic dual reflective safety sleeves!
+        for (int i = 0; i < 5; ++i) {
+            const float px = -3.00f + static_cast<float>(i) * 1.50f;
+            mb.addCylinderY({px, 0.14f, 0.0f}, 0.065f, 0.055f, 0.05f, 8, kRailMetal);
+            mb.addCylinderY({px, 0.18f, 0.0f}, 0.040f, 0.038f, 0.76f, 8, kPostDark);
+            mb.addCylinderY({px, 0.68f, 0.0f}, 0.044f, 0.044f, 0.065f, 8, kReflectW);
+            mb.addCylinderY({px, 0.76f, 0.0f}, 0.044f, 0.044f, 0.065f, 8, kReflectY);
+            mb.addSphere({px, 0.95f, 0.0f}, 0.040f, 5, 8, kRailMetal);
+        }
+        // Subtle vertical anti-glare / jaywalking-blocker slats between posts
+        for (int i = 0; i < 4; ++i) {
+            const float bx0 = -3.00f + static_cast<float>(i) * 1.50f;
+            for (float sub : {0.38f, 0.75f, 1.12f}) {
+                mb.addBox({bx0 + sub, 0.72f, 0.0f}, {0.032f, 0.32f, 0.020f}, kPostDark);
             }
         }
-        // 3 ergonomic horizontal seat slats + 2 contoured backrest slats
-        mb.addBox({0.0f, 0.46f,  0.15f}, {1.94f, 0.042f, 0.11f}, kWoodLight);
-        mb.addBox({0.0f, 0.45f,  0.00f}, {1.94f, 0.042f, 0.11f}, kWood);
-        mb.addBox({0.0f, 0.45f, -0.15f}, {1.94f, 0.042f, 0.11f}, kWoodLight);
-        mb.addBox({0.0f, 0.66f, -0.26f}, {1.94f, 0.12f, 0.042f}, kWood);
-        mb.addBox({0.0f, 0.82f, -0.30f}, {1.94f, 0.12f, 0.042f}, kWoodLight);
+        medianFenceMesh_ = mb.upload(vk, 35.0f);
+    }
+
+    // 6C. Sculpted Korean KS Standard Safety Bollard (서울 충격흡수/스테인리스 볼라드 — 높이 84cm, 이중 반사띠!)
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kFlange{92, 98, 108, 255};
+        const ColorRGBA kBody{62, 68, 76, 255};        // Shock-absorbing matte dark charcoal polyurethane body
+        const ColorRGBA kStainless{184, 190, 198, 255};
+        const ColorRGBA kReflectW{244, 248, 252, 255}; // Upper white reflective band
+        const ColorRGBA kReflectY{246, 202, 42, 255};  // Lower Korean safety-yellow reflective band
+
+        mb.addCylinderY({0.0f, -0.06f, 0.0f}, 0.145f, 0.135f, 0.105f, 12, kFlange);
+        mb.addCylinderY({0.0f,  0.04f, 0.0f}, 0.095f, 0.092f, 0.76f, 12, kBody);
+        mb.addCylinderY({0.0f,  0.54f, 0.0f}, 0.097f, 0.097f, 0.065f, 12, kReflectY);
+        mb.addCylinderY({0.0f,  0.65f, 0.0f}, 0.097f, 0.097f, 0.065f, 12, kReflectW);
+        mb.addCylinderY({0.0f,  0.76f, 0.0f}, 0.096f, 0.092f, 0.045f, 12, kStainless);
+        mb.addSphere({0.0f, 0.80f, 0.0f}, 0.092f, 6, 12, kStainless);
+        bollardMesh_ = mb.upload(vk, 38.0f);
+    }
+
+    // 7. Sculpted Seoul Public-Design Wood-Slat & Cast-Aluminum Street Bench (서울시 가로 벤치)
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kFrame{62, 68, 78, 255};
+        const ColorRGBA kFoot{136, 142, 152, 255};
+        const ColorRGBA kWood{168, 118, 72, 255};
+        const ColorRGBA kWoodLight{184, 134, 86, 255};
+        for (float bx : {-0.84f, 0.0f, 0.84f}) {
+            mb.addBox({bx, 0.02f,  0.19f}, {0.10f, 0.04f, 0.10f}, kFoot);
+            mb.addBox({bx, 0.02f, -0.21f}, {0.10f, 0.04f, 0.10f}, kFoot);
+            mb.addBox({bx, 0.23f,  0.19f}, {0.055f, 0.42f, 0.055f}, kFrame);
+            mb.addBox({bx, 0.23f, -0.21f}, {0.055f, 0.42f, 0.055f}, kFrame);
+            mb.addBox({bx, 0.42f, -0.01f}, {0.055f, 0.048f, 0.48f}, kFrame);
+            addTube(mb, {bx, 0.42f, -0.23f}, {bx, 0.88f, -0.34f}, 0.026f, 0.022f, 6, kFrame);
+            if (std::abs(bx) > 0.1f) {
+                mb.addBox({bx, 0.63f, -0.01f}, {0.050f, 0.036f, 0.44f}, kFrame);
+                mb.addBox({bx, 0.53f,  0.20f}, {0.048f, 0.20f, 0.048f}, kFrame);
+            }
+        }
+        // 4 ergonomic warm-teak seat slats + 3 contoured backrest slats
+        for (int si = 0; si < 4; ++si) {
+            const float sz = 0.17f - static_cast<float>(si) * 0.115f;
+            mb.addBox({0.0f, 0.46f, sz}, {1.96f, 0.040f, 0.088f}, (si & 1) ? kWood : kWoodLight);
+        }
+        mb.addBox({0.0f, 0.60f, -0.26f}, {1.96f, 0.095f, 0.038f}, kWood);
+        mb.addBox({0.0f, 0.72f, -0.29f}, {1.96f, 0.095f, 0.038f}, kWoodLight);
+        mb.addBox({0.0f, 0.84f, -0.32f}, {1.96f, 0.095f, 0.038f}, kWood);
         benchMesh_ = mb.upload(vk, 30.0f);
     }
 
-    // 8. Sculpted Korean Flanged Red Cast-Iron Fire Hydrant (소화전) with twin brass nozzles & bonnet nut!
+    // 8. Sculpted Korean Standard Red Cast-Iron Ground Fire Hydrant + Yellow/Black Protective U-Rail (한국 지상식 소화전 + 보호틀!)
     {
         MeshBuilder3D mb;
-        const ColorRGBA kRed{214, 38, 38, 255};
-        const ColorRGBA kRedDark{168, 28, 28, 255};
-        const ColorRGBA kBrass{218, 184, 72, 255};
-        const ColorRGBA kBase{148, 152, 158, 255};
-        mb.addCylinderY({0.0f, -0.06f, 0.0f}, 0.23f, 0.21f, 0.14f, 10, kBase);     // Concrete plinth
-        mb.addCylinderY({0.0f,  0.08f, 0.0f}, 0.19f, 0.16f, 0.06f, 10, kRedDark);  // Flanged base collar
-        mb.addCylinderY({0.0f,  0.14f, 0.0f}, 0.14f, 0.13f, 0.56f, 12, kRed);      // Main barrel
-        mb.addCylinderY({0.0f,  0.68f, 0.0f}, 0.17f, 0.17f, 0.05f, 12, kRedDark);  // Upper bonnet flange
-        mb.addSphere({0.0f, 0.74f, 0.0f}, 0.145f, 6, 12, kRed);                    // Domed bonnet cap
-        mb.addCylinderY({0.0f,  0.86f, 0.0f}, 0.045f, 0.042f, 0.07f, 6, kBrass);   // Pentagonal operating nut
-        // Twin side brass hose couplings + larger front pumper nozzle!
-        addTube(mb, {-0.23f, 0.54f, 0.0f}, {0.23f, 0.54f, 0.0f}, 0.056f, 0.056f, 8, kBrass);
-        addTube(mb, {0.0f, 0.44f, 0.0f}, {0.0f, 0.44f, 0.21f}, 0.072f, 0.068f, 8, kBrass);
+        const ColorRGBA kRed{218, 36, 36, 255};
+        const ColorRGBA kRedDark{168, 26, 26, 255};
+        const ColorRGBA kBrass{222, 188, 76, 255};
+        const ColorRGBA kBase{172, 174, 176, 255};
+        const ColorRGBA kReflectW{244, 246, 250, 255};
+        const ColorRGBA kGuardY{244, 194, 34, 255};
+        const ColorRGBA kGuardB{34, 36, 40, 255};
+
+        mb.addCylinderY({0.0f, -0.06f, 0.0f}, 0.23f, 0.21f, 0.12f, 10, kBase);     // Granite plinth
+        mb.addCylinderY({0.0f,  0.06f, 0.0f}, 0.185f, 0.155f, 0.06f, 10, kRedDark);// Flanged base collar
+        mb.addCylinderY({0.0f,  0.12f, 0.0f}, 0.138f, 0.128f, 0.56f, 12, kRed);    // Main cast-iron barrel
+        mb.addCylinderY({0.0f,  0.60f, 0.0f}, 0.136f, 0.136f, 0.055f, 12, kReflectW);// White reflective neck band
+        mb.addCylinderY({0.0f,  0.68f, 0.0f}, 0.168f, 0.168f, 0.048f, 12, kRedDark);// Upper bonnet flange
+        mb.addSphere({0.0f, 0.74f, 0.0f}, 0.142f, 6, 12, kRed);                    // Domed bonnet cap
+        mb.addCylinderY({0.0f,  0.86f, 0.0f}, 0.044f, 0.040f, 0.07f, 6, kBrass);   // Pentagonal operating nut
+        // Twin side 65mm brass hose couplings + front 100mm steamer port
+        addTube(mb, {-0.22f, 0.52f, 0.0f}, {0.22f, 0.52f, 0.0f}, 0.054f, 0.054f, 8, kBrass);
+        addTube(mb, {0.0f, 0.42f, 0.0f}, {0.0f, 0.42f, 0.20f}, 0.068f, 0.064f, 8, kBrass);
+        // Iconic Korean low yellow-and-black protective steel U-guard rail (소화전 보호틀) on road side!
+        addTube(mb, {-0.34f, -0.04f, 0.30f}, {-0.34f, 0.56f, 0.30f}, 0.026f, 0.026f, 6, kGuardY);
+        addTube(mb, { 0.34f, -0.04f, 0.30f}, { 0.34f, 0.56f, 0.30f}, 0.026f, 0.026f, 6, kGuardY);
+        addTube(mb, {-0.34f,  0.56f, 0.30f}, { 0.34f, 0.56f, 0.30f}, 0.026f, 0.026f, 6, kGuardY);
+        mb.addBox({-0.14f, 0.56f, 0.30f}, {0.10f, 0.056f, 0.056f}, kGuardB);
+        mb.addBox({ 0.14f, 0.56f, 0.30f}, {0.10f, 0.056f, 0.056f}, kGuardB);
         hydrantMesh_ = mb.upload(vk, 40.0f);
     }
 
-    // 9. Sculpted Seoul Design Dual Stainless-Steel Recycling & Waste Bin Unit (서울시 가로휴지통!)
+    // 9. Sculpted Seoul Design Dual Stainless-Steel Recycling & Waste Bin Unit (서울시 신형 가로휴지통 2구 세트!)
     {
         MeshBuilder3D mb;
-        const ColorRGBA kStainless{132, 140, 148, 255};
-        const ColorRGBA kCharcoal{54, 60, 68, 255};
-        const ColorRGBA kRecycleBlue{34, 124, 218, 255};
-        const ColorRGBA kWasteAmber{224, 138, 38, 255};
+        const ColorRGBA kStainless{154, 162, 170, 255};
+        const ColorRGBA kCharcoal{66, 72, 82, 255};
+        const ColorRGBA kRecycleBlue{32, 126, 220, 255}; // 재활용 (Seoul Blue)
+        const ColorRGBA kWasteAmber{228, 138, 34, 255};  // 일반쓰레기 (Warm Orange-Amber)
         const ColorRGBA kSlotDark{18, 20, 24, 255};
-        // Raised steel support feet + dual body cabinets
-        mb.addBox({-0.28f, 0.04f, 0.0f}, {0.42f, 0.08f, 0.42f}, kCharcoal);
-        mb.addBox({ 0.28f, 0.04f, 0.0f}, {0.42f, 0.08f, 0.42f}, kCharcoal);
-        mb.addBox({-0.28f, 0.48f, 0.0f}, {0.46f, 0.80f, 0.46f}, kStainless);
-        mb.addBox({ 0.28f, 0.48f, 0.0f}, {0.46f, 0.80f, 0.46f}, kStainless);
-        // Slanted top rain hoods with color-coded Korean recycling (blue) & general waste (amber) trims!
-        mb.addBox({-0.28f, 0.96f, 0.0f}, {0.49f, 0.18f, 0.49f}, kCharcoal);
-        mb.addBox({-0.28f, 1.06f, 0.0f}, {0.50f, 0.04f, 0.50f}, kRecycleBlue);
-        mb.addBox({-0.28f, 0.94f, 0.25f}, {0.22f, 0.14f, 0.02f}, kSlotDark); // Bottle/can throw opening
-        mb.addBox({-0.28f, 0.72f, 0.24f}, {0.36f, 0.08f, 0.02f}, kRecycleBlue);
-        mb.addBox({ 0.28f, 0.96f, 0.0f}, {0.49f, 0.18f, 0.49f}, kCharcoal);
-        mb.addBox({ 0.28f, 1.06f, 0.0f}, {0.50f, 0.04f, 0.50f}, kWasteAmber);
-        mb.addBox({ 0.28f, 0.94f, 0.25f}, {0.28f, 0.14f, 0.02f}, kSlotDark); // General waste opening
-        mb.addBox({ 0.28f, 0.72f, 0.24f}, {0.36f, 0.08f, 0.02f}, kWasteAmber);
+        const ColorRGBA kBadgeW{240, 244, 248, 255};
+
+        // Raised steel support feet + dual brushed stainless cabinets
+        mb.addBox({-0.29f, 0.04f, 0.0f}, {0.42f, 0.08f, 0.42f}, kCharcoal);
+        mb.addBox({ 0.29f, 0.04f, 0.0f}, {0.42f, 0.08f, 0.42f}, kCharcoal);
+        mb.addBox({-0.29f, 0.48f, 0.0f}, {0.48f, 0.80f, 0.46f}, kStainless);
+        mb.addBox({ 0.29f, 0.48f, 0.0f}, {0.48f, 0.80f, 0.46f}, kStainless);
+        // Color-coded sloped rain hoods + bottle/can circular throat (left) & general waste slot (right)!
+        mb.addBox({-0.29f, 0.96f, 0.0f}, {0.51f, 0.18f, 0.49f}, kCharcoal);
+        mb.addBox({-0.29f, 1.07f, 0.0f}, {0.52f, 0.045f, 0.50f}, kRecycleBlue);
+        mb.addBox({-0.29f, 0.95f, 0.252f}, {0.16f, 0.15f, 0.02f}, kSlotDark);  // Circular can/PET bottle opening
+        mb.addBox({-0.29f, 0.72f, 0.238f}, {0.38f, 0.11f, 0.02f}, kRecycleBlue);
+        mb.addBox({-0.29f, 0.72f, 0.250f}, {0.22f, 0.04f, 0.01f}, kBadgeW);
+        mb.addBox({ 0.29f, 0.96f, 0.0f}, {0.51f, 0.18f, 0.49f}, kCharcoal);
+        mb.addBox({ 0.29f, 1.07f, 0.0f}, {0.52f, 0.045f, 0.50f}, kWasteAmber);
+        mb.addBox({ 0.29f, 0.95f, 0.252f}, {0.30f, 0.13f, 0.02f}, kSlotDark);  // Rectangular waste slot
+        mb.addBox({ 0.29f, 0.72f, 0.238f}, {0.38f, 0.11f, 0.02f}, kWasteAmber);
+        mb.addBox({ 0.29f, 0.72f, 0.250f}, {0.22f, 0.04f, 0.01f}, kBadgeW);
         trashBinMesh_ = mb.upload(vk, 25.0f);
     }
 
-    // 10. Sculpted KEPCO Street Transformer & Signal Control Cabinet (한전 지상개폐기 / 신호제어기)
+    // 10. Sculpted KEPCO Street Transformer & Signal Control Cabinet (한전 지상개폐기 / 지상변압기 — 한전 특유 세이지-그레이!)
     {
         MeshBuilder3D mb;
-        const ColorRGBA kPlinth{156, 160, 166, 255};
-        const ColorRGBA kBody{116, 128, 124, 255};
-        const ColorRGBA kTrim{78, 86, 86, 255};
-        const ColorRGBA kWarnYellow{236, 186, 36, 255};
-        // Beveled concrete foundation plinth
-        mb.addBox({0.0f, 0.14f, 0.0f}, {1.22f, 0.28f, 0.78f}, kPlinth);
-        mb.addBox({0.0f, 0.30f, 0.0f}, {1.12f, 0.06f, 0.70f}, kTrim);
-        // Main galvanized steel housing + double service door seam + stainless latch + pitched rain hood
-        mb.addBox({0.0f, 0.98f, 0.0f}, {1.06f, 1.30f, 0.64f}, kBody);
-        mb.addBox({0.0f, 1.66f, 0.0f}, {1.14f, 0.09f, 0.72f}, kTrim);
-        mb.addBox({0.0f, 0.98f, 0.325f}, {0.025f, 1.22f, 0.015f}, kTrim); // Center door seam
-        mb.addBox({0.08f, 0.98f, 0.34f}, {0.04f, 0.16f, 0.03f}, {198, 204, 212, 255}); // Latch handle
-        // Louvered cooling vents along lower door panels
+        const ColorRGBA kPlinth{168, 170, 172, 255};
+        const ColorRGBA kBody{128, 144, 136, 255};    // Authentic KEPCO muted sage-olive-gray powder coat!
+        const ColorRGBA kRoof{84, 94, 92, 255};
+        const ColorRGBA kTrim{74, 82, 82, 255};
+        const ColorRGBA kWarnYellow{242, 194, 34, 255};
+        const ColorRGBA kWarnBlack{28, 30, 34, 255};
+        const ColorRGBA kLatch{204, 210, 218, 255};
+
+        // Concrete pedestal plinth with recessed shadow reveal
+        mb.addBox({0.0f, 0.11f, 0.0f}, {1.26f, 0.22f, 0.80f}, kPlinth);
+        mb.addBox({0.0f, 0.24f, 0.0f}, {1.14f, 0.05f, 0.72f}, kTrim);
+        // Main KEPCO cabinet + overhanging pitched rain cap + recessed double service door seam + T-handle latch
+        mb.addBox({0.0f, 0.92f, 0.0f}, {1.08f, 1.32f, 0.66f}, kBody);
+        mb.addBox({0.0f, 1.61f, 0.0f}, {1.18f, 0.08f, 0.76f}, kRoof);
+        mb.addBox({0.0f, 1.66f, 0.0f}, {1.04f, 0.05f, 0.64f}, kRoof);
+        mb.addBox({0.0f, 0.92f, 0.335f}, {0.024f, 1.24f, 0.015f}, kTrim);
+        mb.addBox({0.09f, 0.96f, 0.35f}, {0.042f, 0.17f, 0.032f}, kLatch);
+        // Louvered cooling vents along lower front doors & side panels
         for (int lv = 0; lv < 4; ++lv) {
-            const float ly = 0.48f + static_cast<float>(lv) * 0.075f;
-            mb.addBox({-0.28f, ly, 0.33f}, {0.36f, 0.032f, 0.02f}, kTrim);
-            mb.addBox({ 0.28f, ly, 0.33f}, {0.36f, 0.032f, 0.02f}, kTrim);
+            const float ly = 0.42f + static_cast<float>(lv) * 0.072f;
+            mb.addBox({-0.29f, ly, 0.34f}, {0.36f, 0.028f, 0.020f}, kTrim);
+            mb.addBox({ 0.29f, ly, 0.34f}, {0.36f, 0.028f, 0.020f}, kTrim);
+            mb.addBox({-0.55f, ly, 0.0f},  {0.020f, 0.028f, 0.38f}, kTrim);
+            mb.addBox({ 0.55f, ly, 0.0f},  {0.020f, 0.028f, 0.38f}, kTrim);
         }
-        // High-voltage Korean yellow warning stripe & safety triangle emblem
-        mb.addBox({0.0f, 1.44f, 0.33f}, {0.88f, 0.12f, 0.02f}, kWarnYellow);
+        // Iconic Korean high-voltage yellow-black hazard bar & danger plaque (위험 고압전기)
+        mb.addBox({0.0f, 1.40f, 0.34f}, {0.92f, 0.11f, 0.018f}, kWarnYellow);
+        for (float sx : {-0.30f, -0.10f, 0.10f, 0.30f}) {
+            mb.addBox({sx, 1.40f, 0.352f}, {0.06f, 0.11f, 0.010f}, kWarnBlack);
+        }
         utilityBoxMesh_ = mb.upload(vk, 25.0f);
+    }
+
+    // 11. Sculpted Seoul Public-Design Street Kiosk (서울시 디자인 가로판매대 — 메탈릭 실버·기와진회색 + 투명 슬라이딩 유리창 + 스텐 카운터!)
+    {
+        MeshBuilder3D mbF;
+        MeshBuilder3D mbG;
+        const ColorRGBA kPlinth{68, 74, 84, 255};
+        const ColorRGBA kSilverPanel{146, 152, 160, 255};  // Authentic Seoul Design champagne-silver/titanium aluminum cladding!
+        const ColorRGBA kSilverLight{168, 174, 182, 255};
+        const ColorRGBA kRoofDark{60, 66, 76, 255};
+        const ColorRGBA kSeoulBlue{28, 110, 206, 255};
+        const ColorRGBA kCounter{194, 200, 208, 255};
+        const ColorRGBA kInterior{228, 212, 184, 255};     // Warm lit interior wall behind glass
+        const ColorRGBA kShelf{118, 92, 66, 255};
+        const ColorRGBA kGlass{162, 210, 228, 86};         // Clean see-through sales window glass (MatId::StreetGlass!)
+
+        // Grounded dark plinth base + chamfered metallic lower kiosk body (0..0.94m)
+        mbF.addBox({0.0f, 0.08f, 0.0f}, {2.84f, 0.16f, 1.72f}, kPlinth);
+        mbF.addBox({0.0f, 0.54f, 0.0f}, {2.80f, 0.80f, 1.68f}, kSilverPanel);
+        // Solid rear wall & upper side walls + recessed bright interior magazine/snack shelves visible through front window!
+        mbF.addBox({0.0f, 1.62f, -0.76f}, {2.80f, 1.38f, 0.16f}, kSilverPanel);
+        mbF.addBox({-1.32f, 1.62f, 0.0f}, {0.16f, 1.38f, 1.68f}, kSilverPanel);
+        mbF.addBox({ 1.32f, 1.62f, 0.0f}, {0.16f, 1.38f, 1.68f}, kSilverPanel);
+        mbF.addBox({0.0f, 1.56f, -0.62f}, {2.46f, 1.18f, 0.06f}, kInterior); // Warm lit back wall
+        mbF.addBox({0.0f, 1.24f, -0.48f}, {2.36f, 0.05f, 0.24f}, kShelf);    // Display shelf 1
+        mbF.addBox({0.0f, 1.66f, -0.48f}, {2.36f, 0.05f, 0.24f}, kShelf);    // Display shelf 2
+        // Subtle colorful Korean kiosk display merchandise (drinks/magazines) visible behind translucent window
+        mbF.addBox({-0.78f, 1.38f, -0.48f}, {0.36f, 0.22f, 0.14f}, {214, 72, 62, 255});
+        mbF.addBox({-0.22f, 1.36f, -0.48f}, {0.42f, 0.18f, 0.14f}, {232, 186, 62, 255});
+        mbF.addBox({ 0.42f, 1.39f, -0.48f}, {0.38f, 0.24f, 0.14f}, {56, 152, 92, 255});
+        mbF.addBox({ 0.88f, 1.37f, -0.48f}, {0.26f, 0.20f, 0.14f}, {58, 128, 212, 255});
+        mbF.addBox({-0.64f, 1.79f, -0.48f}, {0.46f, 0.20f, 0.14f}, {234, 224, 198, 255});
+        mbF.addBox({ 0.18f, 1.80f, -0.48f}, {0.52f, 0.22f, 0.14f}, {222, 122, 54, 255});
+        // Vertical brushed aluminum panel seams on front, rear & sides (authentic 360-degree Seoul Design cladding!)
+        for (float px : {-0.92f, 0.0f, 0.92f}) {
+            mbF.addBox({px, 0.54f,  0.85f}, {0.03f, 0.78f, 0.02f}, kPlinth);
+            mbF.addBox({px, 1.24f, -0.85f}, {0.032f, 2.12f, 0.022f}, kPlinth);
+        }
+        // Horizontal architectural dado rail & framed rear service panel + HVAC louver vents on rear (-Z) & sides (±X)
+        mbF.addBox({0.0f, 0.94f, -0.85f}, {2.78f, 0.045f, 0.026f}, kRoofDark);
+        mbF.addBox({-1.41f, 0.94f, 0.0f}, {0.026f, 0.045f, 1.66f}, kRoofDark);
+        mbF.addBox({ 1.41f, 0.94f, 0.0f}, {0.026f, 0.045f, 1.66f}, kRoofDark);
+        mbF.addBox({-1.41f, 1.24f, 0.0f}, {0.022f, 2.12f, 0.032f}, kPlinth);
+        mbF.addBox({ 1.41f, 1.24f, 0.0f}, {0.022f, 2.12f, 0.032f}, kPlinth);
+        for (int lv = 0; lv < 4; ++lv) {
+            const float ly = 0.34f + static_cast<float>(lv) * 0.085f;
+            mbF.addBox({0.0f, ly, -0.855f}, {0.72f, 0.032f, 0.020f}, kRoofDark);
+        }
+        // Subtle recessed poster/city-info frame on rear wall (-Z) & side walls (±X)
+        mbF.addBox({0.0f, 1.56f, -0.852f}, {1.38f, 0.96f, 0.026f}, kRoofDark);
+        mbF.addBox({0.0f, 1.56f, -0.864f}, {1.26f, 0.84f, 0.014f}, kSilverLight);
+        // Brushed stainless steel customer counter shelf (+Z)
+        mbF.addBox({0.0f, 0.94f, 0.96f}, {2.52f, 0.075f, 0.34f}, kCounter);
+        // Slim window mullions + cantilevered overhanging canopy roof + crisp Seoul Blue fascia accent!
+        for (float mx : {-1.24f, -0.42f, 0.42f, 1.24f}) {
+            mbF.addBox({mx, 1.58f, 0.82f}, {0.048f, 1.24f, 0.055f}, kRoofDark);
+        }
+        mbF.addBox({0.0f, 2.22f, 0.82f}, {2.60f, 0.08f, 0.07f}, kRoofDark);
+        mbF.addBox({0.0f, 2.38f, 0.22f}, {3.18f, 0.16f, 2.28f}, kRoofDark);
+        mbF.addBox({0.0f, 2.48f, 0.22f}, {3.04f, 0.07f, 2.16f}, kSilverLight);
+        mbF.addBox({0.0f, 2.38f, 1.37f}, {3.10f, 0.11f, 0.03f}, kSeoulBlue);
+        mbF.addBox({0.0f, 2.38f, -0.93f}, {3.10f, 0.07f, 0.024f}, kSeoulBlue);
+        // Single-plane see-through sliding glass sales window (rendered in Alpha pass with MatId::StreetGlass!)
+        mbG.addQuad({-1.22f, 0.98f, 0.82f}, { 1.22f, 0.98f, 0.82f},
+                    { 1.22f, 2.18f, 0.82f}, {-1.22f, 2.18f, 0.82f}, kGlass);
+
+        streetKioskMesh_ = mbF.upload(vk, 28.0f);
+        streetKioskGlassMesh_ = mbG.upload(vk, 25.0f);
+    }
+
+    // 12. Sculpted Seoul Sidewalk Street-Tree Planter Curb & Perforated Cast-Iron Tree Grate (화강석 수목보호틀 + 주철 가로수 보호판 1.50x1.50m!)
+    {
+        MeshBuilder3D mb;
+        const ColorRGBA kGranite{184, 184, 180, 255};  // Flush Pocheon granite 12cm perimeter border
+        const ColorRGBA kIron{64, 68, 76, 255};        // Dark cast-iron slotted grate bars
+        const ColorRGBA kSoil{72, 58, 44, 255};        // Recessed dark soil/mulch bed
+
+        // Recessed soil bed underneath slotted iron grate
+        mb.addBox({0.0f, 0.015f, 0.0f}, {1.28f, 0.03f, 1.28f}, kSoil);
+        // 4-sided flush dressed Pocheon granite curb frame (1.52m x 1.52m outer, 1.26m inner opening)
+        mb.addBox({0.0f, 0.032f,  0.695f}, {1.52f, 0.064f, 0.13f}, kGranite);
+        mb.addBox({0.0f, 0.032f, -0.695f}, {1.52f, 0.064f, 0.13f}, kGranite);
+        mb.addBox({ 0.695f, 0.032f, 0.0f}, {0.13f, 0.064f, 1.26f}, kGranite);
+        mb.addBox({-0.695f, 0.032f, 0.0f}, {0.13f, 0.064f, 1.26f}, kGranite);
+        // Outer & inner cast-iron square grate frames + radial & concentric bars (classic Seoul geometric grate!)
+        for (float ringR : {0.59f, 0.44f, 0.28f}) {
+            const float len = ringR * 2.0f + 0.045f;
+            mb.addBox({0.0f, 0.048f,  ringR}, {len, 0.022f, 0.045f}, kIron);
+            mb.addBox({0.0f, 0.048f, -ringR}, {len, 0.022f, 0.045f}, kIron);
+            mb.addBox({ ringR, 0.048f, 0.0f}, {0.045f, 0.022f, len}, kIron);
+            mb.addBox({-ringR, 0.048f, 0.0f}, {0.045f, 0.022f, len}, kIron);
+        }
+        // 4 cardinal + 4 diagonal cast-iron spoke ribs connecting inner trunk collar to outer frame
+        mb.addBox({ 0.44f, 0.048f, 0.0f}, {0.32f, 0.022f, 0.042f}, kIron);
+        mb.addBox({-0.44f, 0.048f, 0.0f}, {0.32f, 0.022f, 0.042f}, kIron);
+        mb.addBox({0.0f, 0.048f,  0.44f}, {0.042f, 0.022f, 0.32f}, kIron);
+        mb.addBox({0.0f, 0.048f, -0.44f}, {0.042f, 0.022f, 0.32f}, kIron);
+        for (float sx : {-1.0f, 1.0f}) {
+            for (float sz : {-1.0f, 1.0f}) {
+                addTube(mb, {sx * 0.26f, 0.048f, sz * 0.26f}, {sx * 0.59f, 0.048f, sz * 0.59f}, 0.020f, 0.020f, 4, kIron);
+            }
+        }
+        treeGrateMesh_ = mb.upload(vk, 25.0f);
     }
 }
 
@@ -2799,15 +3095,15 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                         nd.insideRoad = true;
                     } else if (nd.onSidewalk) {
                         const float tSw = clampf((nd.minDistRoad - 0.75f) / 3.5f, 0.0f, 1.0f);
-                        const float targetSw = std::min(nd.swCapY, smoothRdY + 0.06f);
+                        const float targetSw = std::min(nd.swCapY, smoothRdY + 0.115f);
                         nd.pos.y = std::min(nd.swCapY, lerpf(rMin - 0.34f, targetSw, tSw));
                     } else if (nd.minDistRoad <= flatShelfM) {
                         const float tLot = clampf((nd.minDistRoad - 0.75f) / std::max(1.2f, flatShelfM - 0.75f), 0.0f, 1.0f);
-                        nd.pos.y = lerpf(rMin - 0.28f, smoothRdY + 0.06f, tLot);
+                        nd.pos.y = lerpf(rMin - 0.24f, smoothRdY + 0.115f, tLot);
                     } else {
                         const float tOut = clampf((nd.minDistRoad - flatShelfM) / transSpanM, 0.0f, 1.0f);
                         const float sOut = tOut * tOut * (3.0f - 2.0f * tOut);
-                        nd.pos.y = lerpf(smoothRdY + 0.06f, nd.rawH - subBaseDrop, sOut);
+                        nd.pos.y = lerpf(smoothRdY + 0.115f, nd.rawH - subBaseDrop, sOut);
                     }
                 }
                 if (nd.underSidewalk && nd.pos.y > nd.swCapY) {
@@ -2870,16 +3166,18 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 }
 
                 // Render ALL active-chunk elevations (0..836m) at full 4m OCRM-carved precision so there is
-                // ZERO 88m cliff tear and ZERO mountain mesh piercing hillside roads (Namsan/Itaewon/Seongbuk/Sillim)!
+                // ZERO 88m cliff tear, ZERO mountain mesh piercing hillside roads, and ZERO green grass in flat storefront plazas!
                 const float avgH = 0.25f * (n00.rawH + n10.rawH + n11.rawH + n01.rawH);
                 const float avgNY = 0.25f * (n00.norm.y + n10.norm.y + n11.norm.y + n01.norm.y);
                 const float minRoadD = std::min({n00.minDistRoad, n10.minDistRoad, n11.minDistRoad, n01.minDistRoad});
                 const bool anyOnSw = n00.onSidewalk || n10.onSidewalk || n11.onSidewalk || n01.onSidewalk;
+                const bool anyUnderSw = n00.underSidewalk || n10.underSidewalk || n11.underSidewalk || n01.underSidewalk;
                 const float qRise = std::max({n00.pos.y, n10.pos.y, n11.pos.y, n01.pos.y})
                                   - std::min({n00.pos.y, n10.pos.y, n11.pos.y, n01.pos.y});
-                if ((minRoadD > 1.6f && qRise > 1.55f) ||
-                    (!anyOnSw && ((minRoadD > 2.2f && (qRise > 0.65f || avgNY < 0.985f)) ||
-                                  (minRoadD > 8.0f && (avgNY < 0.994f || avgH > 46.0f))))) {
+                if ((minRoadD > 2.4f && qRise > 1.65f) ||
+                    (!anyOnSw && !anyUnderSw &&
+                     ((minRoadD > 3.5f && (qRise > 1.25f || avgNY < 0.945f)) ||
+                      (minRoadD > 16.0f && (avgNY < 0.968f || avgH > 54.0f))))) {
                     const float hT = clampf((avgH - 24.0f) / 140.0f, 0.0f, 1.0f);
                     const ColorRGBA hillCol{
                         static_cast<std::uint8_t>(lerpf(86.0f, 48.0f, hT)),
@@ -5129,13 +5427,10 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
         const float y0 = t.baseY;
 
         if (t.inPlanter && !shadowPass) {
-            // Authentic Seoul sidewalk flush granite tree-well frame + dark cast-iron slotted grate + soil bed!
-            drawBox(vk, {t.pos.x, y0 + 0.035f, t.pos.z}, {1.94f, 0.07f, 1.94f}, 0.0f,
-                    {156, 158, 162, 255}, 0.76f, 0.04f, 0.0f, MatId::BridgeConcrete, false);
-            drawBox(vk, {t.pos.x, y0 + 0.052f, t.pos.z}, {1.62f, 0.05f, 1.62f}, 0.0f,
-                    {50, 54, 62, 255}, 0.38f, 0.72f, 0.0f, MatId::Standard, false);
-            drawBox(vk, {t.pos.x, y0 + 0.062f, t.pos.z}, {0.64f, 0.045f, 0.64f}, 0.0f,
-                    {68, 54, 42, 255}, 0.94f, 0.0f, 0.0f, MatId::Standard, false);
+            // Road-aligned Seoul sidewalk flush Pocheon granite tree-well frame + perforated cast-iron grate (1.52x1.52m)!
+            Mat4 grateM = Mat4::translation(t.pos.x, y0, t.pos.z) *
+                          Mat4::rotationAxis({0, 1, 0}, -t.yaw);
+            drawMesh(vk, treeGrateMesh_, grateM, kWhite, 0.56f, 0.42f, 0.0f, MatId::Standard, false);
         }
         // Multi-branch flared bark trunk with natural yaw variation per tree
         const float treeYaw = std::fmod(std::abs(t.pos.x * 0.17f + t.pos.z * 0.31f), kTwoPi);
@@ -5169,7 +5464,7 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
         }
     }
 
-    // 2. High-Detail Sculpted Korean Street Architecture & Furniture (v6.2.0)
+    // 2. High-Detail Sculpted Korean Street Architecture & Furniture (v6.4.0)
     const int sigPhase = static_cast<int>(std::fmod(world.elapsedTime(), 18.0f));
     visIdxBuf_.clear();
     city.queryPropsInRadius(focus, propRadius, visIdxBuf_);
@@ -5202,41 +5497,46 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
         switch (p.kind) {
             case StreetPropKind::StreetLight: {
                 if (p.variant == 3u) {
-                    // Authentic Korean Expressway 10.2m Galvanized Silver Cobra-Head Highway Lamp Pole
-                    const ColorRGBA kGalv{184, 190, 198, 255};
-                    drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.38f, 0.90f, 0.38f),
-                             {152, 156, 162, 255}, 0.78f, 0.08f, 0.0f, MatId::BridgeConcrete, shadowPass);
-                    drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.20f, 10.15f, 0.20f),
-                             kGalv, 0.28f, 0.82f, 0.0f, MatId::Standard, shadowPass);
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(1.45f, 10.05f, 0.0f) * Mat4::scale(3.10f, 0.14f, 0.20f),
-                             kGalv, 0.28f, 0.82f, 0.0f, MatId::Standard, shadowPass);
+                    // Sculpted 10.5m Korean Expressway Galvanized Silver Upswept Cobra Lamp
+                    drawMesh(vk, highwayLampMesh_, baseM, kWhite, 0.30f, 0.78f, 0.0f, MatId::Standard, shadowPass);
                     if (!shadowPass) {
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.75f, 9.90f, 0.0f) * Mat4::scale(0.86f, 0.12f, 0.36f),
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.95f, 10.39f, 0.0f) * Mat4::scale(0.80f, 0.055f, 0.28f),
                                  {246, 248, 255, 255}, 0.14f, 0.0f, nightMode ? 3.0f : 0.22f, MatId::EmissiveGlow, false);
                     }
                     break;
                 }
-                // Sculpted Seoul curved-gooseneck LED streetlamp (octagonal plinth + tapered mast + arched arm + cobra housing!)
-                drawMesh(vk, seoulLampMesh_, baseM, kWhite, 0.34f, 0.74f, 0.0f, MatId::Standard, shadowPass);
+                if (p.variant == 4u) {
+                    // Iconic 8.6m Seoul Twin-Arm Boulevard Central-Median LED Streetlamp (양팔형 대로 가로등!)
+                    drawMesh(vk, seoulDoubleLampMesh_, baseM, kWhite, 0.34f, 0.72f, 0.0f, MatId::Standard, shadowPass);
+                    if (!shadowPass) {
+                        for (float dir : {-1.0f, 1.0f}) {
+                            drawMesh(vk, cubeMesh_, baseM * Mat4::translation(dir * 2.30f, 8.40f, 0.0f) * Mat4::scale(0.66f, 0.052f, 0.24f),
+                                     {255, 244, 218, 255}, 0.14f, 0.0f, nightMode ? 2.75f : 0.22f, MatId::EmissiveGlow, false);
+                        }
+                    }
+                    break;
+                }
+                // Sculpted 8.2m Seoul Public-Design Single-Arm LED Streetlamp (기와진회색 + 관리번호표!)
+                drawMesh(vk, seoulLampMesh_, baseM, kWhite, 0.34f, 0.72f, 0.0f, MatId::Standard, shadowPass);
                 if (!shadowPass) {
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.24f, 7.09f, 0.0f) * Mat4::scale(0.62f, 0.06f, 0.26f),
-                             {255, 242, 212, 255}, 0.14f, 0.0f, nightMode ? 2.7f : 0.22f, MatId::EmissiveGlow, false);
-                    // Signature Seoul boulevard vertical district street banner with brushed stainless ring mounts!
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(2.38f, 8.04f, 0.0f) * Mat4::scale(0.66f, 0.052f, 0.24f),
+                             {255, 244, 218, 255}, 0.14f, 0.0f, nightMode ? 2.7f : 0.22f, MatId::EmissiveGlow, false);
+                    // Signature Seoul boulevard vertical district street banner with brushed stainless mounts!
                     if (p.variant == 2u && distSq < 155.0f * 155.0f) {
                         const ColorRGBA kBanners[3] = {{34, 96, 178, 255}, {28, 134, 118, 255}, {182, 68, 72, 255}};
                         const ColorRGBA bc = kBanners[static_cast<unsigned>(std::abs(static_cast<int>(p.pos.x))) % 3u];
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.42f, 4.95f, 0.0f) * Mat4::scale(0.76f, 0.045f, 0.045f),
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.42f, 5.25f, 0.0f) * Mat4::scale(0.76f, 0.045f, 0.045f),
                                  {178, 184, 192, 255}, 0.30f, 0.78f, 0.0f, MatId::Standard, false);
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.42f, 3.65f, 0.0f) * Mat4::scale(0.76f, 0.045f, 0.045f),
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.42f, 3.95f, 0.0f) * Mat4::scale(0.76f, 0.045f, 0.045f),
                                  {178, 184, 192, 255}, 0.30f, 0.78f, 0.0f, MatId::Standard, false);
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.44f, 4.30f, 0.0f) * Mat4::scale(0.64f, 1.24f, 0.025f),
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-0.44f, 4.60f, 0.0f) * Mat4::scale(0.64f, 1.24f, 0.025f),
                                  bc, 0.78f, 0.0f, 0.0f, MatId::FabricCloth, false);
                     }
                 }
                 break;
             }
             case StreetPropKind::TrafficLight: {
-                // Sculpted Korean 4-Aspect Horizontal Cantilever Traffic Signal + Sun Visors (차양막) + Street-Name Blade + Ped Signal!
+                // Sculpted Korean 4-Aspect Horizontal Cantilever Traffic Signal + White Backplate + Ped Signal + Countdown!
                 drawMesh(vk, koreanSignalMesh_, baseM, kWhite, 0.36f, 0.62f, 0.0f, MatId::Standard, shadowPass);
                 if (!shadowPass) {
                     const bool controlsNsRoad = (std::abs(std::cos(p.yaw)) >= std::abs(std::sin(p.yaw)));
@@ -5247,52 +5547,62 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                     const bool isRed       = (localPhase >= 9);
 
                     // 4 Korean horizontal signal lenses inside sculpted hoods: Red | Amber | Left-Arrow | Green
-                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(2.80f, 5.56f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.36f),
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(2.85f, 5.64f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.36f),
                              isRed ? ColorRGBA{255, 48, 48, 255} : ColorRGBA{52, 18, 18, 255},
                              0.14f, 0.0f, isRed ? 2.6f : 0.0f, isRed ? MatId::EmissiveGlow : MatId::Standard, false);
-                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.30f, 5.56f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.36f),
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.35f, 5.64f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.36f),
                              isAmber ? ColorRGBA{255, 198, 36, 255} : ColorRGBA{54, 44, 14, 255},
                              0.14f, 0.0f, isAmber ? 2.4f : 0.0f, isAmber ? MatId::EmissiveGlow : MatId::Standard, false);
-                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.80f, 5.56f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.36f),
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.85f, 5.64f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.36f),
                              isLeftArrow ? ColorRGBA{38, 245, 138, 255} : ColorRGBA{16, 46, 30, 255},
                              0.14f, 0.0f, isLeftArrow ? 2.5f : 0.0f, isLeftArrow ? MatId::EmissiveGlow : MatId::Standard, false);
-                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(4.30f, 5.56f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.36f),
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(4.35f, 5.64f, 0.0f) * Mat4::scale(0.24f, 0.24f, 0.36f),
                              isGreen ? ColorRGBA{42, 242, 118, 255} : ColorRGBA{16, 48, 28, 255},
                              0.14f, 0.0f, isGreen ? 2.6f : 0.0f, isGreen ? MatId::EmissiveGlow : MatId::Standard, false);
-                    // Pedestrian Walk / Don't Walk LED panels inside pole-mounted pedestrian signal box
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.31f, 0.365f) * Mat4::scale(0.22f, 0.22f, 0.03f),
+                    // Pole-mounted Korean Pedestrian Walk / Don't Walk LED panels + green triangular countdown bars!
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 3.34f, 0.365f) * Mat4::scale(0.24f, 0.24f, 0.03f),
                              !isRed ? ColorRGBA{255, 58, 48, 255} : ColorRGBA{48, 16, 16, 255},
                              0.15f, 0.0f, !isRed ? 2.1f : 0.0f, !isRed ? MatId::EmissiveGlow : MatId::Standard, false);
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.97f, 0.365f) * Mat4::scale(0.22f, 0.22f, 0.03f),
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.98f, 0.365f) * Mat4::scale(0.24f, 0.24f, 0.03f),
                              isRed ? ColorRGBA{46, 242, 124, 255} : ColorRGBA{16, 46, 28, 255},
                              0.15f, 0.0f, isRed ? 2.1f : 0.0f, isRed ? MatId::EmissiveGlow : MatId::Standard, false);
+                    if (isRed) {
+                        const int remBars = std::clamp(18 - localPhase, 1, 6);
+                        for (int bi = 0; bi < 6; ++bi) {
+                            const bool lit = (bi < remBars);
+                            const float by = 2.94f + static_cast<float>(bi) * 0.085f;
+                            const float bw = 0.08f + static_cast<float>(bi) * 0.028f;
+                            drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.36f, by, 0.355f) * Mat4::scale(bw, 0.048f, 0.02f),
+                                     lit ? ColorRGBA{46, 242, 124, 255} : ColorRGBA{18, 34, 24, 255},
+                                     0.16f, 0.0f, lit ? 2.0f : 0.0f, lit ? MatId::EmissiveGlow : MatId::Standard, false);
+                        }
+                    }
                 }
                 break;
             }
             case StreetPropKind::BusShelter: {
-                // Sculpted Seoul Design Bus Shelter: cantilevered steel ribs, tempered skylight & windbreak glass,
-                // backlit poster lightbox, wood-slat armrest bench & glowing Korean BIT arrival totem!
+                // Sculpted Seoul Design Bus Shelter Frame/Bench/BIT (translucent tempered glass drawn in Alpha pass!)
                 drawMesh(vk, busShelterFrameMesh_, baseM, kWhite, 0.38f, 0.56f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, busShelterGlassMesh_, baseM, kWhite, 0.08f, 0.32f, 0.0f, MatId::GlassSkyscraper, shadowPass);
                 if (!shadowPass) {
+                    // Slim recessed white under-canopy LED strip illuminating waiting passengers!
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.35f, 2.62f, 0.10f) * Mat4::scale(3.60f, 0.035f, 0.14f),
+                             {246, 250, 255, 255}, 0.16f, 0.0f, nightMode ? 1.85f : 0.14f, MatId::EmissiveGlow, false);
                     if (nightMode) {
-                        // Subtle warm backlit poster lightbox glow inside shelter at night
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-1.66f, 1.34f, -0.22f) * Mat4::scale(0.02f, 1.88f, 0.90f),
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-1.71f, 1.34f, -0.20f) * Mat4::scale(0.02f, 1.90f, 0.92f),
                                  {246, 242, 232, 255}, 0.22f, 0.0f, 0.85f, MatId::EmissiveGlow, false);
                     }
                     if (distSq < signRadiusSq) {
-                        drawLocalSign({2.68f, 1.96f, 0.295f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f},
-                                      0.56f, 0.44f, 56, nightMode ? 0.68f : 0.28f);
-                        drawLocalSign({2.68f, 1.96f, 0.025f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f},
-                                      0.56f, 0.44f, 56, nightMode ? 0.68f : 0.28f);
+                        drawLocalSign({2.72f, 1.96f, 0.290f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f},
+                                      0.54f, 0.44f, 56, nightMode ? 0.72f : 0.30f);
+                        drawLocalSign({2.72f, 1.96f, 0.035f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f},
+                                      0.54f, 0.44f, 56, nightMode ? 0.72f : 0.30f);
                     }
                 }
                 break;
             }
             case StreetPropKind::SubwayEntrance: {
-                // Sculpted Seoul Metro Vaulted Glass-Steel Canopy + Granite Stairs + Stainless Handrails + District Hangul Sign!
+                // Sculpted Seoul Metro Vaulted Glass-Steel Canopy Frame + Granite Stairs + Handrails (glass drawn in Alpha pass!)
                 drawMesh(vk, subwayCanopyFrameMesh_, baseM, kWhite, 0.42f, 0.54f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, subwayCanopyGlassMesh_, baseM, kWhite, 0.08f, 0.34f, 0.0f, MatId::GlassSkyscraper, shadowPass);
                 static constexpr ColorRGBA kMetroLines[8] = {
                     { 42, 168,  78, 255}, // 48: Line 2 Green (강남역)
                     { 42, 168,  78, 255}, // 49: Line 2 Green (삼성역)
@@ -5319,22 +5629,22 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 }
                 const ColorRGBA lineCol = kMetroLines[metroIdx];
                 // Illuminated Seoul Metro line header fascia flanking the vaulted glass canopy
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.54f,  1.34f) * Mat4::scale(5.48f, 0.44f, 0.12f),
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.58f,  1.38f) * Mat4::scale(5.58f, 0.44f, 0.12f),
                          lineCol, 0.24f, 0.16f, nightMode ? 0.45f : 0.06f, MatId::Standard, false);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.54f, -1.34f) * Mat4::scale(5.48f, 0.44f, 0.12f),
+                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.58f, -1.38f) * Mat4::scale(5.58f, 0.44f, 0.12f),
                          lineCol, 0.24f, 0.16f, nightMode ? 0.45f : 0.06f, MatId::Standard, false);
                 if (!shadowPass) {
                     if (distSq < signRadiusSq) {
                         const int metroSlot = 48 + static_cast<int>(metroIdx);
                         const float mEm = nightMode ? 0.58f : 0.10f;
-                        drawLocalSign({0.0f, 2.54f,  1.42f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.68f, metroSlot, mEm);
-                        drawLocalSign({0.0f, 2.54f, -1.42f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.68f, metroSlot, mEm);
+                        drawLocalSign({0.0f, 2.58f,  1.46f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.68f, metroSlot, mEm);
+                        drawLocalSign({0.0f, 2.58f, -1.46f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.68f, metroSlot, mEm);
                     }
-                    // Glowing circular Seoul Metro Line lollipop totem emblem!
-                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.22f, 4.45f, 0.0f) * Mat4::scale(0.92f, 0.92f, 0.22f),
+                    // Iconic circular Seoul Metro Line Exit Pole Sign emblem (출입구 폴사인)!
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.28f, 4.50f, 0.0f) * Mat4::scale(0.92f, 0.92f, 0.22f),
                              lineCol, 0.20f, 0.12f, nightMode ? 1.55f : 0.24f,
                              nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
-                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.22f, 4.45f, 0.0f) * Mat4::scale(0.42f, 0.42f, 0.26f),
+                    drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.28f, 4.50f, 0.0f) * Mat4::scale(0.42f, 0.42f, 0.26f),
                              {246, 248, 252, 255}, 0.22f, 0.0f, nightMode ? 1.3f : 0.14f,
                              nightMode ? MatId::EmissiveGlow : MatId::Standard, false);
                 }
@@ -5421,8 +5731,8 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 break;
             }
             case StreetPropKind::PedGuardrail: {
-                // Sculpted 7.5m Seoul Design charcoal-bronze pedestrian safety guardrail with 24 slender vertical balusters!
-                drawMesh(vk, pedGuardrailMesh_, baseM, kWhite, 0.34f, 0.72f, 0.0f, MatId::Standard, shadowPass);
+                // Sculpted 7.2m Seoul Public-Design 기와진회색 pedestrian safety guardrail!
+                drawMesh(vk, pedGuardrailMesh_, baseM, kWhite, 0.34f, 0.70f, 0.0f, MatId::Standard, shadowPass);
                 break;
             }
             case StreetPropKind::ShopSign: {
@@ -5454,36 +5764,25 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 break;
             }
             case StreetPropKind::UtilityBox: {
-                // Sculpted KEPCO louvered steel street transformer / traffic-signal control cabinet on concrete plinth!
-                drawMesh(vk, utilityBoxMesh_, baseM, kWhite, 0.48f, 0.42f, 0.0f, MatId::Standard, shadowPass);
+                // Sculpted KEPCO sage-olive-gray louvered steel transformer / traffic-signal cabinet on concrete plinth!
+                drawMesh(vk, utilityBoxMesh_, baseM, kWhite, 0.46f, 0.44f, 0.0f, MatId::Standard, shadowPass);
                 break;
             }
             case StreetPropKind::StreetKiosk: {
-                // Authentic Seoul boulevard street kiosk (가로판매대): dark aluminum booth, counter shelf, mullions & warm window!
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.14f, 0.0f) * Mat4::scale(2.85f, 2.28f, 1.75f),
-                         {48, 54, 64, 255}, 0.42f, 0.58f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.40f, 0.24f) * Mat4::scale(3.20f, 0.18f, 2.30f),
-                         {34, 42, 54, 255}, 0.36f, 0.64f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.52f, 0.24f) * Mat4::scale(3.05f, 0.08f, 2.15f),
-                         {64, 128, 186, 255}, 0.30f, 0.22f, nightMode ? 0.45f : 0.0f, MatId::Standard, false);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 1.44f, 0.89f) * Mat4::scale(2.26f, 0.96f, 0.06f),
-                         {248, 224, 176, 255}, 0.16f, 0.10f, nightMode ? 1.15f : 0.12f,
-                         nightMode ? MatId::EmissiveGlow : MatId::GlassSkyscraper, false);
-                for (float mx : {-0.72f, 0.0f, 0.72f}) {
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(mx, 1.44f, 0.92f) * Mat4::scale(0.05f, 0.98f, 0.04f),
-                             {38, 44, 52, 255}, 0.34f, 0.72f, 0.0f, MatId::Standard, false);
+                // Sculpted Seoul Public-Design Metallic Silver Street Kiosk (가로판매대; sliding glass drawn in Alpha pass!)
+                drawMesh(vk, streetKioskMesh_, baseM, kWhite, 0.38f, 0.58f, 0.0f, MatId::Standard, shadowPass);
+                if (!shadowPass && nightMode) {
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.12f, 0.18f) * Mat4::scale(2.20f, 0.05f, 0.18f),
+                             {255, 236, 196, 255}, 0.20f, 0.0f, 1.45f, MatId::EmissiveGlow, false);
                 }
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.92f, 0.98f) * Mat4::scale(2.44f, 0.09f, 0.34f),
-                         {176, 182, 190, 255}, 0.32f, 0.76f, 0.0f, MatId::Standard, false);
                 break;
             }
             case StreetPropKind::DdareungiRack: {
-                // Hyper-Detailed Sculpted 따릉이 Seoul Public Bike-Share Station (4 spoked step-through bikes + QR kiosk!)
+                // Hyper-Detailed Sculpted 따릉이 Seoul Public Bike-Share Station (4 white/green bikes + QR kiosk!)
                 drawMesh(vk, ddareungiRackMesh_, baseM, kWhite, 0.36f, 0.48f, 0.0f, MatId::Standard, shadowPass);
                 if (!shadowPass) {
-                    // Glowing mint-white touchscreen panel on the 따릉이 QR rental kiosk!
-                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-2.18f, 1.28f, -0.305f) * Mat4::scale(0.22f, 0.33f, 0.015f),
-                             {156, 242, 206, 255}, 0.18f, 0.0f, nightMode ? 1.35f : 0.28f, MatId::EmissiveGlow, false);
+                    drawMesh(vk, cubeMesh_, baseM * Mat4::translation(-2.22f, 1.30f, -0.312f) * Mat4::scale(0.24f, 0.35f, 0.015f),
+                             {156, 246, 204, 255}, 0.18f, 0.0f, nightMode ? 1.35f : 0.30f, MatId::EmissiveGlow, false);
                 }
                 break;
             }
@@ -5509,28 +5808,17 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 break;
             }
             case StreetPropKind::MedianBarrier: {
-                // Korean central boulevard median curb (grounded -0.28m on hills!) + dark anti-glare steel divider fence & amber reflectors!
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.02f, 0.0f) * Mat4::scale(6.4f, 0.60f, 0.56f),
-                         {164, 168, 174, 255}, 0.80f, 0.04f, 0.0f, MatId::BridgeConcrete, false);
-                drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 0.78f, 0.0f) * Mat4::scale(6.3f, 0.085f, 0.095f),
-                         {64, 70, 80, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
-                for (float mx = -2.7f; mx <= 2.8f; mx += 1.8f) {
-                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(mx, 0.28f, 0.0f) * Mat4::scale(0.085f, 0.56f, 0.085f),
-                             {68, 74, 84, 255}, 0.36f, 0.72f, 0.0f, MatId::Standard, false);
-                    if (!shadowPass) {
-                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(mx, 0.86f, 0.0f) * Mat4::scale(0.10f, 0.08f, 0.12f),
-                                 {246, 176, 36, 255}, 0.22f, 0.08f, nightMode ? 0.65f : 0.0f, MatId::Standard, false);
-                    }
-                }
+                // Sculpted Seoul Boulevard Central Median Jaywalking-Prevention Fence (무단횡단 방지펜스 + 이중 반사띠!)
+                drawMesh(vk, medianFenceMesh_, baseM, kWhite, 0.38f, 0.56f, 0.0f, MatId::Standard, shadowPass);
                 break;
             }
             case StreetPropKind::Bench:
-                // Sculpted wood-slat & cast-iron Korean street bench with armrests!
+                // Sculpted wood-slat & cast-aluminum Seoul Public-Design street bench with armrests!
                 drawMesh(vk, benchMesh_, baseM, kWhite, 0.64f, 0.25f, 0.0f, MatId::Standard, shadowPass);
                 break;
             case StreetPropKind::Hydrant:
-                // Sculpted flanged red cast-iron Korean fire hydrant with twin brass couplings & pumper port!
-                drawMesh(vk, hydrantMesh_, baseM, kWhite, 0.38f, 0.45f, 0.0f, MatId::Standard, shadowPass);
+                // Sculpted Korean standard red fire hydrant + twin brass outlets + yellow/black protective U-guard!
+                drawMesh(vk, hydrantMesh_, baseM, kWhite, 0.36f, 0.46f, 0.0f, MatId::Standard, shadowPass);
                 break;
             case StreetPropKind::TrafficCone:
                 drawMesh(vk, coneMesh_, baseM * Mat4::scale(0.45f, 0.75f, 0.45f),
@@ -5538,7 +5826,7 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                 break;
             case StreetPropKind::TrashBin:
                 // Sculpted Seoul Design dual stainless recycling (blue) & general waste (amber) street bin!
-                drawMesh(vk, trashBinMesh_, baseM, kWhite, 0.42f, 0.54f, 0.0f, MatId::Standard, shadowPass);
+                drawMesh(vk, trashBinMesh_, baseM, kWhite, 0.40f, 0.56f, 0.0f, MatId::Standard, shadowPass);
                 break;
             case StreetPropKind::FuelPump:
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0, 0.92f, 0) * Mat4::scale(0.85f, 1.84f, 0.58f),
@@ -5553,17 +5841,8 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                          {52, 148, 228, 255}, 0.72f, 0.0f, 0.0f, MatId::FabricCloth, shadowPass);
                 break;
             case StreetPropKind::Bollard:
-                // Sculpted brushed-stainless Korean safety bollard with flange base, domed cap & reflective safety band!
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.27f, 0.055f, 0.27f),
-                         {82, 88, 96, 255}, 0.34f, 0.78f, 0.0f, MatId::Standard, false);
-                drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.19f, 0.82f, 0.19f),
-                         {154, 160, 168, 255}, 0.24f, 0.84f, 0.0f, MatId::Standard, shadowPass);
-                drawMesh(vk, sphereMesh_, baseM * Mat4::translation(0.0f, 0.82f, 0.0f) * Mat4::scale(0.19f, 0.11f, 0.19f),
-                         {168, 174, 182, 255}, 0.22f, 0.86f, 0.0f, MatId::Standard, false);
-                if (!shadowPass) {
-                    drawMesh(vk, cylMesh_, baseM * Mat4::translation(0.0f, 0.64f, 0.0f) * Mat4::scale(0.205f, 0.085f, 0.205f),
-                             {246, 206, 48, 255}, 0.20f, 0.10f, nightMode ? 0.55f : 0.0f, MatId::Standard, false);
-                }
+                // Sculpted Korean KS Standard 84cm safety bollard with dual white/yellow reflective bands & stainless cap!
+                drawMesh(vk, bollardMesh_, baseM, kWhite, 0.32f, 0.62f, 0.0f, MatId::Standard, shadowPass);
                 break;
             case StreetPropKind::Billboard:
                 drawMesh(vk, cylMesh_, baseM * Mat4::scale(0.45f, 6.2f, 0.45f),
@@ -6650,6 +6929,44 @@ void Renderer3D::drawAlphaAndEffects(VulkanContext& vk, const GameWorld& world,
         if ((v.pos - focus).lengthSq() > 340.0f * 340.0f) continue;
         const float gy = city.surfaceHeightAt(v.pos, v.posY);
         drawVehicle(vk, v, gy, nightMode, false, true, false, &world.player());
+    }
+
+    // 2B. Real Translucent Tempered Architectural Glass for Seoul Bus Shelters, Subway Canopies & Street Kiosks (v6.4.0!)
+    {
+        static constexpr float kPropRadii[3] = {150.0f, 225.0f, 290.0f};
+        const int pd = std::clamp(static_cast<int>(settings_.propDensity), 0, 2);
+        const float propRadius = kPropRadii[pd];
+        const ColorRGBA kWhite{255, 255, 255, 255};
+        visIdxBuf_.clear();
+        city.queryPropsInRadius(focus, propRadius, visIdxBuf_);
+        for (int pi : visIdxBuf_) {
+            const StreetProp& p = city.streetProps()[static_cast<std::size_t>(pi)];
+            if (p.kind != StreetPropKind::BusShelter &&
+                p.kind != StreetPropKind::SubwayEntrance &&
+                p.kind != StreetPropKind::StreetKiosk) {
+                continue;
+            }
+            const float propBaseY = (p.baseY > -1e8f) ? p.baseY : city.surfaceHeightAt(p.pos);
+            const float gy = propBaseY + p.posY;
+            const float distSq = (Vec3{p.pos.x, gy, p.pos.z} - camera.position).lengthSq();
+            if (distSq > propRadius * propRadius) continue;
+
+            Mat4 baseM = Mat4::translation(p.pos.x, gy, p.pos.z) *
+                         Mat4::rotationAxis({0, 1, 0}, -p.yaw);
+            if (p.broken) {
+                baseM = baseM * Mat4::rotationAxis({1, 0, 0}, p.roll) * Mat4::rotationAxis({0, 0, 1}, p.pitch);
+            }
+            if (p.kind == StreetPropKind::BusShelter) {
+                drawMesh(vk, busShelterGlassMesh_, baseM, kWhite, 0.04f, 0.14f, 0.0f,
+                         MatId::StreetGlass, false, WorldPipelineKind::Alpha);
+            } else if (p.kind == StreetPropKind::SubwayEntrance) {
+                drawMesh(vk, subwayCanopyGlassMesh_, baseM, kWhite, 0.04f, 0.14f, 0.0f,
+                         MatId::StreetGlass, false, WorldPipelineKind::Alpha);
+            } else {
+                drawMesh(vk, streetKioskGlassMesh_, baseM, kWhite, 0.04f, 0.14f, 0.0f,
+                         MatId::StreetGlass, false, WorldPipelineKind::Alpha);
+            }
+        }
     }
 
     // 3. Sleek Compact Curb POI Beacons (no immersion-breaking giant arcade rings!) + Mission / GPS Markers

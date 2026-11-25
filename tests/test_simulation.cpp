@@ -4459,6 +4459,137 @@ void testV630ZeroBuildingRoadIntrusionZeroTerrainPiercingAndZeroGroundHoles() {
     ++gTestsPassed;
 }
 
+void testV640SeoulSidewalkPaversTactileAndStreetFurnitureFidelity() {
+    oc::GameWorld world(6402026ULL);
+    std::string ocmapPath;
+    for (const char* p : {"assets/maps/seoul_real.ocmap", "../assets/maps/seoul_real.ocmap", "../../assets/maps/seoul_real.ocmap"}) {
+        std::ifstream f(p, std::ios::binary);
+        if (f.good()) { ocmapPath = p; break; }
+    }
+    if (ocmapPath.empty()) {
+        ++gTestsPassed;
+        return;
+    }
+    ASSERT_TRUE(world.loadRealSeoulMapFromFile(ocmapPath));
+    std::string ocrmPath;
+    for (const char* p : {"assets/maps/seoul_roads_hd.ocrm", "../assets/maps/seoul_roads_hd.ocrm", "../../assets/maps/seoul_roads_hd.ocrm"}) {
+        std::ifstream f(p, std::ios::binary);
+        if (f.good()) { ocrmPath = p; break; }
+    }
+    ASSERT_TRUE(!ocrmPath.empty());
+    ASSERT_TRUE(world.loadOcrmRoadMeshFromFile(ocrmPath));
+
+    // 1. Verify regenerated 4096x4096 Seoul Street PBR atlases exist, match exact 4K dimensions, and stay <50MB!
+    for (const char* rel : {"assets/textures/street_albedo.png", "assets/textures/street_normal_rough.png"}) {
+        std::string found;
+        for (const char* prefix : {"", "../", "../../"}) {
+            std::string cand = std::string(prefix) + rel;
+            std::ifstream f(cand, std::ios::binary | std::ios::ate);
+            if (f.good()) {
+                const auto fsz = static_cast<std::size_t>(f.tellg());
+                ASSERT_TRUE(fsz > 1024u * 1024u && fsz < 50u * 1024u * 1024u);
+                f.seekg(0, std::ios::beg);
+                std::uint8_t hdr[24]{};
+                ASSERT_TRUE(static_cast<bool>(f.read(reinterpret_cast<char*>(hdr), 24)));
+                // PNG magic + big-endian IHDR width/height == 4096x4096
+                ASSERT_TRUE(hdr[0] == 0x89u && hdr[1] == 'P' && hdr[2] == 'N' && hdr[3] == 'G');
+                const std::uint32_t w = (static_cast<std::uint32_t>(hdr[16]) << 24) |
+                                        (static_cast<std::uint32_t>(hdr[17]) << 16) |
+                                        (static_cast<std::uint32_t>(hdr[18]) << 8) |
+                                         static_cast<std::uint32_t>(hdr[19]);
+                const std::uint32_t h = (static_cast<std::uint32_t>(hdr[20]) << 24) |
+                                        (static_cast<std::uint32_t>(hdr[21]) << 16) |
+                                        (static_cast<std::uint32_t>(hdr[22]) << 8) |
+                                         static_cast<std::uint32_t>(hdr[23]);
+                ASSERT_TRUE(w == 4096u && h == 4096u);
+                found = cand;
+                break;
+            }
+        }
+        ASSERT_TRUE(!found.empty());
+    }
+
+    // 2. Stream Gangnam Teheran-ro & verify all Seoul street structures, road-aligned tree grates,
+    //    tactile-strip clearance, and flush central median fences!
+    const oc::Vec2 gangnamFocus{4260.0f, 2585.0f};
+    ASSERT_TRUE(world.fastTravelTo(gangnamFocus, "강남역 테헤란로"));
+    const oc::CityMap& city = world.city();
+    const oc::RealSeoulData& real = city.realData();
+
+    int nLamps = 0, nDoubleLamps = 0, nSignals = 0, nGuardrails = 0, nMedians = 0;
+    int nBollards = 0, nBenches = 0, nHydrants = 0, nBins = 0, nKepco = 0, nKiosks = 0, nBikes = 0;
+    int nBusOrSubway = 0;
+    int waterHits = 0;
+
+    for (const oc::StreetProp& p : city.streetProps()) {
+        ASSERT_TRUE(std::isfinite(p.pos.x) && std::isfinite(p.pos.z) && std::isfinite(p.yaw));
+        if (p.baseY > -1e8f) ASSERT_TRUE(std::isfinite(p.baseY));
+        if (real.isInWater(p.pos)) ++waterHits;
+        switch (p.kind) {
+            case oc::StreetPropKind::StreetLight:
+                ++nLamps;
+                if (p.variant == 4u) ++nDoubleLamps;
+                break;
+            case oc::StreetPropKind::TrafficLight:   ++nSignals; break;
+            case oc::StreetPropKind::PedGuardrail:   ++nGuardrails; break;
+            case oc::StreetPropKind::MedianBarrier:  ++nMedians; break;
+            case oc::StreetPropKind::Bollard:        ++nBollards; break;
+            case oc::StreetPropKind::Bench:          ++nBenches; break;
+            case oc::StreetPropKind::Hydrant:        ++nHydrants; break;
+            case oc::StreetPropKind::TrashBin:       ++nBins; break;
+            case oc::StreetPropKind::UtilityBox:     ++nKepco; break;
+            case oc::StreetPropKind::StreetKiosk:    ++nKiosks; break;
+            case oc::StreetPropKind::DdareungiRack:  ++nBikes; break;
+            case oc::StreetPropKind::BusShelter:
+            case oc::StreetPropKind::SubwayEntrance: ++nBusOrSubway; break;
+            default: break;
+        }
+    }
+    ASSERT_TRUE(waterHits == 0);
+    ASSERT_TRUE(nLamps >= 20);
+    ASSERT_TRUE(nDoubleLamps >= 1);
+    ASSERT_TRUE(nSignals >= 4);
+    ASSERT_TRUE(nGuardrails >= 8);
+    ASSERT_TRUE(nMedians >= 2);
+    ASSERT_TRUE(nBollards >= 4);
+    ASSERT_TRUE(nBenches >= 2);
+    ASSERT_TRUE(nHydrants >= 2);
+    ASSERT_TRUE(nBins >= 2);
+    ASSERT_TRUE(nKepco >= 2);
+    ASSERT_TRUE(nKiosks >= 1);
+    ASSERT_TRUE(nBikes >= 1);
+    ASSERT_TRUE(nBusOrSubway >= 1);
+
+    // 3. Verify road-aligned street tree planters have non-zero curb alignment on diagonal Teheran-ro & stay off tactile strip!
+    int streetPlanters = 0;
+    int nonZeroYawPlanters = 0;
+    for (const oc::TreeProp& t : city.trees()) {
+        if (!t.inPlanter) continue;
+        ++streetPlanters;
+        ASSERT_TRUE(std::isfinite(t.yaw) && std::isfinite(t.baseY));
+        if (std::abs(t.yaw) > 0.02f) ++nonZeroYawPlanters;
+        ASSERT_TRUE(!real.isOnRoad(t.pos, 1.50f));
+    }
+    ASSERT_TRUE(streetPlanters >= 10);
+    ASSERT_TRUE(nonZeroYawPlanters >= 5);
+
+    // 4. Verify smooth storefront plaza physics height continuity across 0.5m..10.0m from Teheran-ro curb (zero ankle sinking!)
+    const oc::NearestOsmRoad nr = real.findNearestRoad(gangnamFocus, 60.0f, real.sampleDem(gangnamFocus));
+    ASSERT_TRUE(nr.found);
+    const oc::Vec2 rightN{-nr.tangent.z, nr.tangent.x};
+    float prevY = city.surfaceHeightAt(nr.closestPt + rightN * (nr.halfWidth + 1.0f));
+    for (float off = 1.5f; off <= 9.5f; off += 0.5f) {
+        const oc::Vec2 pt = nr.closestPt + rightN * (nr.halfWidth + off);
+        if (real.isOnRoad(pt, 0.2f)) break;
+        const float curY = city.surfaceHeightAt(pt, prevY);
+        ASSERT_TRUE(std::isfinite(curY));
+        ASSERT_TRUE(std::abs(curY - prevY) < 0.35f);
+        prevY = curY;
+    }
+
+    ++gTestsPassed;
+}
+
 
 } // namespace
 
@@ -4504,8 +4635,9 @@ int main() {
     testV610UnifiedCityBuildingsPropsAndHighwaysMatchSumoRoads();
     testV620OcrmExactTrianglePhysicsAndDetailedGraphicsSettings();
     testV630ZeroBuildingRoadIntrusionZeroTerrainPiercingAndZeroGroundHoles();
+    testV640SeoulSidewalkPaversTactileAndStreetFurnitureFidelity();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.3.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.4.0 simulation test suites succeeded!\n";
     return 0;
 }
 

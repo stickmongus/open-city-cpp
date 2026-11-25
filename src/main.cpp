@@ -113,7 +113,7 @@ int runApplication(PlatformApp& app, const CliOptions& cli) {
 
     GameWorld world(20261107ULL);
 
-    // Load Real-World OpenStreetMap + Overture + TUM Seoul GIS + 15m DTM + 1:1 Synced Eclipse SUMO OCRM v1 (v6.3.0)
+    // Load Real-World OpenStreetMap + Overture + TUM Seoul GIS + 15m DTM + 1:1 Synced Eclipse SUMO OCRM v1 (v6.4.0)
     const auto ocmapBytes = app.loadAssetBytes("maps/seoul_real.ocmap");
     if (!ocmapBytes.empty()) {
         world.loadRealSeoulMap(ocmapBytes.data(), ocmapBytes.size());
@@ -702,7 +702,7 @@ extern "C" void android_main(struct android_app* state) {
 int main(int argc, char** argv) {
     const oc::CliOptions cli = oc::parseArgs(argc, argv);
     oc::PlatformApp app;
-    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v6.3 — Zero-Pierce Buildings, Terrain & Korean Street Architecture")) {
+    if (!app.initDesktop(cli.windowW, cli.windowH, "Open City Seoul v6.4 — Authentic Seoul Sidewalk Paving & 17 Sculpted Street Structures")) {
         return 1;
     }
     const int rc = oc::runApplication(app, cli);

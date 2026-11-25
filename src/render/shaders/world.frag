@@ -672,8 +672,11 @@ void main() {
         }
     }
     else if (matId == 5) {
-        // MAT 5: Dedicated 4K Seoul Sidewalks (Tile 3 Interlocking Pavers, Tile 4 Granite Flagstones,
-        //        Tile 5 Yellow Tactile Braille Guide Ribs, Tile 6 Dressed Granite Curbstones!)
+        // MAT 5: Dedicated 4K Seoul Sidewalks (v6.4.0 Real-World KS Standard!)
+        //   - Tile 3: 30x30cm Seoul Standard Shot-Blasted Pavers (서울형 보도블록)
+        //   - Tile 4: 60x30cm Flamed Pocheon Granite Flagstones (공개공지 화강석 판석)
+        //   - Tile 5: 30x30cm KS F 4561 4-Rib Yellow Tactile Guide Paving (도로 정렬 선형 점자블록)
+        //   - Tile 6: 24x100cm Dressed Pocheon Granite Curbstones (화강석 경계석)
         vec2 p = fragPosition.xz;
         vec3 dp1 = dFdx(fragPosition);
         vec3 dp2 = dFdy(fragPosition);
@@ -685,37 +688,40 @@ void main() {
         bool isOcrmSidewalk  = (fragUv.y < -0.5);
         vec3 pAlb; vec2 pNxy; float pR; float pAO;
 
+        // Shared 2.40m world-metric UV (1 / 2.40 = 0.416667): 8x8 -> 30x30cm pavers, 4x8 -> 60x30cm flagstones
+        const float kStoneFreq = 0.4166667;
+        vec2 stoneUv  = p * kStoneFreq;
+        vec2 stoneDdx = dPdx * kStoneFreq;
+        vec2 stoneDdy = dPdy * kStoneFreq;
+        float urbanPatina = fbm2(p * 0.075);
+
         if (isSidewalkStrip) {
-            if (fragUv.x < 0.13) {
-                // Tile 6: Authentic 1m Chisel-Dressed Pocheon Granite Curbstone (화강석 경계석)!
-                vec2 cUv = vec2(clamp(fragUv.x / 0.13, 0.0, 1.0), fragUv.y * 0.25);
-                vec2 cDdx = vec2(dUvDx.x / 0.13, dUvDx.y * 0.25);
-                vec2 cDdy = vec2(dUvDy.x / 0.13, dUvDy.y * 0.25);
+            if (fragUv.x < 0.11) {
+                // Tile 6: Authentic 1m Chisel-Dressed Pocheon Granite Curbstone (화강석 경계석)
+                vec2 cUv = vec2(clamp(fragUv.x / 0.11, 0.0, 1.0), fragUv.y * 0.50);
+                vec2 cDdx = vec2(dUvDx.x / 0.11, dUvDx.y * 0.50);
+                vec2 cDdy = vec2(dUvDy.x / 0.11, dUvDy.y * 0.50);
                 sampleStreetTileGrad(6, cUv, cDdx, cDdy, pAlb, pNxy, pR, pAO);
-                albedo = pAlb;
+                albedo = pAlb * mix(0.95, 1.03, urbanPatina);
                 roughness = mix(pR, 0.50, wetRoadFactor * 0.60);
                 surfaceAO = pAO;
-                N = perturbNormalGrad(N, dp1, dp2, cDdx, cDdy, pNxy, 0.85 * detailFade);
-            } else if (fragUv.x > 0.30 && fragUv.x < 0.46) {
-                // Tile 5: Crisp Raised Korean Yellow Tactile Braille Guide Paving (노란 점자블록)!
-                vec2 tUv = vec2((fragUv.x - 0.30) / 0.16, fragUv.y * 1.55);
-                vec2 tDdx = vec2(dUvDx.x / 0.16, dUvDx.y * 1.55);
-                vec2 tDdy = vec2(dUvDy.x / 0.16, dUvDy.y * 1.55);
+                N = perturbNormalGrad(N, dp1, dp2, cDdx, cDdy, pNxy, 0.62 * detailFade);
+            } else if (fragUv.x > 0.34 && fragUv.x < 0.46) {
+                // Tile 5: Crisp KS F 4561 30x30cm Yellow Tactile Guide Paving (노란 점자블록)
+                vec2 tUv = vec2((fragUv.x - 0.34) / 0.12, fragUv.y * 3.3333);
+                vec2 tDdx = vec2(dUvDx.x / 0.12, dUvDx.y * 3.3333);
+                vec2 tDdy = vec2(dUvDy.x / 0.12, dUvDy.y * 3.3333);
                 sampleStreetTileGrad(5, tUv, tDdx, tDdy, pAlb, pNxy, pR, pAO);
                 albedo = pAlb;
-                roughness = mix(pR, 0.42, wetRoadFactor * 0.55);
+                roughness = mix(pR, 0.40, wetRoadFactor * 0.55);
                 surfaceAO = pAO;
-                N = perturbNormalGrad(N, dp1, dp2, tDdx, tDdy, pNxy, 0.95 * detailFade);
+                N = perturbNormalGrad(N, dp1, dp2, tDdx, tDdy, pNxy, 0.82 * detailFade);
             } else {
-                // Wide Seoul boulevard sidewalks blend interlocking granite pavers (Tile 3) with honed flagstones (Tile 4)!
-                vec2 pvUv = vec2(fragUv.x * 1.65, fragUv.y * 0.46);
-                vec2 pvDdx = vec2(dUvDx.x * 1.65, dUvDx.y * 0.46);
-                vec2 pvDdy = vec2(dUvDy.x * 1.65, dUvDy.y * 0.46);
-                sampleStreetTileGrad(3, pvUv, pvDdx, pvDdy, pAlb, pNxy, pR, pAO);
-                albedo = mix(pAlb, pAlb * (albedo * 1.25 + vec3(0.18)), 0.25);
+                sampleStreetTileGrad(3, stoneUv, stoneDdx, stoneDdy, pAlb, pNxy, pR, pAO);
+                albedo = pAlb * mix(0.93, 1.03, urbanPatina);
                 roughness = mix(pR, 0.52, wetRoadFactor * 0.65);
                 surfaceAO = pAO;
-                N = perturbNormalGrad(N, dp1, dp2, pvDdx, pvDdy, pNxy, 0.82 * detailFade);
+                N = perturbNormalGrad(N, dp1, dp2, stoneDdx, stoneDdy, pNxy, 0.56 * detailFade);
             }
         } else if (isOcrmSidewalk) {
             // OCRM v1 Single-Topology Disjoint Sidewalks, Vertical Dressed Granite Curbs & Pure Granite Median Islands!
@@ -723,63 +729,103 @@ void main() {
             vec2 wallBase = vec2(fragPosition.x + fragPosition.z, fragPosition.y);
             vec2 dWdx = dFdx(wallBase);
             vec2 dWdy = dFdy(wallBase);
+
+            // Solve exact world-space curb normal & road-parallel tangent from screen-space derivatives!
+            // Keeps every 1m granite curbstone & 30cm KS yellow tactile guide rib 100% aligned to curved/diagonal Seoul avenues!
+            float duX = dUvDx.x;
+            float duY = dUvDy.x;
+            float fwCurb = clamp(abs(duX) + abs(duY), 0.004, 0.055);
+            float det = dPdx.x * dPdy.y - dPdx.y * dPdy.x;
+            vec2 gradCurb = (abs(det) > 1e-8)
+                ? vec2(duX * dPdy.y - duY * dPdx.y, dPdx.x * duY - dPdy.x * duX) / det
+                : vec2(1.0, 0.0);
+            float gradLen = length(gradCurb);
+            bool validCurbGrad = (abs(det) > 1e-8) && (gradLen > 0.35) && (gradLen < 1.85);
+            vec2 curbN = validCurbGrad ? (gradCurb / gradLen) : vec2(1.0, 0.0);
+            vec2 curbT = vec2(-curbN.y, curbN.x);
+            float alongM = dot(p, curbT);
+            vec2 dAlongDx = vec2(duX, dot(dPdx, curbT));
+            vec2 dAlongDy = vec2(duY, dot(dPdy, curbT));
+
             if (curbM < 0.0) {
-                // Vertical dressed granite curbstone OR enclosed median island (NO yellow tactile strip!)
                 bool isVertCurb = (abs(N.y) < 0.65);
-                vec2 cUv  = isVertCurb ? (wallBase * vec2(0.45, 0.85)) : (p * 0.42);
-                vec2 cDdx = isVertCurb ? (dWdx * vec2(0.45, 0.85)) : (dPdx * 0.42);
-                vec2 cDdy = isVertCurb ? (dWdy * vec2(0.45, 0.85)) : (dPdy * 0.42);
+                if (isVertCurb) {
+                    // Vertical dressed Pocheon granite curbstone face
+                    vec2 cUv  = vec2(wallBase.y * 2.4, wallBase.x * 0.50);
+                    vec2 cDdx = vec2(dWdx.y * 2.4, dWdx.x * 0.50);
+                    vec2 cDdy = vec2(dWdy.y * 2.4, dWdy.x * 0.50);
+                    sampleStreetTileGrad(6, cUv, cDdx, cDdy, pAlb, pNxy, pR, pAO);
+                    albedo = pAlb * 0.90;
+                    roughness = mix(pR, 0.50, wetRoadFactor * 0.60);
+                    surfaceAO = pAO;
+                    N = perturbNormalGrad(N, dp1, dp2, cDdx, cDdy, pNxy, 0.62 * detailFade);
+                } else {
+                    // Enclosed central boulevard median island: clean honed Seoul Pocheon granite slabs (ZERO noisy bricks!)
+                    sampleStreetTileGrad(4, stoneUv, stoneDdx, stoneDdy, pAlb, pNxy, pR, pAO);
+                    albedo = pAlb * mix(0.92, 1.02, urbanPatina);
+                    roughness = mix(pR, 0.50, wetRoadFactor * 0.60);
+                    surfaceAO = pAO;
+                    N = perturbNormalGrad(N, dp1, dp2, stoneDdx, stoneDdy, pNxy, 0.60 * detailFade);
+                }
+            } else if (curbM < 0.24) {
+                // Dressed Pocheon granite curbstone top coping (exact 24cm Seoul curb width, 1.00m block joints along road!)
+                vec2 cUv  = vec2(clamp(curbM / 0.24, 0.0, 1.0), alongM * 0.50);
+                vec2 cDdx = vec2(dAlongDx.x / 0.24, dAlongDx.y * 0.50);
+                vec2 cDdy = vec2(dAlongDy.x / 0.24, dAlongDy.y * 0.50);
                 sampleStreetTileGrad(6, cUv, cDdx, cDdy, pAlb, pNxy, pR, pAO);
-                albedo = pAlb * (isVertCurb ? 0.90 : 0.98);
+                albedo = pAlb * mix(0.95, 1.03, urbanPatina);
                 roughness = mix(pR, 0.50, wetRoadFactor * 0.60);
                 surfaceAO = pAO;
-                N = perturbNormalGrad(N, dp1, dp2, cDdx, cDdy, pNxy, 0.82 * detailFade);
-            } else if (curbM < 0.30) {
-                // Dressed Pocheon granite curb top coping (first 30cm along road edge)
-                vec2 cUv = p * 0.45;
-                sampleStreetTileGrad(6, cUv, dPdx * 0.45, dPdy * 0.45, pAlb, pNxy, pR, pAO);
-                albedo = pAlb;
+                N = perturbNormalGrad(N, dp1, dp2, cDdx, cDdy, pNxy, 0.64 * detailFade);
+            } else if (curbM >= 1.45 && curbM <= 1.75 && validCurbGrad) {
+                // Authentic Korean KS F 4561 30.0cm Yellow Tactile Guide Paving (노란 선형 점자블록 300x300mm)
+                // Positioned 1.45..1.75m from curb (completely clear of guardrails & streetlights!), 4 raised bars parallel to street!
+                vec2 tUv  = vec2((curbM - 1.45) / 0.30, alongM / 0.30);
+                vec2 tDdx = vec2(dAlongDx.x / 0.30, dAlongDx.y / 0.30);
+                vec2 tDdy = vec2(dAlongDy.x / 0.30, dAlongDy.y / 0.30);
+                sampleStreetTileGrad(5, tUv, tDdx, tDdy, pAlb, pNxy, pR, pAO);
+                vec3 swAlb; vec2 swNxy; float swR; float swAO;
+                sampleStreetTileGrad(3, stoneUv, stoneDdx, stoneDdy, swAlb, swNxy, swR, swAO);
+                float edgeM = min(curbM - 1.45, 1.75 - curbM);
+                float tacMask = smoothstep(0.0, fwCurb * 1.25, edgeM);
+                albedo = mix(swAlb * mix(0.93, 1.03, urbanPatina), pAlb, tacMask);
+                roughness = mix(mix(swR, pR, tacMask), 0.42, wetRoadFactor * 0.55);
+                surfaceAO = mix(swAO, pAO, tacMask);
+                N = perturbNormalGrad(N, dp1, dp2, tDdx, tDdy, mix(swNxy, pNxy, tacMask), mix(0.62, 0.86, tacMask) * detailFade);
+            } else if (curbM >= 3.25 && curbM < 3.45) {
+                // Authentic Seoul 20cm dressed granite divider band (경계띠석) framing the public-plaza boundary!
+                vec2 bUv  = vec2(clamp((curbM - 3.25) / 0.20, 0.0, 1.0), alongM * 0.50);
+                vec2 bDdx = vec2(dAlongDx.x / 0.20, dAlongDx.y * 0.50);
+                vec2 bDdy = vec2(dAlongDy.x / 0.20, dAlongDy.y * 0.50);
+                sampleStreetTileGrad(6, bUv, bDdx, bDdy, pAlb, pNxy, pR, pAO);
+                albedo = pAlb * mix(0.93, 1.01, urbanPatina);
                 roughness = mix(pR, 0.50, wetRoadFactor * 0.60);
                 surfaceAO = pAO;
-                N = perturbNormalGrad(N, dp1, dp2, dPdx * 0.45, dPdy * 0.45, pNxy, 0.82 * detailFade);
-            } else if (curbM > 0.88 && curbM < 1.28) {
-                // Authentic Seoul Yellow Tactile Braille Guide Strip (노란 점자블록) set 0.88..1.28m back from curb!
-                vec2 tUv = p * 1.45;
-                sampleStreetTileGrad(5, tUv, dPdx * 1.45, dPdy * 1.45, pAlb, pNxy, pR, pAO);
-                albedo = pAlb;
-                roughness = mix(pR, 0.42, wetRoadFactor * 0.55);
-                surfaceAO = pAO;
-                N = perturbNormalGrad(N, dp1, dp2, dPdx * 1.45, dPdy * 1.45, pNxy, 0.92 * detailFade);
-            } else if (curbM >= 3.25) {
-                // Tile 4 Large Honed Seoul Granite Building-Front Setback Plaza Flagstones (3.25..6.50m kissing storefronts!)
-                vec2 plUv = p * 0.34;
-                sampleStreetTileGrad(4, plUv, dPdx * 0.34, dPdy * 0.34, pAlb, pNxy, pR, pAO);
-                float plVar = fbm2(p * 0.07);
-                albedo = pAlb * mix(0.84, 1.02, plVar);
+                N = perturbNormalGrad(N, dp1, dp2, bDdx, bDdy, pNxy, 0.60 * detailFade);
+            } else if (curbM >= 3.45) {
+                // Tile 4: 60x30cm Flamed Pocheon Granite Building-Front Public Plaza Flagstones
+                // EXACT SAME UV scale & shading as groundMesh below -> 100% SEAMLESS sidewalk-to-plaza continuity!
+                sampleStreetTileGrad(4, stoneUv, stoneDdx, stoneDdy, pAlb, pNxy, pR, pAO);
+                albedo = pAlb * mix(0.92, 1.02, urbanPatina);
                 roughness = mix(pR, 0.50, wetRoadFactor * 0.65);
                 surfaceAO = pAO;
-                N = perturbNormalGrad(N, dp1, dp2, dPdx * 0.34, dPdy * 0.34, pNxy, 0.72 * detailFade);
+                N = perturbNormalGrad(N, dp1, dp2, stoneDdx, stoneDdy, pNxy, 0.62 * detailFade);
             } else {
-                // Interlocking Seoul Granite Sidewalk Pavers (Tile 3) with natural urban variation!
-                vec2 pvUv = p * 0.52;
-                sampleStreetTileGrad(3, pvUv, dPdx * 0.52, dPdy * 0.52, pAlb, pNxy, pR, pAO);
-                float swVar = fbm2(p * 0.08);
-                albedo = pAlb * mix(0.86, 1.06, swVar);
+                // Tile 3: Authentic Seoul Standard 30x30cm Shot-Blasted Granite-Concrete Sidewalk Pavers!
+                sampleStreetTileGrad(3, stoneUv, stoneDdx, stoneDdy, pAlb, pNxy, pR, pAO);
+                albedo = pAlb * mix(0.93, 1.03, urbanPatina);
                 roughness = mix(pR, 0.52, wetRoadFactor * 0.65);
                 surfaceAO = pAO;
-                N = perturbNormalGrad(N, dp1, dp2, dPdx * 0.52, dPdy * 0.52, pNxy, 0.80 * detailFade);
+                N = perturbNormalGrad(N, dp1, dp2, stoneDdx, stoneDdy, pNxy, 0.64 * detailFade);
             }
         } else {
-            // Urban sidewalk-to-building plaza subbase: Tile 4 Large Honed Seoul Granite Flagstones!
-            vec2 plUv = p * 0.32;
-            vec2 plDdx = dPdx * 0.32;
-            vec2 plDdy = dPdy * 0.32;
-            sampleStreetTileGrad(4, plUv, plDdx, plDdy, pAlb, pNxy, pR, pAO);
-            float plazaVar = fbm2(p * 0.07);
-            albedo = pAlb * mix(0.74, 0.96, plazaVar);
-            roughness = mix(pR, 0.54, wetRoadFactor * 0.65);
+            // Urban sidewalk-to-building plaza subbase: EXACT SAME Tile 4 60x30cm Pocheon Granite Flagstones!
+            // Zero UV phase jump, zero brightness step across the OCRM sidewalk-to-lot boundary!
+            sampleStreetTileGrad(4, stoneUv, stoneDdx, stoneDdy, pAlb, pNxy, pR, pAO);
+            albedo = pAlb * mix(0.92, 1.02, urbanPatina);
+            roughness = mix(pR, 0.50, wetRoadFactor * 0.65);
             surfaceAO = pAO;
-            N = perturbNormalGrad(N, dp1, dp2, plDdx, plDdy, pNxy, 0.62 * detailFade);
+            N = perturbNormalGrad(N, dp1, dp2, stoneDdx, stoneDdy, pNxy, 0.62 * detailFade);
         }
         puddleMask = wetRoadFactor * smoothstep(0.45, 0.78, fbm2(p * 0.22)) * 0.40;
         albedo *= (1.0 - wetRoadFactor * 0.18 - puddleMask * 0.16);
@@ -1275,6 +1321,20 @@ void main() {
             }
         }
     }
+    else if (matId == 25) {
+        // MAT 25: Seoul Architectural Tempered Safety Glass (Bus Shelters, Subway Canopies, Street Kiosks!)
+        // Real see-through low-iron blue-green tinted tempered glass with Fresnel sky reflections & ZERO skyscraper facade textures!
+        if (dot(N, V) < 0.0) N = -N;
+        float ndvG = max(dot(N, V), 0.001);
+        float fresG = pow(1.0 - ndvG, 3.0);
+        albedo = albedo * 0.34;
+        roughness = 0.042;
+        metallic = 0.14;
+        // Preserve opaque white safety frit stripes (srgbBase.a > 0.92), keep tempered glass cleanly see-through!
+        if (srgbBase.a < 0.92) {
+            alphaOut = clamp(mix(srgbBase.a, 0.84, fresG * 0.85), 0.22, 0.86);
+        }
+    }
 
     // -----------------------------------------------------------------------
     // Physically Based Cook-Torrance GGX + Energy-Conserving Automotive Clearcoat
@@ -1338,7 +1398,7 @@ void main() {
         directLit += albedo * vec3(0.55, 0.68, 0.28) * leafBack * sunColor * sunVis;
     }
 
-    bool reflectiveMat = (ubo.localLightCount.y > 0.5) && (isWindowPane || matId == 3 || matId == 4 || matId == 6 || matId == 7 || matId == 8 || puddleMask > 0.04 || wetRoadSurface > 0.15);
+    bool reflectiveMat = (ubo.localLightCount.y > 0.5) && (isWindowPane || matId == 3 || matId == 4 || matId == 6 || matId == 7 || matId == 8 || matId == 25 || puddleMask > 0.04 || wetRoadSurface > 0.15);
     if (reflectiveMat) {
         vec3 R = reflect(-V, N);
         bool isAuto = (matId == 7 || matId == 8);
@@ -1350,17 +1410,18 @@ void main() {
             envRefl *= mix(1.0, 0.34, smoothstep(0.08, 0.56, R.y));
         }
 
-        float specExp = (matId == 6) ? 210.0 : ((matId == 8) ? 340.0 : ((matId == 7) ? mix(260.0, 32.0, clamp(roughness * 1.4, 0.0, 1.0)) : 200.0));
+        float specExp = (matId == 6) ? 210.0 : ((matId == 8 || matId == 25) ? 340.0 : ((matId == 7) ? mix(260.0, 32.0, clamp(roughness * 1.4, 0.0, 1.0)) : 200.0));
         float sunRefl = pow(max(dot(R, L), 0.0), specExp);
-        envRefl += sunColor * sunRefl * sunVis * ((matId == 6) ? 2.6 : ((matId == 8) ? 2.8 : ((matId == 7) ? 2.4 : 2.15)));
+        envRefl += sunColor * sunRefl * sunVis * ((matId == 6) ? 2.6 : ((matId == 8 || matId == 25) ? 2.8 : ((matId == 7) ? 2.4 : 2.15)));
 
         float wetCoat = puddleMask * 0.62 + wetRoadSurface * 0.14;
         float coatStrength = (matId == 6) ? 0.88
                            : ((matId == 8) ? 0.64
+                           : ((matId == 25) ? 0.76
                            : ((matId == 7) ? (0.86 * clearcoatMask)
                            : (isWindowPane ? (isGlassTowerWin ? 0.94 : 0.78)
                            : ((matId == 3) ? 0.72
-                           : ((matId == 4) ? (0.36 * (1.0 - step(0.3, roughness))) : wetCoat)))));
+                           : ((matId == 4) ? (0.36 * (1.0 - step(0.3, roughness))) : wetCoat))))));
         if (matId == 7) {
             float flake = valueNoise(fragPosition.xz * 125.0 + vec2(fragPosition.y * 98.0));
             float ccAlpha2 = 0.00016;
@@ -1374,12 +1435,12 @@ void main() {
             float baseMetalF = (0.14 + 0.46 * pow(1.0 - ndotv, 2.4)) * metallic;
             envLit += envRefl * (vec3(clearF * coatStrength) + metalReflTint * baseMetalF * 0.65);
         } else {
-            float coatFresnel = (matId == 8)
-                                    ? (0.065 + 0.88 * pow(1.0 - ndotv, 4.2))
+            float coatFresnel = (matId == 8 || matId == 25)
+                                    ? (0.10 + 0.86 * pow(1.0 - ndotv, 3.6))
                                     : (isWindowPane
                                            ? (0.20 + 0.78 * pow(1.0 - ndotv, 3.2))
                                            : (0.06 + 0.90 * pow(1.0 - ndotv, 4.2)));
-            envLit += envRefl * (isWindowPane ? windowReflTint : vec3(1.0)) * coatFresnel * coatStrength;
+            envLit += envRefl * (isWindowPane ? windowReflTint : ((matId == 25) ? vec3(0.76, 0.90, 0.96) : vec3(1.0))) * coatFresnel * coatStrength;
         }
     }
 

@@ -80,7 +80,8 @@ private:
         FoliageCanopy = 21,
         LandmarkStone = 22,
         RoadPaint = 23,
-        RoadPoly = 24
+        RoadPoly = 24,
+        StreetGlass = 25
     };
 
     struct RealChunkGpu {
@@ -196,19 +197,26 @@ private:
     GpuMesh capsuleLimbMesh_{};
     GpuMesh torsoMesh_{};
 
-    // High-Detail Sculpted Korean Street Architecture Meshes (v6.2.0 — 1 draw call per structure!)
+    // High-Detail Sculpted Korean Street Architecture Meshes (v6.4.0 — 17 sculpted Seoul structures!)
     GpuMesh ddareungiRackMesh_{};
     GpuMesh seoulLampMesh_{};
+    GpuMesh seoulDoubleLampMesh_{};
+    GpuMesh highwayLampMesh_{};
     GpuMesh koreanSignalMesh_{};
     GpuMesh busShelterFrameMesh_{};
     GpuMesh busShelterGlassMesh_{};
     GpuMesh subwayCanopyFrameMesh_{};
     GpuMesh subwayCanopyGlassMesh_{};
     GpuMesh pedGuardrailMesh_{};
+    GpuMesh medianFenceMesh_{};
+    GpuMesh bollardMesh_{};
     GpuMesh benchMesh_{};
     GpuMesh hydrantMesh_{};
     GpuMesh trashBinMesh_{};
     GpuMesh utilityBoxMesh_{};
+    GpuMesh streetKioskMesh_{};
+    GpuMesh streetKioskGlassMesh_{};
+    GpuMesh treeGrateMesh_{};
 
     // Real-Scale 30km x 25km Seoul Static Macro Meshes (built once on init!)
     GpuMesh realTerrainMesh_{};

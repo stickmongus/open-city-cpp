@@ -172,10 +172,64 @@ def tile_2_intersection_asphalt():
 
 
 def tile_3_seoul_sidewalk_pavers():
-    """Authentic Korean Interlocking Sidewalk Granite Pavers (서울 보도블록: 20x10cm chamfered pavers)."""
+    """Authentic Seoul Standard 30x30cm Shot-Blasted Granite-Concrete Sidewalk Pavers (서울형 보도블록 300x300mm).
+    8x8 blocks per 2.40m tile -> exact 30.0cm x 30.0cm KS standard, tight 3mm sand-filled joints,
+    warm-neutral Korean Pocheon granite-concrete speckle, subtle per-tile tonal variation (ZERO black cartoon grid!).
+    """
     y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
-    cols = 10.0
-    rows = 20.0
+    cols = 8.0
+    rows = 8.0
+    gx = x / (TILE / cols)
+    gy = y / (TILE / rows)
+    iy = np.floor(gy).astype(np.int32)
+    # Clean running-bond half-tile stagger typical of Seoul Design sidewalks
+    gx_s = gx + (iy % 2) * 0.5
+    ix_s = np.floor(gx_s).astype(np.int32) % int(cols)
+    iy_m = iy % int(rows)
+    fx = gx_s - np.floor(gx_s)
+    fy = gy - np.floor(gy)
+
+    # Crisp, readable 4mm sand-filled mortar seams (stays sharp across mip levels without black cartoon lines!)
+    seam_d = np.minimum(np.minimum(fx, 1.0 - fx), np.minimum(fy, 1.0 - fy))
+    grout = np.clip((0.025 - seam_d) / 0.011, 0.0, 1.0)
+    bevel = np.clip((seam_d - 0.020) / 0.028, 0.0, 1.0)
+
+    rng = np.random.default_rng(1304)
+    p_val = rng.uniform(-0.036, 0.036, size=(int(rows), int(cols))).astype(np.float32)
+    p_warm = rng.uniform(-0.012, 0.016, size=(int(rows), int(cols))).astype(np.float32)
+    # Subtle Seoul architectural granite-band rhythm (every 8th row slightly lighter warm-stone accent band)
+    band = (iy_m == 0).astype(np.float32) * 0.022
+    pv = p_val[iy_m, ix_s] + band
+    pw = p_warm[iy_m, ix_s]
+
+    macro = tileable_fbm(TILE, octaves=4, base_freq=8, seed=1305)
+    grain = tileable_fbm(TILE, octaves=5, base_freq=32, seed=1302)
+    micro = high_freq_grain(TILE, seed=1303)
+    # Authentic shot-blasted Korean granite-aggregate mineral flecks (quartz + fine biotite)
+    quartz = np.clip((micro - 0.72) * 3.4, 0.0, 1.0) * 0.052
+    biotite = np.clip((0.24 - micro) * 3.2, 0.0, 1.0) * 0.050
+
+    base = 0.645 + pv + (macro - 0.5) * 0.026 + (grain - 0.5) * 0.042 + quartz - biotite
+    r = base * 1.032 + pw
+    g = base * 1.006 + pw * 0.35
+    b = base * 0.958 - pw * 0.35
+    # Warm medium-gray sand-filled mortar joint (crisp & natural, NEVER pitch black!)
+    joint_rgb = np.stack([np.full_like(r, 0.415), np.full_like(g, 0.404), np.full_like(b, 0.386)], axis=-1)
+    rgb = np.stack([r, g, b], axis=-1) * (1.0 - grout[:, :, None]) + joint_rgb * grout[:, :, None]
+    h = bevel * 0.48 + grain * 0.24 + micro * 0.22 - grout * 0.38
+    rough = np.clip(0.76 + grout * 0.16 + (grain - 0.5) * 0.09 - quartz * 0.75, 0.55, 0.96)
+    ao = np.clip(1.0 - grout * 0.28 - biotite * 0.60, 0.62, 1.0)
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=3.8)
+
+
+def tile_4_granite_flagstones():
+    """Seoul Boulevard & Public-Plaza Flamed Pocheon Granite Flagstones (서울 포천석 화강암 판석 600x300mm).
+    4 cols x 8 rows per 2.40m tile -> exact 60.0cm x 30.0cm architectural slabs in half-running bond,
+    matching Tile 3's warm Korean granite family with crisp tight 3.5mm joints (ZERO black cartoon boxes!).
+    """
+    y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
+    cols = 4.0
+    rows = 8.0
     gx = x / (TILE / cols)
     gy = y / (TILE / rows)
     iy = np.floor(gy).astype(np.int32)
@@ -185,112 +239,90 @@ def tile_3_seoul_sidewalk_pavers():
     fx = gx_s - np.floor(gx_s)
     fy = gy - np.floor(gy)
 
-    # Anisotropic seam width so mortar grooves look identical in X and Y
+    # Isotropic 3.5mm tight architectural granite mortar seams (scale X by 2.0 because slab is 2:1 aspect!)
     seam_x = np.minimum(fx, 1.0 - fx) * 2.0
     seam_y = np.minimum(fy, 1.0 - fy)
     seam_d = np.minimum(seam_x, seam_y)
-    grout = np.clip((0.060 - seam_d) / 0.032, 0.0, 1.0)
-    bevel = np.clip((seam_d - 0.045) / 0.065, 0.0, 1.0)
+    grout = np.clip((0.022 - seam_d) / 0.010, 0.0, 1.0)
+    bevel = np.clip((seam_d - 0.018) / 0.024, 0.0, 1.0)
 
-    rng = np.random.default_rng(1301)
-    p_val = rng.uniform(-0.055, 0.055, size=(int(rows), int(cols))).astype(np.float32)
-    p_warm = rng.uniform(-0.030, 0.042, size=(int(rows), int(cols))).astype(np.float32)
-    # Subtle Seoul sidewalk two-tone warm-taupe & granite accent pattern
-    accent = ((iy_m % 4 == 0) | (iy_m % 4 == 3)).astype(np.float32)
-    pv = p_val[iy_m, ix_s]
-    pw = p_warm[iy_m, ix_s] + accent * 0.018
-    grain = tileable_fbm(TILE, octaves=5, base_freq=32, seed=1302)
-    micro = high_freq_grain(TILE, seed=1303)
-
-    r = 0.56 + pv + pw + (grain - 0.5) * 0.08 + (micro - 0.5) * 0.04
-    g = 0.54 + pv + pw * 0.45 + (grain - 0.5) * 0.075 + (micro - 0.5) * 0.04
-    b = 0.52 + pv - pw * 0.40 + (grain - 0.5) * 0.075 + (micro - 0.5) * 0.04
-    rgb = np.stack([r, g, b], axis=-1) * (1.0 - grout[:, :, None] * 0.52)
-    h = bevel * 0.58 + grain * 0.28 + micro * 0.14 - grout * 0.55
-    rough = np.clip(0.72 + grout * 0.22 + (grain - 0.5) * 0.12, 0.48, 0.96)
-    ao = np.clip(1.0 - grout * 0.58, 0.35, 1.0)
-    return make_rgba(rgb), make_nr(h, rough, ao, strength=6.0)
-
-
-def tile_4_granite_flagstones():
-    """Seoul Boulevard Large Honed Pocheon Granite Flagstones (강남/광화문 대형 화강석 판석)."""
-    y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
-    n_slabs = 4.0
-    gx = x / (TILE / n_slabs)
-    gy = y / (TILE / n_slabs)
-    iy = np.floor(gy).astype(np.int32)
-    gx_s = gx + (iy % 2) * 0.5
-    ix_s = np.floor(gx_s).astype(np.int32) % 4
-    iy_m = iy % 4
-    fx = gx_s - np.floor(gx_s)
-    fy = gy - np.floor(gy)
-
-    seam_d = np.minimum(np.minimum(fx, 1.0 - fx), np.minimum(fy, 1.0 - fy))
-    grout = np.clip((0.022 - seam_d) / 0.012, 0.0, 1.0)
-    bevel = np.clip((seam_d - 0.016) / 0.028, 0.0, 1.0)
-
-    rng = np.random.default_rng(1401)
-    sv = rng.uniform(-0.045, 0.045, size=(4, 4)).astype(np.float32)
-    st = rng.uniform(-0.015, 0.020, size=(4, 4)).astype(np.float32)
-    grain = tileable_fbm(TILE, octaves=5, base_freq=24, seed=1402)
+    rng = np.random.default_rng(1404)
+    sv = rng.uniform(-0.036, 0.036, size=(int(rows), int(cols))).astype(np.float32)
+    st = rng.uniform(-0.010, 0.014, size=(int(rows), int(cols))).astype(np.float32)
+    macro = tileable_fbm(TILE, octaves=4, base_freq=8, seed=1405)
+    grain = tileable_fbm(TILE, octaves=5, base_freq=28, seed=1402)
     speck = high_freq_grain(TILE, seed=1403)
-    biotite = (speck < 0.22).astype(np.float32) * 0.085
-    feldspar = (speck > 0.80).astype(np.float32) * 0.065
+    biotite = np.clip((0.23 - speck) * 3.4, 0.0, 1.0) * 0.068
+    feldspar = np.clip((speck - 0.74) * 3.4, 0.0, 1.0) * 0.056
 
-    base = 0.60 + sv[iy_m, ix_s] + (grain - 0.5) * 0.065 - biotite + feldspar
+    base = 0.665 + sv[iy_m, ix_s] + (macro - 0.5) * 0.026 + (grain - 0.5) * 0.040 - biotite + feldspar
     tint = st[iy_m, ix_s]
-    rgb = np.stack([base + tint, base + tint * 0.4, base - tint * 0.4], axis=-1) * (1.0 - grout[:, :, None] * 0.55)
-    h = bevel * 0.45 + grain * 0.25 + speck * 0.20 - grout * 0.62
-    rough = np.clip(0.56 + grout * 0.34 + (grain - 0.5) * 0.14, 0.38, 0.94)
-    ao = np.clip(1.0 - grout * 0.62, 0.34, 1.0)
-    return make_rgba(rgb), make_nr(h, rough, ao, strength=5.0)
+    stone_rgb = np.stack([base * 1.022 + tint, base * 1.004 + tint * 0.35, base * 0.968 - tint * 0.35], axis=-1)
+    joint_rgb = np.stack([np.full_like(base, 0.435), np.full_like(base, 0.426), np.full_like(base, 0.412)], axis=-1)
+    rgb = stone_rgb * (1.0 - grout[:, :, None]) + joint_rgb * grout[:, :, None]
+    h = bevel * 0.44 + grain * 0.24 + speck * 0.22 - grout * 0.34
+    rough = np.clip(0.63 + grout * 0.24 + (grain - 0.5) * 0.10 - feldspar * 0.80, 0.44, 0.94)
+    ao = np.clip(1.0 - grout * 0.26 - biotite * 0.55, 0.64, 1.0)
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=3.4)
 
 
 def tile_5_tactile_yellow():
-    """Korean Yellow Tactile Braille Guide Paving (노란 점자블록: crisp 4-rib guide bars)."""
-    y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
-    gx = (x / (TILE / 2.0)) % 1.0
-    gy = (y / (TILE / 2.0)) % 1.0
-    seam = np.clip((0.026 - np.minimum(np.minimum(gx, 1.0 - gx), np.minimum(gy, 1.0 - gy))) / 0.014, 0.0, 1.0)
+    """Korean KS F 4561 Standard Yellow Tactile Guide Paving Block (노란 선형 점자블록 300x300mm).
+    1 full 30x30cm tile per [0..1] UV with 4 crisp raised flat-top trapezoidal guide bars along V,
+    non-slip micro-stipple texture, subtle foot-wear patina, and clean 2.5mm perimeter tile seam!
+    """
+    y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32) / TILE
+    # Crisp 2.5mm perimeter tile seam between consecutive 300x300mm tactile blocks
+    edge_d = np.minimum(np.minimum(x, 1.0 - x), np.minimum(y, 1.0 - y))
+    seam = np.clip((0.015 - edge_d) / 0.008, 0.0, 1.0)
 
-    # 4 crisp raised longitudinal linear tactile guide bars per tile (standard Korean 유도블록!)
-    rib_u = (gx * 4.0) % 1.0
-    in_rib_x = np.clip((0.26 - np.abs(rib_u - 0.5)) / 0.06, 0.0, 1.0)
-    in_rib_y = np.clip((0.43 - np.abs(gy - 0.5)) / 0.04, 0.0, 1.0)
+    # 4 KS F 4561 linear guide bars spaced 75mm apart (centers at x = 0.125, 0.375, 0.625, 0.875)
+    rib_u = (x * 4.0) % 1.0
+    dx_rib = np.abs(rib_u - 0.5)
+    dy_rib = np.abs(y - 0.5)
+    in_rib_x = np.clip((0.235 - dx_rib) / 0.075, 0.0, 1.0)
+    in_rib_y = np.clip((0.455 - dy_rib) / 0.032, 0.0, 1.0)
     rib_h = in_rib_x * in_rib_y
-    grain = tileable_fbm(TILE, octaves=4, base_freq=32, seed=1501)
 
-    r = 0.91 + rib_h * 0.06 + (grain - 0.5) * 0.05
-    g = 0.74 + rib_h * 0.05 + (grain - 0.5) * 0.05
-    b = 0.11 + rib_h * 0.03 + (grain - 0.5) * 0.03
-    rgb = np.stack([r, g, b], axis=-1) * (1.0 - seam[:, :, None] * 0.52)
-    h = rib_h * 0.72 + grain * 0.14 - seam * 0.52
-    rough = np.clip(0.54 - rib_h * 0.12 + seam * 0.34, 0.34, 0.94)
-    ao = np.clip(0.86 + rib_h * 0.14 - seam * 0.55, 0.34, 1.0)
-    return make_rgba(rgb), make_nr(h, rough, ao, strength=8.5)
+    grain = tileable_fbm(TILE, octaves=4, base_freq=28, seed=1501)
+    micro = high_freq_grain(TILE, seed=1502)
+    valley_dust = (1.0 - rib_h) * 0.075
+
+    r = 0.885 + rib_h * 0.055 - valley_dust + (grain - 0.5) * 0.036 + (micro - 0.5) * 0.018
+    g = 0.715 + rib_h * 0.050 - valley_dust * 0.90 + (grain - 0.5) * 0.032 + (micro - 0.5) * 0.016
+    b = 0.115 + rib_h * 0.025 + valley_dust * 0.20 + (grain - 0.5) * 0.018
+    joint_rgb = np.stack([np.full_like(r, 0.44), np.full_like(g, 0.39), np.full_like(b, 0.22)], axis=-1)
+    rgb = np.stack([r, g, b], axis=-1) * (1.0 - seam[:, :, None]) + joint_rgb * seam[:, :, None]
+    h = rib_h * 0.78 + grain * 0.08 + micro * 0.08 - seam * 0.36
+    rough = np.clip(0.58 - rib_h * 0.14 + seam * 0.28 + (grain - 0.5) * 0.06, 0.36, 0.94)
+    ao = np.clip(0.84 + rib_h * 0.16 - seam * 0.32, 0.50, 1.0)
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=6.8)
 
 
 def tile_6_granite_curbstone():
-    """Korean Dressed Pocheon Granite Curbstone (화강석 경계석: 1m blocks with chisel bevel & gutter grime)."""
+    """Korean Dressed Pocheon Granite Curbstone (화강석 경계석 200x200x1000mm: 2 blocks per 2m with fine chisel grain)."""
     y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32) / TILE
-    # Longitudinal 4 blocks along V (y), transverse coping across U (x)
-    blk_y = (y * 4.0) % 1.0
-    iy = np.floor(y * 4.0).astype(np.int32) % 4
-    joint = np.clip((0.022 - np.minimum(blk_y, 1.0 - blk_y)) / 0.012, 0.0, 1.0)
-    edge_bevel = np.clip((np.minimum(x, 1.0 - x) - 0.03) / 0.08, 0.0, 1.0)
-    gutter_grime = np.clip(1.0 - x * 3.8, 0.0, 1.0) * 0.20
+    blk_y = (y * 2.0) % 1.0
+    iy = np.floor(y * 2.0).astype(np.int32) % 2
+    joint = np.clip((0.016 - np.minimum(blk_y, 1.0 - blk_y)) / 0.008, 0.0, 1.0)
+    edge_bevel = np.clip((np.minimum(x, 1.0 - x) - 0.03) / 0.075, 0.0, 1.0)
+    gutter_grime = np.clip(1.0 - x * 4.2, 0.0, 1.0) * 0.12
 
-    rng = np.random.default_rng(1601)
-    bv = rng.uniform(-0.04, 0.04, size=4).astype(np.float32)[iy]
+    rng = np.random.default_rng(1604)
+    bv = rng.uniform(-0.028, 0.028, size=2).astype(np.float32)[iy]
     grain = tileable_fbm(TILE, octaves=5, base_freq=28, seed=1602)
     speck = high_freq_grain(TILE, seed=1603)
+    biotite = np.clip((0.23 - speck) * 3.2, 0.0, 1.0) * 0.058
+    quartz = np.clip((speck - 0.74) * 3.2, 0.0, 1.0) * 0.050
 
-    base = 0.62 + bv + (grain - 0.5) * 0.09 + (speck - 0.5) * 0.08 - gutter_grime
-    rgb = np.stack([base * 1.00, base * 1.00, base * 1.02], axis=-1) * (1.0 - joint[:, :, None] * 0.56)
-    h = edge_bevel * 0.42 + grain * 0.35 + speck * 0.23 - joint * 0.60
-    rough = np.clip(0.68 + joint * 0.24 + (grain - 0.5) * 0.12, 0.48, 0.96)
-    ao = np.clip(1.0 - joint * 0.58 - gutter_grime * 0.6, 0.35, 1.0)
-    return make_rgba(rgb), make_nr(h, rough, ao, strength=6.0)
+    base = 0.675 + bv + (grain - 0.5) * 0.050 + quartz - biotite - gutter_grime
+    stone_rgb = np.stack([base * 1.022, base * 1.006, base * 0.974], axis=-1)
+    joint_rgb = np.stack([np.full_like(base, 0.42), np.full_like(base, 0.412), np.full_like(base, 0.402)], axis=-1)
+    rgb = stone_rgb * (1.0 - joint[:, :, None]) + joint_rgb * joint[:, :, None]
+    h = edge_bevel * 0.46 + grain * 0.28 + speck * 0.22 - joint * 0.42
+    rough = np.clip(0.70 + joint * 0.18 + (grain - 0.5) * 0.10, 0.50, 0.96)
+    ao = np.clip(1.0 - joint * 0.30 - gutter_grime * 0.45, 0.55, 1.0)
+    return make_rgba(rgb), make_nr(h, rough, ao, strength=4.2)
 
 
 def tile_7_manhole_drain():
