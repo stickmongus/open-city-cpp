@@ -4655,6 +4655,29 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
             const int laneIdx = (v.kind == VehicleKind::SeoulBus) ? (nLanes - 1) : (v.id % nLanes);
             const float laneOff = layout.laneCenterOffset(laneIdx);
             targetPoint = b + rightN * laneOff;
+            if (rd.hasOcrmMesh()) {
+                float tY = 0.0f;
+                bool tSw = false;
+                if (rd.ocrmMesh().sampleSurfaceHeightAt(targetPoint, v.posY, tY, &tSw) &&
+                    tSw && std::abs(tY - v.posY) < 1.5f) {
+                    // Lane pinched by narrower OCRM curb or central median — shift toward guaranteed asphalt lane / carriageway center!
+                    const bool isOneWayRoad = (r.flags & 1u) != 0u;
+                    bool foundSafe = false;
+                    for (int tryL = 0; tryL < nLanes; ++tryL) {
+                        const int pick = isOneWayRoad ? ((nLanes / 2 + tryL) % nLanes) : tryL;
+                        const Vec2 candTp = b + rightN * layout.laneCenterOffset(pick);
+                        float cY = 0.0f;
+                        bool cSw = false;
+                        if (rd.ocrmMesh().sampleSurfaceHeightAt(candTp, v.posY, cY, &cSw) &&
+                            !cSw && std::abs(cY - v.posY) < 1.5f) {
+                            targetPoint = candTp;
+                            foundSafe = true;
+                            break;
+                        }
+                    }
+                    if (!foundSafe && isOneWayRoad) targetPoint = b;
+                }
+            }
 
             if ((v.pos - targetPoint).lengthSq() < 7.5f * 7.5f) {
                 const int nextIdx = static_cast<int>(v.osmVertIdx) + v.osmDir;
@@ -4689,16 +4712,20 @@ void GameWorld::updateTrafficAi(float dt, Vehicle& v) {
                 float ocY = 0.0f;
                 bool isSw = false;
                 if (rd.ocrmMesh().sampleSurfaceHeightAt(v.pos, v.posY, ocY, &isSw) &&
-                    isSw && std::abs(ocY - v.posY) < 1.05f) {
-                    const NearestOsmRoad nrBack = rd.findNearestRoad(v.pos, 22.0f, v.posY);
-                    if (nrBack.found && nrBack.roadClass <= 4u) {
-                        const Vec2 backRight{-nrBack.tangent.z, nrBack.tangent.x};
-                        const float backSign = (forwardFromHeading(v.heading).dot(nrBack.tangent) >= 0.0f) ? 1.0f : -1.0f;
-                        const RoadLaneLayout bl = RealSeoulData::computeRoadLaneLayout(rd.roads()[nrBack.roadIdx]);
-                        targetPoint = nrBack.closestPt + (backRight * backSign) * bl.laneCenterOffset(0) + (nrBack.tangent * backSign) * 6.0f;
-                        // Damp sideways drift when recovering from curb
-                        if (v.speed() > 7.0f) v.velocity *= (1.0f - std::min(0.35f, dt * 3.0f));
+                    isSw && std::abs(ocY - v.posY) < 1.25f) {
+                    const float segLen2 = std::max(0.01f, seg.lengthSq());
+                    const float tProj = clampf((v.pos - a).dot(seg) / segLen2, 0.0f, 1.0f);
+                    const Vec2 ownCenter = a + seg * tProj;
+                    const Vec2 safeLanePt = ((r.flags & 1u) != 0u)
+                        ? ownCenter
+                        : (ownCenter + rightN * layout.laneCenterOffset(0));
+                    targetPoint = safeLanePt + tang * 6.0f;
+                    const Vec2 toSafe = safeLanePt - v.pos;
+                    const float dSafe = toSafe.length();
+                    if (dSafe > 0.05f && dSafe < 12.0f) {
+                        v.pos += (toSafe / dSafe) * std::min(dSafe, std::min(0.65f, dt * 12.0f));
                     }
+                    if (v.speed() > 7.0f) v.velocity *= (1.0f - std::min(0.35f, dt * 3.0f));
                 }
             }
         }
