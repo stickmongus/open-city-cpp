@@ -1723,6 +1723,11 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                         py = std::min(py, nr.deckY - 0.55f);
                     }
                 }
+                Vec2 bChk = p;
+                if (real.resolveCircleBuildings(bChk, 0.55f)) {
+                    outNearRoad = true;
+                    py = std::min(py, h - 0.65f);
+                }
                 return py;
             };
             auto emitParkVert = [&](const Vec2& p, float py) {
@@ -2477,17 +2482,30 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                 }
 
                 case SeoulLandmarkKind::DongdaemunDDP: {
-                    // Dongdaemun Design Plaza (DDP): continuous sweeping curved silver-aluminum Zaha Hadid pavilion E-W!
-                    const int segs = 14;
+                    // Dongdaemun Design Plaza (DDP): sculpted Zaha Hadid sweeping curved brushed-aluminium pavilion
+                    // with recessed dark-glass exhibition ribbons, cantilevered upper shell & glowing skylight seams!
+                    const int segs = 16;
                     for (int s = 0; s < segs; ++s) {
                         const float u = static_cast<float>(s) / static_cast<float>(segs - 1);
                         const float dx = lerpf(-58.0f, 58.0f, u);
                         const float dz = std::sin(u * kPi * 1.4f) * 18.0f;
-                        const float w = 22.0f + 10.0f * std::sin(u * kPi);
-                        const float h = 16.0f + 11.0f * std::sin(u * kPi);
-                        addRotBox(metalMb, lx, baseY + (h - 4.0f) * 0.5f, lz, dx, dz, {14.0f, h + 4.0f, w}, yaw + std::cos(u * kPi * 1.4f) * 0.25f, {214, 220, 228, 255});
+                        const float segYaw = yaw + std::cos(u * kPi * 1.4f) * 0.25f;
+                        const float w = 21.0f + 10.5f * std::sin(u * kPi);
+                        const float h = 15.5f + 11.0f * std::sin(u * kPi);
+                        // Recessed dark granite plinth & 1F panoramic exhibition glass gallery ribbon
+                        addRotBox(stoneMb, lx, baseY + 0.3f, lz, dx, dz, {12.35f, 5.6f, w * 0.935f}, segYaw, {104, 110, 118, 255});
+                        addRotBox(glassMb, lx, baseY + 4.6f, lz, dx, dz, {12.50f, 3.6f, w * 0.945f}, segYaw, {34, 48, 64, 255});
+                        // Sculpted silver-aluminium cantilevered upper shell with stepped horizontal panel seams
+                        addRotBox(metalMb, lx, baseY + 8.6f, lz, dx, dz, {13.6f, 4.8f, w * 1.02f}, segYaw, {204, 212, 222, 255});
+                        addRotBox(metalMb, lx, baseY + 11.4f, lz, dx, dz, {13.0f, 0.55f, w * 1.04f}, segYaw, {132, 140, 152, 255});
+                        const float upperH = std::max(3.5f, h - 11.8f);
+                        addRotBox(metalMb, lx, baseY + 11.8f + upperH * 0.5f, lz, dx, dz, {12.8f, upperH, w * 0.96f}, segYaw, {218, 224, 232, 255});
+                        // Upper mezzanine ribbon window band
+                        if (s >= 2 && s <= segs - 3) {
+                            addRotBox(glassMb, lx, baseY + 13.8f, lz, dx, dz, {13.1f, 2.1f, w * 0.985f}, segYaw, {42, 60, 78, 255});
+                        }
                         if (s % 2 == 0) {
-                            addRotBox(glowMb, lx, baseY + h + 0.5f, lz, dx, dz, {12.0f, 0.9f, w * 0.72f}, yaw + std::cos(u * kPi * 1.4f) * 0.25f, {192, 228, 255, 255});
+                            addRotBox(glowMb, lx, baseY + h + 0.45f, lz, dx, dz, {11.4f, 0.75f, w * 0.70f}, segYaw, {192, 228, 255, 255});
                         }
                     }
                     break;
@@ -5614,31 +5632,43 @@ void Renderer3D::drawTreesAndProps(VulkanContext& vk, const GameWorld& world,
                     { 42, 168,  78, 255}  // 55: Line 2 Green (홍대입구역)
                 };
                 unsigned metroIdx = 0u;
+                ColorRGBA lineCol = kMetroLines[0];
+                bool hasExactStationSign = true;
                 switch (city.districtAtWorld(p.pos)) {
-                    case DistrictType::GangnamTeheran:     metroIdx = (p.pos.x > 4700.0f) ? 1u : 0u; break;
-                    case DistrictType::JamsilSongpa:       metroIdx = 2u; break;
-                    case DistrictType::SeochoBanpo:        metroIdx = 3u; break;
-                    case DistrictType::GwanghwamunPalace:  metroIdx = 4u; break;
+                    case DistrictType::GangnamTeheran:     metroIdx = (p.pos.x > 4700.0f) ? 1u : 0u; lineCol = kMetroLines[metroIdx]; break;
+                    case DistrictType::JamsilSongpa:       metroIdx = 2u; lineCol = kMetroLines[2]; break;
+                    case DistrictType::SeochoBanpo:        metroIdx = 3u; lineCol = kMetroLines[3]; break;
+                    case DistrictType::GwanghwamunPalace:  metroIdx = 4u; lineCol = kMetroLines[4]; break;
                     case DistrictType::MyeongdongCityHall:
-                    case DistrictType::JongnoCheonggye:    metroIdx = 5u; break;
-                    case DistrictType::YeouidoFinance:     metroIdx = 6u; break;
-                    case DistrictType::HongdaeMapo:        metroIdx = 7u; break;
-                    default:
-                        metroIdx = static_cast<unsigned>(std::abs(static_cast<int>(p.pos.x + p.pos.z))) & 7u;
-                        break;
+                    case DistrictType::JongnoCheonggye:    metroIdx = 5u; lineCol = kMetroLines[5]; break;
+                    case DistrictType::YeouidoFinance:     metroIdx = 6u; lineCol = kMetroLines[6]; break;
+                    case DistrictType::HongdaeMapo:        metroIdx = 7u; lineCol = kMetroLines[7]; break;
+                    case DistrictType::NamsanItaewon:      lineCol = {178,  92,  26, 255}; hasExactStationSign = false; break; // Line 6 Ochre-Brown (이태원·녹사평)
+                    case DistrictType::Dongdaemun:         lineCol = { 32, 162, 224, 255}; hasExactStationSign = false; break; // Line 4 Sky-Blue (동대문역사문화공원)
+                    case DistrictType::SeongsuKonkuk:      lineCol = { 42, 168,  78, 255}; hasExactStationSign = false; break; // Line 2 Green (성수·건대입구)
+                    case DistrictType::Yongsan:            lineCol = { 36,  98, 198, 255}; hasExactStationSign = false; break; // Line 1 Navy (용산·남영)
+                    case DistrictType::GangbukNowon:       lineCol = { 32, 162, 224, 255}; hasExactStationSign = false; break; // Line 4 Sky-Blue
+                    case DistrictType::GangseoMagok:       lineCol = {192, 162,  66, 255}; hasExactStationSign = false; break; // Line 9 Gold
+                    case DistrictType::GuroGwanak:
+                    default:                               lineCol = { 42, 168,  78, 255}; hasExactStationSign = false; break; // Line 2 Green
                 }
-                const ColorRGBA lineCol = kMetroLines[metroIdx];
                 // Illuminated Seoul Metro line header fascia flanking the vaulted glass canopy
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.58f,  1.38f) * Mat4::scale(5.58f, 0.44f, 0.12f),
                          lineCol, 0.24f, 0.16f, nightMode ? 0.45f : 0.06f, MatId::Standard, false);
                 drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.58f, -1.38f) * Mat4::scale(5.58f, 0.44f, 0.12f),
                          lineCol, 0.24f, 0.16f, nightMode ? 0.45f : 0.06f, MatId::Standard, false);
                 if (!shadowPass) {
-                    if (distSq < signRadiusSq) {
+                    if (hasExactStationSign && distSq < signRadiusSq) {
                         const int metroSlot = 48 + static_cast<int>(metroIdx);
                         const float mEm = nightMode ? 0.58f : 0.10f;
                         drawLocalSign({0.0f, 2.58f,  1.46f}, {0.0f, 0.0f,  1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.68f, metroSlot, mEm);
                         drawLocalSign({0.0f, 2.58f, -1.46f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, 3.6f, 0.68f, metroSlot, mEm);
+                    } else {
+                        // Crisp white Seoul Metro fascia stripe band when using district line color
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.58f,  1.45f) * Mat4::scale(4.6f, 0.14f, 0.03f),
+                                 {240, 244, 248, 255}, 0.28f, 0.08f, nightMode ? 0.42f : 0.06f, MatId::Standard, false);
+                        drawMesh(vk, cubeMesh_, baseM * Mat4::translation(0.0f, 2.58f, -1.45f) * Mat4::scale(4.6f, 0.14f, 0.03f),
+                                 {240, 244, 248, 255}, 0.28f, 0.08f, nightMode ? 0.42f : 0.06f, MatId::Standard, false);
                     }
                     // Iconic circular Seoul Metro Line Exit Pole Sign emblem (출입구 폴사인)!
                     drawMesh(vk, sphereMesh_, baseM * Mat4::translation(3.28f, 4.50f, 0.0f) * Mat4::scale(0.92f, 0.92f, 0.22f),

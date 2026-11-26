@@ -885,7 +885,9 @@ void main() {
 
             // Detect reflective architectural glass windows cleanly via baked 4K PBR roughness < 0.145!
             bool pbrWin = (pR < 0.145);
-            if (pbrWin) {
+            // Architectural 1F anodized aluminium transom bar & lower kickplate plinth for crisp close-up retail framing
+            bool is1FTransom = isGroundFlr && (abs(wallM.y - 2.72) < 0.075 || wallM.y < 0.34);
+            if (pbrWin && !is1FTransom) {
                 isWindowPane = true;
                 isGlassTowerWin = isGlassTower;
 
@@ -901,44 +903,67 @@ void main() {
                 float floorSeed = hash12(vec2(roomCoord.y + bldKey * 7.1, floor(fragPosition.x * 0.025) + floor(fragPosition.z * 0.025)));
                 float roomSeed  = hash12(roomCoord + vec2(bldKey * 13.7, floor(fragPosition.x * 0.03) - floor(fragPosition.z * 0.03)));
 
-                float depthAO = 0.68;
-                vec3 intRoomBase = vec3(0.09, 0.10, 0.12);
-                float ceilLightBar = 0.24;
+                float depthAO = 0.62;
+                vec3 intRoomBase = vec3(0.08, 0.09, 0.11);
+                float ceilLightBar = 0.20;
                 float blindMask = 0.0;
+                float retailDetail = 0.72;
 
                 if (ubo.localLightCount.y > 1.5) {
                     vec3 T_w = normalize(cross(N, vec3(0.0, 1.0, 0.0)));
                     vec3 rayW = -V;
                     vec3 rDir = vec3(dot(rayW, T_w), rayW.y, max(dot(rayW, -N), 0.08));
-                    float roomDepth = isGroundFlr ? 0.92 : 0.72;
+                    float roomDepth = isGroundFlr ? 1.15 : 0.72;
                     float tBack = roomDepth / rDir.z;
                     float tX = (abs(rDir.x) > 0.001) ? (((rDir.x > 0.0) ? (1.0 - rPos2.x) : rPos2.x) / abs(rDir.x)) : 99.0;
                     float tY = (abs(rDir.y) > 0.001) ? (((rDir.y > 0.0) ? (1.0 - rPos2.y) : rPos2.y) / abs(rDir.y)) : 99.0;
                     float tHit = min(tBack, min(tX, tY));
                     vec3 hitP = vec3(rPos2, 0.0) + rDir * tHit;
 
-                    // Interior surface shading: ceiling slab + linear LED light bars, back wall, side partitions, floor
-                    depthAO = exp(-hitP.z * 1.45);
-                    intRoomBase = vec3(0.10, 0.11, 0.13);
+                    // Interior surface shading: ceiling slab + linear LED / pendant lights, back wall shelving/counter, side walls, floor
+                    depthAO = exp(-hitP.z * (isGroundFlr ? 1.75 : 1.45));
+                    intRoomBase = vec3(0.09, 0.10, 0.12);
                     ceilLightBar = 0.0;
                     if (tY <= tX && tY <= tBack) {
                         if (rDir.y > 0.0) {
-                            // Office / retail ceiling with crisp recessed LED light strips
-                            intRoomBase = vec3(0.19, 0.20, 0.22);
-                            float barX = 1.0 - smoothstep(0.18, 0.30, abs(hitP.x - 0.5));
-                            float barZ = smoothstep(0.12, 0.24, fract(hitP.z * 2.6)) * (1.0 - smoothstep(0.68, 0.80, fract(hitP.z * 2.6)));
-                            ceilLightBar = barX * barZ;
+                            // Office / retail ceiling with crisp recessed LED light strips or cafe downlight spots
+                            intRoomBase = vec3(0.16, 0.17, 0.19);
+                            if (isGroundFlr) {
+                                vec2 spotCell = fract(vec2(hitP.x * 2.0, hitP.z * 2.2)) - 0.5;
+                                float spotD = length(spotCell);
+                                ceilLightBar = smoothstep(0.24, 0.07, spotD) * 1.15;
+                            } else {
+                                float barX = 1.0 - smoothstep(0.18, 0.30, abs(hitP.x - 0.5));
+                                float barZ = smoothstep(0.12, 0.24, fract(hitP.z * 2.6)) * (1.0 - smoothstep(0.68, 0.80, fract(hitP.z * 2.6)));
+                                ceilLightBar = barX * barZ;
+                            }
                         } else {
-                            // Darker interior floor slab
-                            intRoomBase = vec3(0.055, 0.058, 0.064);
+                            // Darker interior floor slab (wood/tile reflection inside retail shops)
+                            intRoomBase = isGroundFlr ? vec3(0.045, 0.042, 0.040) : vec3(0.055, 0.058, 0.064);
+                            retailDetail = 0.38;
                         }
                     } else if (tBack <= tX) {
-                        // Back interior wall with subtle desk/partition band
-                        float deskBand = smoothstep(0.28, 0.36, hitP.y);
-                        intRoomBase = mix(vec3(0.06, 0.065, 0.075), vec3(0.14, 0.145, 0.155), deskBand) * depthAO;
+                        if (isGroundFlr) {
+                            // Authentic Korean 1F shop interior: lower counter (0..0.30), display shelves (0.30..0.72), upper menu/wall (0.72..1.0)
+                            float counterMask = 1.0 - smoothstep(0.26, 0.31, hitP.y);
+                            float shelfLines  = smoothstep(0.32, 0.36, hitP.y) * (1.0 - smoothstep(0.70, 0.74, hitP.y)) *
+                                                (0.55 + 0.45 * smoothstep(0.12, 0.28, fract(hitP.y * 11.0)));
+                            float goodsVar    = 0.72 + 0.28 * hash12(floor(vec2(hitP.x * 9.0, hitP.y * 11.0)) + roomCoord);
+                            float upperWall   = smoothstep(0.72, 0.76, hitP.y);
+                            vec3 counterCol   = vec3(0.042, 0.038, 0.036);
+                            vec3 shelfCol     = vec3(0.125, 0.118, 0.112) * goodsVar * (0.65 + 0.35 * shelfLines);
+                            vec3 menuCol      = vec3(0.085, 0.088, 0.095);
+                            intRoomBase = mix(mix(shelfCol, counterCol, counterMask), menuCol, upperWall) * depthAO;
+                            retailDetail = mix(mix(0.88 * goodsVar, 0.26, counterMask), 0.54, upperWall);
+                        } else {
+                            // Back interior wall with subtle desk/partition band
+                            float deskBand = smoothstep(0.28, 0.36, hitP.y);
+                            intRoomBase = mix(vec3(0.06, 0.065, 0.075), vec3(0.14, 0.145, 0.155), deskBand) * depthAO;
+                        }
                     } else {
-                        // Side partition walls
-                        intRoomBase = vec3(0.10, 0.105, 0.115) * depthAO;
+                        // Side partition walls (subtle vertical paneling in retail bays)
+                        intRoomBase = vec3(0.085, 0.090, 0.100) * depthAO;
+                        retailDetail = 0.48;
                     }
 
                     // Subtle partially-lowered office Venetian blinds on random windows (authentic Teheran-ro detail!)
@@ -970,42 +995,61 @@ void main() {
                     windowReflTint = (archSeed < 0.42) ? mix(blueRefl, tealRefl, archSeed / 0.42)
                                                        : mix(tealRefl, silverRefl, (archSeed - 0.42) / 0.58);
                 } else if (isGroundFlr) {
-                    glassTint = vec3(0.014, 0.022, 0.032);
-                    windowReflTint = vec3(0.52, 0.62, 0.74);
+                    glassTint = vec3(0.010, 0.016, 0.024);
+                    windowReflTint = vec3(0.48, 0.58, 0.70);
                 } else {
                     glassTint = mix(vec3(0.016, 0.026, 0.040), vec3(0.026, 0.036, 0.048), archSeed);
                     windowReflTint = mix(vec3(0.56, 0.70, 0.86), vec3(0.68, 0.78, 0.88), archSeed);
                 }
 
-                // Physically linear daytime glass: deep sleek tempered glass with crisp 3D parallax interior depth (ZERO chalky grey!)
-                albedo = glassTint + intRoomBase * (isGroundFlr ? 0.14 : 0.10);
-                roughness = metaDarkMetal ? 0.026 : (isGlassTower ? 0.032 : 0.048);
-                metallic  = metaDarkMetal ? 0.54  : (isGlassTower ? 0.44  : 0.24);
+                // Physically linear daytime glass: deep sleek tempered glass with crisp 3D parallax interior depth
+                albedo = glassTint + intRoomBase * (isGroundFlr ? 0.18 : 0.10);
+                roughness = metaDarkMetal ? 0.026 : (isGlassTower ? 0.032 : (isGroundFlr ? 0.038 : 0.048));
+                metallic  = metaDarkMetal ? 0.54  : (isGlassTower ? 0.44  : 0.26);
 
-                // Realistic Dusk / Night Interior Illumination (ZERO glow at sunny afternoon 16:51!)
+                // Realistic Dusk / Night Interior Illumination (calibrated so 1F shopfronts show 3D depth — NEVER blinding flat white slabs!)
                 float duskUpper = smoothstep(0.46, 0.84, nightFactor);
-                float dusk1F    = smoothstep(0.30, 0.76, nightFactor);
+                float dusk1F    = smoothstep(0.28, 0.78, nightFactor);
                 bool floorActive = isGlassTower ? (floorSeed > 0.36) : (floorSeed > 0.26);
-                float roomLitProb = isGroundFlr ? 0.84 : (floorActive ? (isGlassTower ? 0.74 : 0.58) : 0.09);
+                float roomLitProb = isGroundFlr ? 0.68 : (floorActive ? (isGlassTower ? 0.74 : 0.58) : 0.09);
 
                 if (roomSeed > (1.0 - roomLitProb)) {
-                    vec3 warmHome   = pow(vec3(1.00, 0.80, 0.50), vec3(2.2)); // 3000K Korean apartment/cafe warm glow
-                    vec3 crispOff   = pow(vec3(0.84, 0.92, 1.00), vec3(2.2)); // 5000K Korean office LED
-                    vec3 neutralOff = pow(vec3(0.96, 0.89, 0.74), vec3(2.2)); // 4000K warm-white commercial
+                    vec3 warmHome   = pow(vec3(1.00, 0.78, 0.46), vec3(2.2)); // 2900K Korean cafe / apartment warm glow
+                    vec3 crispOff   = pow(vec3(0.84, 0.92, 1.00), vec3(2.2)); // 5000K Korean office / convenience store LED
+                    vec3 neutralOff = pow(vec3(0.96, 0.87, 0.70), vec3(2.2)); // 3800K warm-white bistro / boutique
                     vec3 intCol = isKoreaApt
                         ? mix(warmHome, neutralOff, step(0.74, roomSeed))
                         : (isGlassTower ? mix(crispOff, neutralOff, step(0.62, roomSeed))
-                                        : mix(warmHome, crispOff, step(0.70, roomSeed)));
+                                        : (isGroundFlr
+                                            ? mix(mix(warmHome, neutralOff, step(0.56, roomSeed)), crispOff, step(0.82, roomSeed))
+                                            : mix(warmHome, crispOff, step(0.70, roomSeed))));
 
-                    float interiorPat = (0.34 + 0.66 * depthAO + ceilLightBar * 1.15) * (1.0 - blindMask * 0.55);
-                    float glowAmt = isGroundFlr
-                        ? mix(0.04, 1.48, dusk1F)
-                        : (duskUpper * (isGlassTower ? 1.18 : 1.02));
-                    if (glowAmt > 0.005) {
-                        emissiveColor = intCol * interiorPat;
-                        emissive = max(emissive, glowAmt);
+                    if (isGroundFlr) {
+                        // Balanced glass transmission + parallax interior contrast + warm ceiling spotlights (ZERO ACES white-out!)
+                        float ndotvGlass = clamp(dot(N, V), 0.0, 1.0);
+                        float glassTransmit = mix(0.58, 1.0, pow(ndotvGlass, 0.55));
+                        float bayDim = mix(0.55, 1.0, fract(roomSeed * 7.31));
+                        float interiorPat = (0.18 + 0.52 * depthAO * retailDetail + ceilLightBar * 0.78) * bayDim * glassTransmit;
+                        float glowAmt = mix(0.02, 0.72, dusk1F);
+                        if (glowAmt > 0.005) {
+                            emissiveColor = intCol * interiorPat;
+                            emissive = max(emissive, glowAmt);
+                        }
+                    } else {
+                        float interiorPat = (0.34 + 0.66 * depthAO + ceilLightBar * 1.15) * (1.0 - blindMask * 0.55);
+                        float glowAmt = duskUpper * (isGlassTower ? 1.12 : 0.96);
+                        if (glowAmt > 0.005) {
+                            emissiveColor = intCol * interiorPat;
+                            emissive = max(emissive, glowAmt);
+                        }
                     }
                 }
+            } else if (is1FTransom) {
+                // Crisp dark-anodized aluminium storefront transom bar & lower granite/metal kickplate
+                albedo = (wallM.y < 0.34) ? vec3(0.045, 0.048, 0.054) : vec3(0.024, 0.027, 0.032);
+                roughness = (wallM.y < 0.34) ? 0.52 : 0.28;
+                metallic = (wallM.y < 0.34) ? 0.14 : 0.62;
+                surfaceAO = 0.85;
             } else {
                 // Opaque Architectural Cladding / Masonry / Honed Granite / Anodized Mullions:
                 // Preserve full 4K micro-detail while cleanly honoring each real building's 24-bit OCM4 facade RGB!
@@ -1208,8 +1252,9 @@ void main() {
         metallic = 0.0;
     }
     else if (matId == 22) {
-        // MAT 22: Traditional Korean Heritage Stone / Dancheong Timber / Monument Pedestals (Tile 4 Pocheon Granite)
-        // Explicit uniform-flow derivatives + 100% vertex color preservation -> ZERO modern office windows on palaces/gates/statues!
+        // MAT 22: Traditional Korean Heritage Stone / Hanok Timber-Plaster-Hanji Facades / Monument Pedestals
+        // Explicit uniform-flow derivatives; when fragUv carries wall-metric coords (extruded OSM Hanoks), articulate
+        // authentic Korean Hanok timber pillars (기둥), lintels (인방), granite plinth (기단) & Hanji lattice windows (창호문)!
         vec3 dp1 = dFdx(fragPosition);
         vec3 dp2 = dFdy(fragPosition);
         vec2 baseU = vec2(fragPosition.x + fragPosition.z, fragPosition.y) * 0.28;
@@ -1218,11 +1263,71 @@ void main() {
         vec3 pAlb; vec2 pNxy; float pR; float pAO;
         sampleStreetTileGrad(4, baseU, dUdx, dUdy, pAlb, pNxy, pR, pAO);
         float stoneLuma = dot(pAlb, vec3(0.30, 0.59, 0.11));
-        albedo = albedo * mix(0.84, 1.14, clamp(stoneLuma * 2.2, 0.0, 1.0));
-        roughness = clamp(pR * 0.95 + 0.06, 0.42, 0.86);
-        metallic = 0.02;
-        surfaceAO = mix(1.0, pAO, 0.65);
-        N = perturbNormalGrad(N, dp1, dp2, dUdx, dUdy, pNxy, 0.65 * detailFade);
+        bool isHanokWall = (abs(N.y) < 0.45) && (dot(fragUv, fragUv) > 0.0001);
+        if (isHanokWall) {
+            alphaOut = 1.0;
+            vec2 hm = fragUv;
+            float bayW = 2.85;
+            float bayIdx = floor(hm.x / bayW);
+            float bayU = fract(hm.x / bayW);
+            float flrH = 3.15;
+            float flrY = mod(hm.y, flrH);
+            float hSeed = hash12(vec2(bayIdx + floor(fragPosition.x * 0.04), floor(hm.y / flrH) + floor(fragPosition.z * 0.04)));
+
+            vec3 timberCol  = pow(vec3(0.24, 0.15, 0.10), vec3(2.2)); // Traditional dark pine / walnut timber (기둥/인방)
+            vec3 plasterCol = pow(vec3(0.84, 0.80, 0.72), vec3(2.2)); // Warm Korean lime plaster (회벽)
+            vec3 stoneBase  = pow(vec3(0.46, 0.45, 0.43), vec3(2.2)); // Granite base masonry (기단)
+            vec3 hanjiDay   = pow(vec3(0.86, 0.81, 0.70), vec3(2.2)); // Warm mulberry paper (한지 창호)
+
+            bool isPillar   = (bayU < 0.075 || bayU > 0.925);
+            bool isLintel   = (abs(flrY - 0.88) < 0.075 || abs(flrY - 2.48) < 0.085 || flrY > 3.00);
+            bool isBase     = (hm.y < 0.86);
+            bool hasWin     = (hSeed > 0.34) && (bayU > 0.22 && bayU < 0.78) && (flrY > 1.05 && flrY < 2.32);
+
+            if (isBase && !isPillar) {
+                albedo = stoneBase * mix(0.80, 1.18, clamp(stoneLuma * 2.2, 0.0, 1.0));
+                roughness = clamp(pR * 0.95 + 0.08, 0.55, 0.90);
+                surfaceAO = mix(1.0, pAO, 0.72);
+                N = perturbNormalGrad(N, dp1, dp2, dUdx, dUdy, pNxy, 0.72 * detailFade);
+            } else if (isPillar || isLintel) {
+                float grain = 0.88 + 0.24 * valueNoise(hm * vec2(2.5, 18.0));
+                albedo = timberCol * grain;
+                roughness = 0.68;
+                surfaceAO = 0.86;
+            } else if (hasWin) {
+                // Korean traditional Changho wooden grid lattice (세살창호) over warm Hanji paper
+                vec2 wUv = vec2((bayU - 0.22) / 0.56, (flrY - 1.05) / 1.27);
+                vec2 gridF = fract(wUv * vec2(6.0, 8.0));
+                bool isMuntin = (wUv.x < 0.06 || wUv.x > 0.94 || wUv.y < 0.06 || wUv.y > 0.94 ||
+                                 gridF.x < 0.13 || gridF.y < 0.13);
+                if (isMuntin) {
+                    albedo = timberCol * 1.12;
+                    roughness = 0.64;
+                } else {
+                    albedo = hanjiDay;
+                    roughness = 0.78;
+                    float duskHanji = smoothstep(0.28, 0.80, nightFactor);
+                    if (duskHanji > 0.01 && hSeed > 0.48) {
+                        emissiveColor = pow(vec3(1.00, 0.76, 0.42), vec3(2.2)) * (0.75 + 0.25 * (1.0 - abs(wUv.y - 0.5)));
+                        emissive = max(emissive, duskHanji * 0.58);
+                    }
+                }
+            } else {
+                float plasterTex = 0.90 + 0.16 * valueNoise(hm * 3.8);
+                albedo = plasterCol * plasterTex * mix(0.92, 1.06, clamp(stoneLuma * 2.0, 0.0, 1.0));
+                roughness = 0.86;
+                surfaceAO = 0.94;
+                N = perturbNormalGrad(N, dp1, dp2, dUdx, dUdy, pNxy, 0.28 * detailFade);
+            }
+            albedo *= mix(0.78, 1.0, smoothstep(0.0, 1.8, hm.y));
+            metallic = 0.0;
+        } else {
+            albedo = albedo * mix(0.84, 1.14, clamp(stoneLuma * 2.2, 0.0, 1.0));
+            roughness = clamp(pR * 0.95 + 0.06, 0.42, 0.86);
+            metallic = 0.02;
+            surfaceAO = mix(1.0, pAO, 0.65);
+            N = perturbNormalGrad(N, dp1, dp2, dUdx, dUdy, pNxy, 0.65 * detailFade);
+        }
     }
     else if (matId == 23) {
         // MAT 23: OCRM v1 Retroreflective Korean Thermoplastic Road Markings (Yellow Centerline, White Dashed, Blue Bus Lane, Zebra Crosswalks)

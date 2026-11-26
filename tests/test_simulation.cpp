@@ -4680,6 +4680,85 @@ void testV650WholeSeoulOverpassesTpiersAndOcrmPropClearance() {
     ++gTestsPassed;
 }
 
+void testV660PoliceTrafficOcrmZeroFloatingPropsAndNoWaterNpcs() {
+    oc::GameWorld world;
+    ASSERT_TRUE(world.city().loadRealSeoulMapFromFile("assets/maps/seoul_real.ocmap"));
+    ASSERT_TRUE(world.city().loadOcrmRoadMeshFromFile("assets/maps/seoul_roads_hd.ocrm"));
+    world.reset();
+    auto& city = world.city();
+    const auto& rd = city.realData();
+    const auto& ocrm = rd.ocrmMesh();
+
+    // 1. Zero NPCs (including ambient gang guards & patrol police officers) may spawn in Han River water!
+    for (const oc::NpcCharacter& npc : world.npcs()) {
+        if (!npc.alive) continue;
+        ASSERT_TRUE(!rd.isInWater(npc.pos));
+    }
+
+    // 2. Police cruisers & traffic in Real Seoul must spawn strictly on real OSM roads / OCRM asphalt (zero sidewalk/off-road patrol cars!)
+    world.fastTravelTo({3760.0f, 2840.0f}, "강남역");
+    oc::PlayerInput idle{};
+    for (int f = 0; f < 90; ++f) world.update(1.0f / 60.0f, idle);
+    int realPoliceCruisers = 0;
+    for (const oc::Vehicle& v : world.vehicles()) {
+        if (v.destroyed) continue;
+        if (v.isPolice && !v.isParked) {
+            ++realPoliceCruisers;
+            ASSERT_TRUE(v.osmRoadIdx != UINT32_MAX);
+        }
+        float oy = 0.0f;
+        bool onSw = false;
+        const bool hit = ocrm.sampleSurfaceHeightAt(v.pos, v.posY, oy, &onSw);
+        ASSERT_TRUE(hit);
+        if (std::abs(v.posY - oy) < 1.2f) {
+            ASSERT_TRUE(!onSw);
+        }
+    }
+    ASSERT_TRUE(realPoliceCruisers >= 1);
+
+    // 3. Zero floating/sunk props across key districts + SubwayEntrance >= 45m spacing + zero DDP macro-landmark tree pierces
+    const std::array<oc::Vec2, 5> auditSpots = {{
+        { 3760.0f,  2840.0f}, // Gangnam
+        {-1180.0f, -3560.0f}, // Seoul Station
+        {-3950.0f,   410.0f}, // Yeouido 63
+        {  800.0f, -1200.0f}, // Itaewon
+        { 2155.0f, -4812.0f}  // Dongdaemun DDP
+    }};
+    int floatingProps = 0;
+    for (const oc::Vec2& sp : auditSpots) {
+        city.updateStreaming(sp, true);
+        std::vector<oc::Vec2> subways;
+        for (const oc::StreetProp& p : city.streetProps()) {
+            if ((p.pos - sp).lengthSq() > 320.0f * 320.0f) continue;
+            if (p.kind == oc::StreetPropKind::SubwayEntrance) {
+                for (const oc::Vec2& other : subways) {
+                    ASSERT_TRUE((other - p.pos).length() >= 44.5f);
+                }
+                subways.push_back(p.pos);
+            }
+            if (p.kind == oc::StreetPropKind::RoadGantry || p.kind == oc::StreetPropKind::ShopSign) continue;
+            if (p.kind == oc::StreetPropKind::StreetLight && (p.variant == 1u || p.variant == 3u)) continue;
+            const float py = (p.baseY > -1e8f) ? p.baseY : city.surfaceHeightAt(p.pos);
+            const float sy = city.surfaceHeightAt(p.pos, py);
+            if (std::abs(py - sy) > 0.45f) ++floatingProps;
+        }
+    }
+    ASSERT_TRUE(floatingProps == 0);
+
+    // Verify zero trees clip into Dongdaemun DDP pavilion or into any StreetKiosk!
+    city.updateStreaming({2155.0f, -4812.0f}, true);
+    for (const oc::TreeProp& tr : city.trees()) {
+        ASSERT_TRUE(!(std::abs(tr.pos.x - 2155.0f) < 64.0f && std::abs(tr.pos.z + 4812.0f) < 30.0f));
+        for (const oc::StreetProp& p : city.streetProps()) {
+            if (p.kind == oc::StreetPropKind::StreetKiosk) {
+                ASSERT_TRUE((tr.pos - p.pos).length() >= 3.2f);
+            }
+        }
+    }
+
+    ++gTestsPassed;
+}
+
 
 } // namespace
 
@@ -4727,8 +4806,9 @@ int main() {
     testV630ZeroBuildingRoadIntrusionZeroTerrainPiercingAndZeroGroundHoles();
     testV640SeoulSidewalkPaversTactileAndStreetFurnitureFidelity();
     testV650WholeSeoulOverpassesTpiersAndOcrmPropClearance();
+    testV660PoliceTrafficOcrmZeroFloatingPropsAndNoWaterNpcs();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.5.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.6.0 simulation test suites succeeded!\n";
     return 0;
 }
 
