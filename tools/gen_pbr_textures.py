@@ -427,41 +427,59 @@ def gen_stucco_commercial():
 
 def gen_storefront_1f():
     """Ultra-crisp 1024px Ground-Floor Korean Retail Glass Bays & Corporate Lobby:
-    honed basalt pilasters, sleek upper sign fascia, tempered glass bays, recessed doors & warm interiors!"""
+    honed basalt pilasters, sleek upper sign fascia, 1 double-glass entrance door bay + 3 clean panoramic display bays!"""
     y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
     bx = x / (TILE / 4.0)
+    bay_idx = np.floor(bx).astype(np.int32)
     fx = bx - np.floor(bx)
     fy = y / float(TILE)
     grain = tileable_fbm(TILE, octaves=4, base_freq=20, seed=801)
 
-    pilaster = (fx < 0.085) | (fx > 0.915)
-    lintel = fy < 0.17
-    fascia_trim = (fy >= 0.15) & (fy < 0.18)
-    kickplate = fy > 0.89
+    pilaster = (fx < 0.075) | (fx > 0.925)
+    lintel = fy < 0.165
+    fascia_trim = (fy >= 0.148) & (fy < 0.178)
+    kickplate = fy > 0.895
     in_glass = (~pilaster) & (~lintel) & (~kickplate)
-    door_mull = in_glass & ((np.abs(fx - 0.50) < 0.018) | (np.abs(fy - 0.30) < 0.012) | (np.abs(fx - 0.25) < 0.008) | (np.abs(fx - 0.75) < 0.008))
-    door_handle = in_glass & ((np.abs(fx - 0.46) < 0.010) | (np.abs(fx - 0.54) < 0.010)) & (fy > 0.54) & (fy < 0.70)
 
-    rgb = np.stack([0.21 + (grain - 0.5) * 0.05, 0.22 + (grain - 0.5) * 0.05, 0.24 + (grain - 0.5) * 0.05], axis=-1)
+    # Bay 1 = Korean frameless double-glass entrance door; Bays 0/2/3 = clean panoramic display shopfront windows!
+    is_door_bay = (bay_idx == 1)
+    transom_bar = in_glass & (np.abs(fy - 0.31) < 0.014)
+    # Entrance door: crisp double-leaf dark aluminum frame + center seam + lower push-plate rail + brushed stainless pull handles
+    door_frame = in_glass & is_door_bay & (
+        ((np.abs(fx - 0.50) < 0.012) & (fy >= 0.31)) |
+        ((np.abs(fx - 0.12) < 0.014) & (fy >= 0.31)) |
+        ((np.abs(fx - 0.88) < 0.014) & (fy >= 0.31)) |
+        ((fy > 0.855) & (fy <= 0.895))
+    )
+    door_handle = in_glass & is_door_bay & (
+        (np.abs(fx - 0.455) < 0.009) | (np.abs(fx - 0.545) < 0.009)
+    ) & (fy > 0.54) & (fy < 0.70)
+    # Display bays (0, 2, 3): clean slim vertical divider mullions only (zero repeated door handles!)
+    display_mull = in_glass & (~is_door_bay) & (np.abs(fx - 0.50) < 0.011)
+    all_mull = transom_bar | door_frame | display_mull
+
+    rgb = np.stack([0.20 + (grain - 0.5) * 0.05, 0.21 + (grain - 0.5) * 0.05, 0.23 + (grain - 0.5) * 0.05], axis=-1)
     rgb[fascia_trim] = np.array([0.36, 0.39, 0.44])
     warm_shelf = 0.5 + 0.5 * np.sin(fy * 32.0) * 0.35
     gr = 0.26 + 0.18 * (1.0 - fy) * warm_shelf
     gg = 0.24 + 0.15 * (1.0 - fy) * warm_shelf
     gb = 0.20 + 0.11 * (1.0 - fy)
     rgb[in_glass] = np.stack([gr, gg, gb], axis=-1)[in_glass]
-    rgb[door_mull] = np.array([0.13, 0.14, 0.16])
-    rgb[door_handle] = np.array([0.74, 0.76, 0.80])
+    rgb[all_mull] = np.array([0.11, 0.12, 0.14])
+    rgb[door_handle] = np.array([0.76, 0.78, 0.82])
 
     h = np.full((TILE, TILE), 0.82, dtype=np.float32) + grain * 0.07
     h[fascia_trim] = 0.94
     h[in_glass] = 0.18
-    h[door_mull] = 0.56
-    h[door_handle] = 0.76
+    h[all_mull] = 0.62
+    h[door_handle] = 0.80
     rough = np.full((TILE, TILE), 0.44, dtype=np.float32)
     rough[in_glass] = 0.05
+    rough[all_mull] = 0.34
     rough[door_handle | fascia_trim] = 0.22
     ao = np.ones((TILE, TILE), dtype=np.float32)
     ao[in_glass & (fy < 0.24)] = 0.65
+    ao[in_glass & (fy > 0.31) & (fy < 0.36)] = 0.76
     return make_rgba(rgb), make_nr(h, rough, ao, strength=5.0)
 
 

@@ -4587,28 +4587,33 @@ void GameWorld::stepVehiclePhysics(float dt, Vehicle& v, float throttleInput, fl
         }
     }
 
-    // Wet-road raindrop tire spray mist behind rear wheels at highway speeds!
+    // Wet-road raindrop tire spray mist behind rear wheels (lively multi-droplet mist plumes in rain!)
     const float curSpeed = v.speed();
-    if (rainWeather_ && !v.airborne && !v.destroyed && curSpeed > 11.0f && particles_.size() < 760) {
-        const float sprayChance = clampf((curSpeed - 9.0f) / 22.0f, 0.25f, 0.85f);
+    if (rainWeather_ && !v.airborne && !v.destroyed && curSpeed > 6.5f && particles_.size() < 860) {
+        const float sprayChance = clampf((curSpeed - 5.0f) / 16.0f, 0.35f, 0.96f);
         if (rng_.chance(sprayChance)) {
-            const Vec2 rearAxle = v.pos - fwd * (spec.halfLength * 0.78f);
+            const Vec2 rearAxle = v.pos - fwd * (spec.halfLength * 0.80f);
             const Vec2 wheelOff = right * (spec.halfWidth * 0.84f);
+            const int dropletsPerWheel = (curSpeed > 18.0f) ? 2 : 1;
             for (int s = -1; s <= 1; s += 2) {
                 const Vec2 wp = rearAxle + wheelOff * static_cast<float>(s);
-                Particle spray{};
-                spray.kind = ParticleKind::WaterSpray;
-                spray.pos = {wp.x, v.posY + 0.20f, wp.z};
-                spray.vel = {
-                    -fwd.x * curSpeed * 0.16f + right.x * static_cast<float>(s) * rng_.range(0.4f, 1.3f),
-                    rng_.range(0.85f, 2.05f),
-                    -fwd.z * curSpeed * 0.16f + right.z * static_cast<float>(s) * rng_.range(0.4f, 1.3f)
-                };
-                spray.color = {188, 214, 236, 138};
-                spray.size = rng_.range(0.24f, 0.44f);
-                spray.ttl = rng_.range(0.24f, 0.42f);
-                spray.maxTtl = spray.ttl;
-                particles_.push_back(spray);
+                for (int d = 0; d < dropletsPerWheel; ++d) {
+                    Particle spray{};
+                    spray.kind = ParticleKind::WaterSpray;
+                    spray.pos = {wp.x - fwd.x * (0.18f * static_cast<float>(d)),
+                                 v.posY + 0.18f + 0.08f * static_cast<float>(d),
+                                 wp.z - fwd.z * (0.18f * static_cast<float>(d))};
+                    spray.vel = {
+                        -fwd.x * curSpeed * rng_.range(0.14f, 0.24f) + right.x * static_cast<float>(s) * rng_.range(0.45f, 1.55f),
+                        rng_.range(0.95f, 2.35f) * clampf(curSpeed / 22.0f, 0.55f, 1.25f),
+                        -fwd.z * curSpeed * rng_.range(0.14f, 0.24f) + right.z * static_cast<float>(s) * rng_.range(0.45f, 1.55f)
+                    };
+                    spray.color = (d == 0) ? ColorRGBA{196, 222, 244, 165} : ColorRGBA{176, 206, 232, 128};
+                    spray.size = rng_.range(0.26f, 0.52f);
+                    spray.ttl = rng_.range(0.28f, 0.50f);
+                    spray.maxTtl = spray.ttl;
+                    particles_.push_back(spray);
+                }
             }
         }
     }

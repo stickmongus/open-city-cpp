@@ -2004,7 +2004,8 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                     Vec2 test = sigPos;
                     if (!realData_.isInWater(sigPos) && !realData_.isOnRoad(sigPos, 0.55f) &&
                         !isOcrmAsphaltAt(sigPos, syEst) &&
-                        !realData_.resolveCircleBuildings(test, 0.75f)) {
+                        !realData_.resolveCircleBuildings(test, 0.75f) &&
+                        !hasPropNearby(sigPos, 3.2f)) {
                         const Vec2 armDir = rightN * (-side);
                         const float armYaw = std::atan2(armDir.z, armDir.x);
                         const float sy = evalSidewalkY(tSeg, sigPos);
@@ -2173,7 +2174,7 @@ void CityMap::streamRealSeoulProps(const Vec2& focus) {
                         !hasGantryNear(tp, 14.0f) &&
                         !hasTreeNearby(tp, 8.5f) &&
                         !hasPropNearby(tp, 3.4f)) {
-                        const float gy = evalSidewalkY(t, tp);
+                        const float gy = exactPropY(tp, surfaceHeightAt(tp, syEst));
                         const float hScale = 2.85f + static_cast<float>((ri + s + static_cast<std::uint32_t>(nextTree)) % 5u) * 0.24f;
                         trees_.push_back(TreeProp{tp, gy, hScale, 2.25f, true, streetSpecies, treeCurbYaw});
                     }

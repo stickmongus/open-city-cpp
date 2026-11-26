@@ -804,32 +804,35 @@ void main() {
                 N = perturbNormalGrad(N, dp1, dp2, bDdx, bDdy, pNxy, 0.60 * detailFade);
             } else if (curbM >= 3.45) {
                 // Tile 4: 60x30cm Flamed Pocheon Granite Building-Front Public Plaza Flagstones
-                // EXACT SAME UV scale & shading as groundMesh below -> 100% SEAMLESS sidewalk-to-plaza continuity!
+                // EXACT SAME UV scale, slab tone & shading as groundMesh below -> 100% SEAMLESS sidewalk-to-plaza continuity!
                 sampleStreetTileGrad(4, stoneUv, stoneDdx, stoneDdy, pAlb, pNxy, pR, pAO);
-                albedo = pAlb * mix(0.92, 1.02, urbanPatina);
-                roughness = mix(pR, 0.50, wetRoadFactor * 0.65);
-                surfaceAO = pAO;
-                N = perturbNormalGrad(N, dp1, dp2, stoneDdx, stoneDdy, pNxy, 0.62 * detailFade);
+                float slabVar = mix(0.92, 1.04, hash12(floor(p * vec2(1.6667, 3.3333))));
+                albedo = pAlb * mix(0.81, 0.91, urbanPatina) * slabVar;
+                roughness = mix(pR, 0.48, wetRoadFactor * 0.65);
+                surfaceAO = pAO * mix(0.86, 1.0, pAO);
+                N = perturbNormalGrad(N, dp1, dp2, stoneDdx, stoneDdy, pNxy, 0.72 * detailFade);
             } else {
                 // Tile 3: Authentic Seoul Standard 30x30cm Shot-Blasted Granite-Concrete Sidewalk Pavers!
                 sampleStreetTileGrad(3, stoneUv, stoneDdx, stoneDdy, pAlb, pNxy, pR, pAO);
-                albedo = pAlb * mix(0.93, 1.03, urbanPatina);
-                roughness = mix(pR, 0.52, wetRoadFactor * 0.65);
-                surfaceAO = pAO;
-                N = perturbNormalGrad(N, dp1, dp2, stoneDdx, stoneDdy, pNxy, 0.64 * detailFade);
+                float paverVar = mix(0.93, 1.03, hash12(floor(p * 3.3333)));
+                albedo = pAlb * mix(0.84, 0.94, urbanPatina) * paverVar;
+                roughness = mix(pR, 0.50, wetRoadFactor * 0.65);
+                surfaceAO = pAO * mix(0.88, 1.0, pAO);
+                N = perturbNormalGrad(N, dp1, dp2, stoneDdx, stoneDdy, pNxy, 0.72 * detailFade);
             }
         } else {
             // Urban sidewalk-to-building plaza subbase: EXACT SAME Tile 4 60x30cm Pocheon Granite Flagstones!
             // Zero UV phase jump, zero brightness step across the OCRM sidewalk-to-lot boundary!
             sampleStreetTileGrad(4, stoneUv, stoneDdx, stoneDdy, pAlb, pNxy, pR, pAO);
-            albedo = pAlb * mix(0.92, 1.02, urbanPatina);
-            roughness = mix(pR, 0.50, wetRoadFactor * 0.65);
-            surfaceAO = pAO;
-            N = perturbNormalGrad(N, dp1, dp2, stoneDdx, stoneDdy, pNxy, 0.62 * detailFade);
+            float slabVar = mix(0.92, 1.04, hash12(floor(p * vec2(1.6667, 3.3333))));
+            albedo = pAlb * mix(0.81, 0.91, urbanPatina) * slabVar;
+            roughness = mix(pR, 0.48, wetRoadFactor * 0.65);
+            surfaceAO = pAO * mix(0.86, 1.0, pAO);
+            N = perturbNormalGrad(N, dp1, dp2, stoneDdx, stoneDdy, pNxy, 0.72 * detailFade);
         }
-        puddleMask = wetRoadFactor * smoothstep(0.45, 0.78, fbm2(p * 0.22)) * 0.40;
-        albedo *= (1.0 - wetRoadFactor * 0.18 - puddleMask * 0.16);
-        roughness = mix(roughness, 0.09, puddleMask);
+        puddleMask = wetRoadFactor * smoothstep(0.45, 0.78, fbm2(p * 0.22)) * 0.48;
+        albedo *= (1.0 - wetRoadFactor * 0.20 - puddleMask * 0.18);
+        roughness = mix(roughness, 0.07, puddleMask);
     }
     else if (matId == 2 || matId == 3 || matId == 4 || matId == 16 || matId == 18) {
         // Real 4096x4096 PBR Architectural Building Facades + 3D Interior Parallax Mapping + Real OCM4 RGB & Variety!
@@ -1374,12 +1377,39 @@ void main() {
             albedo = (pAlb * 1.04 + vec3(0.006, 0.006, 0.008)) * mix(0.90, 1.12, macroPatina);
             roughness = mix(pR, 0.48, 0.24);
         } else {
-            // Weathered Seoul urban crushed-granite aggregate asphalt
-            albedo = (pAlb * 1.08 + vec3(0.007, 0.007, 0.009)) * mix(0.88, 1.14, macroPatina);
-            roughness = mix(pR, 0.54, 0.20);
+            // Weathered Seoul urban crushed-granite aggregate asphalt + subtle alley/street micro-detail
+            float microGrain = valueNoise(p * 11.5) * 0.10 - 0.05;
+            albedo = (pAlb * 1.08 + vec3(0.008, 0.008, 0.010)) * mix(0.86, 1.15, macroPatina) * (1.0 + microGrain);
+            roughness = mix(pR, 0.56, 0.22);
+            // Subtle dark bitumen tar-sealant crack veins on worn urban streets & alleys
+            float crackF = abs(fbm2(p * 0.38 + vec2(4.2, 9.1)) - 0.50);
+            float crackMask = (1.0 - smoothstep(0.004, 0.016, crackF)) * smoothstep(0.54, 0.72, macroPatina) * detailFade * 0.55;
+            albedo = mix(albedo, vec3(0.012, 0.013, 0.015), crackMask);
+            roughness = mix(roughness, 0.28, crackMask);
+            // Authentic Seoul cast-iron circular manhole covers (맨홀 뚜껑) scattered along urban alleys & streets!
+            if (detailFade > 0.08) {
+                vec2 mhCell = floor(p / 24.0);
+                float mhHash = hash12(mhCell + vec2(17.3, 41.9));
+                if (mhHash > 0.42) {
+                    vec2 mhOff = vec2(hash12(mhCell + vec2(3.1, 7.7)), hash12(mhCell + vec2(9.4, 2.8))) * 14.0 + 5.0;
+                    vec2 mhRel = (p - mhCell * 24.0) - mhOff;
+                    float mhR = length(mhRel);
+                    if (mhR < 0.46) {
+                        float discMask = smoothstep(0.45, 0.41, mhR) * detailFade;
+                        float outerRing = smoothstep(0.035, 0.012, abs(mhR - 0.40));
+                        float innerRing = smoothstep(0.025, 0.010, abs(mhR - 0.24));
+                        float treadPat  = 0.5 + 0.5 * sin(mhRel.x * 52.0) * sin(mhRel.y * 52.0);
+                        vec3 ironCol = mix(vec3(0.042, 0.044, 0.048), vec3(0.095, 0.092, 0.088), treadPat * 0.55 + innerRing * 0.45);
+                        ironCol = mix(ironCol, vec3(0.018, 0.019, 0.021), outerRing * 0.80);
+                        albedo = mix(albedo, ironCol, discMask);
+                        roughness = mix(roughness, mix(0.42, 0.26, treadPat), discMask);
+                        metallic = mix(metallic, 0.72, discMask);
+                    }
+                }
+            }
         }
         surfaceAO = pAO;
-        N = perturbNormalGrad(N, dp1, dp2, dPdx * 0.26, dPdy * 0.26, pNxy, 0.78 * detailFade);
+        N = perturbNormalGrad(N, dp1, dp2, dPdx * 0.26, dPdy * 0.26, pNxy, 0.82 * detailFade);
 
         float wetAmt = clamp(wetRoadFactor + nightFactor * 0.16, 0.0, 1.0);
         wetRoadSurface = wetAmt;
@@ -1519,7 +1549,7 @@ void main() {
         float sunRefl = pow(max(dot(R, L), 0.0), specExp);
         envRefl += sunColor * sunRefl * sunVis * ((matId == 6) ? 2.6 : ((matId == 8 || matId == 25) ? 2.8 : ((matId == 7) ? 2.4 : 2.15)));
 
-        float wetCoat = puddleMask * 0.62 + wetRoadSurface * 0.14;
+        float wetCoat = puddleMask * 0.86 + wetRoadSurface * 0.20;
         float coatStrength = (matId == 6) ? 0.88
                            : ((matId == 8) ? 0.64
                            : ((matId == 25) ? 0.76
@@ -1550,8 +1580,8 @@ void main() {
     }
 
     // -----------------------------------------------------------------------
-    // Dynamic Multi-Point & Spotlight Local Illumination (v3.0.0 Realistic LED
-    // Headlight Optics — ZERO blown-out circular white bumper hotspots!)
+    // Dynamic Multi-Point & Spotlight Local Illumination (v6.7.0 Realistic LED
+    // Headlight Ground Projection Cones + Wet Road Specular Glint!)
     // -----------------------------------------------------------------------
     vec3 localLit = vec3(0.0);
     int numLocal = clamp(int(ubo.localLightCount.x + 0.5), 0, 20);
@@ -1567,7 +1597,7 @@ void main() {
         bool isSpot = (ubo.lightColorType[li].w > 0.5);
 
         float effNdl = isSpot
-            ? max(max(rawNdl, 0.0), smoothstep(0.0, 0.25, rawNdl + 0.06) * 0.24 * step(-0.02, rawNdl))
+            ? max(max(rawNdl, 0.0), smoothstep(0.0, 0.28, rawNdl + 0.12) * 0.36 * step(-0.04, rawNdl))
             : max(rawNdl, 0.0);
         if (effNdl <= 0.0001) continue;
 
@@ -1578,16 +1608,16 @@ void main() {
             vec3 spotFwd = ubo.lightDirCone[li].xyz;
             float cosOuter = ubo.lightDirCone[li].w;
             float cosTheta = dot(-lDir, spotFwd);
-            // Wide cubic optical feather + smooth near-bumper ramp eliminates circular hotspot rings!
-            float cosInner = mix(cosOuter, 1.0, 0.72);
+            // Wide crisp LED low-beam optical cutoff cone with bright mid-field road pool
+            float cosInner = mix(cosOuter, 1.0, 0.62);
             float cone = smoothstep(cosOuter, cosInner, cosTheta);
             cone = cone * cone * (3.0 - 2.0 * cone);
             if (cone <= 0.001) continue;
-            float nearRamp = smoothstep(0.65, 4.2, distL);
-            float longFade = pow(uDist, 1.65);
-            atten = longFade * nearRamp * cone / (1.0 + 0.032 * d2);
+            float nearRamp = smoothstep(0.55, 3.2, distL);
+            float longFade = pow(uDist, 1.45);
+            atten = 1.45 * longFade * nearRamp * cone / (1.0 + 0.024 * d2);
             // Korean low-beam headlights have sharp horizontal cutoff -> never blast bright discs onto bridge soffits overhead!
-            if (N.y < -0.45) atten *= 0.14;
+            if (N.y < -0.45) atten *= 0.12;
         } else {
             // Korean LED streetlamps are full-cutoff downward luminaires (never shine bright circles UP onto bridge undersides!)
             atten *= smoothstep(-0.42, 0.12, lDir.y);
@@ -1605,8 +1635,8 @@ void main() {
         vec3 spec_l = min((D_l * G_l2 * F_l) / max(4.0 * ndotv * effNdl, 0.002), vec3(1.65));
         vec3 diff_l = (vec3(1.0) - F_l) * (1.0 - metallic * 0.85) * albedo / kPi;
 
-        float wetGlint = (puddleMask * 0.75 + wetRoadSurface * 0.22) * pow(ndh_l, 48.0);
-        localLit += (diff_l + spec_l * 0.45 + vec3(wetGlint)) * lCol * effNdl;
+        float wetGlint = (puddleMask * 1.05 + wetRoadSurface * 0.28) * pow(ndh_l, 44.0);
+        localLit += (diff_l + spec_l * 0.48 + vec3(wetGlint)) * lCol * effNdl;
     }
 
     vec3 totalLinear = envLit + directLit + localLit + emissiveColor * emissive;

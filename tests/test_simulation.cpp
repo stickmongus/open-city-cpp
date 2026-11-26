@@ -4771,6 +4771,92 @@ void testV660PoliceTrafficOcrmZeroFloatingPropsAndNoWaterNpcs() {
     ++gTestsPassed;
 }
 
+void testV670HillsideDtmCarveZeroAsphaltBldgsAbutmentsAndZeroTreeFloat() {
+    oc::CityMap city;
+    static constexpr const char* kMapPaths[] = {
+        "assets/maps/seoul_real.ocmap", "../assets/maps/seoul_real.ocmap", "../../assets/maps/seoul_real.ocmap"
+    };
+    static constexpr const char* kOcrmPaths[] = {
+        "assets/maps/seoul_roads_hd.ocrm", "../assets/maps/seoul_roads_hd.ocrm", "../../assets/maps/seoul_roads_hd.ocrm"
+    };
+    bool mapOk = false, ocrmOk = false;
+    for (const char* p : kMapPaths) { if (city.loadRealSeoulMapFromFile(p)) { mapOk = true; break; } }
+    for (const char* p : kOcrmPaths) { if (city.loadOcrmRoadMeshFromFile(p)) { ocrmOk = true; break; } }
+    ASSERT_TRUE(mapOk && ocrmOk);
+    city.generate(20266700ULL);
+    const auto& rd = city.realData();
+    const auto& ocrm = rd.ocrmMesh();
+
+    // 1. Whole-Seoul DTM must NEVER poke > 1.2m above any non-tunnel road vertex!
+    int terrainPokeCount = 0;
+    const auto& rVerts = rd.roadVerts();
+    for (const auto& r : rd.roads()) {
+        if ((r.flags & 4u) != 0u) continue; // bit2 = tunnel
+        for (std::uint16_t k = 0; k < r.vertCount; ++k) {
+            const std::uint32_t vi = r.firstVert + k;
+            const float ry = rd.roadVertY(vi);
+            const float ty = rd.sampleDem(rVerts[vi]);
+            if (ty - ry > 1.2f) ++terrainPokeCount;
+        }
+    }
+    ASSERT_TRUE(terrainPokeCount == 0);
+
+    // 2. Across Gangnam, Jongno, Itaewon, Gwanghwamun, Banpo & Namsan hillside:
+    //    - ZERO buildings centered on OCRM asphalt
+    //    - ZERO hillside buildings floating > 2.5m above terrain
+    //    - ZERO floating street trees (tFloat == 0)
+    //    - ZERO tight prop-to-prop overlaps (pOvl == 0)
+    const std::array<oc::Vec2, 6> spots = {{
+        { 3760.0f,  2840.0f}, // Gangnam Station
+        {  450.0f, -5160.0f}, // Jongno / Cheonggyecheon
+        {  800.0f, -1200.0f}, // Itaewon hillside
+        { -700.0f, -5340.0f}, // Gwanghwamun Square
+        { 1040.0f,  1560.0f}, // Banpo Bridge South
+        { 2325.0f, -2778.0f}  // Hillside road check
+    }};
+    int bldgAsph = 0, bldgFloat = 0, treeFloat = 0, propOverlap = 0;
+    for (const oc::Vec2& sp : spots) {
+        city.updateStreaming(sp, true);
+        for (const auto& b : city.buildings()) {
+            const oc::Vec2 bc = b.footprint.center();
+            if ((bc - sp).lengthSq() > 400.0f * 400.0f) continue;
+            float oy = 0.0f;
+            bool isSw = false;
+            if (ocrm.sampleSurfaceHeightAt(bc, b.baseY, oy, &isSw) && !isSw && std::abs(b.baseY - oy) < 4.0f) {
+                ++bldgAsph;
+            }
+            const float ty = city.terrainElevationAt(bc);
+            if (b.baseY - ty > 2.5f) ++bldgFloat;
+        }
+        for (const auto& t : city.trees()) {
+            if ((t.pos - sp).lengthSq() > 360.0f * 360.0f) continue;
+            const float sy = city.surfaceHeightAt(t.pos, t.baseY);
+            if (std::abs(t.baseY - sy) > 0.55f) ++treeFloat;
+        }
+        const auto& props = city.streetProps();
+        for (std::size_t i = 0; i < props.size(); ++i) {
+            const auto& p = props[i];
+            if ((p.pos - sp).lengthSq() > 360.0f * 360.0f) continue;
+            if (p.kind == oc::StreetPropKind::Bollard || p.kind == oc::StreetPropKind::PedGuardrail) continue;
+            for (std::size_t j = i + 1; j < props.size(); ++j) {
+                const auto& q = props[j];
+                if (q.kind == oc::StreetPropKind::Bollard || q.kind == oc::StreetPropKind::PedGuardrail) continue;
+                if (std::abs(p.baseY - q.baseY) > 1.5f) continue;
+                if ((p.pos - q.pos).lengthSq() < 0.9f * 0.9f) {
+                    ++propOverlap;
+                    break;
+                }
+            }
+        }
+    }
+    ASSERT_TRUE(bldgAsph == 0);
+    ASSERT_TRUE(bldgFloat == 0);
+    ASSERT_TRUE(treeFloat == 0);
+    ASSERT_TRUE(propOverlap == 0);
+
+    ++gTestsPassed;
+}
+
 
 } // namespace
 
@@ -4819,8 +4905,9 @@ int main() {
     testV640SeoulSidewalkPaversTactileAndStreetFurnitureFidelity();
     testV650WholeSeoulOverpassesTpiersAndOcrmPropClearance();
     testV660PoliceTrafficOcrmZeroFloatingPropsAndNoWaterNpcs();
+    testV670HillsideDtmCarveZeroAsphaltBldgsAbutmentsAndZeroTreeFloat();
 
-    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.6.0 simulation test suites succeeded!\n";
+    std::cout << "[PASS] All " << gTestsPassed << " Open City Seoul v6.7.0 simulation test suites succeeded!\n";
     return 0;
 }
 

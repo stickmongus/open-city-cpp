@@ -1823,6 +1823,223 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                 }
             }
         }
+
+        // 5. Real Seoul Iconic Han River Bridge Superstructures (GPS-calibrated 1:1 to real OSM/OCRM bridge decks!)
+        //    - Banpo Bridge (반포대교): lower Jamsugyo double-deck + piers + Moonlight Rainbow Fountain (달빛무지개분수)
+        //    - Dongjak Bridge (동작대교): iconic blue-steel twin crescent arches & vertical suspender cables
+        //    - Seongsu Bridge (성수대교): iconic mint-teal steel Gerber cantilever truss
+        //    - Olympic Bridge (올림픽대교): iconic 88m 4-leg slanted cable-stayed pylon + golden Olympic Torch + 24 stay cables
+        {
+            MeshBuilder3D concMb, steelMb, fountMb;
+            const ColorRGBA kConcrete{164, 168, 174, 255};
+            const ColorRGBA kPierDark{130, 135, 142, 255};
+            const ColorRGBA kSteelSilver{196, 204, 214, 255};
+
+            auto buildFrame = [](float angDeg) -> std::pair<Vec2, Vec2> {
+                const float rad = angDeg * (kPi / 180.0f);
+                const Vec2 fwd{std::sin(rad), std::cos(rad)}; // Along bridge N->S
+                const Vec2 rgt{fwd.z, -fwd.x};                // Lateral E-W across bridge
+                return {fwd, rgt};
+            };
+
+            // (A) Banpo Bridge (반포대교) + Lower Jamsugyo (잠수교) + Moonlight Rainbow Fountain!
+            //     Exact OCM6 Han River water-crossing center: (968.7, 874.4), ang=+21.20 deg, deckY=20.6m, trueHalfW=12.5m
+            {
+                const Vec2 c{968.7f, 874.4f};
+                const auto [fwd, rgt] = buildFrame(21.20f);
+                const Vec3 axX{rgt.x, 0.0f, rgt.z}, axY{0.0f, 1.0f, 0.0f}, axZ{fwd.x, 0.0f, fwd.z};
+                const float deckY = 20.60f;
+                const float halfW = 13.6f; // Cleanly outboard of 12.46m twin-carriageway parapets
+                const float spanHalf = 310.0f;
+
+                // Lower Jamsugyo submerged-style deck at y=5.1m + twin concrete river piers anchored to riverbed
+                concMb.addOrientedBox({c.x, 5.1f, c.z}, {halfW * 0.90f, 0.65f, spanHalf}, axX, axY, axZ, kConcrete);
+                for (int p = -5; p <= 5; ++p) {
+                    const float along = static_cast<float>(p) * 56.0f;
+                    const Vec2 pp = c + fwd * along;
+                    for (float side : {-1.0f, 1.0f}) {
+                        const Vec2 leg = pp + rgt * (side * (halfW * 0.62f));
+                        concMb.addOrientedBox({leg.x, 7.8f, leg.z}, {1.35f, 11.4f, 2.25f}, axX, axY, axZ, kPierDark);
+                    }
+                    concMb.addOrientedBox({pp.x, 18.6f, pp.z}, {halfW * 0.98f, 0.85f, 1.95f}, axX, axY, axZ, kConcrete);
+                }
+
+                // Iconic Banpo Moonlight Rainbow Fountain translucent luminous water arcs spraying cleanly OUTBOARD!
+                const int jets = 36;
+                const ColorRGBA rainbow[6] = {
+                    {84, 210, 255, 145}, {122, 162, 255, 145}, {198, 118, 255, 145},
+                    {255, 116, 178, 145}, {255, 198, 92, 145}, {92, 242, 196, 145}
+                };
+                for (int j = 0; j < jets; ++j) {
+                    const float a0 = lerpf(-260.0f, 260.0f, static_cast<float>(j) / static_cast<float>(jets));
+                    const float a1 = lerpf(-260.0f, 260.0f, static_cast<float>(j + 1) / static_cast<float>(jets));
+                    const Vec2 p0 = c + fwd * a0;
+                    const Vec2 p1 = c + fwd * a1;
+                    const ColorRGBA rc = rainbow[j % 6];
+                    for (float s : {-1.0f, 1.0f}) {
+                        const Vec2 r0 = rgt * (s * (halfW + 0.35f));
+                        const Vec2 r1 = rgt * (s * (halfW + 4.8f));
+                        const Vec2 rM = rgt * (s * (halfW + 12.6f));
+                        const Vec2 rD = rgt * (s * (halfW + 20.8f));
+                        fountMb.addQuad({p0.x + r0.x, deckY + 0.15f, p0.z + r0.z},
+                                        {p1.x + r0.x, deckY + 0.15f, p1.z + r0.z},
+                                        {p1.x + r1.x, deckY + 1.55f, p1.z + r1.z},
+                                        {p0.x + r1.x, deckY + 1.55f, p0.z + r1.z}, rc);
+                        fountMb.addQuad({p0.x + r1.x, deckY + 1.55f, p0.z + r1.z},
+                                        {p1.x + r1.x, deckY + 1.55f, p1.z + r1.z},
+                                        {p1.x + rM.x, deckY * 0.60f, p1.z + rM.z},
+                                        {p0.x + rM.x, deckY * 0.60f, p0.z + rM.z}, rc);
+                        fountMb.addQuad({p0.x + rM.x, deckY * 0.60f, p0.z + rM.z},
+                                        {p1.x + rM.x, deckY * 0.60f, p1.z + rM.z},
+                                        {p1.x + rD.x, 0.05f, p1.z + rD.z},
+                                        {p0.x + rD.x, 0.05f, p0.z + rD.z}, rc);
+                    }
+                }
+            }
+
+            // (B) Dongjak Bridge (동작대교): Twin Iconic Blue-Steel Parabolic Arches spanning Han River!
+            //     Exact OCM6 Han River water-crossing center: (-283.1, 1450.5), ang=-12.05 deg, deckY=20.6m
+            {
+                const Vec2 c{-283.1f, 1450.5f};
+                const auto [fwd, rgt] = buildFrame(-12.05f);
+                const ColorRGBA kDongjakBlue{64, 128, 192, 255};
+                const float deckY = 20.6f;
+                const float halfW = 19.8f; // Straddles both parallel Dongjak Bridge decks cleanly (zero lane intrusion!)
+                for (float archCenter : {-95.0f, 95.0f}) {
+                    const int segs = 14;
+                    const float aHalf = 82.0f;
+                    const float peakH = 26.0f;
+                    for (float side : {-1.0f, 1.0f}) {
+                        // Concrete abutment pier seats supporting both arch springings down into river
+                        for (float endS : {-1.0f, 1.0f}) {
+                            const Vec2 foot = c + fwd * (archCenter + endS * aHalf) + rgt * (side * halfW);
+                            concMb.addBox({foot.x, deckY * 0.5f, foot.z}, {2.4f, deckY + 1.2f, 3.2f}, kPierDark);
+                        }
+                        for (int k = 0; k < segs; ++k) {
+                            const float u0 = static_cast<float>(k) / static_cast<float>(segs);
+                            const float u1 = static_cast<float>(k + 1) / static_cast<float>(segs);
+                            const Vec2 q0 = c + fwd * (archCenter + lerpf(-aHalf, aHalf, u0)) + rgt * (side * halfW);
+                            const Vec2 q1 = c + fwd * (archCenter + lerpf(-aHalf, aHalf, u1)) + rgt * (side * halfW);
+                            const float y0 = deckY + std::sin(u0 * kPi) * peakH;
+                            const float y1 = deckY + std::sin(u1 * kPi) * peakH;
+                            const Vec3 p0{q0.x, y0, q0.z}, p1{q1.x, y1, q1.z};
+                            const Vec3 dir = (p1 - p0).normalized();
+                            const Vec3 up = Vec3{rgt.x, 0.0f, rgt.z}.cross(dir).normalized();
+                            steelMb.addOrientedBox((p0 + p1) * 0.5f, {0.72f, 1.05f, (p1 - p0).length() * 0.52f},
+                                                   {rgt.x, 0.0f, rgt.z}, up, dir, kDongjakBlue);
+                            if (k > 0 && k < segs && (k % 2 == 0)) {
+                                steelMb.addBox({q0.x, 0.5f * (deckY + y0), q0.z}, {0.24f, y0 - deckY, 0.24f}, kSteelSilver);
+                            }
+                        }
+                    }
+                    // Overhead lateral portal braces tying the twin arches together
+                    for (float uBr : {0.35f, 0.50f, 0.65f}) {
+                        const Vec2 qb = c + fwd * (archCenter + lerpf(-aHalf, aHalf, uBr));
+                        const float yb = deckY + std::sin(uBr * kPi) * peakH;
+                        steelMb.addOrientedBox({qb.x, yb, qb.z}, {halfW, 0.45f, 0.45f},
+                                               {rgt.x, 0.0f, rgt.z}, {0.0f, 1.0f, 0.0f}, {fwd.x, 0.0f, fwd.z}, kDongjakBlue);
+                    }
+                }
+            }
+
+            // (C) Seongsu Bridge (성수대교): Iconic Mint-Teal Steel Gerber Cantilever Truss!
+            //     Exact OCM6 Han River water-crossing center: (4415.7, -1489.3), ang=-7.86 deg, deckY=21.0m
+            {
+                const Vec2 c{4415.7f, -1489.3f};
+                const auto [fwd, rgt] = buildFrame(-7.86f);
+                const ColorRGBA kSeongsuTeal{74, 154, 146, 255};
+                const float deckY = 21.0f;
+                const float halfW = 13.4f; // Seated cleanly flush with Seongsu Bridge outer concrete parapets
+                const int bays = 16;
+                const float totalSpan = 340.0f;
+                for (float side : {-1.0f, 1.0f}) {
+                    for (int k = 0; k < bays; ++k) {
+                        const float u0 = static_cast<float>(k) / static_cast<float>(bays);
+                        const float u1 = static_cast<float>(k + 1) / static_cast<float>(bays);
+                        const float s0 = lerpf(-totalSpan * 0.5f, totalSpan * 0.5f, u0);
+                        const float s1 = lerpf(-totalSpan * 0.5f, totalSpan * 0.5f, u1);
+                        // Characteristic Gerber undulating upper chord silhouette (peaks over main river piers)
+                        const float h0 = 9.5f + 7.5f * std::pow(std::abs(std::sin(u0 * kPi * 2.0f)), 1.4f);
+                        const float h1 = 9.5f + 7.5f * std::pow(std::abs(std::sin(u1 * kPi * 2.0f)), 1.4f);
+                        const Vec2 q0 = c + fwd * s0 + rgt * (side * halfW);
+                        const Vec2 q1 = c + fwd * s1 + rgt * (side * halfW);
+                        const Vec3 t0{q0.x, deckY + h0, q0.z}, t1{q1.x, deckY + h1, q1.z};
+                        const Vec3 b0{q0.x, deckY - 0.1f, q0.z}, b1{q1.x, deckY - 0.1f, q1.z};
+                        auto addStrut = [&](const Vec3& a, const Vec3& b, float rad) {
+                            const Vec3 d = b - a;
+                            const float len = d.length();
+                            if (len < 0.1f) return;
+                            const Vec3 dir = d / len;
+                            Vec3 ref = (std::abs(dir.y) < 0.9f) ? Vec3{0.0f, 1.0f, 0.0f} : Vec3{1.0f, 0.0f, 0.0f};
+                            const Vec3 ax1 = ref.cross(dir).normalized();
+                            const Vec3 ax2 = dir.cross(ax1).normalized();
+                            steelMb.addOrientedBox((a + b) * 0.5f, {rad, rad, len * 0.52f}, ax1, ax2, dir, kSeongsuTeal);
+                        };
+                        addStrut(t0, t1, 0.48f); // Upper truss chord
+                        addStrut(b0, b1, 0.42f); // Continuous lower steel truss chord flush along parapet
+                        addStrut(b0, t0, 0.36f); // Vertical post
+                        addStrut((k & 1) ? b0 : t0, (k & 1) ? t1 : b1, 0.32f); // Diagonal Warren brace
+                    }
+                }
+                for (int k = 2; k < bays; k += 2) {
+                    const float u = static_cast<float>(k) / static_cast<float>(bays);
+                    const float h = 9.5f + 7.5f * std::pow(std::abs(std::sin(u * kPi * 2.0f)), 1.4f);
+                    const Vec2 qm = c + fwd * lerpf(-totalSpan * 0.5f, totalSpan * 0.5f, u);
+                    steelMb.addOrientedBox({qm.x, deckY + h, qm.z}, {halfW, 0.42f, 0.42f},
+                                           {rgt.x, 0.0f, rgt.z}, {0.0f, 1.0f, 0.0f}, {fwd.x, 0.0f, fwd.z}, kSeongsuTeal);
+                }
+            }
+
+            // (D) Olympic Bridge (올림픽대교): Iconic 88m 4-Legged Slanted Cable-Stayed Pylon + Golden Olympic Torch!
+            //     Exact OCM6 Han River water-crossing center: (11170.0, -2177.0), ang=+70.40 deg, deckY=13.3m
+            {
+                const Vec2 c{11170.0f, -2177.0f};
+                const auto [fwd, rgt] = buildFrame(70.40f);
+                const float deckY = 13.3f;
+                const float pylonH = 76.0f;
+                const float cableSideOff = 12.6f; // Strictly outboard of twin carriageways (zero lane intrusion!)
+                const ColorRGBA kPylonConcrete{198, 202, 208, 255};
+                const ColorRGBA kTorchGold{238, 194, 68, 255};
+                // 4 iconic slanted legs straddling the twin carriageways & converging toward the Olympic Torch crown
+                for (float sx : {-1.0f, 1.0f}) {
+                    for (float sz : {-1.0f, 1.0f}) {
+                        const Vec2 bot2 = c + rgt * (sx * 14.5f) + fwd * (sz * 6.8f);
+                        const Vec2 top2 = c + rgt * (sx * 2.1f) + fwd * (sz * 1.6f);
+                        const Vec3 a{bot2.x, deckY - 12.0f, bot2.z};
+                        const Vec3 b{top2.x, deckY + pylonH, top2.z};
+                        const Vec3 dir = (b - a).normalized();
+                        const Vec3 ax1 = Vec3{rgt.x, 0.0f, rgt.z}.cross(dir).normalized();
+                        const Vec3 ax2 = dir.cross(ax1).normalized();
+                        concMb.addOrientedBox((a + b) * 0.5f, {1.45f, 1.45f, (b - a).length() * 0.5f}, ax1, ax2, dir, kPylonConcrete);
+                    }
+                }
+                // Iconic sculptural Olympic Torch flame crown atop the 88m pylon
+                steelMb.addCylinderY({c.x, deckY + pylonH - 1.5f, c.z}, 2.4f, 4.4f, 12.0f, 10, kTorchGold);
+                // 24 sleek twin-plane fanned stay cables anchored cleanly to outer bridge parapets (zero roadway clipping!)
+                for (int k = 1; k <= 12; ++k) {
+                    const float frac = static_cast<float>(k) / 12.0f;
+                    const float cableDist = 26.0f + frac * 170.0f;
+                    const float topY = deckY + pylonH * (0.48f + 0.46f * frac);
+                    for (float dirS : {-1.0f, 1.0f}) {
+                        for (float latS : {-1.0f, 1.0f}) {
+                            const Vec2 topAnchor = c + rgt * (latS * 1.6f);
+                            const Vec2 anchor = c + fwd * (dirS * cableDist) + rgt * (latS * cableSideOff);
+                            const Vec3 a{topAnchor.x, topY, topAnchor.z};
+                            const Vec3 b{anchor.x, deckY + 0.4f, anchor.z};
+                            const Vec3 d = b - a;
+                            const Vec3 dir = d.normalized();
+                            const Vec3 ax1 = Vec3{rgt.x, 0.0f, rgt.z};
+                            const Vec3 ax2 = dir.cross(ax1).normalized();
+                            steelMb.addOrientedBox((a + b) * 0.5f, {0.09f, 0.09f, d.length() * 0.5f}, ax1, ax2, dir, kSteelSilver);
+                        }
+                    }
+                }
+            }
+
+            bridgeConcreteMesh_ = concMb.upload(vk, 24.0f);
+            bridgeSteelMesh_    = steelMb.upload(vk, 24.0f);
+            banpoFountainMesh_  = fountMb.upload(vk, 48.0f);
+        }
     } else {
     // ------------------------------------------------------------------------
     // 1. REAL S-CURVE HAN RIVER WATER + SEOKCHON LAKE + 4 SEOUL TRIBUTARIES!
@@ -2369,6 +2586,44 @@ void Renderer3D::buildSeoulMacroMeshes(VulkanContext& vk, const CityMap& city) {
                     const ColorRGBA kYiBronze{72, 68, 58, 255};
                     metalMb.addCylinderY({yiX, yiY + 8.1f, yiZ}, 0.85f, 0.72f, 3.6f, 10, kYiBronze);
                     metalMb.addSphere({yiX, yiY + 12.1f, yiZ}, 0.48f, 7, 10, kYiBronze);
+                    // Renovated Gwanghwamun Square Landscaping (광화문광장 역사물길 · 화강석 화단 · 광장 볼라드)
+                    if (city.hasRealSeoulMap()) {
+                        const ColorRGBA kPlazaGranite{168, 166, 160, 255};
+                        const ColorRGBA kPlazaCurb{142, 140, 134, 255};
+                        const ColorRGBA kWaterChannel{48, 114, 152, 255};
+                        const ColorRGBA kPlanterSoil{68, 58, 46, 255};
+                        const ColorRGBA kShrubGreen{56, 102, 52, 255};
+                        // 1) Sejong-daero Historical Waterway (역사물길 — stepped reflective water trough along east plaza edge)
+                        const float wwX = -714.5f;
+                        for (int wi = 0; wi < 12; ++wi) {
+                            const float wz = -5530.0f + static_cast<float>(wi) * 20.0f;
+                            const float wy = city.terrainElevationAt({wwX, wz});
+                            stoneMb.addBox({wwX, wy + 0.08f, wz}, {1.65f, 0.16f, 19.6f}, kPlazaCurb);
+                            glassMb.addBox({wwX, wy + 0.14f, wz}, {1.05f, 0.06f, 19.2f}, kWaterChannel);
+                        }
+                        // 2) Granite-bordered plaza tree/shrub planters framing King Sejong & Admiral Yi Sun-sin
+                        const float planterZs[] = {-5522.0f, -5454.0f, -5412.0f, -5368.0f, -5286.0f};
+                        for (float pz : planterZs) {
+                            for (float side : {-1.0f, 1.0f}) {
+                                const float px = sjX + side * 8.4f;
+                                const float py = city.terrainElevationAt({px, pz});
+                                stoneMb.addBox({px, py + 0.24f, pz}, {3.2f, 0.48f, 11.5f}, kPlazaGranite);
+                                stoneMb.addBox({px, py + 0.46f, pz}, {2.6f, 0.08f, 10.9f}, kPlanterSoil);
+                                // Low trimmed Korean boxwood/pine landscaping shrubs inside granite coping
+                                for (float szOff : {-3.6f, 0.0f, 3.6f}) {
+                                    stoneMb.addBox({px, py + 0.72f, pz + szOff}, {1.6f, 0.48f, 2.2f}, kShrubGreen);
+                                }
+                            }
+                        }
+                        // 3) Ceremonial Pocheon granite plaza bollards separating pedestrian square from Sejong-daero carriageway
+                        for (int bi = 0; bi < 18; ++bi) {
+                            const float bz = -5545.0f + static_cast<float>(bi) * 15.0f;
+                            const float bx = -711.8f;
+                            const float by = city.terrainElevationAt({bx, bz});
+                            stoneMb.addCylinderY({bx, by, bz}, 0.16f, 0.14f, 0.78f, 8, kPlazaCurb);
+                            metalMb.addCylinderY({bx, by + 0.64f, bz}, 0.148f, 0.148f, 0.06f, 8, {208, 212, 218, 255});
+                        }
+                    }
                     break;
                 }
 
@@ -3105,9 +3360,9 @@ void Renderer3D::buildRealSeoulChunkMesh(VulkanContext& vk, const CityMap& city,
                 if (nd.minDistRoad <= 20.0f) {
                     const float smoothRdY = (nd.roadSumW > 1e-6f) ? (nd.roadSumWY / nd.roadSumW) : nd.nearRoadAvgY;
                     const float rMin = (nd.nearRoadMinY < 1e8f) ? nd.nearRoadMinY : smoothRdY;
-                    const float hillBlend = clampf((std::abs(nd.rawH - smoothRdY) - 0.8f) / 2.2f, 0.0f, 1.0f);
-                    const float flatShelfM = lerpf(9.5f, 2.2f, hillBlend);
-                    const float transSpanM = lerpf(10.5f, 15.0f, hillBlend);
+                    const float hillBlend = clampf((std::abs(nd.rawH - smoothRdY) - 0.55f) / 1.6f, 0.0f, 1.0f);
+                    const float flatShelfM = lerpf(9.0f, 1.35f, hillBlend);
+                    const float transSpanM = lerpf(10.5f, 14.0f, hillBlend);
                     if (nd.minDistRoad <= 0.75f) {
                         nd.pos.y = std::min(nd.pos.y, rMin - 0.54f);
                         nd.insideRoad = true;
@@ -5056,6 +5311,11 @@ void Renderer3D::drawSeoulTerrainAndRoads(VulkanContext& vk, const GameWorld& wo
         }
         // 5. High-Detail 5x5 Active OpenStreetMap 3D Chunks (Curved Roads, Sidewalks, Bridge Piers & Real Extruded Buildings!)
         updateAndDrawRealSeoulChunks(vk, city, focus, shadowPass);
+        // 6. Iconic Real Seoul Han River Bridge Superstructures (Banpo Jamsugyo, Dongjak Arches, Seongsu Truss, Olympic Pylon!)
+        drawMesh(vk, bridgeConcreteMesh_, Mat4::identity(), {255, 255, 255, 255},
+                 0.78f, 0.05f, 0.0f, MatId::ModernConcrete, shadowPass);
+        drawMesh(vk, bridgeSteelMesh_, Mat4::identity(), {255, 255, 255, 255},
+                 0.34f, 0.72f, 0.0f, MatId::Standard, shadowPass);
         return;
     }
 
@@ -6640,20 +6900,57 @@ void Renderer3D::drawCharacter(VulkanContext& vk, const Vec2& pos, float groundY
     drawMesh(vk, torsoMesh_, upperRoot * Mat4::translation(0.0f, 0.84f, 0.0f) * Mat4::scale(0.305f, 0.635f, 0.445f),
              top, 0.74f, 0.04f, 0.0f, MatId::FabricCloth, shadowPass);
     if (!shadowPass) {
-        drawMesh(vk, sphereMesh_, upperRoot * Mat4::translation(0.09f, 1.38f, 0.0f) * Mat4::scale(0.11f, 0.14f, 0.14f),
+        // Inner shirt/crewneck collar + tailored Korean jacket stand-collar & center front placket/zipper trim
+        drawMesh(vk, sphereMesh_, upperRoot * Mat4::translation(0.088f, 1.38f, 0.0f) * Mat4::scale(0.105f, 0.135f, 0.138f),
                  {228, 232, 238, 255}, 0.72f, 0.02f, 0.0f, MatId::FabricCloth, false);
+        const ColorRGBA collarCol{
+            static_cast<std::uint8_t>(std::max(14, static_cast<int>(top.r) - 20)),
+            static_cast<std::uint8_t>(std::max(14, static_cast<int>(top.g) - 20)),
+            static_cast<std::uint8_t>(std::max(14, static_cast<int>(top.b) - 20)), 255};
+        // Stand-up jacket collar wrapping neck back/sides + subtle horizontal shoulder yoke seam (crisp 3rd-person back silhouette!)
+        drawMesh(vk, cylMesh_, upperRoot * Mat4::translation(-0.012f, 1.405f, 0.0f) * Mat4::scale(0.156f, 0.058f, 0.172f),
+                 collarCol, 0.70f, 0.05f, 0.0f, MatId::FabricCloth, false);
+        drawMesh(vk, cubeMesh_, upperRoot * Mat4::translation(-0.118f, 1.31f, 0.0f) * Mat4::scale(0.028f, 0.022f, 0.36f),
+                 collarCol, 0.68f, 0.06f, 0.0f, MatId::FabricCloth, false);
+        // Front center metallic zipper / lapel placket strip
+        drawMesh(vk, cubeMesh_, upperRoot * Mat4::translation(0.146f, 1.12f, 0.0f) * Mat4::scale(0.016f, 0.44f, 0.024f),
+                 isPolice ? ColorRGBA{210, 186, 84, 255} : ColorRGBA{148, 152, 160, 255},
+                 0.38f, 0.62f, 0.0f, MatId::Standard, false);
     }
     if (isSwat || outfit == OutfitId::TacOpsArmor) {
         drawMesh(vk, torsoMesh_, upperRoot * Mat4::translation(0.0f, 0.96f, 0.0f) * Mat4::scale(0.34f, 0.46f, 0.47f),
                  {30, 34, 42, 255}, 0.56f, 0.18f, 0.0f, MatId::Standard, shadowPass);
     }
-    // Optional player tactical backpack / duffle gear
+    // Optional player tactical backpack / duffle gear OR civilian Seoul commuter backpack / shoulder tote bag
     if (!shadowPass && customChar && customChar->backGearStyle > 0) {
         const ColorRGBA bgCol = (customChar->backGearStyle == 1) ? ColorRGBA{46, 52, 46, 255}
                               : ((customChar->backGearStyle == 2) ? ColorRGBA{32, 34, 40, 255}
                                                                   : ColorRGBA{48, 178, 224, 255});
         drawMesh(vk, cubeMesh_, upperRoot * Mat4::translation(-0.185f, 1.18f, 0.0f) * Mat4::scale(0.15f, 0.34f, 0.28f),
                  bgCol, 0.65f, 0.12f, (customChar->backGearStyle == 3) ? 0.5f : 0.0f, MatId::FabricCloth, false);
+    } else if (!shadowPass && npcPtr && !isPolice && !isSwat) {
+        const std::uint32_t bagRoll = (npcPtr->id * 2654435761u) >> 24;
+        if (bagRoll < 58u) {
+            // Urban Korean commuter daypack (charcoal nylon / navy canvas / khaki olive)
+            static constexpr ColorRGBA kPackCols[3] = {
+                {36, 38, 44, 255}, {34, 48, 72, 255}, {74, 72, 58, 255}
+            };
+            const ColorRGBA packCol = kPackCols[bagRoll % 3u];
+            drawMesh(vk, cubeMesh_, upperRoot * Mat4::translation(-0.175f, 1.17f, 0.0f) * Mat4::scale(0.125f, 0.34f, 0.255f),
+                     packCol, 0.72f, 0.06f, 0.0f, MatId::FabricCloth, false);
+            drawMesh(vk, cubeMesh_, upperRoot * Mat4::translation(-0.232f, 1.09f, 0.0f) * Mat4::scale(0.036f, 0.15f, 0.21f),
+                     {static_cast<std::uint8_t>(packCol.r + 12), static_cast<std::uint8_t>(packCol.g + 12),
+                      static_cast<std::uint8_t>(packCol.b + 12), 255}, 0.70f, 0.08f, 0.0f, MatId::FabricCloth, false);
+        } else if (bagRoll < 96u) {
+            // Side commuter canvas tote / leather shoulder bag on right hip
+            static constexpr ColorRGBA kToteCols[3] = {
+                {214, 206, 190, 255}, {126, 86, 56, 255}, {42, 46, 54, 255}
+            };
+            const ColorRGBA toteCol = kToteCols[bagRoll % 3u];
+            const float bagSide = (bagRoll & 1u) ? 1.0f : -1.0f;
+            drawMesh(vk, cubeMesh_, upperRoot * Mat4::translation(-0.02f, 0.96f, bagSide * 0.255f) * Mat4::scale(0.24f, 0.28f, 0.085f),
+                     toteCol, 0.68f, 0.08f, 0.0f, MatId::FabricCloth, false);
+        }
     }
 
     // 3. Neck, Sculpted Head, Layered Hair, Ears & Refined Facial Details (zero cartoon egg-head look!)
@@ -6676,22 +6973,51 @@ void Renderer3D::drawCharacter(VulkanContext& vk, const Vec2& pos, float groundY
                      skin, 0.62f, 0.0f, 0.0f, MatId::SkinOrganic, false);
         }
 
+        static constexpr ColorRGBA kSeoulHairPalette[4] = {
+            {22, 20, 20, 255}, // Jet black
+            {38, 28, 24, 255}, // Dark espresso
+            {62, 42, 30, 255}, // Warm chestnut brown
+            {48, 42, 38, 255}, // Dark ash brown
+        };
+        const std::uint32_t npcStyleHash = npcPtr ? ((npcPtr->id * 2246822519u) >> 20) : 0u;
         const ColorRGBA hairCol = customChar
             ? getPlayerHairColor(outfit, customChar->hairColorIdx)
-            : (isPolice ? ColorRGBA{24, 42, 86, 255} : ColorRGBA{26, 22, 20, 255});
+            : (isPolice ? ColorRGBA{24, 42, 86, 255} : kSeoulHairPalette[npcStyleHash % 4u]);
         if (isPolice || isSwat) {
             drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.01f, 0.058f, 0.0f) * Mat4::scale(0.232f, 0.155f, 0.214f),
                      isSwat ? ColorRGBA{28, 32, 38, 255} : ColorRGBA{22, 42, 92, 255}, 0.45f, 0.15f, 0.0f, MatId::Standard, false);
             drawMesh(vk, cubeMesh_, headM * Mat4::translation(0.098f, 0.032f, 0.0f) * Mat4::scale(0.105f, 0.020f, 0.152f),
                      {20, 22, 26, 255}, 0.35f, 0.15f, 0.0f, MatId::Standard, false);
         } else {
-            // Layered natural modern Korean hairstyle (crown volume + tapered nape + subtle fringe)
+            const std::uint32_t hairStyle = npcPtr ? ((npcStyleHash >> 3) % 5u) : 0u;
+            // Base crown volume + subtle fringe shared across modern Korean styles
             drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.014f, 0.058f, 0.0f) * Mat4::scale(0.222f, 0.172f, 0.208f),
                      hairCol, 0.76f, 0.03f, 0.0f, MatId::Standard, false);
             drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.054f, -0.005f, 0.0f) * Mat4::scale(0.165f, 0.168f, 0.186f),
                      hairCol, 0.76f, 0.03f, 0.0f, MatId::Standard, false);
             drawMesh(vk, sphereMesh_, headM * Mat4::translation(0.048f, 0.068f, 0.012f) * Mat4::scale(0.135f, 0.088f, 0.175f),
                      hairCol, 0.76f, 0.03f, 0.0f, MatId::Standard, false);
+            if (hairStyle == 1u) {
+                // Shoulder-length layered Korean bob
+                drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.048f, -0.085f, 0.0f) * Mat4::scale(0.165f, 0.195f, 0.214f),
+                         hairCol, 0.74f, 0.04f, 0.0f, MatId::Standard, false);
+            } else if (hairStyle == 2u) {
+                // Low ponytail / hair bun
+                drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.132f, -0.015f, 0.0f) * Mat4::scale(0.088f, 0.095f, 0.088f),
+                         hairCol, 0.74f, 0.04f, 0.0f, MatId::Standard, false);
+                drawMesh(vk, capsuleLimbMesh_, headM * Mat4::translation(-0.145f, -0.045f, 0.0f) * Mat4::rotationAxis({0, 0, 1}, -0.25f) * Mat4::scale(0.062f, 0.14f, 0.062f),
+                         hairCol, 0.74f, 0.04f, 0.0f, MatId::Standard, false);
+            } else if (hairStyle == 3u) {
+                // Urban knit beanie (charcoal / burgundy / olive)
+                static constexpr ColorRGBA kBeanieCols[3] = {
+                    {42, 46, 52, 255}, {108, 36, 44, 255}, {58, 72, 54, 255}
+                };
+                const ColorRGBA bCol = kBeanieCols[npcStyleHash % 3u];
+                drawMesh(vk, sphereMesh_, headM * Mat4::translation(-0.012f, 0.078f, 0.0f) * Mat4::scale(0.228f, 0.162f, 0.216f),
+                         bCol, 0.86f, 0.02f, 0.0f, MatId::FabricCloth, false);
+                drawMesh(vk, cylMesh_, headM * Mat4::translation(-0.008f, 0.042f, 0.0f) * Mat4::scale(0.232f, 0.036f, 0.218f),
+                         bCol, 0.88f, 0.02f, 0.0f, MatId::FabricCloth, false);
+            }
         }
         if ((customChar && customChar->glassesStyle > 0) || (npcPtr && npcPtr->glassesStyle > 0)) {
             for (float es : {-1.0f, 1.0f}) {
